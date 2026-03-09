@@ -132,9 +132,9 @@ router.post('/generate-audio', auth, async (req, res) => {
     const audioUrl = `/media/audio/${filename}`;
     db.prepare(`
       UPDATE articles
-      SET audio_url = ?, audio_status = 'ready', updated_at = datetime('now')
+      SET audio_url = ?, audio_status = 'ready', audio_transcript = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).run(audioUrl, articleId);
+    `).run(audioUrl, text, articleId);
 
     res.json({ audioUrl, charCount: text.length, ttsText: text });
   } catch (err) {

@@ -74,6 +74,7 @@ async function initDb() {
     "ALTER TABLE articles ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))",
     "ALTER TABLE articles ADD COLUMN audio_url TEXT",
     "ALTER TABLE articles ADD COLUMN audio_status TEXT",
+    "ALTER TABLE articles ADD COLUMN audio_transcript TEXT",
     "ALTER TABLE articles ADD COLUMN media_enabled INTEGER DEFAULT 0",
   ];
   for (const m of migrations) {

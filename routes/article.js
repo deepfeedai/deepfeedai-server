@@ -39,9 +39,10 @@ router.get('/', (req, res) => {
     image:         match.image_url,
     publishedAt:   match.published_at,
     is_featured:   match.is_featured,
-    audio_url:     match.audio_url    || null,
-    audio_status:  match.audio_status || null,
-    media_enabled: match.media_enabled || 0,
+    audio_url:        match.audio_url        || null,
+    audio_status:     match.audio_status     || null,
+    audio_transcript: match.audio_transcript || null,
+    media_enabled:    match.media_enabled    || 0,
   });
 });
 
