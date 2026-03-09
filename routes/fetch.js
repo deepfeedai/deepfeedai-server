@@ -60,21 +60,25 @@ async function fetchAllSources(autoPublish = false) {
     }
   }
 
-  // Enrich articles missing images via OG scraping (3 concurrent, best-effort)
-  const noImage = await db.prepare(
-    'SELECT id, source_url FROM articles WHERE (image_url IS NULL OR image_url = \'\') AND (is_archived = 0 OR is_archived IS NULL) ORDER BY id DESC LIMIT 30'
-  ).all();
-
-  const CONCURRENCY = 3;
-  for (let i = 0; i < noImage.length; i += CONCURRENCY) {
-    const batch = noImage.slice(i, i + CONCURRENCY);
-    await Promise.all(batch.map(async (a) => {
-      try {
-        const img = await scrapeOgImage(a.source_url);
-        if (img) await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(img, a.id);
-      } catch { /* ignore per-article failures */ }
-    }));
-  }
+  // Enrich articles missing images via OG scraping — fire and forget
+  // (runs in background so the fetch response returns immediately)
+  setImmediate(async () => {
+    try {
+      const noImage = await db.prepare(
+        'SELECT id, source_url FROM articles WHERE (image_url IS NULL OR image_url = \'\') AND (is_archived = 0 OR is_archived IS NULL) ORDER BY id DESC LIMIT 30'
+      ).all();
+      const CONCURRENCY = 3;
+      for (let i = 0; i < noImage.length; i += CONCURRENCY) {
+        const batch = noImage.slice(i, i + CONCURRENCY);
+        await Promise.all(batch.map(async (a) => {
+          try {
+            const img = await scrapeOgImage(a.source_url);
+            if (img) await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(img, a.id);
+          } catch { /* ignore per-article failures */ }
+        }));
+      }
+    } catch { /* ignore enrichment errors */ }
+  });
 
   return { inserted, skipped, errors };
 }
