@@ -1,0 +1,87 @@
+/**
+ * Deep Feed AI — /api/fetch
+ * Fetches RSS from all active sources and inserts new articles into the DB.
+ */
+const express   = require('express');
+const router    = express.Router();
+const RSSParser = require('rss-parser');
+const jwt       = require('jsonwebtoken');
+const db        = require('../db');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
+const parser     = new RSSParser();
+
+function authMiddleware(req, res, next) {
+  const auth = req.headers.authorization || '';
+  const token = auth.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+function detectCategory(item) {
+  const text = [item.title || '', (item.categories || []).join(' '), item.contentSnippet || '', item.content || ''].join(' ').toLowerCase();
+  if (/\bimage\b|dall.?e|midjourney|stable.?diffusion|sora|imagen/.test(text))               return 'Image AI';
+  if (/\bresearch\b|paper|arxiv|study|benchmark|evaluation|dataset/.test(text))               return 'Research';
+  if (/\btool\b|plugin|extension|sdk|codex|copilot|cursor|vscode|github/.test(text))         return 'Tools';
+  if (/\bgpt\b|llm|language model|claude|gemini|llama|mistral|falcon|phi\b|qwen/.test(text)) return 'LLMs';
+  return 'Industry';
+}
+
+/** Core fetch logic — called by both the API route and the cron job */
+async function fetchAllSources(autoPublish = false) {
+  const sources = db.prepare('SELECT * FROM sources WHERE is_active = 1').all();
+  let inserted = 0;
+  let skipped  = 0;
+  const errors = [];
+
+  for (const source of sources) {
+    try {
+      const feed = await parser.parseURL(source.url);
+      for (const item of feed.items) {
+        const url = item.link || item.guid;
+        if (!url || !item.title) continue;
+
+        // Deduplicate by source_url
+        const existing = db.prepare('SELECT id FROM articles WHERE source_url = ?').get(url);
+        if (existing) { skipped++; continue; }
+
+        const category  = detectCategory(item);
+        const image     = item.enclosure?.url || item['media:thumbnail']?.['$']?.url || null;
+        const summary   = (item.contentSnippet || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 500) || null;
+        const pubDate   = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
+        const author    = item.creator || item.author || null;
+
+        db.prepare(
+          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+        ).run(item.title, summary, category, source.name, url, image, author, autoPublish ? 1 : 0, pubDate);
+        inserted++;
+      }
+
+      // Update last_fetched
+      db.prepare('UPDATE sources SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), source.id);
+    } catch (err) {
+      errors.push({ source: source.name, error: err.message });
+    }
+  }
+
+  return { inserted, skipped, errors };
+}
+
+// POST /api/fetch — manual trigger from admin UI (requires auth)
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const autoPublish = req.body.autoPublish === true;
+    const result = await fetchAllSources(autoPublish);
+    res.json({ status: 'ok', ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = { router, fetchAllSources };

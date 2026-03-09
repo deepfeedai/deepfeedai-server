@@ -1,118 +1,117 @@
-# Deep Feed AI Admin Panel
+# Deep Feed AI — Admin Panel
 
-A full-featured admin panel for managing news articles and RSS sources for the Deep Feed AI news site.
+Backend CMS and API for [deepfeedai.com](https://deepfeedai.com). Manages articles, RSS sources, and serves the public news API consumed by the main site.
 
 ## Features
 
-✅ **Authentication** - JWT-based login with bcrypt password hashing  
-✅ **Article Management** - Create, read, update, delete articles with rich metadata  
-✅ **RSS Source Management** - Add, edit, and manage RSS feed sources  
-✅ **Dark Theme UI** - Mobile-responsive dashboard matching Deep Feed AI branding  
-✅ **Public API** - Unauthenticated API endpoint for the main site to fetch published news  
-✅ **Database** - SQLite with sql.js (no native compilation required)  
+- 🔐 **JWT Authentication** — bcrypt-hashed passwords, token-based sessions
+- 📰 **Article Management** — full CRUD with publish/draft, featured toggle, manual entry, and URL auto-fill
+- 📡 **RSS Source Management** — add sources, auto-fetch on demand or every 30 min via cron
+- 🔗 **URL Auto-fill** — paste any article URL to auto-populate title, image, summary, source, and author from Open Graph + JSON-LD
+- ✨ **AI Summaries** — Gemini 2.5 Flash Lite generates structured TLDRs served to `article.html`
+- 🌐 **Public News API** — `/api/news` powers the main site; featured articles sort to top
+- ⚡ **Cache invalidation** — `/api/news/updated-at` lets the main site bust its localStorage cache the moment content changes
+- 📱 **Mobile-friendly** — collapsible sidebar, responsive tables
 
-## Running the Server
+## Quick Start
 
 ```bash
-cd /home/claw_user/.openclaw/workspace/deepfeedai-admin
+cd deepfeedai-admin
 npm install
+cp .env.example .env   # fill in your values
 node server.js
 ```
 
-Server runs on **http://localhost:4000**
+Admin runs on **http://localhost:4000**
 
 ## Default Credentials
 
-- **Username:** `admin`
-- **Password:** `deepfeedai2026`
+| Field | Value |
+|---|---|
+| Username | `admin` |
+| Password | `deepfeedai2026` |
+
+> ⚠️ Change the password and JWT secret before deploying to production.
+
+## Environment Variables
+
+Create a `.env` file (never commit it):
+
+```env
+PORT=4000
+JWT_SECRET=your_strong_random_secret
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
+GEMINI_API_KEY=your_gemini_api_key
+```
 
 ## Project Structure
 
 ```
 deepfeedai-admin/
-├── server.js                 # Express app entry point
-├── db.js                     # SQLite database wrapper (sql.js)
-├── package.json              # Dependencies
-├── .env                      # Environment configuration
+├── server.js              # Express app + cron job
+├── db.js                  # SQLite (sql.js) wrapper + schema + seed
+├── package.json
+├── .env                   # ← never committed
 ├── routes/
-│   ├── auth.js              # Login/logout endpoints
-│   ├── articles.js          # Article CRUD operations
-│   └── sources.js           # RSS source CRUD operations
+│   ├── auth.js            # POST /api/auth/login
+│   ├── articles.js        # CRUD /api/articles
+│   ├── sources.js         # CRUD /api/sources
+│   ├── fetch.js           # POST /api/fetch — RSS import
+│   ├── fetch-url.js       # GET  /api/fetch-url — URL scraper
+│   ├── article.js         # GET  /api/article — single by slug (public)
+│   └── summary.js         # GET  /api/summary — AI TLDR (public)
 └── public/
-    ├── login.html           # Login page
-    ├── index.html           # Dashboard home
-    ├── articles.html        # Article manager
-    ├── sources.html         # RSS source manager
-    ├── admin.css            # Dark theme styling
-    └── admin.js             # Frontend JS utilities
+    ├── login.html
+    ├── index.html         # Dashboard
+    ├── articles.html      # Article manager
+    ├── sources.html       # RSS source manager
+    ├── admin.css
+    └── admin.js
 ```
 
-## API Endpoints
+## API Reference
 
-### Authentication
-- `POST /api/auth/login` - Login with username/password
-- `POST /api/auth/logout` - Logout (client-side only)
+### Public (no auth)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/news` | Published articles — `?category=LLMs&limit=10&featured=1` |
+| GET | `/api/news/updated-at` | Latest DB change timestamp (cache busting) |
+| GET | `/api/article?slug=` | Single article by URL slug |
+| GET | `/api/summary?title=&description=` | AI TLDR via Gemini |
 
-### Articles (require JWT Bearer token)
-- `GET /api/articles` - List all articles (supports filters: `?published=1&category=LLMs`)
-- `GET /api/articles/:id` - Get single article
-- `POST /api/articles` - Create article
-- `PUT /api/articles/:id` - Update article
-- `DELETE /api/articles/:id` - Delete article
-- `PUT /api/articles/:id/feature` - Toggle featured status
-- `PUT /api/articles/:id/publish` - Toggle published status
-
-### Sources (require JWT Bearer token)
-- `GET /api/sources` - List all RSS sources
-- `POST /api/sources` - Add new source
-- `PUT /api/sources/:id` - Update source
-- `DELETE /api/sources/:id` - Delete source
-- `PUT /api/sources/:id/toggle` - Toggle active status
-
-### Public News (no authentication)
-- `GET /api/news` - Get published articles (supports `?category=LLMs&limit=10&featured=1`)
-
-## Database
-
-SQLite database (deepfeedai.db) with three tables:
-
-**articles** - News articles  
-**sources** - RSS feed sources  
-**users** - Admin user accounts  
-
-Default seeding:
-- Admin user: `admin` / `deepfeedai2026`
-- RSS source: The Verge AI
-
-## Color Palette (Dark Theme)
-
-- Background: `#0d0d0d`
-- Card: `#161616`
-- Sidebar: `#111111`
-- Accent: `#00d9ff` (cyan)
-- Danger: `#f87171` (red)
-- Success: `#4ade80` (green)
-- Text: `#f0f0f0`
-- Muted: `#888`
-
-## Mobile Responsiveness
-
-- **Desktop (>768px):** Sidebar navigation on left
-- **Tablet/Mobile (<768px):** Hamburger menu with collapsible sidebar
-- Fully responsive grid layouts and tables
+### Authenticated (Bearer token)
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/login` | Login → returns JWT |
+| GET | `/api/articles` | List all articles |
+| POST | `/api/articles` | Create article |
+| PUT | `/api/articles/:id` | Update article |
+| DELETE | `/api/articles/:id` | Delete article |
+| PUT | `/api/articles/:id/publish` | Toggle published |
+| PUT | `/api/articles/:id/feature` | Toggle featured (enforces 1 max) |
+| GET | `/api/sources` | List sources |
+| POST | `/api/sources` | Add source |
+| PUT | `/api/sources/:id` | Update source |
+| DELETE | `/api/sources/:id` | Delete source |
+| PUT | `/api/sources/:id/toggle` | Toggle active |
+| POST | `/api/fetch` | Fetch all active RSS sources |
+| GET | `/api/fetch-url?url=` | Scrape URL metadata |
 
 ## Tech Stack
 
-- **Backend:** Node.js + Express
-- **Database:** SQLite (sql.js - pure JavaScript)
+- **Runtime:** Node.js
+- **Framework:** Express
+- **Database:** SQLite via sql.js (pure JS — no native compilation)
 - **Auth:** JWT + bcryptjs
-- **Frontend:** Vanilla HTML/CSS/JS (no frameworks)
-- **Styling:** Pure CSS (no CSS frameworks)
+- **AI:** Google Gemini 2.5 Flash Lite
+- **RSS:** rss-parser
+- **Scheduler:** node-cron
+- **Frontend:** Vanilla HTML/CSS/JS
 
 ## Notes
 
-- All HTML pages are self-contained with no external CSS framework dependencies
-- Frontend uses localStorage for JWT token persistence
-- Auto-redirects to login if token is missing or expired
-- All API responses include proper error messages
-- Database is auto-saved to disk after each mutation
+- Only one article can be featured at a time (will increase to 3 with priority in a future release)
+- New articles fetched via RSS are saved as **drafts** — review and publish manually
+- The `.env` file is excluded from git; the database file is also excluded
+- See [CHANGELOG.md](./CHANGELOG.md) for full version history

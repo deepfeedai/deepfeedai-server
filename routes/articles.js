@@ -55,6 +55,11 @@ router.post('/', auth, (req, res) => {
 
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
+  // Enforce single featured
+  if (is_featured) {
+    db.prepare("UPDATE articles SET is_featured = 0, updated_at = datetime('now')").run();
+  }
+
   const stmt = db.prepare(`
     INSERT INTO articles (title, summary, content, category, source, source_url, image_url, author, is_featured, is_published, published_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -93,7 +98,7 @@ router.put('/:id', auth, (req, res) => {
     UPDATE articles SET
       title = ?, summary = ?, content = ?, category = ?, source = ?,
       source_url = ?, image_url = ?, author = ?, is_featured = ?,
-      is_published = ?, published_at = ?
+      is_published = ?, published_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     title !== undefined ? title : existing.title,
@@ -120,16 +125,24 @@ router.delete('/:id', auth, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Article not found' });
 
   db.prepare('DELETE FROM articles WHERE id = ?').run(req.params.id);
+  // Touch a sentinel row so updated-at endpoint reflects the deletion
+  db.prepare("UPDATE articles SET updated_at = datetime('now') WHERE id = (SELECT id FROM articles ORDER BY id DESC LIMIT 1)").run();
   res.json({ message: 'Article deleted' });
 });
 
-// PUT /api/articles/:id/feature — toggle featured
+// PUT /api/articles/:id/feature — toggle featured (only 1 featured at a time)
 router.put('/:id/feature', auth, (req, res) => {
   const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const newVal = article.is_featured ? 0 : 1;
-  db.prepare('UPDATE articles SET is_featured = ? WHERE id = ?').run(newVal, req.params.id);
+
+  // Unfeature all others before featuring this one
+  if (newVal === 1) {
+    db.prepare("UPDATE articles SET is_featured = 0, updated_at = datetime('now') WHERE id != ?").run(req.params.id);
+  }
+
+  db.prepare("UPDATE articles SET is_featured = ?, updated_at = datetime('now') WHERE id = ?").run(newVal, req.params.id);
   res.json({ id: article.id, is_featured: newVal });
 });
 
@@ -139,7 +152,7 @@ router.put('/:id/publish', auth, (req, res) => {
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const newVal = article.is_published ? 0 : 1;
-  db.prepare('UPDATE articles SET is_published = ? WHERE id = ?').run(newVal, req.params.id);
+  db.prepare("UPDATE articles SET is_published = ?, updated_at = datetime('now') WHERE id = ?").run(newVal, req.params.id);
   res.json({ id: article.id, is_published: newVal });
 });
 

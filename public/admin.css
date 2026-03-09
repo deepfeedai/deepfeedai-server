@@ -658,3 +658,45 @@ textarea.form-control {
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .login-card { padding: 28px 20px; }
 }
+
+/* ── Auto-fill from URL ── */
+.autofill-group {
+  background: rgba(0, 217, 255, 0.04);
+  border: 1px solid rgba(0, 217, 255, 0.15);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.autofill-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.autofill-row .form-control {
+  flex: 1;
+}
+
+.autofill-row .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.autofill-status {
+  font-size: 0.8rem;
+  margin-top: 8px;
+  min-height: 1.2em;
+}
+
+.autofill-status.success { color: var(--success); }
+.autofill-status.error   { color: var(--danger);  }
+
+.form-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+@media (max-width: 480px) {
+  .autofill-row { flex-direction: column; align-items: stretch; }
+}

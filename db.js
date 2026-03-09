@@ -37,16 +37,17 @@ async function initDb() {
       is_featured INTEGER DEFAULT 0,
       is_published INTEGER DEFAULT 1,
       published_at TEXT DEFAULT (datetime('now')),
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS sources (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      url TEXT NOT NULL,
-      category TEXT DEFAULT 'Industry',
+      url TEXT NOT NULL UNIQUE,
       priority INTEGER DEFAULT 1,
       is_active INTEGER DEFAULT 1,
+      last_fetched TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -84,8 +85,8 @@ async function initDb() {
     const result = db.exec('SELECT id FROM sources WHERE url = ?', ['https://www.theverge.com/rss/ai-artificial-intelligence/index.xml']);
     if (!result || result.length === 0 || !result[0].values || result[0].values.length === 0) {
       db.run(
-        'INSERT INTO sources (name, url, category, priority) VALUES (?, ?, ?, ?)',
-        ['The Verge AI', 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', 'Industry', 1]
+        'INSERT INTO sources (name, url, priority) VALUES (?, ?, ?)',
+        ['The Verge AI', 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', 1]
       );
       saveDb();
       console.log('✅ Seeded default RSS source');

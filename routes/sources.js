@@ -28,16 +28,15 @@ router.get('/', auth, (req, res) => {
 
 // POST /api/sources
 router.post('/', auth, (req, res) => {
-  const { name, url, category, priority, is_active } = req.body;
+  const { name, url, priority, is_active } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'Name and URL required' });
 
   db.prepare(`
-    INSERT INTO sources (name, url, category, priority, is_active)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sources (name, url, priority, is_active)
+    VALUES (?, ?, ?, ?)
   `).run(
     name,
     url,
-    category || 'Industry',
     priority || 1,
     is_active !== undefined ? (is_active ? 1 : 0) : 1
   );
@@ -52,15 +51,14 @@ router.put('/:id', auth, (req, res) => {
   const existing = db.prepare('SELECT * FROM sources WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Source not found' });
 
-  const { name, url, category, priority, is_active } = req.body;
+  const { name, url, priority, is_active } = req.body;
 
   db.prepare(`
-    UPDATE sources SET name = ?, url = ?, category = ?, priority = ?, is_active = ?
+    UPDATE sources SET name = ?, url = ?, priority = ?, is_active = ?
     WHERE id = ?
   `).run(
     name !== undefined ? name : existing.name,
     url !== undefined ? url : existing.url,
-    category !== undefined ? category : existing.category,
     priority !== undefined ? priority : existing.priority,
     is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
     req.params.id

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ override: true }); // ensure .env takes precedence over system env
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -21,6 +21,21 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/articles', require('./routes/articles'));
 app.use('/api/sources', require('./routes/sources'));
+app.use('/api/article',   require('./routes/article'));   // public — single article by slug
+app.use('/api/fetch-url', require('./routes/fetch-url')); // autofill article form from URL
+app.use('/api/summary',   require('./routes/summary'));   // public — AI TLDR for article page
+
+const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
+const cron = require('node-cron');
+
+app.use('/api/fetch', fetchRouter);
+
+// Auto-fetch every 30 minutes — articles saved as drafts (is_published=0)
+cron.schedule('*/30 * * * *', async () => {
+  console.log('[Cron] Auto-fetching RSS sources...');
+  const result = await fetchAllSources(false);
+  console.log(`[Cron] Done — ${result.inserted} new, ${result.skipped} skipped`);
+});
 
 // Public API — no auth — for the main Deep Feed AI site
 app.get('/api/news', (req, res) => {
@@ -37,7 +52,8 @@ app.get('/api/news', (req, res) => {
     params.push(parseInt(featured));
   }
 
-  query += ' ORDER BY published_at DESC';
+  // Featured articles always float to the top, then sort by date
+  query += ' ORDER BY is_featured DESC, published_at DESC';
 
   if (lim) {
     query += ' LIMIT ?';
@@ -46,6 +62,20 @@ app.get('/api/news', (req, res) => {
 
   const articles = db.prepare(query).all(...params);
   res.json({ status: 'ok', items: articles, count: articles.length });
+});
+
+// Lightweight cache-bust check — returns the latest updated_at timestamp
+// Main site polls this before deciding whether to use its localStorage cache
+app.get('/api/news/updated-at', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const row = db.prepare(
+      `SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles WHERE is_published = 1`
+    ).get();
+    res.json({ updatedAt: row?.ts || null });
+  } catch {
+    res.json({ updatedAt: null });
+  }
 });
 
 // Fallback — serve index.html for unknown routes (SPA-style)

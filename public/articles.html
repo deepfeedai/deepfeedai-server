@@ -74,6 +74,18 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="editId" />
+
+      <!-- URL Auto-fill -->
+      <div class="form-group autofill-group">
+        <label class="form-label" for="fAutoUrl">🔗 Auto-fill from URL</label>
+        <div class="autofill-row">
+          <input class="form-control" type="url" id="fAutoUrl" placeholder="Paste article URL to auto-populate fields…" />
+          <button class="btn btn-outline" id="autoFillBtn" type="button">Fetch</button>
+        </div>
+        <div id="autoFillStatus" class="autofill-status"></div>
+      </div>
+      <hr class="form-divider" />
+
       <div class="form-group">
         <label class="form-label" for="fTitle">Title *</label>
         <input class="form-control" type="text" id="fTitle" placeholder="Article title" required />
@@ -205,6 +217,8 @@
   function openAdd() {
     document.getElementById('modalTitle').textContent = 'Add Article';
     document.getElementById('editId').value = '';
+    document.getElementById('fAutoUrl').value = '';
+    document.getElementById('autoFillStatus').textContent = '';
     document.getElementById('fTitle').value = '';
     document.getElementById('fSummary').value = '';
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
@@ -215,8 +229,49 @@
     document.getElementById('fPublished').checked = true;
     document.getElementById('fFeatured').checked = false;
     openModal('articleModal');
-    document.getElementById('fTitle').focus();
+    document.getElementById('fAutoUrl').focus();
   }
+
+  // Auto-fill form from URL
+  document.getElementById('autoFillBtn').addEventListener('click', async () => {
+    const url    = document.getElementById('fAutoUrl').value.trim();
+    const status = document.getElementById('autoFillStatus');
+    const btn    = document.getElementById('autoFillBtn');
+    if (!url) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+    status.textContent = '';
+    status.className = 'autofill-status';
+
+    try {
+      const data = await apiFetch('/fetch-url?url=' + encodeURIComponent(url));
+
+      // Populate fields — only overwrite if currently empty
+      const set = (id, val) => { if (val) document.getElementById(id).value = val; };
+      set('fTitle',     data.title);
+      set('fSummary',   data.summary);
+      set('fSource',    data.source);
+      set('fSourceUrl', data.source_url);
+      set('fImageUrl',  data.image);
+      set('fAuthor',    data.author);
+      if (data.category) document.getElementById('fCategory').innerHTML = categoryOptions(data.category);
+
+      status.textContent = '✅ Fields populated — review and edit as needed.';
+      status.className   = 'autofill-status success';
+    } catch (err) {
+      status.textContent = '❌ ' + err.message;
+      status.className   = 'autofill-status error';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Fetch';
+    }
+  });
+
+  // Also trigger on Enter in the URL field
+  document.getElementById('fAutoUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('autoFillBtn').click(); }
+  });
 
   function openEdit(id) {
     const a = articles.find(x => x.id === id);
@@ -301,10 +356,8 @@
 
   async function togglePublish(id) {
     try {
-      const res = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
-      const a = articles.find(x => x.id === id);
-      if (a) a.is_published = res.is_published;
-      renderTable();
+      await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+      await loadArticles(); // re-fetch full list — avoids stale local state
     } catch (err) {
       showAlert('Error: ' + err.message, 'error');
     }
@@ -312,10 +365,8 @@
 
   async function toggleFeature(id) {
     try {
-      const res = await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
-      const a = articles.find(x => x.id === id);
-      if (a) a.is_featured = res.is_featured;
-      renderTable();
+      await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
+      await loadArticles(); // re-fetch — picks up any other articles that were unfeatured
     } catch (err) {
       showAlert('Error: ' + err.message, 'error');
     }
