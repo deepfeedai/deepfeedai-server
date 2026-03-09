@@ -122,9 +122,16 @@ async function fetchAllSources(autoPublish = false) {
         return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
       });
 
+      // 48-hour cutoff — drop articles older than this
+      const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+
       for (const item of items) {
         const url = item.link || item.guid;
         if (!url || !item.title) continue;
+
+        // Skip articles older than 48 hours
+        const pubMs = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+        if (pubMs && pubMs < cutoff) { skipped++; continue; }
 
         const existing = await db.prepare('SELECT id FROM articles WHERE source_url = ?').get(url);
         if (existing) { skipped++; continue; }
