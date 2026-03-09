@@ -39,7 +39,10 @@
 
       <div class="section-header">
         <div class="section-title">RSS Sources</div>
-        <button class="btn btn-primary" id="addSourceBtn">＋ Add Source</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline" id="fetch-btn">🔄 Fetch All Sources</button>
+          <button class="btn btn-primary" id="addSourceBtn">＋ Add Source</button>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -48,9 +51,9 @@
             <tr>
               <th>Name</th>
               <th>URL</th>
-              <th>Category</th>
               <th>Priority</th>
               <th>Active</th>
+              <th>Last Fetched</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -82,15 +85,9 @@
         <label class="form-label" for="fSUrl">RSS URL *</label>
         <input class="form-control" type="url" id="fSUrl" placeholder="https://example.com/feed.xml" required />
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" for="fSCategory">Category</label>
-          <select class="form-control" id="fSCategory"></select>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="fSPriority">Priority (1 = highest)</label>
-          <input class="form-control" type="number" id="fSPriority" min="1" max="10" value="1" />
-        </div>
+      <div class="form-group">
+        <label class="form-label" for="fSPriority">Priority (1 = highest)</label>
+        <input class="form-control" type="number" id="fSPriority" min="1" max="10" value="1" />
       </div>
       <div class="form-check" style="margin-top:8px;">
         <label class="toggle">
@@ -134,6 +131,12 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function fmtLastFetched(val) {
+    if (!val) return '<span style="color:var(--muted);font-size:12px;">Never</span>';
+    const d = new Date(val);
+    return `<span style="color:var(--muted);font-size:12px;">${d.toLocaleString()}</span>`;
+  }
+
   function renderTable() {
     const tbody = document.getElementById('sourcesBody');
     if (sources.length === 0) {
@@ -151,7 +154,6 @@
             ${escHtml(s.url.length > 50 ? s.url.slice(0, 50) + '…' : s.url)}
           </a>
         </td>
-        <td><span class="badge badge-muted">${escHtml(s.category || '—')}</span></td>
         <td style="color:var(--muted);">${s.priority}</td>
         <td>
           <button
@@ -161,6 +163,7 @@
             ${s.is_active ? 'Active' : 'Off'}
           </button>
         </td>
+        <td>${fmtLastFetched(s.last_fetched)}</td>
         <td class="td-actions">
           <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEditSource(${s.id})">✏️</button>
           <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDeleteSource(${s.id})">🗑️</button>
@@ -183,7 +186,6 @@
     document.getElementById('editSourceId').value = '';
     document.getElementById('fSName').value = '';
     document.getElementById('fSUrl').value = '';
-    document.getElementById('fSCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('fSPriority').value = '1';
     document.getElementById('fSActive').checked = true;
     openModal('sourceModal');
@@ -197,7 +199,6 @@
     document.getElementById('editSourceId').value = s.id;
     document.getElementById('fSName').value = s.name || '';
     document.getElementById('fSUrl').value = s.url || '';
-    document.getElementById('fSCategory').innerHTML = categoryOptions(s.category);
     document.getElementById('fSPriority').value = s.priority || 1;
     document.getElementById('fSActive').checked = !!s.is_active;
     openModal('sourceModal');
@@ -219,7 +220,6 @@
     const payload = {
       name,
       url,
-      category  : document.getElementById('fSCategory').value,
       priority  : parseInt(document.getElementById('fSPriority').value) || 1,
       is_active : document.getElementById('fSActive').checked,
     };
@@ -280,13 +280,31 @@
     initLogout();
     initModals();
 
-    document.getElementById('fSCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('addSourceBtn').addEventListener('click', openAddSource);
     document.getElementById('saveSourceBtn').addEventListener('click', saveSource);
     document.getElementById('confirmDeleteSourceBtn').addEventListener('click', confirmDeleteSource);
 
     await loadSources();
   });
+
+  // Fetch all sources
+  const fetchBtn = document.getElementById('fetch-btn');
+  if (fetchBtn) {
+    fetchBtn.addEventListener('click', async () => {
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = 'Fetching…';
+      try {
+        const data = await apiFetch('/fetch', { method: 'POST', body: JSON.stringify({ autoPublish: false }) });
+        alert(`✅ Done! ${data.inserted} new articles added as drafts. ${data.skipped} already existed.`);
+        window.location.reload();
+      } catch (e) {
+        alert('❌ Fetch failed: ' + e.message);
+      } finally {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = '🔄 Fetch All Sources';
+      }
+    });
+  }
 </script>
 </body>
 </html>

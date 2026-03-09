@@ -1,118 +1,145 @@
-# Deep Feed AI Admin Panel
+# Deep Feed AI — Admin Panel
 
-A full-featured admin panel for managing news articles and RSS sources for the Deep Feed AI news site.
+Backend CMS and API for [deepfeedai.com](https://deepfeedai.com). Manages articles, RSS sources, media generation, and serves the public news API consumed by the main site.
 
 ## Features
 
-✅ **Authentication** - JWT-based login with bcrypt password hashing  
-✅ **Article Management** - Create, read, update, delete articles with rich metadata  
-✅ **RSS Source Management** - Add, edit, and manage RSS feed sources  
-✅ **Dark Theme UI** - Mobile-responsive dashboard matching Deep Feed AI branding  
-✅ **Public API** - Unauthenticated API endpoint for the main site to fetch published news  
-✅ **Database** - SQLite with sql.js (no native compilation required)  
+- 🔐 **JWT Authentication** — bcrypt-hashed passwords, token-based sessions
+- 📰 **Article Management** — full CRUD with publish/draft, featured toggle, manual entry, and URL auto-fill
+- 🗃️ **Soft-delete / Archive** — archive articles instead of deleting; archived articles are hidden from the public API; a 24-hour cron auto-purges old archived records
+- 📡 **RSS Source Management** — add sources, auto-fetch on demand or every 30 min via cron; new articles saved as drafts for manual review
+- 🔗 **URL Auto-fill** — paste any article URL to auto-populate title, image, summary, source, and author from Open Graph + JSON-LD structured data
+- ✨ **AI Summaries** — Gemini 2.5 Flash Lite generates structured TLDRs (overview, key points, why it matters) served to `article.html`
+- 🎙️ **Audio Generation (ElevenLabs)** — generate MP3 narrations for any article from the admin panel:
+  - Gemini writes a natural 2–3 sentence spoken-word news anchor script
+  - ElevenLabs TTS converts the script to MP3 (`eleven_turbo_v2` model)
+  - MP3 saved to `public/media/audio/` and served statically
+  - Per-row admin controls: Generate · ▶ Preview · 🗑 Delete · ✅ On/Off toggle
+  - `media_enabled` flag gates whether the player appears on the main site
+  - TTS script stored as `audio_transcript` for karaoke caption rendering
+- 🌐 **Public News API** — `/api/news` powers the main site; featured articles sort to top; archived articles excluded
+- ⚡ **Cache invalidation** — `/api/news/updated-at` lets the main site bust its localStorage cache the moment content changes
+- 📱 **Mobile-friendly** — collapsible sidebar, responsive tables
 
-## Running the Server
+## Quick Start
 
 ```bash
-cd /home/claw_user/.openclaw/workspace/deepfeedai-admin
+cd deepfeedai-admin
 npm install
+cp .env.example .env   # fill in your values
 node server.js
 ```
 
-Server runs on **http://localhost:4000**
+Admin runs on **http://localhost:4000**
 
 ## Default Credentials
 
-- **Username:** `admin`
-- **Password:** `deepfeedai2026`
+| Field | Value |
+|---|---|
+| Username | `admin` |
+| Password | `deepfeedai2026` |
+
+> ⚠️ Change the password and JWT secret before deploying to production.
+
+## Environment Variables
+
+Create a `.env` file (never commit it):
+
+```env
+PORT=4000
+JWT_SECRET=your_strong_random_secret
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
+GEMINI_API_KEY=your_gemini_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+ELEVENLABS_VOICE_ID=your_elevenlabs_voice_id
+```
+
+> **Gemini model:** `gemini-2.5-flash-lite` (required — `gemini-2.0-flash-lite` is unavailable on new accounts)
+> **ElevenLabs model:** `eleven_turbo_v2`, max 900 chars per request
 
 ## Project Structure
 
 ```
 deepfeedai-admin/
-├── server.js                 # Express app entry point
-├── db.js                     # SQLite database wrapper (sql.js)
-├── package.json              # Dependencies
-├── .env                      # Environment configuration
+├── server.js              # Express app + cron jobs (30-min RSS fetch, 24-h archive purge)
+├── db.js                  # SQLite (sql.js) wrapper + schema migrations + seed
+├── package.json
+├── .env                   # ← never committed
 ├── routes/
-│   ├── auth.js              # Login/logout endpoints
-│   ├── articles.js          # Article CRUD operations
-│   └── sources.js           # RSS source CRUD operations
+│   ├── auth.js            # POST /api/auth/login
+│   ├── articles.js        # CRUD /api/articles + publish/feature/archive/restore/purge
+│   ├── sources.js         # CRUD /api/sources + active toggle
+│   ├── fetch.js           # POST /api/fetch — RSS import (dedup by URL)
+│   ├── fetch-url.js       # GET  /api/fetch-url — OG + JSON-LD scraper
+│   ├── article.js         # GET  /api/article — single article by slug (public)
+│   ├── summary.js         # GET  /api/summary — AI TLDR via Gemini (public)
+│   └── media.js           # POST /api/media/generate-audio
+│                          # DELETE /api/media/audio/:id
+│                          # PUT  /api/media/toggle/:id
 └── public/
-    ├── login.html           # Login page
-    ├── index.html           # Dashboard home
-    ├── articles.html        # Article manager
-    ├── sources.html         # RSS source manager
-    ├── admin.css            # Dark theme styling
-    └── admin.js             # Frontend JS utilities
+    ├── login.html
+    ├── index.html         # Dashboard
+    ├── articles.html      # Article manager (with audio controls column)
+    ├── sources.html       # RSS source manager
+    ├── admin.css
+    ├── admin.js
+    └── media/
+        └── audio/         # Generated MP3 files (gitignored)
 ```
 
-## API Endpoints
+## API Reference
 
-### Authentication
-- `POST /api/auth/login` - Login with username/password
-- `POST /api/auth/logout` - Logout (client-side only)
+### Public (no auth)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/news` | Published articles — `?category=LLMs&limit=10&featured=1` |
+| GET | `/api/news/updated-at` | Latest DB change timestamp (cache busting) |
+| GET | `/api/article?slug=` | Single article by URL slug; includes `audio_url`, `audio_transcript`, `media_enabled` |
+| GET | `/api/summary?title=&description=` | AI TLDR via Gemini |
+| GET | `/media/audio/:filename` | Serve pre-generated MP3 audio file |
 
-### Articles (require JWT Bearer token)
-- `GET /api/articles` - List all articles (supports filters: `?published=1&category=LLMs`)
-- `GET /api/articles/:id` - Get single article
-- `POST /api/articles` - Create article
-- `PUT /api/articles/:id` - Update article
-- `DELETE /api/articles/:id` - Delete article
-- `PUT /api/articles/:id/feature` - Toggle featured status
-- `PUT /api/articles/:id/publish` - Toggle published status
-
-### Sources (require JWT Bearer token)
-- `GET /api/sources` - List all RSS sources
-- `POST /api/sources` - Add new source
-- `PUT /api/sources/:id` - Update source
-- `DELETE /api/sources/:id` - Delete source
-- `PUT /api/sources/:id/toggle` - Toggle active status
-
-### Public News (no authentication)
-- `GET /api/news` - Get published articles (supports `?category=LLMs&limit=10&featured=1`)
-
-## Database
-
-SQLite database (deepfeedai.db) with three tables:
-
-**articles** - News articles  
-**sources** - RSS feed sources  
-**users** - Admin user accounts  
-
-Default seeding:
-- Admin user: `admin` / `deepfeedai2026`
-- RSS source: The Verge AI
-
-## Color Palette (Dark Theme)
-
-- Background: `#0d0d0d`
-- Card: `#161616`
-- Sidebar: `#111111`
-- Accent: `#00d9ff` (cyan)
-- Danger: `#f87171` (red)
-- Success: `#4ade80` (green)
-- Text: `#f0f0f0`
-- Muted: `#888`
-
-## Mobile Responsiveness
-
-- **Desktop (>768px):** Sidebar navigation on left
-- **Tablet/Mobile (<768px):** Hamburger menu with collapsible sidebar
-- Fully responsive grid layouts and tables
+### Authenticated (Bearer token)
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/login` | Login → returns JWT |
+| GET | `/api/articles` | List all articles (incl. draft + archived) |
+| POST | `/api/articles` | Create article |
+| PUT | `/api/articles/:id` | Update article |
+| DELETE | `/api/articles/:id` | Delete article (hard delete) |
+| PUT | `/api/articles/:id/publish` | Toggle published |
+| PUT | `/api/articles/:id/feature` | Toggle featured (enforces 1 max) |
+| PUT | `/api/articles/:id/archive` | Move to archive (soft-delete) |
+| PUT | `/api/articles/:id/restore` | Restore from archive |
+| DELETE | `/api/articles/:id/purge` | Hard-delete archived article immediately |
+| GET | `/api/sources` | List sources |
+| POST | `/api/sources` | Add source |
+| PUT | `/api/sources/:id` | Update source |
+| DELETE | `/api/sources/:id` | Delete source |
+| PUT | `/api/sources/:id/toggle` | Toggle active |
+| POST | `/api/fetch` | Fetch all active RSS sources |
+| GET | `/api/fetch-url?url=` | Scrape URL for OG + JSON-LD metadata |
+| POST | `/api/media/generate-audio` | Generate ElevenLabs MP3 for an article |
+| DELETE | `/api/media/audio/:id` | Delete audio file + clear DB record |
+| PUT | `/api/media/toggle/:id` | Toggle `media_enabled` (show/hide player on main site) |
 
 ## Tech Stack
 
-- **Backend:** Node.js + Express
-- **Database:** SQLite (sql.js - pure JavaScript)
+- **Runtime:** Node.js
+- **Framework:** Express
+- **Database:** SQLite via sql.js (pure JS — no native compilation required)
 - **Auth:** JWT + bcryptjs
-- **Frontend:** Vanilla HTML/CSS/JS (no frameworks)
-- **Styling:** Pure CSS (no CSS frameworks)
+- **AI (summaries + TTS scripts):** Google Gemini 2.5 Flash Lite
+- **Audio TTS:** ElevenLabs `eleven_turbo_v2`
+- **RSS:** rss-parser
+- **Scheduler:** node-cron (RSS fetch every 30 min, archive purge every 24 h)
+- **Frontend:** Vanilla HTML/CSS/JS
 
 ## Notes
 
-- All HTML pages are self-contained with no external CSS framework dependencies
-- Frontend uses localStorage for JWT token persistence
-- Auto-redirects to login if token is missing or expired
-- All API responses include proper error messages
-- Database is auto-saved to disk after each mutation
+- Only one article can be featured at a time (will increase to 3 with priority in a future release)
+- New articles fetched via RSS are saved as **drafts** — review and publish manually
+- Audio files in `public/media/audio/` are excluded from git; sync to Cloudflare R2 or S3 for production
+- The `.env` file and database file are excluded from git
+- Use `db.prepare(sql).all()` — `db.all()` does not exist in sql.js
+- See [CHANGELOG.md](./CHANGELOG.md) for full version history

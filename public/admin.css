@@ -658,3 +658,97 @@ textarea.form-control {
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .login-card { padding: 28px 20px; }
 }
+
+/* ── Auto-fill from URL ── */
+.autofill-group {
+  background: rgba(0, 217, 255, 0.04);
+  border: 1px solid rgba(0, 217, 255, 0.15);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.autofill-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.autofill-row .form-control {
+  flex: 1;
+}
+
+.autofill-row .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.autofill-status {
+  font-size: 0.8rem;
+  margin-top: 8px;
+  min-height: 1.2em;
+}
+
+.autofill-status.success { color: var(--success); }
+.autofill-status.error   { color: var(--danger);  }
+
+.form-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+@media (max-width: 480px) {
+  .autofill-row { flex-direction: column; align-items: stretch; }
+}
+
+/* ── Sortable table headers ─────────────────────────────────────────── */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable:hover { color: var(--accent); }
+.sortable.active-sort { color: var(--accent); }
+.sort-icon { font-size: 11px; opacity: 0.6; margin-left: 4px; }
+
+/* ── Select-all / row checkboxes ────────────────────────────────────── */
+.th-check, .td-check {
+  width: 36px;
+  text-align: center;
+  padding: 0 8px;
+}
+.row-selected td { background: rgba(0, 217, 255, 0.05); }
+.row-archived td { opacity: 0.5; }
+.row-archived .td-title { text-decoration: line-through; }
+.badge-archived { background: rgba(248,113,113,0.15); color: #f87171; border-radius: 4px; padding: 1px 5px; }
+.badge-danger    { background: rgba(248,113,113,0.15); color: #f87171; border-radius: 4px; padding: 1px 5px; }
+.td-audio        { min-width: 130px; white-space: nowrap; }
+
+/* ── Bulk action toolbar ─────────────────────────────────────────────── */
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.bulk-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-right: 4px;
+}
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--text); }

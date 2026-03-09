@@ -1,4 +1,28 @@
+# Dependencies
 node_modules/
+
+# Environment variables (contains secrets — never commit)
 .env
-deepfeedai.db
+.env.local
+.env.*.local
+
+# Database (local only — production uses hosted DB)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+public/media/

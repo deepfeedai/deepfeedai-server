@@ -39,23 +39,42 @@
 
       <div class="section-header">
         <div class="section-title">All Articles</div>
-        <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="showArchived" /> Show archived
+          </label>
+          <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
+        </div>
+      </div>
+
+      <!-- Bulk action toolbar — hidden until rows are selected -->
+      <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
+        <span id="bulkCount" class="bulk-count">0 selected</span>
+        <button class="btn btn-sm btn-outline" id="bulkPublishBtn">✅ Publish</button>
+        <button class="btn btn-sm btn-outline" id="bulkUnpublishBtn">📄 Unpublish</button>
+        <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
+        <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
 
       <div class="table-wrap">
-        <table>
+        <table id="articlesTable">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Category</th>
-              <th>Status</th>
-              <th>Featured</th>
-              <th>Date</th>
+              <th class="th-check">
+                <input type="checkbox" id="selectAll" title="Select all" />
+              </th>
+              <th class="sortable" data-col="title">Title <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="source">Source <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="category">Category <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="is_published">Status <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="is_featured">Featured <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="published_at">Date <span class="sort-icon">⇅</span></th>
+              <th>Audio</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="articlesBody">
-            <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">
               <span class="spinner"></span>
             </td></tr>
           </tbody>
@@ -74,6 +93,18 @@
     </div>
     <div class="modal-body">
       <input type="hidden" id="editId" />
+
+      <!-- URL Auto-fill -->
+      <div class="form-group autofill-group">
+        <label class="form-label" for="fAutoUrl">🔗 Auto-fill from URL</label>
+        <div class="autofill-row">
+          <input class="form-control" type="url" id="fAutoUrl" placeholder="Paste article URL to auto-populate fields…" />
+          <button class="btn btn-outline" id="autoFillBtn" type="button">Fetch</button>
+        </div>
+        <div id="autoFillStatus" class="autofill-status"></div>
+      </div>
+      <hr class="form-divider" />
+
       <div class="form-group">
         <label class="form-label" for="fTitle">Title *</label>
         <input class="form-control" type="text" id="fTitle" placeholder="Article title" required />
@@ -130,19 +161,37 @@
   </div>
 </div>
 
-<!-- Delete confirm modal -->
+<!-- Archive confirm modal -->
 <div class="modal-overlay" id="deleteModal">
-  <div class="modal" style="max-width:400px;">
+  <div class="modal" style="max-width:420px;">
     <div class="modal-header">
-      <div class="modal-title">Delete Article</div>
+      <div class="modal-title">Archive Article</div>
       <button class="modal-close" data-close-modal>✕</button>
     </div>
     <div class="modal-body">
-      <p style="color:var(--muted);">Are you sure you want to delete this article? This cannot be undone.</p>
+      <p style="color:var(--muted);">This article will be archived and removed from the main site immediately. It will be permanently deleted after 24 hours.</p>
+      <p style="color:var(--muted);margin-top:8px;">You can restore it within 24h using the ♻️ button.</p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn">Archive</button>
+    </div>
+  </div>
+</div>
+
+<!-- Purge confirm modal -->
+<div class="modal-overlay" id="purgeModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title">Permanently Delete</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);">This will <strong style="color:#f87171;">permanently delete</strong> this article. It cannot be recovered and will not block future fetches of the same URL.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmPurgeBtn">Delete Forever</button>
     </div>
   </div>
 </div>
@@ -150,52 +199,228 @@
 <script src="/admin.js"></script>
 <script>
   let articles = [];
+  let allArticles = []; // full list including archived
   let deleteTargetId = null;
+  let sortCol = 'published_at';
+  let sortDir = 'desc';
+  let selectedIds = new Set();
+  let showArchived = false;
 
   function escHtml(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function sortArticles(col) {
+    if (sortCol === col) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortCol = col;
+      sortDir = ['published_at','created_at'].includes(col) ? 'desc' : 'asc';
+    }
+    // Update sort icons
+    document.querySelectorAll('.sortable').forEach(th => {
+      const icon = th.querySelector('.sort-icon');
+      if (th.dataset.col === sortCol) {
+        icon.textContent = sortDir === 'asc' ? '↑' : '↓';
+        th.classList.add('active-sort');
+      } else {
+        icon.textContent = '⇅';
+        th.classList.remove('active-sort');
+      }
+    });
+    articles.sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (va == null) va = '';
+      if (vb == null) vb = '';
+      if (['is_published','is_featured'].includes(sortCol)) {
+        va = Number(va); vb = Number(vb);
+      } else if (['published_at','created_at'].includes(sortCol)) {
+        va = new Date(va); vb = new Date(vb);
+      } else {
+        va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    renderTable();
+  }
+
+  function updateBulkToolbar() {
+    const toolbar = document.getElementById('bulkToolbar');
+    const count   = document.getElementById('bulkCount');
+    if (selectedIds.size > 0) {
+      toolbar.style.display = 'flex';
+      count.textContent = `${selectedIds.size} selected`;
+    } else {
+      toolbar.style.display = 'none';
+    }
+    // Sync select-all checkbox
+    const all = document.getElementById('selectAll');
+    if (all) all.checked = articles.length > 0 && selectedIds.size === articles.length;
+  }
+
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6">
+      tbody.innerHTML = `<tr><td colspan="8">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
       </td></tr>`;
+      updateBulkToolbar();
       return;
     }
 
-    tbody.innerHTML = articles.map(a => `
-      <tr id="row-${a.id}">
-        <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
+    tbody.innerHTML = articles.map(a => {
+      const isArchived = !!a.is_archived;
+      const rowClass = [
+        selectedIds.has(a.id) ? 'row-selected' : '',
+        isArchived ? 'row-archived' : ''
+      ].filter(Boolean).join(' ');
+      return `
+      <tr id="row-${a.id}" class="${rowClass}">
+        <td class="td-check">
+          <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
+        </td>
+        <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : ''}</td>
+        <td style="color:var(--muted);font-size:12px;">${escHtml(a.source || '—')}</td>
         <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
-        <td>
+        <td>${isArchived ? '<span class="badge badge-muted">—</span>' : `
           <button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
             style="cursor:pointer;border:none;background:inherit;"
             onclick="togglePublish(${a.id})">
             ${a.is_published ? 'Published' : 'Draft'}
-          </button>
+          </button>`}
         </td>
-        <td>
+        <td>${isArchived ? '—' : `
           <button class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}"
             style="cursor:pointer;border:none;background:inherit;"
             onclick="toggleFeature(${a.id})">
             ${a.is_featured ? '⭐ Yes' : '—'}
-          </button>
+          </button>`}
         </td>
-        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
+        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
+        <td class="td-audio" id="audio-cell-${a.id}">
+          ${isArchived ? '—' : renderAudioCell(a)}
+        </td>
         <td class="td-actions">
-          <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
-          <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(${a.id})">🗑️</button>
+          ${isArchived ? `
+            <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
+            <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
+          ` : `
+            <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
+            <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
+          `}
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
+
+    // Wire up row checkboxes
+    tbody.querySelectorAll('.row-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = parseInt(cb.dataset.id);
+        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        const row = document.getElementById(`row-${id}`);
+        if (row) row.classList.toggle('row-selected', cb.checked);
+        updateBulkToolbar();
+      });
+    });
+
+    updateBulkToolbar();
+  }
+
+  /* ---------- Audio helpers ---------- */
+  function renderAudioCell(a) {
+    const status = a.audio_status;
+    if (!status || status === 'error') {
+      return `
+        <button class="btn btn-ghost btn-sm" title="Generate audio summary" onclick="generateAudio(${a.id})">
+          🎙️ Generate
+        </button>
+        ${status === 'error' ? '<span class="badge badge-danger" style="font-size:10px;">Error</span>' : ''}`;
+    }
+    if (status === 'pending') {
+      return `<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>`;
+    }
+    if (status === 'ready' && a.audio_url) {
+      const enabled = !!a.media_enabled;
+      return `
+        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+          <audio id="ap-${a.id}" src="${a.audio_url}" preload="none" style="display:none;"></audio>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Preview audio"
+            onclick="previewAudio(${a.id})">▶️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Remove audio"
+            onclick="deleteAudio(${a.id})">🗑️</button>
+          <button class="badge ${enabled ? 'badge-accent' : 'badge-muted'}"
+            style="cursor:pointer;border:none;background:inherit;font-size:11px;"
+            title="${enabled ? 'Published on site — click to hide' : 'Hidden — click to publish on site'}"
+            onclick="toggleMedia(${a.id})">
+            ${enabled ? '✅ On' : '⬜ Off'}
+          </button>
+        </div>`;
+    }
+    return '—';
+  }
+
+  async function generateAudio(id) {
+    const cell = document.getElementById(`audio-cell-${id}`);
+    if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>';
+    try {
+      const data = await apiFetch(`/media/generate-audio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: id })
+      });
+      showAlert(`Audio ready ✓ (${data.charCount} chars)`);
+      await loadArticles();
+    } catch (err) {
+      showAlert('Audio generation failed: ' + err.message, 'error');
+      await loadArticles();
+    }
+  }
+
+  function previewAudio(id) {
+    const el = document.getElementById(`ap-${id}`);
+    if (!el) return;
+    if (el.paused) { el.play(); }
+    else { el.pause(); el.currentTime = 0; }
+  }
+
+  async function deleteAudio(id) {
+    try {
+      await apiFetch(`/media/audio/${id}`, { method: 'DELETE' });
+      showAlert('Audio removed');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Failed to remove audio: ' + err.message, 'error');
+    }
+  }
+
+  async function toggleMedia(id) {
+    try {
+      const data = await apiFetch(`/media/toggle/${id}`, { method: 'PUT' });
+      showAlert(data.media_enabled ? 'Audio published on site ✓' : 'Audio hidden from site');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Toggle failed: ' + err.message, 'error');
+    }
   }
 
   async function loadArticles() {
     try {
-      articles = await apiFetch('/articles');
+      allArticles = await apiFetch('/articles');
+      articles = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
+      // Re-apply current sort after reload
+      articles.sort((a, b) => {
+        let va = a[sortCol], vb = b[sortCol];
+        if (va == null) va = ''; if (vb == null) vb = '';
+        if (['is_published','is_featured'].includes(sortCol)) { va = Number(va); vb = Number(vb); }
+        else if (['published_at','created_at'].includes(sortCol)) { va = new Date(va); vb = new Date(vb); }
+        else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
       renderTable();
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
@@ -205,6 +430,8 @@
   function openAdd() {
     document.getElementById('modalTitle').textContent = 'Add Article';
     document.getElementById('editId').value = '';
+    document.getElementById('fAutoUrl').value = '';
+    document.getElementById('autoFillStatus').textContent = '';
     document.getElementById('fTitle').value = '';
     document.getElementById('fSummary').value = '';
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
@@ -215,8 +442,49 @@
     document.getElementById('fPublished').checked = true;
     document.getElementById('fFeatured').checked = false;
     openModal('articleModal');
-    document.getElementById('fTitle').focus();
+    document.getElementById('fAutoUrl').focus();
   }
+
+  // Auto-fill form from URL
+  document.getElementById('autoFillBtn').addEventListener('click', async () => {
+    const url    = document.getElementById('fAutoUrl').value.trim();
+    const status = document.getElementById('autoFillStatus');
+    const btn    = document.getElementById('autoFillBtn');
+    if (!url) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Fetching…';
+    status.textContent = '';
+    status.className = 'autofill-status';
+
+    try {
+      const data = await apiFetch('/fetch-url?url=' + encodeURIComponent(url));
+
+      // Populate fields — only overwrite if currently empty
+      const set = (id, val) => { if (val) document.getElementById(id).value = val; };
+      set('fTitle',     data.title);
+      set('fSummary',   data.summary);
+      set('fSource',    data.source);
+      set('fSourceUrl', data.source_url);
+      set('fImageUrl',  data.image);
+      set('fAuthor',    data.author);
+      if (data.category) document.getElementById('fCategory').innerHTML = categoryOptions(data.category);
+
+      status.textContent = '✅ Fields populated — review and edit as needed.';
+      status.className   = 'autofill-status success';
+    } catch (err) {
+      status.textContent = '❌ ' + err.message;
+      status.className   = 'autofill-status error';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Fetch';
+    }
+  });
+
+  // Also trigger on Enter in the URL field
+  document.getElementById('fAutoUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('autoFillBtn').click(); }
+  });
 
   function openEdit(id) {
     const a = articles.find(x => x.id === id);
@@ -262,20 +530,15 @@
       const saveBtn = document.getElementById('saveArticleBtn');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
-
       if (id) {
-        const updated = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        const idx = articles.findIndex(a => a.id === parseInt(id));
-        if (idx >= 0) articles[idx] = updated;
+        await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
         showAlert('Article updated ✓');
       } else {
-        const created = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
-        articles.unshift(created);
+        await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
         showAlert('Article created ✓');
       }
-
       closeModal('articleModal');
-      renderTable();
+      await loadArticles();
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save Article';
     } catch (err) {
@@ -289,36 +552,88 @@
     if (!deleteTargetId) return;
     try {
       await apiFetch(`/articles/${deleteTargetId}`, { method: 'DELETE' });
-      articles = articles.filter(a => a.id !== deleteTargetId);
-      renderTable();
+      selectedIds.delete(deleteTargetId);
       closeModal('deleteModal');
-      showAlert('Article deleted');
+      showAlert('Article archived — will be purged automatically after 24h');
       deleteTargetId = null;
+      await loadArticles();
     } catch (err) {
-      showAlert('Delete failed: ' + err.message, 'error');
+      showAlert('Archive failed: ' + err.message, 'error');
+    }
+  }
+
+  let purgeTargetId = null;
+  function openPurge(id) {
+    purgeTargetId = id;
+    openModal('purgeModal');
+  }
+
+  async function confirmPurge() {
+    if (!purgeTargetId) return;
+    try {
+      await apiFetch(`/articles/${purgeTargetId}/purge`, { method: 'DELETE' });
+      selectedIds.delete(purgeTargetId);
+      closeModal('purgeModal');
+      showAlert('Article permanently deleted');
+      purgeTargetId = null;
+      await loadArticles();
+    } catch (err) {
+      showAlert('Purge failed: ' + err.message, 'error');
+    }
+  }
+
+  async function restoreArticle(id) {
+    try {
+      await apiFetch(`/articles/${id}/restore`, { method: 'PUT' });
+      showAlert('Article restored ✓');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Restore failed: ' + err.message, 'error');
     }
   }
 
   async function togglePublish(id) {
     try {
-      const res = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
-      const a = articles.find(x => x.id === id);
-      if (a) a.is_published = res.is_published;
-      renderTable();
-    } catch (err) {
-      showAlert('Error: ' + err.message, 'error');
-    }
+      await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
   }
 
   async function toggleFeature(id) {
     try {
-      const res = await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
+      await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+  }
+
+  // ── Bulk actions ────────────────────────────────────────────────────────────
+  async function bulkSetPublish(val) {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    let done = 0;
+    for (const id of ids) {
       const a = articles.find(x => x.id === id);
-      if (a) a.is_featured = res.is_featured;
-      renderTable();
-    } catch (err) {
-      showAlert('Error: ' + err.message, 'error');
+      if (a && a.is_published !== val) {
+        await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+        done++;
+      }
     }
+    selectedIds.clear();
+    showAlert(`${done} article(s) ${val ? 'published' : 'unpublished'} ✓`);
+    await loadArticles();
+  }
+
+  async function bulkDelete() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} article(s)? This cannot be undone.`)) return;
+    let done = 0;
+    for (const id of ids) {
+      try { await apiFetch(`/articles/${id}`, { method: 'DELETE' }); done++; } catch {}
+    }
+    selectedIds.clear();
+    showAlert(`${done} article(s) deleted`);
+    await loadArticles();
   }
 
   onReady(async () => {
@@ -331,6 +646,38 @@
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
     document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+    document.getElementById('confirmPurgeBtn').addEventListener('click', confirmPurge);
+
+    document.getElementById('showArchived').addEventListener('change', e => {
+      showArchived = e.target.checked;
+      articles = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
+      selectedIds.clear();
+      renderTable();
+    });
+
+    // Sortable column headers
+    document.querySelectorAll('.sortable').forEach(th => {
+      th.addEventListener('click', () => sortArticles(th.dataset.col));
+    });
+
+    // Select all checkbox
+    document.getElementById('selectAll').addEventListener('change', e => {
+      if (e.target.checked) {
+        articles.forEach(a => selectedIds.add(a.id));
+      } else {
+        selectedIds.clear();
+      }
+      renderTable();
+    });
+
+    // Bulk toolbar buttons
+    document.getElementById('bulkPublishBtn').addEventListener('click', () => bulkSetPublish(1));
+    document.getElementById('bulkUnpublishBtn').addEventListener('click', () => bulkSetPublish(0));
+    document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
+    document.getElementById('bulkClearBtn').addEventListener('click', () => {
+      selectedIds.clear();
+      renderTable();
+    });
 
     await loadArticles();
   });
