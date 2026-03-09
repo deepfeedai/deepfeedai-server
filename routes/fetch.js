@@ -2,11 +2,12 @@
  * Deep Feed AI — /api/fetch
  * Fetches RSS from all active sources and inserts new articles into the DB.
  */
-const express   = require('express');
-const router    = express.Router();
-const RSSParser = require('rss-parser');
-const jwt       = require('jsonwebtoken');
-const db        = require('../db');
+const express         = require('express');
+const router          = require('express').Router();
+const RSSParser       = require('rss-parser');
+const jwt             = require('jsonwebtoken');
+const db              = require('../db');
+const { scrapeOgImage } = require('../lib/scrape');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
 const parser     = new RSSParser();
@@ -67,6 +68,26 @@ async function fetchAllSources(autoPublish = false) {
       db.prepare('UPDATE sources SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), source.id);
     } catch (err) {
       errors.push({ source: source.name, error: err.message });
+    }
+  }
+
+  // Enrich articles missing images with OG scraping (3 concurrent, best-effort)
+  {
+    const noImage = db.prepare(
+      'SELECT id, source_url FROM articles WHERE (image_url IS NULL OR image_url = \'\') AND (is_archived = 0 OR is_archived IS NULL) ORDER BY id DESC LIMIT 30'
+    ).all();
+
+    const CONCURRENCY = 3;
+    for (let i = 0; i < noImage.length; i += CONCURRENCY) {
+      const batch = noImage.slice(i, i + CONCURRENCY);
+      await Promise.all(batch.map(async (a) => {
+        try {
+          const img = await scrapeOgImage(a.source_url);
+          if (img) {
+            db.prepare("UPDATE articles SET image_url = ?, updated_at = datetime('now') WHERE id = ?").run(img, a.id);
+          }
+        } catch { /* ignore per-article failures */ }
+      }));
     }
   }
 
