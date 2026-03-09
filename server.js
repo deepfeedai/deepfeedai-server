@@ -29,6 +29,7 @@ const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');
 
 app.use('/api/fetch', fetchRouter);
+app.use('/api/media', require('./routes/media'));
 
 // Auto-fetch every 30 minutes — articles saved as drafts (is_published=0)
 cron.schedule('*/30 * * * *', async () => {

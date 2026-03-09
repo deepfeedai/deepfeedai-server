@@ -69,6 +69,7 @@
               <th class="sortable" data-col="is_published">Status <span class="sort-icon">⇅</span></th>
               <th class="sortable" data-col="is_featured">Featured <span class="sort-icon">⇅</span></th>
               <th class="sortable" data-col="published_at">Date <span class="sort-icon">⇅</span></th>
+              <th>Audio</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -299,6 +300,9 @@
           </button>`}
         </td>
         <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
+        <td class="td-audio" id="audio-cell-${a.id}">
+          ${isArchived ? '—' : renderAudioCell(a)}
+        </td>
         <td class="td-actions">
           ${isArchived ? `
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
@@ -323,6 +327,83 @@
     });
 
     updateBulkToolbar();
+  }
+
+  /* ---------- Audio helpers ---------- */
+  function renderAudioCell(a) {
+    const status = a.audio_status;
+    if (!status || status === 'error') {
+      return `
+        <button class="btn btn-ghost btn-sm" title="Generate audio summary" onclick="generateAudio(${a.id})">
+          🎙️ Generate
+        </button>
+        ${status === 'error' ? '<span class="badge badge-danger" style="font-size:10px;">Error</span>' : ''}`;
+    }
+    if (status === 'pending') {
+      return `<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>`;
+    }
+    if (status === 'ready' && a.audio_url) {
+      const enabled = !!a.media_enabled;
+      return `
+        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+          <audio id="ap-${a.id}" src="${a.audio_url}" preload="none" style="display:none;"></audio>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Preview audio"
+            onclick="previewAudio(${a.id})">▶️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Remove audio"
+            onclick="deleteAudio(${a.id})">🗑️</button>
+          <button class="badge ${enabled ? 'badge-accent' : 'badge-muted'}"
+            style="cursor:pointer;border:none;background:inherit;font-size:11px;"
+            title="${enabled ? 'Published on site — click to hide' : 'Hidden — click to publish on site'}"
+            onclick="toggleMedia(${a.id})">
+            ${enabled ? '✅ On' : '⬜ Off'}
+          </button>
+        </div>`;
+    }
+    return '—';
+  }
+
+  async function generateAudio(id) {
+    const cell = document.getElementById(`audio-cell-${id}`);
+    if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>';
+    try {
+      const data = await apiFetch(`/media/generate-audio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: id })
+      });
+      showAlert(`Audio ready ✓ (${data.charCount} chars)`);
+      await loadArticles();
+    } catch (err) {
+      showAlert('Audio generation failed: ' + err.message, 'error');
+      await loadArticles();
+    }
+  }
+
+  function previewAudio(id) {
+    const el = document.getElementById(`ap-${id}`);
+    if (!el) return;
+    if (el.paused) { el.play(); }
+    else { el.pause(); el.currentTime = 0; }
+  }
+
+  async function deleteAudio(id) {
+    try {
+      await apiFetch(`/media/audio/${id}`, { method: 'DELETE' });
+      showAlert('Audio removed');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Failed to remove audio: ' + err.message, 'error');
+    }
+  }
+
+  async function toggleMedia(id) {
+    try {
+      const data = await apiFetch(`/media/toggle/${id}`, { method: 'PUT' });
+      showAlert(data.media_enabled ? 'Audio published on site ✓' : 'Audio hidden from site');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Toggle failed: ' + err.message, 'error');
+    }
   }
 
   async function loadArticles() {

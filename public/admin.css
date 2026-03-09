@@ -721,6 +721,8 @@ textarea.form-control {
 .row-archived td { opacity: 0.5; }
 .row-archived .td-title { text-decoration: line-through; }
 .badge-archived { background: rgba(248,113,113,0.15); color: #f87171; border-radius: 4px; padding: 1px 5px; }
+.badge-danger    { background: rgba(248,113,113,0.15); color: #f87171; border-radius: 4px; padding: 1px 5px; }
+.td-audio        { min-width: 130px; white-space: nowrap; }
 
 /* ── Bulk action toolbar ─────────────────────────────────────────────── */
 .bulk-toolbar {

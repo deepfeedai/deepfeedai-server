@@ -72,6 +72,9 @@ async function initDb() {
     "ALTER TABLE articles ADD COLUMN is_archived INTEGER DEFAULT 0",
     "ALTER TABLE articles ADD COLUMN archived_at TEXT",
     "ALTER TABLE articles ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))",
+    "ALTER TABLE articles ADD COLUMN audio_url TEXT",
+    "ALTER TABLE articles ADD COLUMN audio_status TEXT",
+    "ALTER TABLE articles ADD COLUMN media_enabled INTEGER DEFAULT 0",
   ];
   for (const m of migrations) {
     try { db.run(m); } catch {} // silently skip if column already exists
