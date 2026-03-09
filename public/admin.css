@@ -700,3 +700,50 @@ textarea.form-control {
 @media (max-width: 480px) {
   .autofill-row { flex-direction: column; align-items: stretch; }
 }
+
+/* ── Sortable table headers ─────────────────────────────────────────── */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable:hover { color: var(--accent); }
+.sortable.active-sort { color: var(--accent); }
+.sort-icon { font-size: 11px; opacity: 0.6; margin-left: 4px; }
+
+/* ── Select-all / row checkboxes ────────────────────────────────────── */
+.th-check, .td-check {
+  width: 36px;
+  text-align: center;
+  padding: 0 8px;
+}
+.row-selected td { background: rgba(0, 217, 255, 0.05); }
+
+/* ── Bulk action toolbar ─────────────────────────────────────────────── */
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.bulk-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-right: 4px;
+}
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--text); }

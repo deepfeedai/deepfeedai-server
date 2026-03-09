@@ -94,6 +94,11 @@ router.put('/:id', auth, (req, res) => {
     image_url, author, is_featured, is_published, published_at
   } = req.body;
 
+  // Enforce single featured — unfeature all others if this article is being featured
+  if (is_featured) {
+    db.prepare("UPDATE articles SET is_featured = 0, updated_at = datetime('now') WHERE id != ?").run(req.params.id);
+  }
+
   db.prepare(`
     UPDATE articles SET
       title = ?, summary = ?, content = ?, category = ?, source = ?,

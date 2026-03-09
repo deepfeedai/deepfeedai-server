@@ -42,20 +42,33 @@
         <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
       </div>
 
+      <!-- Bulk action toolbar — hidden until rows are selected -->
+      <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
+        <span id="bulkCount" class="bulk-count">0 selected</span>
+        <button class="btn btn-sm btn-outline" id="bulkPublishBtn">✅ Publish</button>
+        <button class="btn btn-sm btn-outline" id="bulkUnpublishBtn">📄 Unpublish</button>
+        <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
+        <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
+      </div>
+
       <div class="table-wrap">
-        <table>
+        <table id="articlesTable">
           <thead>
             <tr>
-              <th>Title</th>
-              <th>Category</th>
-              <th>Status</th>
-              <th>Featured</th>
-              <th>Date</th>
+              <th class="th-check">
+                <input type="checkbox" id="selectAll" title="Select all" />
+              </th>
+              <th class="sortable" data-col="title">Title <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="source">Source <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="category">Category <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="is_published">Status <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="is_featured">Featured <span class="sort-icon">⇅</span></th>
+              <th class="sortable" data-col="published_at">Date <span class="sort-icon">⇅</span></th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="articlesBody">
-            <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">
               <span class="spinner"></span>
             </td></tr>
           </tbody>
@@ -163,24 +176,82 @@
 <script>
   let articles = [];
   let deleteTargetId = null;
+  let sortCol = 'published_at';
+  let sortDir = 'desc';
+  let selectedIds = new Set();
 
   function escHtml(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function sortArticles(col) {
+    if (sortCol === col) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortCol = col;
+      sortDir = ['published_at','created_at'].includes(col) ? 'desc' : 'asc';
+    }
+    // Update sort icons
+    document.querySelectorAll('.sortable').forEach(th => {
+      const icon = th.querySelector('.sort-icon');
+      if (th.dataset.col === sortCol) {
+        icon.textContent = sortDir === 'asc' ? '↑' : '↓';
+        th.classList.add('active-sort');
+      } else {
+        icon.textContent = '⇅';
+        th.classList.remove('active-sort');
+      }
+    });
+    articles.sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (va == null) va = '';
+      if (vb == null) vb = '';
+      if (['is_published','is_featured'].includes(sortCol)) {
+        va = Number(va); vb = Number(vb);
+      } else if (['published_at','created_at'].includes(sortCol)) {
+        va = new Date(va); vb = new Date(vb);
+      } else {
+        va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    renderTable();
+  }
+
+  function updateBulkToolbar() {
+    const toolbar = document.getElementById('bulkToolbar');
+    const count   = document.getElementById('bulkCount');
+    if (selectedIds.size > 0) {
+      toolbar.style.display = 'flex';
+      count.textContent = `${selectedIds.size} selected`;
+    } else {
+      toolbar.style.display = 'none';
+    }
+    // Sync select-all checkbox
+    const all = document.getElementById('selectAll');
+    if (all) all.checked = articles.length > 0 && selectedIds.size === articles.length;
+  }
+
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6">
+      tbody.innerHTML = `<tr><td colspan="8">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
       </td></tr>`;
+      updateBulkToolbar();
       return;
     }
 
     tbody.innerHTML = articles.map(a => `
-      <tr id="row-${a.id}">
+      <tr id="row-${a.id}" class="${selectedIds.has(a.id) ? 'row-selected' : ''}">
+        <td class="td-check">
+          <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
+        </td>
         <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
+        <td style="color:var(--muted);font-size:12px;">${escHtml(a.source || '—')}</td>
         <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
         <td>
           <button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
@@ -196,18 +267,42 @@
             ${a.is_featured ? '⭐ Yes' : '—'}
           </button>
         </td>
-        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
+        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
         <td class="td-actions">
           <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
           <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(${a.id})">🗑️</button>
         </td>
       </tr>
     `).join('');
+
+    // Wire up row checkboxes
+    tbody.querySelectorAll('.row-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = parseInt(cb.dataset.id);
+        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        const row = document.getElementById(`row-${id}`);
+        if (row) row.classList.toggle('row-selected', cb.checked);
+        updateBulkToolbar();
+      });
+    });
+
+    updateBulkToolbar();
   }
 
   async function loadArticles() {
     try {
       articles = await apiFetch('/articles');
+      // Re-apply current sort after reload
+      articles.sort((a, b) => {
+        let va = a[sortCol], vb = b[sortCol];
+        if (va == null) va = ''; if (vb == null) vb = '';
+        if (['is_published','is_featured'].includes(sortCol)) { va = Number(va); vb = Number(vb); }
+        else if (['published_at','created_at'].includes(sortCol)) { va = new Date(va); vb = new Date(vb); }
+        else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
+        if (va < vb) return sortDir === 'asc' ? -1 : 1;
+        if (va > vb) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      });
       renderTable();
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
@@ -317,20 +412,15 @@
       const saveBtn = document.getElementById('saveArticleBtn');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
-
       if (id) {
-        const updated = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        const idx = articles.findIndex(a => a.id === parseInt(id));
-        if (idx >= 0) articles[idx] = updated;
+        await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
         showAlert('Article updated ✓');
       } else {
-        const created = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
-        articles.unshift(created);
+        await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
         showAlert('Article created ✓');
       }
-
       closeModal('articleModal');
-      renderTable();
+      await loadArticles();
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save Article';
     } catch (err) {
@@ -344,11 +434,11 @@
     if (!deleteTargetId) return;
     try {
       await apiFetch(`/articles/${deleteTargetId}`, { method: 'DELETE' });
-      articles = articles.filter(a => a.id !== deleteTargetId);
-      renderTable();
+      selectedIds.delete(deleteTargetId);
       closeModal('deleteModal');
       showAlert('Article deleted');
       deleteTargetId = null;
+      await loadArticles();
     } catch (err) {
       showAlert('Delete failed: ' + err.message, 'error');
     }
@@ -357,19 +447,45 @@
   async function togglePublish(id) {
     try {
       await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
-      await loadArticles(); // re-fetch full list — avoids stale local state
-    } catch (err) {
-      showAlert('Error: ' + err.message, 'error');
-    }
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
   }
 
   async function toggleFeature(id) {
     try {
       await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
-      await loadArticles(); // re-fetch — picks up any other articles that were unfeatured
-    } catch (err) {
-      showAlert('Error: ' + err.message, 'error');
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+  }
+
+  // ── Bulk actions ────────────────────────────────────────────────────────────
+  async function bulkSetPublish(val) {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    let done = 0;
+    for (const id of ids) {
+      const a = articles.find(x => x.id === id);
+      if (a && a.is_published !== val) {
+        await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+        done++;
+      }
     }
+    selectedIds.clear();
+    showAlert(`${done} article(s) ${val ? 'published' : 'unpublished'} ✓`);
+    await loadArticles();
+  }
+
+  async function bulkDelete() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} article(s)? This cannot be undone.`)) return;
+    let done = 0;
+    for (const id of ids) {
+      try { await apiFetch(`/articles/${id}`, { method: 'DELETE' }); done++; } catch {}
+    }
+    selectedIds.clear();
+    showAlert(`${done} article(s) deleted`);
+    await loadArticles();
   }
 
   onReady(async () => {
@@ -382,6 +498,30 @@
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
     document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+
+    // Sortable column headers
+    document.querySelectorAll('.sortable').forEach(th => {
+      th.addEventListener('click', () => sortArticles(th.dataset.col));
+    });
+
+    // Select all checkbox
+    document.getElementById('selectAll').addEventListener('change', e => {
+      if (e.target.checked) {
+        articles.forEach(a => selectedIds.add(a.id));
+      } else {
+        selectedIds.clear();
+      }
+      renderTable();
+    });
+
+    // Bulk toolbar buttons
+    document.getElementById('bulkPublishBtn').addEventListener('click', () => bulkSetPublish(1));
+    document.getElementById('bulkUnpublishBtn').addEventListener('click', () => bulkSetPublish(0));
+    document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
+    document.getElementById('bulkClearBtn').addEventListener('click', () => {
+      selectedIds.clear();
+      renderTable();
+    });
 
     await loadArticles();
   });
