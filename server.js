@@ -8,19 +8,9 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ── Middleware ──────────────────────────────────────────────────────
-const allowedOrigins = [
-  'https://deepfeedai.com',
-  'https://www.deepfeedai.com',
-  /^http:\/\/localhost(:\d+)?$/,
-  /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
-];
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // server-to-server / same-origin
-    const ok = allowedOrigins.some(o => typeof o === 'string' ? o === origin : o.test(origin));
-    cb(ok ? null : new Error('CORS: origin not allowed'), ok);
-  },
-}));
+// CORS open — all mutating endpoints are JWT-protected, CORS is not the security layer.
+// The admin panel itself (Railway URL) needs to call its own API, so we allow all origins.
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
