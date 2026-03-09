@@ -20,12 +20,18 @@ router.get('/', auth, async (req, res) => {
 
 // POST /api/sources
 router.post('/', auth, async (req, res) => {
-  const { name, url, priority, is_active } = req.body;
+  const { name, url, priority, is_active, auto_publish, auto_publish_max } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'Name and URL required' });
 
   const source = await db.prepare(
-    'INSERT INTO sources (name, url, priority, is_active) VALUES (?, ?, ?, ?) RETURNING *'
-  ).get(name, url, priority || 1, is_active !== undefined ? (is_active ? 1 : 0) : 1);
+    'INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max) VALUES (?, ?, ?, ?, ?, ?) RETURNING *'
+  ).get(
+    name, url,
+    priority         || 1,
+    is_active        !== undefined ? (is_active ? 1 : 0) : 1,
+    auto_publish     ? 1 : 0,
+    auto_publish_max !== undefined ? parseInt(auto_publish_max, 10) : 5
+  );
   res.status(201).json(source);
 });
 
@@ -34,14 +40,16 @@ router.put('/:id', auth, async (req, res) => {
   const existing = await db.prepare('SELECT * FROM sources WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Source not found' });
 
-  const { name, url, priority, is_active } = req.body;
+  const { name, url, priority, is_active, auto_publish, auto_publish_max } = req.body;
   const updated = await db.prepare(
-    'UPDATE sources SET name = ?, url = ?, priority = ?, is_active = ? WHERE id = ? RETURNING *'
+    'UPDATE sources SET name = ?, url = ?, priority = ?, is_active = ?, auto_publish = ?, auto_publish_max = ? WHERE id = ? RETURNING *'
   ).get(
-    name      !== undefined ? name      : existing.name,
-    url       !== undefined ? url       : existing.url,
-    priority  !== undefined ? priority  : existing.priority,
-    is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    name             !== undefined ? name             : existing.name,
+    url              !== undefined ? url              : existing.url,
+    priority         !== undefined ? priority         : existing.priority,
+    is_active        !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    auto_publish     !== undefined ? (auto_publish ? 1 : 0) : existing.auto_publish,
+    auto_publish_max !== undefined ? parseInt(auto_publish_max, 10) : existing.auto_publish_max,
     req.params.id
   );
   res.json(updated);

@@ -33,9 +33,19 @@ async function fetchAllSources(autoPublish = false) {
   const errors = [];
 
   for (const source of sources) {
+    // Per-source auto-publish overrides the global flag
+    const shouldAutoPublish = source.auto_publish ? true : autoPublish;
+    const maxToPublish      = parseInt(source.auto_publish_max, 10) || 5;
+    let autoPublishedForSource = 0;
+
     try {
       const feed = await parser.parseURL(source.url);
-      for (const item of feed.items) {
+      // Sort newest-first so auto-publish picks the latest articles
+      const items = (feed.items || []).slice().sort((a, b) => {
+        return new Date(b.pubDate || 0) - new Date(a.pubDate || 0);
+      });
+
+      for (const item of items) {
         const url = item.link || item.guid;
         if (!url || !item.title) continue;
 
@@ -48,10 +58,14 @@ async function fetchAllSources(autoPublish = false) {
         const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
         const author   = item.creator || item.author || null;
 
+        // Auto-publish up to max for this source; rest saved as drafts
+        const publish = shouldAutoPublish && autoPublishedForSource < maxToPublish ? 1 : 0;
+        if (publish) autoPublishedForSource++;
+
         await db.prepare(
           `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
-        ).run(item.title, summary, category, source.name, url, image, author, autoPublish ? 1 : 0, pubDate);
+        ).run(item.title, summary, category, source.name, url, image, author, publish, pubDate);
         inserted++;
       }
       await db.prepare('UPDATE sources SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), source.id);

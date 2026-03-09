@@ -100,13 +100,15 @@ async function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS sources (
-      id           SERIAL PRIMARY KEY,
-      name         TEXT NOT NULL,
-      url          TEXT NOT NULL UNIQUE,
-      priority     INTEGER DEFAULT 1,
-      is_active    INTEGER DEFAULT 1,
-      last_fetched TIMESTAMPTZ,
-      created_at   TIMESTAMPTZ DEFAULT NOW()
+      id               SERIAL PRIMARY KEY,
+      name             TEXT NOT NULL,
+      url              TEXT NOT NULL UNIQUE,
+      priority         INTEGER DEFAULT 1,
+      is_active        INTEGER DEFAULT 1,
+      auto_publish     INTEGER DEFAULT 0,
+      auto_publish_max INTEGER DEFAULT 5,
+      last_fetched     TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -116,6 +118,15 @@ async function initDb() {
       created_at    TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+
+  // Migrations — add columns that may not exist on older DBs
+  const migrations = [
+    `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish     INTEGER DEFAULT 0`,
+    `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish_max INTEGER DEFAULT 5`,
+  ];
+  for (const sql of migrations) {
+    try { await p.query(sql); } catch { /* already exists */ }
+  }
 
   // Seed admin user
   const existingAdmin = await prepare('SELECT id FROM users WHERE username = ?').get('admin');
