@@ -7,10 +7,41 @@ All notable changes to Deep Feed AI Admin are documented here.
 ## [Unreleased]
 > Features planned or in progress
 
+- **Phase 2 — HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
 - Neon Postgres for production (replace SQLite)
+- Cloudflare R2 / S3 sync for `public/media/` audio + video files
 - Up to 3 featured articles with priority ordering
 - Newsletter send interface
 - Analytics dashboard (page views, subscriber growth)
+
+---
+
+## [1.3.0] — 2026-03-09
+
+### Added
+- **Soft-delete / archive system** — articles can be archived instead of permanently deleted; archived articles are hidden from `/api/news` and trigger a cache bust on the main site; a 24-hour cron purges records older than 24 hours automatically
+  - `is_archived INTEGER DEFAULT 0` and `archived_at TEXT` columns added to DB
+  - `PUT /api/articles/:id/archive` — move to archive
+  - `PUT /api/articles/:id/restore` — restore from archive
+  - `DELETE /api/articles/:id/purge` — hard delete (admin only, for immediate removal)
+  - Archive tab on articles page with restore/purge actions per row
+- **ElevenLabs audio generation (Phase 1)** — generate MP3 narrations for any published article directly from the admin panel
+  - `POST /api/media/generate-audio` — Gemini 2.5 Flash Lite writes a natural 2–3 sentence spoken-word news anchor script, then ElevenLabs TTS converts it to MP3 and saves to `public/media/audio/{slug}-{id}.mp3`
+  - `DELETE /api/media/audio/:id` — remove audio file and clear DB record
+  - `PUT /api/media/toggle/:id` — toggle `media_enabled` (controls whether the audio player appears on the main site)
+  - Audio script (TTS text) stored as `audio_transcript` for karaoke caption display on the main site
+  - Falls back to cleaned RSS summary if Gemini is unavailable; text capped at 900 chars (ElevenLabs limit)
+- **Audio columns in DB** — `audio_url TEXT`, `audio_status TEXT` (`null | pending | ready | error`), `audio_transcript TEXT`, `media_enabled INTEGER DEFAULT 0` added to `articles` table via migration
+- **Audio column in admin articles table** — per-row controls: Generate button, ▶ preview player, 🗑 delete, ✅ On/Off toggle; status badge reflects `audio_status`
+- **`audio_transcript` exposed in `/api/article?slug=`** — single article lookup now returns the stored TTS script so the main site can render karaoke captions client-side
+- **`/media/*` served statically** — `public/media/` mounted as a static directory; audio files accessible at `/media/audio/{filename}.mp3`
+
+### Changed
+- **`buildTtsText()`** in `routes/media.js` prefers the Gemini-written spoken summary over raw RSS content; strips markdown, limits to 900 chars
+- **`/api/news` `SELECT *`** — automatically includes all new audio columns without query changes
+
+### Fixed
+- **`db.prepare().all()` used consistently** — `db.all()` does not exist in sql.js; corrected in `routes/article.js` (was causing silent 500s on slug lookups)
 
 ---
 
