@@ -8,11 +8,36 @@ All notable changes to Deep Feed AI Admin are documented here.
 > Features planned or in progress
 
 - **Phase 2 — HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
-- Neon Postgres for production (replace SQLite)
-- Cloudflare R2 / S3 sync for `public/media/` audio + video files
+- Cloudflare R2 setup for persistent production audio storage
 - Up to 3 featured articles with priority ordering
 - Newsletter send interface
 - Analytics dashboard (page views, subscriber growth)
+
+---
+
+## [2.0.0] — 2026-03-09
+
+### Added
+- **Production deployment on Railway** — admin backend fully deployed and live at `https://deepfeedai-admin-production.up.railway.app`
+- **PostgreSQL support** — `db.js` rewritten for `pg` Pool; `normalizeSql()` converts `?` → `$N` params and `datetime('now')` → `NOW()` / `INTERVAL` syntax transparently; `serializeRow()` normalises pg `Date` objects to ISO strings
+  - Schema updated: `SERIAL PRIMARY KEY`, `TIMESTAMPTZ DEFAULT NOW()`, `BOOLEAN` types
+  - `prepare().run/get/all` all return Promises — all callers updated to `async/await`
+  - `INSERT … RETURNING *` pattern replaces "insert then SELECT" pattern
+  - `sql.js` removed from dependencies; `pg` added
+- **Cloudflare R2 audio storage** — `routes/media.js` uploads MP3s to R2 via `@aws-sdk/client-s3` when `R2_*` env vars are set; falls back to local `public/media/audio/` in dev; CDN URL stored in DB for production, relative path for dev
+- **`railway.json`** — healthcheck on `GET /api/news/updated-at`, `restartPolicyType: ON_FAILURE`
+- **`.env.example`** — documents all required env vars: `PORT`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DATABASE_URL`, `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `R2_*`
+
+### Changed
+- **CORS** — replaced strict origin allowlist with `cors()` (open); security handled entirely by JWT on all authenticated endpoints; strict CORS was causing 500s when the admin panel's own browser called its own API
+- **OG image enrichment** — wrapped in `setImmediate()` (fire-and-forget); `POST /api/fetch` now responds immediately with inserted/skipped counts; enrichment continues in the background
+- **`fetchHtml()` timeout** — added `req.destroy()` call in the `timeout` event handler; previously the socket stayed open after the timeout event fired, causing concurrent scrapes to hang indefinitely
+- **Purge cron** — updated to use `NOW() - INTERVAL '24 hours'` syntax for Postgres
+- **Server startup** — `db.init()` awaited before `app.listen()`; admin user seeded on first run
+
+### Fixed
+- **All routes** — converted to `async/await`; every `db.prepare().run/get/all` call properly awaited (pg returns Promises; previously only sql.js-style sync was used)
+- **Fetch endpoint hanging** — two-part fix: socket abort on timeout + fire-and-forget OG enrichment (see Changed above)
 
 ---
 
