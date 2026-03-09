@@ -16,7 +16,10 @@ const JWT_SECRET      = process.env.JWT_SECRET      || 'deepfeedai_super_secret_
 const EL_API_KEY      = process.env.ELEVENLABS_API_KEY;
 const EL_VOICE_ID     = process.env.ELEVENLABS_VOICE_ID;
 const AUDIO_DIR       = path.join(__dirname, '..', 'public', 'media', 'audio');
-const MAX_CHARS       = 900; // ElevenLabs cap per request for summaries
+const MAX_CHARS        = 900; // ElevenLabs cap per request for summaries
+const GEMINI_API_KEY   = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL     = 'gemini-2.5-flash-lite';
+const GEMINI_URL       = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
@@ -34,14 +37,34 @@ function toSlug(title) {
     .slice(0, 60);
 }
 
-/** Clean article text for TTS — strip HTML, normalize whitespace */
-function cleanText(title, summary, source) {
-  const raw = [
-    `From ${source}.`,
-    title + '.',
-    (summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
-  ].join(' ');
-  return raw.slice(0, MAX_CHARS);
+/** Get an AI-polished summary from Gemini, with fallback to raw RSS summary */
+async function getAiSummary(title, rawSummary) {
+  if (!GEMINI_API_KEY) return null;
+  const prompt = `You are a professional news anchor. Write a concise 2-3 sentence spoken summary of this AI news article for a text-to-speech audio player. Use natural spoken language — no bullet points, no markdown, no hashtags. Sound engaging and informative.
+
+Article title: ${title}
+Article summary: ${(rawSummary || '').replace(/<[^>]+>/g, '').slice(0, 800)}
+
+Spoken summary:`;
+
+  try {
+    const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch { return null; }
+}
+
+/** Build TTS text: AI summary preferred, falls back to clean RSS summary */
+async function buildTtsText(title, summary, source) {
+  const aiSummary = await getAiSummary(title, summary);
+  const body = aiSummary
+    || (summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  return `From ${source}. ${title}. ${body}`.slice(0, MAX_CHARS);
 }
 
 /** Call ElevenLabs TTS API and return a Buffer of MP3 data */
@@ -97,7 +120,7 @@ router.post('/generate-audio', auth, async (req, res) => {
   db.prepare("UPDATE articles SET audio_status = 'pending', updated_at = datetime('now') WHERE id = ?").run(articleId);
 
   try {
-    const text     = cleanText(article.title, article.summary, article.source || 'Deep Feed AI');
+    const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI');
     const mp3Buf   = await generateSpeech(text);
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;
@@ -113,7 +136,7 @@ router.post('/generate-audio', auth, async (req, res) => {
       WHERE id = ?
     `).run(audioUrl, articleId);
 
-    res.json({ audioUrl, charCount: text.length });
+    res.json({ audioUrl, charCount: text.length, ttsText: text });
   } catch (err) {
     db.prepare("UPDATE articles SET audio_status = 'error', updated_at = datetime('now') WHERE id = ?").run(articleId);
     console.error('[Media] ElevenLabs error:', err.message);
