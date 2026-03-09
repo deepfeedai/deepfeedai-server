@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Sources</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="admin-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🤖 Deep Feed<span>AI</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Navigation</div>
+      <a class="nav-link" href="/index.html"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-link" href="/articles.html"><span class="icon">📰</span> Articles</a>
+      <a class="nav-link active" href="/sources.html"><span class="icon">📡</span> Sources</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-link" data-logout><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Main -->
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+      <div class="topbar-title">RSS Sources</div>
+    </header>
+
+    <div class="page-body">
+      <div id="alertArea"></div>
+
+      <div class="section-header">
+        <div class="section-title">RSS Sources</div>
+        <button class="btn btn-primary" id="addSourceBtn">＋ Add Source</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>URL</th>
+              <th>Category</th>
+              <th>Priority</th>
+              <th>Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sourcesBody">
+            <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">
+              <span class="spinner"></span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="sourceModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="sourceModalTitle">Add Source</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editSourceId" />
+      <div class="form-group">
+        <label class="form-label" for="fSName">Source Name *</label>
+        <input class="form-control" type="text" id="fSName" placeholder="e.g. The Verge AI" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fSUrl">RSS URL *</label>
+        <input class="form-control" type="url" id="fSUrl" placeholder="https://example.com/feed.xml" required />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="fSCategory">Category</label>
+          <select class="form-control" id="fSCategory"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fSPriority">Priority (1 = highest)</label>
+          <input class="form-control" type="number" id="fSPriority" min="1" max="10" value="1" />
+        </div>
+      </div>
+      <div class="form-check" style="margin-top:8px;">
+        <label class="toggle">
+          <input type="checkbox" id="fSActive" checked />
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="form-check-label">Active</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveSourceBtn">Save Source</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteSourceModal">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <div class="modal-title">Delete Source</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);">Are you sure you want to delete this source? This cannot be undone.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteSourceBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script>
+  let sources = [];
+  let deleteSourceId = null;
+
+  function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('sourcesBody');
+    if (sources.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6">
+        <div class="empty-state"><div class="empty-icon">📡</div><p>No sources yet. Add one!</p></div>
+      </td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = sources.map(s => `
+      <tr id="srow-${s.id}">
+        <td style="font-weight:500;">${escHtml(s.name)}</td>
+        <td class="td-url" title="${escHtml(s.url)}">
+          <a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="color:var(--muted);font-size:12px;">
+            ${escHtml(s.url.length > 50 ? s.url.slice(0, 50) + '…' : s.url)}
+          </a>
+        </td>
+        <td><span class="badge badge-muted">${escHtml(s.category || '—')}</span></td>
+        <td style="color:var(--muted);">${s.priority}</td>
+        <td>
+          <button
+            class="badge ${s.is_active ? 'badge-success' : 'badge-danger'}"
+            style="cursor:pointer;border:none;background:inherit;"
+            onclick="toggleActive(${s.id})">
+            ${s.is_active ? 'Active' : 'Off'}
+          </button>
+        </td>
+        <td class="td-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEditSource(${s.id})">✏️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDeleteSource(${s.id})">🗑️</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadSources() {
+    try {
+      sources = await apiFetch('/sources');
+      renderTable();
+    } catch (err) {
+      showAlert('Failed to load sources: ' + err.message, 'error');
+    }
+  }
+
+  function openAddSource() {
+    document.getElementById('sourceModalTitle').textContent = 'Add Source';
+    document.getElementById('editSourceId').value = '';
+    document.getElementById('fSName').value = '';
+    document.getElementById('fSUrl').value = '';
+    document.getElementById('fSCategory').innerHTML = categoryOptions('Industry');
+    document.getElementById('fSPriority').value = '1';
+    document.getElementById('fSActive').checked = true;
+    openModal('sourceModal');
+    document.getElementById('fSName').focus();
+  }
+
+  function openEditSource(id) {
+    const s = sources.find(x => x.id === id);
+    if (!s) return;
+    document.getElementById('sourceModalTitle').textContent = 'Edit Source';
+    document.getElementById('editSourceId').value = s.id;
+    document.getElementById('fSName').value = s.name || '';
+    document.getElementById('fSUrl').value = s.url || '';
+    document.getElementById('fSCategory').innerHTML = categoryOptions(s.category);
+    document.getElementById('fSPriority').value = s.priority || 1;
+    document.getElementById('fSActive').checked = !!s.is_active;
+    openModal('sourceModal');
+    document.getElementById('fSName').focus();
+  }
+
+  function openDeleteSource(id) {
+    deleteSourceId = id;
+    openModal('deleteSourceModal');
+  }
+
+  async function saveSource() {
+    const id   = document.getElementById('editSourceId').value;
+    const name = document.getElementById('fSName').value.trim();
+    const url  = document.getElementById('fSUrl').value.trim();
+    if (!name) { showAlert('Source name is required', 'error'); return; }
+    if (!url)  { showAlert('RSS URL is required', 'error');  return; }
+
+    const payload = {
+      name,
+      url,
+      category  : document.getElementById('fSCategory').value,
+      priority  : parseInt(document.getElementById('fSPriority').value) || 1,
+      is_active : document.getElementById('fSActive').checked,
+    };
+
+    const saveBtn = document.getElementById('saveSourceBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    try {
+      if (id) {
+        const updated = await apiFetch(`/sources/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        const idx = sources.findIndex(s => s.id === parseInt(id));
+        if (idx >= 0) sources[idx] = updated;
+        showAlert('Source updated ✓');
+      } else {
+        const created = await apiFetch('/sources', { method: 'POST', body: JSON.stringify(payload) });
+        sources.unshift(created);
+        showAlert('Source added ✓');
+      }
+      closeModal('sourceModal');
+      renderTable();
+    } catch (err) {
+      showAlert('Error: ' + err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Source';
+    }
+  }
+
+  async function confirmDeleteSource() {
+    if (!deleteSourceId) return;
+    try {
+      await apiFetch(`/sources/${deleteSourceId}`, { method: 'DELETE' });
+      sources = sources.filter(s => s.id !== deleteSourceId);
+      renderTable();
+      closeModal('deleteSourceModal');
+      showAlert('Source deleted');
+      deleteSourceId = null;
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  async function toggleActive(id) {
+    try {
+      const res = await apiFetch(`/sources/${id}/toggle`, { method: 'PUT' });
+      const s = sources.find(x => x.id === id);
+      if (s) s.is_active = res.is_active;
+      renderTable();
+    } catch (err) {
+      showAlert('Error: ' + err.message, 'error');
+    }
+  }
+
+  onReady(async () => {
+    if (!requireAuth()) return;
+    initSidebar();
+    initLogout();
+    initModals();
+
+    document.getElementById('fSCategory').innerHTML = categoryOptions('Industry');
+    document.getElementById('addSourceBtn').addEventListener('click', openAddSource);
+    document.getElementById('saveSourceBtn').addEventListener('click', saveSource);
+    document.getElementById('confirmDeleteSourceBtn').addEventListener('click', confirmDeleteSource);
+
+    await loadSources();
+  });
+</script>
+</body>
+</html>

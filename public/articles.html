@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Articles</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="admin-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🤖 Deep Feed<span>AI</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Navigation</div>
+      <a class="nav-link" href="/index.html"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-link active" href="/articles.html"><span class="icon">📰</span> Articles</a>
+      <a class="nav-link" href="/sources.html"><span class="icon">📡</span> Sources</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-link" data-logout><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Main -->
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+      <div class="topbar-title">Articles</div>
+    </header>
+
+    <div class="page-body">
+      <div id="alertArea"></div>
+
+      <div class="section-header">
+        <div class="section-title">All Articles</div>
+        <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Featured</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="articlesBody">
+            <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">
+              <span class="spinner"></span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="articleModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Add Article</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editId" />
+      <div class="form-group">
+        <label class="form-label" for="fTitle">Title *</label>
+        <input class="form-control" type="text" id="fTitle" placeholder="Article title" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fSummary">Summary</label>
+        <textarea class="form-control" id="fSummary" rows="3" placeholder="Short description…"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="fCategory">Category</label>
+          <select class="form-control" id="fCategory"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fAuthor">Author</label>
+          <input class="form-control" type="text" id="fAuthor" placeholder="Author name" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="fSource">Source Name</label>
+          <input class="form-control" type="text" id="fSource" placeholder="e.g. The Verge" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="fSourceUrl">Source URL</label>
+          <input class="form-control" type="url" id="fSourceUrl" placeholder="https://…" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fImageUrl">Image URL</label>
+        <input class="form-control" type="url" id="fImageUrl" placeholder="https://…" />
+      </div>
+      <div style="display:flex;gap:24px;margin-top:8px;">
+        <label class="form-check">
+          <label class="toggle">
+            <input type="checkbox" id="fPublished" checked />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="form-check-label">Published</span>
+        </label>
+        <label class="form-check">
+          <label class="toggle">
+            <input type="checkbox" id="fFeatured" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="form-check-label">Featured</span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveArticleBtn">Save Article</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header">
+      <div class="modal-title">Delete Article</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);">Are you sure you want to delete this article? This cannot be undone.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script>
+  let articles = [];
+  let deleteTargetId = null;
+
+  function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('articlesBody');
+    if (articles.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6">
+        <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
+      </td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = articles.map(a => `
+      <tr id="row-${a.id}">
+        <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
+        <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
+        <td>
+          <button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
+            style="cursor:pointer;border:none;background:inherit;"
+            onclick="togglePublish(${a.id})">
+            ${a.is_published ? 'Published' : 'Draft'}
+          </button>
+        </td>
+        <td>
+          <button class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}"
+            style="cursor:pointer;border:none;background:inherit;"
+            onclick="toggleFeature(${a.id})">
+            ${a.is_featured ? '⭐ Yes' : '—'}
+          </button>
+        </td>
+        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
+        <td class="td-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(${a.id})">🗑️</button>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadArticles() {
+    try {
+      articles = await apiFetch('/articles');
+      renderTable();
+    } catch (err) {
+      showAlert('Failed to load articles: ' + err.message, 'error');
+    }
+  }
+
+  function openAdd() {
+    document.getElementById('modalTitle').textContent = 'Add Article';
+    document.getElementById('editId').value = '';
+    document.getElementById('fTitle').value = '';
+    document.getElementById('fSummary').value = '';
+    document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
+    document.getElementById('fAuthor').value = '';
+    document.getElementById('fSource').value = '';
+    document.getElementById('fSourceUrl').value = '';
+    document.getElementById('fImageUrl').value = '';
+    document.getElementById('fPublished').checked = true;
+    document.getElementById('fFeatured').checked = false;
+    openModal('articleModal');
+    document.getElementById('fTitle').focus();
+  }
+
+  function openEdit(id) {
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+    document.getElementById('modalTitle').textContent = 'Edit Article';
+    document.getElementById('editId').value = a.id;
+    document.getElementById('fTitle').value = a.title || '';
+    document.getElementById('fSummary').value = a.summary || '';
+    document.getElementById('fCategory').innerHTML = categoryOptions(a.category);
+    document.getElementById('fAuthor').value = a.author || '';
+    document.getElementById('fSource').value = a.source || '';
+    document.getElementById('fSourceUrl').value = a.source_url || '';
+    document.getElementById('fImageUrl').value = a.image_url || '';
+    document.getElementById('fPublished').checked = !!a.is_published;
+    document.getElementById('fFeatured').checked = !!a.is_featured;
+    openModal('articleModal');
+    document.getElementById('fTitle').focus();
+  }
+
+  function openDelete(id) {
+    deleteTargetId = id;
+    openModal('deleteModal');
+  }
+
+  async function saveArticle() {
+    const id    = document.getElementById('editId').value;
+    const title = document.getElementById('fTitle').value.trim();
+    if (!title) { showAlert('Title is required', 'error'); return; }
+
+    const payload = {
+      title,
+      summary   : document.getElementById('fSummary').value.trim() || null,
+      category  : document.getElementById('fCategory').value,
+      author    : document.getElementById('fAuthor').value.trim() || null,
+      source    : document.getElementById('fSource').value.trim() || null,
+      source_url: document.getElementById('fSourceUrl').value.trim() || null,
+      image_url : document.getElementById('fImageUrl').value.trim() || null,
+      is_published: document.getElementById('fPublished').checked,
+      is_featured : document.getElementById('fFeatured').checked,
+    };
+
+    try {
+      const saveBtn = document.getElementById('saveArticleBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      if (id) {
+        const updated = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        const idx = articles.findIndex(a => a.id === parseInt(id));
+        if (idx >= 0) articles[idx] = updated;
+        showAlert('Article updated ✓');
+      } else {
+        const created = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
+        articles.unshift(created);
+        showAlert('Article created ✓');
+      }
+
+      closeModal('articleModal');
+      renderTable();
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Article';
+    } catch (err) {
+      showAlert('Error: ' + err.message, 'error');
+      document.getElementById('saveArticleBtn').disabled = false;
+      document.getElementById('saveArticleBtn').textContent = 'Save Article';
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTargetId) return;
+    try {
+      await apiFetch(`/articles/${deleteTargetId}`, { method: 'DELETE' });
+      articles = articles.filter(a => a.id !== deleteTargetId);
+      renderTable();
+      closeModal('deleteModal');
+      showAlert('Article deleted');
+      deleteTargetId = null;
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  async function togglePublish(id) {
+    try {
+      const res = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+      const a = articles.find(x => x.id === id);
+      if (a) a.is_published = res.is_published;
+      renderTable();
+    } catch (err) {
+      showAlert('Error: ' + err.message, 'error');
+    }
+  }
+
+  async function toggleFeature(id) {
+    try {
+      const res = await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
+      const a = articles.find(x => x.id === id);
+      if (a) a.is_featured = res.is_featured;
+      renderTable();
+    } catch (err) {
+      showAlert('Error: ' + err.message, 'error');
+    }
+  }
+
+  onReady(async () => {
+    if (!requireAuth()) return;
+    initSidebar();
+    initLogout();
+    initModals();
+
+    document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
+    document.getElementById('addArticleBtn').addEventListener('click', openAdd);
+    document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
+    document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+
+    await loadArticles();
+  });
+</script>
+</body>
+</html>

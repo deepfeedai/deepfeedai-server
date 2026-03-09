@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Sign In</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">🤖 Deep Feed<span>AI</span></div>
+    <div class="login-sub">Admin Panel</div>
+
+    <div class="login-error" id="loginError"></div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input
+          class="form-control"
+          type="text"
+          id="username"
+          name="username"
+          autocomplete="username"
+          placeholder="admin"
+          required
+        />
+      </div>
+      <div class="form-group" style="margin-bottom: 24px;">
+        <label class="form-label" for="password">Password</label>
+        <input
+          class="form-control"
+          type="password"
+          id="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+          required
+        />
+      </div>
+      <button class="btn btn-primary" type="submit" id="signInBtn">
+        Sign In
+      </button>
+    </form>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script>
+  onReady(() => {
+    // Redirect if already logged in
+    requireGuest();
+
+    const form     = document.getElementById('loginForm');
+    const errEl    = document.getElementById('loginError');
+    const signInBtn = document.getElementById('signInBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.style.display = 'none';
+      signInBtn.disabled = true;
+      signInBtn.innerHTML = '<span class="spinner"></span> Signing in…';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const data = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const json = await data.json();
+
+        if (!data.ok) {
+          throw new Error(json.error || 'Login failed');
+        }
+
+        setToken(json.token);
+        localStorage.setItem('deepfeedai_user', json.username);
+        window.location.href = '/index.html';
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        signInBtn.disabled = false;
+        signInBtn.textContent = 'Sign In';
+      }
+    });
+  });
+</script>
+</body>
+</html>
