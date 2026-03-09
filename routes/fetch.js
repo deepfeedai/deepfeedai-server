@@ -2,26 +2,20 @@
  * Deep Feed AI — /api/fetch
  * Fetches RSS from all active sources and inserts new articles into the DB.
  */
-const express         = require('express');
-const router          = require('express').Router();
-const RSSParser       = require('rss-parser');
-const jwt             = require('jsonwebtoken');
-const db              = require('../db');
+const router    = require('express').Router();
+const RSSParser = require('rss-parser');
+const jwt       = require('jsonwebtoken');
+const db        = require('../db');
 const { scrapeOgImage } = require('../lib/scrape');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
 const parser     = new RSSParser();
 
 function authMiddleware(req, res, next) {
-  const auth = req.headers.authorization || '';
-  const token = auth.replace('Bearer ', '');
+  const token = (req.headers.authorization || '').replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
+  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
+  catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
 function detectCategory(item) {
@@ -33,11 +27,9 @@ function detectCategory(item) {
   return 'Industry';
 }
 
-/** Core fetch logic — called by both the API route and the cron job */
 async function fetchAllSources(autoPublish = false) {
-  const sources = db.prepare('SELECT * FROM sources WHERE is_active = 1').all();
-  let inserted = 0;
-  let skipped  = 0;
+  const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1').all();
+  let inserted = 0, skipped = 0;
   const errors = [];
 
   for (const source of sources) {
@@ -47,58 +39,50 @@ async function fetchAllSources(autoPublish = false) {
         const url = item.link || item.guid;
         if (!url || !item.title) continue;
 
-        // Deduplicate by source_url — include archived so they're never re-fetched
-        const existing = db.prepare('SELECT id FROM articles WHERE source_url = ?').get(url);
+        const existing = await db.prepare('SELECT id FROM articles WHERE source_url = ?').get(url);
         if (existing) { skipped++; continue; }
 
-        const category  = detectCategory(item);
-        const image     = item.enclosure?.url || item['media:thumbnail']?.['$']?.url || null;
-        const summary   = (item.contentSnippet || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 500) || null;
-        const pubDate   = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
-        const author    = item.creator || item.author || null;
+        const category = detectCategory(item);
+        const image    = item.enclosure?.url || item['media:thumbnail']?.['$']?.url || null;
+        const summary  = (item.contentSnippet || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 500) || null;
+        const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
+        const author   = item.creator || item.author || null;
 
-        db.prepare(
+        await db.prepare(
           `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
         ).run(item.title, summary, category, source.name, url, image, author, autoPublish ? 1 : 0, pubDate);
         inserted++;
       }
-
-      // Update last_fetched
-      db.prepare('UPDATE sources SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), source.id);
+      await db.prepare('UPDATE sources SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), source.id);
     } catch (err) {
       errors.push({ source: source.name, error: err.message });
     }
   }
 
-  // Enrich articles missing images with OG scraping (3 concurrent, best-effort)
-  {
-    const noImage = db.prepare(
-      'SELECT id, source_url FROM articles WHERE (image_url IS NULL OR image_url = \'\') AND (is_archived = 0 OR is_archived IS NULL) ORDER BY id DESC LIMIT 30'
-    ).all();
+  // Enrich articles missing images via OG scraping (3 concurrent, best-effort)
+  const noImage = await db.prepare(
+    'SELECT id, source_url FROM articles WHERE (image_url IS NULL OR image_url = \'\') AND (is_archived = 0 OR is_archived IS NULL) ORDER BY id DESC LIMIT 30'
+  ).all();
 
-    const CONCURRENCY = 3;
-    for (let i = 0; i < noImage.length; i += CONCURRENCY) {
-      const batch = noImage.slice(i, i + CONCURRENCY);
-      await Promise.all(batch.map(async (a) => {
-        try {
-          const img = await scrapeOgImage(a.source_url);
-          if (img) {
-            db.prepare("UPDATE articles SET image_url = ?, updated_at = datetime('now') WHERE id = ?").run(img, a.id);
-          }
-        } catch { /* ignore per-article failures */ }
-      }));
-    }
+  const CONCURRENCY = 3;
+  for (let i = 0; i < noImage.length; i += CONCURRENCY) {
+    const batch = noImage.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(async (a) => {
+      try {
+        const img = await scrapeOgImage(a.source_url);
+        if (img) await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(img, a.id);
+      } catch { /* ignore per-article failures */ }
+    }));
   }
 
   return { inserted, skipped, errors };
 }
 
-// POST /api/fetch — manual trigger from admin UI (requires auth)
+// POST /api/fetch
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const autoPublish = req.body.autoPublish === true;
-    const result = await fetchAllSources(autoPublish);
+    const result = await fetchAllSources(req.body.autoPublish === true);
     res.json({ status: 'ok', ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
