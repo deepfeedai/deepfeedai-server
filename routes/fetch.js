@@ -46,7 +46,7 @@ async function fetchAllSources(autoPublish = false) {
         const url = item.link || item.guid;
         if (!url || !item.title) continue;
 
-        // Deduplicate by source_url
+        // Deduplicate by source_url — include archived so they're never re-fetched
         const existing = db.prepare('SELECT id FROM articles WHERE source_url = ?').get(url);
         if (existing) { skipped++; continue; }
 

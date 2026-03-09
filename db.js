@@ -36,6 +36,8 @@ async function initDb() {
       author TEXT,
       is_featured INTEGER DEFAULT 0,
       is_published INTEGER DEFAULT 1,
+      is_archived INTEGER DEFAULT 0,
+      archived_at TEXT,
       published_at TEXT DEFAULT (datetime('now')),
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
@@ -63,6 +65,16 @@ async function initDb() {
     db.run(schema);
   } catch (e) {
     // Tables might already exist
+  }
+
+  // Migrations — add columns to existing DBs safely
+  const migrations = [
+    "ALTER TABLE articles ADD COLUMN is_archived INTEGER DEFAULT 0",
+    "ALTER TABLE articles ADD COLUMN archived_at TEXT",
+    "ALTER TABLE articles ADD COLUMN updated_at TEXT DEFAULT (datetime('now'))",
+  ];
+  for (const m of migrations) {
+    try { db.run(m); } catch {} // silently skip if column already exists
   }
 
   saveDb();

@@ -37,10 +37,27 @@ cron.schedule('*/30 * * * *', async () => {
   console.log(`[Cron] Done — ${result.inserted} new, ${result.skipped} skipped`);
 });
 
+// Purge archived articles older than 24 hours — runs every hour
+cron.schedule('0 * * * *', () => {
+  try {
+    const result = db.prepare(`
+      DELETE FROM articles
+      WHERE is_archived = 1
+        AND archived_at IS NOT NULL
+        AND archived_at <= datetime('now', '-24 hours')
+    `).run();
+    if (result.changes > 0) {
+      console.log(`[Cron] Purged ${result.changes} archived article(s) older than 24h`);
+    }
+  } catch (e) {
+    console.error('[Cron] Purge error:', e.message);
+  }
+});
+
 // Public API — no auth — for the main Deep Feed AI site
 app.get('/api/news', (req, res) => {
   const { category, limit: lim, featured } = req.query;
-  let query = 'SELECT * FROM articles WHERE is_published = 1';
+  let query = 'SELECT * FROM articles WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)';
   const params = [];
 
   if (category) {
@@ -64,13 +81,13 @@ app.get('/api/news', (req, res) => {
   res.json({ status: 'ok', items: articles, count: articles.length });
 });
 
-// Lightweight cache-bust check — returns the latest updated_at timestamp
-// Main site polls this before deciding whether to use its localStorage cache
+// Lightweight cache-bust check — returns the latest updated_at across ALL articles
+// (including archived/unpublished) so any admin action busts the main site cache
 app.get('/api/news/updated-at', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
     const row = db.prepare(
-      `SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles WHERE is_published = 1`
+      `SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles`
     ).get();
     res.json({ updatedAt: row?.ts || null });
   } catch {

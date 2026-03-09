@@ -124,15 +124,41 @@ router.put('/:id', auth, (req, res) => {
   res.json(updated);
 });
 
-// DELETE /api/articles/:id
+// DELETE /api/articles/:id — soft archive (excluded from API, kept for dedup)
 router.delete('/:id', auth, (req, res) => {
   const existing = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
 
+  db.prepare(`
+    UPDATE articles
+    SET is_archived = 1, is_published = 0, is_featured = 0,
+        archived_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params.id);
+  res.json({ message: 'Article archived' });
+});
+
+// DELETE /api/articles/:id/purge — hard delete (no recovery)
+router.delete('/:id/purge', auth, (req, res) => {
+  const existing = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Article not found' });
+
   db.prepare('DELETE FROM articles WHERE id = ?').run(req.params.id);
-  // Touch a sentinel row so updated-at endpoint reflects the deletion
-  db.prepare("UPDATE articles SET updated_at = datetime('now') WHERE id = (SELECT id FROM articles ORDER BY id DESC LIMIT 1)").run();
-  res.json({ message: 'Article deleted' });
+  res.json({ message: 'Article permanently deleted' });
+});
+
+// PUT /api/articles/:id/restore — unarchive
+router.put('/:id/restore', auth, (req, res) => {
+  const existing = db.prepare('SELECT id FROM articles WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Article not found' });
+
+  db.prepare(`
+    UPDATE articles
+    SET is_archived = 0, archived_at = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `).run(req.params.id);
+  const updated = db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
+  res.json(updated);
 });
 
 // PUT /api/articles/:id/feature — toggle featured (only 1 featured at a time)
