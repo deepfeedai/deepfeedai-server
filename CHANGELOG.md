@@ -14,6 +14,43 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.1.0] — 2026-03-10
+
+### Added
+- **AI-generated article thumbnails** — new `POST /api/media/generate-image` endpoint in `routes/media.js`
+  - Accepts `{ articleId }`, fetches the article from DB, and runs a two-step AI pipeline
+  - **Step 1 — Gemini visual concept:** uses `gemini-2.5-flash-lite` to write a short (≤40 words) abstract, cinematic visual concept for the article based on title, summary, and category
+  - **Step 2 — Imagen 3 generation:** calls `imagen-3.0-generate-002` with the visual concept combined with a category-specific style preset (LLMs, Research, Tools, Policy, Business, CyberSecurity, Image AI, Industry, Agents, Hardware) at 16:9 aspect ratio
+  - **Storage:** uploads PNG to Cloudflare R2 (`images/article-{id}.png`) when R2 is configured; falls back to local `public/media/images/` in dev
+  - **DB update:** saves CDN/local URL to `articles.image_url`; main site picks up the new image automatically on next load
+  - Includes 30-second timeout on Imagen API call; falls back to title-based prompt if Gemini concept step fails
+- **🎨 Generate AI image button** in admin articles table — appears on all non-archived articles in the actions column; shows ⏳ spinner while generating, restores on error
+
+---
+
+## [3.1.0] — 2026-03-10
+
+### Added
+- **AI-generated article thumbnails** via Google Imagen 4
+  - Two-step pipeline: Gemini writes a specific visual concept from the article title/summary/category → Imagen 4 renders a 16:9 image
+  - 10 per-category style presets (LLMs, Research, Tools, Policy, Business, CyberSecurity, Image AI, Industry, Agents, Hardware)
+  - Images stored to Cloudflare R2 (`images/` prefix) with randomized filenames (`img-{hex}-{timestamp}.png`); local `public/media/images/` fallback for dev
+  - `POST /api/media/generate-image` — accepts `{ articleId }`; updates `image_url` on article; returns `{ imageUrl, visualConcept, fullPrompt }` for debugging
+- **Image column in articles table** — 52×36px clickable thumbnail for articles with images; 🎨 generate button for articles without
+- **AI badge** — cyan `AI` pill overlaid on thumbnail corner for AI-generated images
+- **Image preview modal** — full-size preview on thumbnail click with "Open full size" link
+- **Bulk image generation** — select multiple articles → 🎨 Generate Images in bulk toolbar; runs sequentially with 500ms delay
+- **Image generation settings** (Settings page)
+  - Model selector: `imagen-4.0-generate-001` (Standard), `imagen-4.0-ultra-generate-001` (Ultra), `imagen-4.0-fast-generate-001` (Fast)
+  - API key override — separate from ElevenLabs; overrides `GEMINI_API_KEY` env var for image generation; saved to `settings` table as `imagen_model` + `imagen_api_key`
+- Prompt debug logging — server logs visual concept + full Imagen prompt per generation; browser console receives same via API response
+
+### Changed
+- Gemini visual concept prompt overhauled — explicit specificity rules, metaphor-first directive, banned generic tech visuals (screens, devices, people), 60-word limit (up from 40), 600-char summary context (up from 400)
+- Imagen prompt: added `photorealistic digital art`, `8K quality`, stronger no-text/no-people enforcement
+
+---
+
 ## [3.0.0] — 2026-03-10
 
 ### Added

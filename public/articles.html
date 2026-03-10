@@ -54,6 +54,7 @@
         <span id="bulkCount" class="bulk-count">0 selected</span>
         <button class="btn btn-sm btn-outline" id="bulkPublishBtn">✅ Publish</button>
         <button class="btn btn-sm btn-outline" id="bulkUnpublishBtn">📄 Unpublish</button>
+        <button class="btn btn-sm btn-outline" id="bulkImagesBtn">🎨 Generate Images</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
@@ -71,17 +72,36 @@
               <th class="sortable" data-col="is_published">Status <span class="sort-icon">⇅</span></th>
               <th class="sortable" data-col="is_featured">Featured <span class="sort-icon">⇅</span></th>
               <th class="sortable" data-col="published_at">Date <span class="sort-icon">⇅</span></th>
+              <th style="width:60px;">Image</th>
               <th>Audio</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="articlesBody">
-            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">
+            <tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">
               <span class="spinner"></span>
             </td></tr>
           </tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div class="modal-overlay" id="imagePreviewModal">
+  <div class="modal" style="max-width:780px;background:var(--bg);">
+    <div class="modal-header">
+      <div class="modal-title">Image Preview</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <img id="imgPreviewEl" src="" alt="Article image preview"
+        style="width:100%;border-radius:0 0 0 0;display:block;max-height:460px;object-fit:contain;background:#000;" />
+    </div>
+    <div class="modal-footer" style="justify-content:flex-end;">
+      <a id="imgPreviewLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm">🔗 Open full size</a>
+      <button class="btn btn-outline" data-close-modal>Close</button>
     </div>
   </div>
 </div>
@@ -284,7 +304,7 @@
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8">
+      tbody.innerHTML = `<tr><td colspan="9">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
       </td></tr>`;
       updateBulkToolbar();
@@ -320,6 +340,9 @@
           </button>`}
         </td>
         <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
+        <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
+          ${isArchived ? '—' : renderImageCell(a)}
+        </td>
         <td class="td-audio" id="audio-cell-${a.id}">
           ${isArchived ? '—' : renderAudioCell(a)}
         </td>
@@ -329,6 +352,7 @@
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
           ` : `
+            <button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
           `}
@@ -348,6 +372,70 @@
     });
 
     updateBulkToolbar();
+  }
+
+  /* ---------- Image helpers ---------- */
+  function renderImageCell(a) {
+    if (a.image_url) {
+      const isAI = a.image_url.includes('img-') && (a.image_url.includes('/images/') || a.image_url.includes('r2') || a.image_url.includes('media'));
+      return `
+        <div style="position:relative;display:inline-block;">
+          <img src="${escHtml(a.image_url)}" alt=""
+            style="width:52px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--border);cursor:pointer;display:block;"
+            onclick="previewImage('${escHtml(a.image_url)}')"
+            onerror="this.outerHTML='<span style=\\'color:var(--danger);font-size:11px;\\'>✕</span>'" />
+          ${isAI ? '<span style="position:absolute;top:-4px;right:-4px;background:var(--accent);color:#000;font-size:8px;font-weight:700;border-radius:3px;padding:1px 3px;line-height:1.2;">AI</span>' : ''}
+        </div>`;
+    }
+    return `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 6px;" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>`;
+  }
+
+  let _imagePreviewUrl = null;
+  function previewImage(url) {
+    _imagePreviewUrl = url;
+    document.getElementById('imgPreviewEl').src = url;
+    document.getElementById('imgPreviewLink').href = url;
+    openModal('imagePreviewModal');
+  }
+
+  async function generateImage(id) {
+    const cell = document.getElementById(`img-cell-${id}`);
+    if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:10px;">⏳</span>';
+    try {
+      const data = await apiFetch('/media/generate-image', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: id })
+      });
+      console.log('[ImageGen] Concept:', data.visualConcept);
+      console.log('[ImageGen] Full prompt:', data.fullPrompt);
+      showAlert('Image generated ✓');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Image generation failed: ' + err.message, 'error');
+      await loadArticles();
+    }
+  }
+
+  async function bulkGenerateImages() {
+    const ids = [...selectedIds].filter(id => {
+      const a = articles.find(x => x.id === id);
+      return a && !a.is_archived;
+    });
+    if (!ids.length) return;
+    showAlert(`Generating images for ${ids.length} article(s)… this may take a while.`);
+    let done = 0, failed = 0;
+    for (const id of ids) {
+      const cell = document.getElementById(`img-cell-${id}`);
+      if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:10px;">⏳</span>';
+      try {
+        await apiFetch('/media/generate-image', { method: 'POST', body: JSON.stringify({ articleId: id }) });
+        done++;
+      } catch { failed++; }
+      await new Promise(r => setTimeout(r, 500)); // small delay between calls
+    }
+    selectedIds.clear();
+    showAlert(`Images generated: ${done} ✓${failed ? `, ${failed} failed` : ''}`);
+    await loadArticles();
   }
 
   /* ---------- Audio helpers ---------- */
@@ -463,6 +551,23 @@
       }
     });
   });
+
+  async function generateImage(id) {
+    const btn = document.querySelector(`#row-${id} [title="Generate AI image"]`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      await apiFetch('/media/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: id })
+      });
+      showAlert('Image generated ✓');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Image generation failed: ' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '🎨'; }
+    }
+  }
 
   function previewAudio(id) {
     const el = document.getElementById(`ap-${id}`);
@@ -758,6 +863,7 @@
     // Bulk toolbar buttons
     document.getElementById('bulkPublishBtn').addEventListener('click', () => bulkSetPublish(1));
     document.getElementById('bulkUnpublishBtn').addEventListener('click', () => bulkSetPublish(0));
+    document.getElementById('bulkImagesBtn').addEventListener('click', bulkGenerateImages);
     document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
     document.getElementById('bulkClearBtn').addEventListener('click', () => {
       selectedIds.clear();
