@@ -338,7 +338,8 @@ router.post('/generate-image', auth, async (req, res) => {
     if (!b64) throw new Error('Imagen returned no image data');
 
     const pngBuf  = Buffer.from(b64, 'base64');
-    const filename = `article-${articleId}.png`;
+    const randHex  = require('crypto').randomBytes(8).toString('hex');
+    const filename = `img-${randHex}-${Date.now()}.png`;
     const imageUrl = await storeImage(pngBuf, filename);
 
     await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(imageUrl, articleId);
