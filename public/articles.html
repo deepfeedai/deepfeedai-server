@@ -403,10 +403,12 @@
     const cell = document.getElementById(`img-cell-${id}`);
     if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:10px;">⏳</span>';
     try {
-      await apiFetch('/media/generate-image', {
+      const data = await apiFetch('/media/generate-image', {
         method: 'POST',
         body: JSON.stringify({ articleId: id })
       });
+      console.log('[ImageGen] Concept:', data.visualConcept);
+      console.log('[ImageGen] Full prompt:', data.fullPrompt);
       showAlert('Image generated ✓');
       await loadArticles();
     } catch (err) {

@@ -231,14 +231,22 @@ const DEFAULT_STYLE = 'futuristic technology abstract, dark background, cool blu
 
 async function getVisualConcept(title, summary, category) {
   if (!GEMINI_API_KEY) return null;
-  const cleanSummary = (summary || '').replace(/<[^>]+>/g, '').slice(0, 400);
-  const prompt = `You are a creative director for a tech news site. Write a short visual concept (1-2 sentences, no more than 40 words) describing an abstract, cinematic image that represents this AI news article. Focus on mood, metaphor, and visual elements. No text, no people, no faces, no logos.
+  const cleanSummary = (summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  const prompt = `You are a creative director for a tech news site. Your job is to write a highly specific visual concept for an AI-generated thumbnail image.
+
+Rules:
+- Be SPECIFIC to this article — reference the actual subject matter, not generic tech visuals
+- 2-3 sentences, max 60 words
+- Describe a metaphorical or symbolic scene — NOT literal (no offices, computers, phones)
+- Think cinematic: lighting, mood, color, atmosphere
+- No text, no people, no faces, no hands, no logos, no screens, no devices
+- Use the article details to inspire unique visual metaphors (e.g. "lawsuit" → scales of justice made of circuit boards; "AI model release" → a glowing entity emerging from darkness)
 
 Article title: ${title}
 Article summary: ${cleanSummary}
 Category: ${category || 'Technology'}
 
-Visual concept:`;
+Specific visual concept for this article:`;
 
   try {
     const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
@@ -299,11 +307,16 @@ router.post('/generate-image', auth, async (req, res) => {
     // Step 1: Get visual concept from Gemini
     let visualConcept = await getVisualConcept(article.title, article.summary, category);
     if (!visualConcept) {
-      visualConcept = `Abstract cinematic representation of ${article.title}, tech news visual`;
+      // Fallback: use title as the concept seed
+      visualConcept = `A dramatic symbolic scene representing: ${article.title}`;
     }
 
-    // Step 2: Assemble full prompt and call Imagen
-    const fullPrompt = `${visualConcept}. ${stylePreset}. Dark background, cinematic lighting, no text, no words, no logos, no people, editorial quality, ultra detailed.`;
+    // Step 2: Assemble full Imagen prompt
+    const fullPrompt = `${visualConcept} ${stylePreset}. Photorealistic digital art, dark background, cinematic dramatic lighting, no text, no words, no letters, no logos, no people, no faces, no hands, no screens, no devices, sharp focus, 8K quality.`;
+
+    console.log(`[ImageGen] Article ${articleId}: "${article.title}"`);
+    console.log(`[ImageGen] Visual concept: ${visualConcept}`);
+    console.log(`[ImageGen] Full prompt: ${fullPrompt}`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
@@ -344,7 +357,7 @@ router.post('/generate-image', auth, async (req, res) => {
 
     await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(imageUrl, articleId);
 
-    res.json({ imageUrl });
+    res.json({ imageUrl, visualConcept, fullPrompt });
   } catch (err) {
     console.error('[Media] Image generation error:', err.message);
     res.status(500).json({ error: err.message });
