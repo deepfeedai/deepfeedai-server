@@ -25,6 +25,8 @@ app.use('/api/article',   require('./routes/article'));    // public — single 
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
 app.use('/api/summary',   require('./routes/summary'));    // public — AI TLDR
 app.use('/api/media',     require('./routes/media'));
+app.use('/api/voices',   require('./routes/voices'));
+app.use('/api/settings', require('./routes/settings'));
 
 const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');

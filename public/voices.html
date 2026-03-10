@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Voice Characters</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="admin-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🤖 Deep Feed<span>AI</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Navigation</div>
+      <a class="nav-link" href="/index.html"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-link" href="/articles.html"><span class="icon">📰</span> Articles</a>
+      <a class="nav-link" href="/sources.html"><span class="icon">📡</span> Sources</a>
+      <a class="nav-link active" href="/voices.html"><span class="icon">🎙️</span> Voices</a>
+      <a class="nav-link" href="/settings.html"><span class="icon">⚙️</span> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-link" data-logout><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Main -->
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+      <div class="topbar-title">Voice Characters</div>
+    </header>
+
+    <div class="page-body">
+      <div id="alertArea"></div>
+
+      <div class="section-header">
+        <div class="section-title">Voice Characters</div>
+        <button class="btn btn-primary" id="addVoiceBtn">＋ Add Voice</button>
+      </div>
+
+      <div class="table-wrap">
+        <table id="voicesTable">
+          <thead>
+            <tr>
+              <th style="width:56px;">Avatar</th>
+              <th>Name</th>
+              <th>Voice ID</th>
+              <th>Description</th>
+              <th style="width:80px;text-align:center;">Default</th>
+              <th style="width:120px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="voicesBody">
+            <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">
+              <span class="spinner"></span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div><!-- /page-body -->
+  </div><!-- /main-content -->
+</div><!-- /admin-layout -->
+
+<!-- Add / Edit Voice Modal -->
+<div class="modal-overlay" id="voiceModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title" id="voiceModalTitle">Add Voice</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editVoiceId" />
+
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:#f87171;">*</span></label>
+        <input type="text" class="form-control" id="fVoiceName" placeholder="e.g. Alex" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">ElevenLabs Voice ID <span style="color:#f87171;">*</span></label>
+        <input type="text" class="form-control" id="fVoiceId" placeholder="e.g. 21m00Tcm4TlvDq8ikWAM" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <input type="text" class="form-control" id="fVoiceDesc" placeholder="Optional short description" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Avatar Image</label>
+        <input type="file" class="form-control" id="fVoiceAvatar" accept="image/*" />
+        <div id="avatarPreviewWrap" style="margin-top:10px;display:none;">
+          <img id="avatarPreview" src="" alt="Avatar preview"
+               style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--border);" />
+        </div>
+      </div>
+
+      <div class="form-group" style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="fVoiceDefault" style="width:16px;height:16px;" />
+        <label for="fVoiceDefault" class="form-label" style="margin:0;cursor:pointer;">Set as Default voice</label>
+      </div>
+
+      <div class="form-group">
+        <button class="btn btn-outline" id="previewVoiceBtn" type="button">🔊 Preview Voice</button>
+        <span id="previewStatus" style="font-size:12px;color:var(--muted);margin-left:10px;"></span>
+        <audio id="previewAudioEl" style="display:none;"></audio>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveVoiceBtn">Save Voice</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteVoiceModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title">Delete Voice</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);">Are you sure you want to delete <strong id="deleteVoiceName"></strong>?</p>
+      <p id="deleteVoiceWarn" style="color:#f87171;display:none;">⚠️ This is the only voice. You cannot delete it.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteVoiceBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script>
+  let voices = [];
+  let pendingDeleteId = null;
+  let pendingAvatarDataUrl = null;
+
+  async function loadVoices() {
+    try {
+      voices = await apiFetch('/voices');
+      renderVoices();
+    } catch (err) {
+      showAlert('Failed to load voices: ' + err.message, 'error');
+    }
+  }
+
+  function renderVoices() {
+    const tbody = document.getElementById('voicesBody');
+    if (!voices.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">No voices yet. Add one!</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = voices.map(v => {
+      const avatarHtml = v.avatar_url
+        ? `<img src="${v.avatar_url}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML='<div style=\\'width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;\\'>🎙️</div>'" />`
+        : '<div style="width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;">🎙️</div>';
+
+      const defaultBadge = v.is_default
+        ? '<span class="badge badge-accent" style="font-size:10px;">⭐ Default</span>'
+        : `<button class="btn btn-ghost btn-sm" onclick="setDefault(${v.id})" title="Set as default">⭐</button>`;
+
+      return `<tr>
+        <td>${avatarHtml}</td>
+        <td><strong>${esc(v.name)}</strong></td>
+        <td><code style="font-size:11px;color:var(--muted);">${esc(v.voice_id)}</code></td>
+        <td style="color:var(--muted);font-size:13px;">${esc(v.description || '')}</td>
+        <td style="text-align:center;">${defaultBadge}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${v.id})">✏️</button>
+            <button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(${v.id})">🗑️</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function openAdd() {
+    document.getElementById('voiceModalTitle').textContent = 'Add Voice';
+    document.getElementById('editVoiceId').value = '';
+    document.getElementById('fVoiceName').value = '';
+    document.getElementById('fVoiceId').value = '';
+    document.getElementById('fVoiceDesc').value = '';
+    document.getElementById('fVoiceDefault').checked = false;
+    document.getElementById('avatarPreviewWrap').style.display = 'none';
+    document.getElementById('fVoiceAvatar').value = '';
+    pendingAvatarDataUrl = null;
+    openModal('voiceModal');
+    document.getElementById('fVoiceName').focus();
+  }
+
+  function openEdit(id) {
+    const v = voices.find(x => x.id === id);
+    if (!v) return;
+    document.getElementById('voiceModalTitle').textContent = 'Edit Voice';
+    document.getElementById('editVoiceId').value = v.id;
+    document.getElementById('fVoiceName').value = v.name;
+    document.getElementById('fVoiceId').value = v.voice_id;
+    document.getElementById('fVoiceDesc').value = v.description || '';
+    document.getElementById('fVoiceDefault').checked = !!v.is_default;
+    pendingAvatarDataUrl = null;
+    document.getElementById('fVoiceAvatar').value = '';
+    if (v.avatar_url) {
+      document.getElementById('avatarPreview').src = v.avatar_url;
+      document.getElementById('avatarPreviewWrap').style.display = 'block';
+    } else {
+      document.getElementById('avatarPreviewWrap').style.display = 'none';
+    }
+    openModal('voiceModal');
+    document.getElementById('fVoiceName').focus();
+  }
+
+  function openDelete(id) {
+    const v = voices.find(x => x.id === id);
+    if (!v) return;
+    pendingDeleteId = id;
+    document.getElementById('deleteVoiceName').textContent = v.name;
+    const warn = document.getElementById('deleteVoiceWarn');
+    const btn  = document.getElementById('confirmDeleteVoiceBtn');
+    if (voices.length <= 1) {
+      warn.style.display = 'block';
+      btn.disabled = true;
+    } else {
+      warn.style.display = 'none';
+      btn.disabled = false;
+    }
+    openModal('deleteVoiceModal');
+  }
+
+  async function setDefault(id) {
+    try {
+      await apiFetch(`/voices/${id}/default`, { method: 'PUT' });
+      showAlert('Default voice updated');
+      await loadVoices();
+    } catch (err) {
+      showAlert('Failed to set default: ' + err.message, 'error');
+    }
+  }
+
+  document.getElementById('fVoiceAvatar').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      pendingAvatarDataUrl = e.target.result;
+      document.getElementById('avatarPreview').src = pendingAvatarDataUrl;
+      document.getElementById('avatarPreviewWrap').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  document.getElementById('previewVoiceBtn').addEventListener('click', async function() {
+    const voiceId = document.getElementById('fVoiceId').value.trim();
+    if (!voiceId) { showAlert('Enter a Voice ID first', 'error'); return; }
+    const statusEl = document.getElementById('previewStatus');
+    statusEl.textContent = '⏳ Generating preview…';
+    try {
+      const data = await apiFetch('/voices/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice_id: voiceId })
+      });
+      const audioEl = document.getElementById('previewAudioEl');
+      audioEl.src = `data:${data.mimeType};base64,${data.audio}`;
+      audioEl.style.display = 'none';
+      await audioEl.play();
+      statusEl.textContent = '🔊 Playing…';
+      audioEl.onended = () => { statusEl.textContent = ''; };
+    } catch (err) {
+      statusEl.textContent = '';
+      showAlert('Preview failed: ' + err.message, 'error');
+    }
+  });
+
+  document.getElementById('saveVoiceBtn').addEventListener('click', async function() {
+    const editId  = document.getElementById('editVoiceId').value;
+    const name    = document.getElementById('fVoiceName').value.trim();
+    const voiceId = document.getElementById('fVoiceId').value.trim();
+    const desc    = document.getElementById('fVoiceDesc').value.trim();
+    const isDef   = document.getElementById('fVoiceDefault').checked;
+
+    if (!name || !voiceId) { showAlert('Name and Voice ID are required', 'error'); return; }
+
+    try {
+      let savedVoice;
+      if (editId) {
+        savedVoice = await apiFetch(`/voices/${editId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, voice_id: voiceId, description: desc, is_default: isDef ? 1 : 0 })
+        });
+      } else {
+        savedVoice = await apiFetch('/voices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, voice_id: voiceId, description: desc, is_default: isDef ? 1 : 0 })
+        });
+      }
+
+      // Upload avatar if one was selected
+      if (pendingAvatarDataUrl && savedVoice && savedVoice.id) {
+        await apiFetch(`/voices/${savedVoice.id}/avatar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl: pendingAvatarDataUrl })
+        });
+        pendingAvatarDataUrl = null;
+      }
+
+      closeModal('voiceModal');
+      showAlert(editId ? 'Voice updated ✓' : 'Voice created ✓');
+      await loadVoices();
+    } catch (err) {
+      showAlert('Save failed: ' + err.message, 'error');
+    }
+  });
+
+  document.getElementById('confirmDeleteVoiceBtn').addEventListener('click', async function() {
+    if (!pendingDeleteId) return;
+    try {
+      await apiFetch(`/voices/${pendingDeleteId}`, { method: 'DELETE' });
+      closeModal('deleteVoiceModal');
+      pendingDeleteId = null;
+      showAlert('Voice deleted');
+      await loadVoices();
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
+  });
+
+  document.getElementById('addVoiceBtn').addEventListener('click', openAdd);
+
+  // Initialize
+  loadVoices();
+</script>
+</body>
+</html>

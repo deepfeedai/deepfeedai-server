@@ -117,12 +117,30 @@ async function initDb() {
       password_hash TEXT NOT NULL,
       created_at    TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS voices (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      voice_id    TEXT NOT NULL,
+      description TEXT,
+      avatar_url  TEXT,
+      is_default  INTEGER DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   // Migrations — add columns that may not exist on older DBs
   const migrations = [
     `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish     INTEGER DEFAULT 0`,
     `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish_max INTEGER DEFAULT 5`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_name TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_avatar_url TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
@@ -134,6 +152,17 @@ async function initDb() {
     const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'deepfeedai2026', 10);
     await prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('admin', hash);
     console.log('✅ Seeded admin user');
+  }
+
+  // Seed default voice character
+  const voiceCount = await prepare('SELECT COUNT(*) as cnt FROM voices').get();
+  if (parseInt(voiceCount.cnt) === 0) {
+    const defaultVoiceId = process.env.ELEVENLABS_VOICE_ID || '';
+    if (defaultVoiceId) {
+      await prepare('INSERT INTO voices (name, voice_id, description, is_default) VALUES (?, ?, ?, 1)')
+        .run('Default Anchor', defaultVoiceId, 'Default ElevenLabs voice');
+      console.log('✅ Seeded default voice');
+    }
   }
 
   // Seed default RSS source
