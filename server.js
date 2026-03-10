@@ -1,6 +1,5 @@
 require('dotenv').config({ override: true });
 const express = require('express');
-const cors    = require('cors');
 const helmet  = require('helmet');
 const path    = require('path');
 const db      = require('./db');
@@ -14,29 +13,50 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // ── CORS ───────────────────────────────────────────────────────────
-// Restrict to known origins. Public API routes (/api/news, /api/article,
-// /api/summary) need to allow the main site; admin routes are JWT-protected
-// but we still limit origins as a defence-in-depth measure.
+// Restrict cross-origin access to known origins.
+// Same-origin requests (browser on same host:port) are always allowed —
+// this handles admin panel pages making fetch calls to their own API without
+// needing to enumerate the deployment URL in ALLOWED_ORIGINS.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean);
 
-// Always allow localhost in dev when no env var is set
+// Dev fallback — allow localhost when no env var is set
 if (ALLOWED_ORIGINS.length === 0) {
   ALLOWED_ORIGINS.push('http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000');
 }
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (curl, mobile apps, server-to-server)
-    if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin '${origin}' not allowed`));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // No origin header — curl, server-to-server, same-origin in some browsers
+  if (!origin) return next();
+
+  // Same-origin check: compare origin against the server's own host
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const serverOrigin = `${proto}://${req.headers.host}`;
+  if (origin === serverOrigin) return next();
+
+  // Cross-origin — check allowlist
+  if (!ALLOWED_ORIGINS.includes(origin)) {
+    console.error(`[CORS] Blocked: ${origin}`);
+    return res.status(403).json({ error: 'CORS: origin not allowed' });
+  }
+
+  // Allowed cross-origin — set headers
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Vary', 'Origin');
+
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Max-Age', '86400');
+    return res.sendStatus(204);
+  }
+
+  next();
+});
 
 // ── Body Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
