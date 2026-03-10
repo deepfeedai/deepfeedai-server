@@ -3,25 +3,12 @@
  * Scrapes a URL server-side and returns Open Graph / meta tag data.
  * Used to auto-populate the Add Article form.
  */
-const express  = require('express');
-const router   = express.Router();
-const https    = require('https');
-const http     = require('http');
-const jwt      = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
-
-function authMiddleware(req, res, next) {
-  const auth  = req.headers.authorization || '';
-  const token = auth.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-}
+const express               = require('express');
+const router                = express.Router();
+const https                 = require('https');
+const http                  = require('http');
+const { auth }              = require('../middleware/auth');
+const { asyncHandler }      = require('../lib/utils');
 
 /** Fetch raw HTML from a URL, following up to 3 redirects */
 function fetchHtml(url, redirects = 0) {
@@ -93,7 +80,7 @@ function hostToSource(hostname) {
 }
 
 // GET /api/fetch-url?url=https://...
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', auth, asyncHandler(async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url param required' });
 
@@ -104,8 +91,7 @@ router.get('/', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
-  try {
-    const html = await fetchHtml(url);
+  const html = await fetchHtml(url);
 
     const title   = getMeta(html, 'og:title', 'twitter:title')          || getTitle(html)          || '';
     const image   = getMeta(html, 'og:image', 'twitter:image')           || '';
@@ -146,10 +132,6 @@ router.get('/', authMiddleware, async (req, res) => {
       author:     author,
       published_at: pubDate ? new Date(pubDate).toISOString().split('T')[0] : '',
     });
-
-  } catch (err) {
-    res.status(500).json({ error: `Failed to fetch URL: ${err.message}` });
-  }
-});
+}));
 
 module.exports = router;
