@@ -1,17 +1,29 @@
-const express = require('express');
-const router  = express.Router();
-const bcrypt  = require('bcryptjs');
-const jwt     = require('jsonwebtoken');
-const db      = require('../db');
+const express                   = require('express');
+const router                    = express.Router();
+const bcrypt                    = require('bcryptjs');
+const jwt                       = require('jsonwebtoken');
+const rateLimit                 = require('express-rate-limit');
+const db                        = require('../db');
+const { JWT_SECRET }            = require('../middleware/auth');
+const { loginSchema, validate } = require('../lib/schemas');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
+// Rate limit: max 10 login attempts per 15 minutes per IP
+const loginLimiter = rateLimit({
+  windowMs:         15 * 60 * 1000,
+  max:              10,
+  standardHeaders:  true,
+  legacyHeaders:    false,
+  message:          { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  skipSuccessfulRequests: true, // only count failures toward the limit
+});
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+router.post('/login', loginLimiter, async (req, res) => {
+  const body = validate(loginSchema, req.body, res);
+  if (!body) return;
 
-  const user = await db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  const { username, password } = body;
+  const user = await db.prepare('SELECT * FROM users WHERE username = $1').get(username);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
   const valid = bcrypt.compareSync(password, user.password_hash);

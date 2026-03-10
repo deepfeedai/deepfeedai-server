@@ -2,17 +2,12 @@
  * Deep Feed AI Admin — GET /api/article
  * Public endpoint — looks up a single published article by slug.
  */
-const express = require('express');
-const router  = express.Router();
-const db      = require('../db');
+const express               = require('express');
+const router                = express.Router();
+const db                    = require('../db');
+const { toSlug, asyncHandler } = require('../lib/utils');
 
-function toSlug(title) {
-  return (title || '').toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '').trim()
-    .replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80);
-}
-
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { slug } = req.query;
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
@@ -39,6 +34,6 @@ router.get('/', async (req, res) => {
     audio_voice_name:       match.audio_voice_name       || null,
     audio_voice_avatar_url: match.audio_voice_avatar_url || null,
   });
-});
+}));
 
 module.exports = router;

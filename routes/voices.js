@@ -3,16 +3,17 @@
  * Full CRUD for voice characters used in ElevenLabs TTS.
  * Avatars stored in Cloudflare R2 (or locally as fallback).
  */
-const express = require('express');
-const router  = express.Router();
-const https   = require('https');
-const fs      = require('fs');
-const path    = require('path');
-const jwt     = require('jsonwebtoken');
-const db      = require('../db');
+const express               = require('express');
+const router                = express.Router();
+const https                 = require('https');
+const fs                    = require('fs');
+const path                  = require('path');
+const db                    = require('../db');
+const { auth }              = require('../middleware/auth');
+const { asyncHandler }      = require('../lib/utils');
+const { voiceCreate, voiceUpdate, validate } = require('../lib/schemas');
 
-const JWT_SECRET   = process.env.JWT_SECRET || 'deepfeedai_super_secret_jwt_key_2026';
-const AVATAR_DIR   = path.join(__dirname, '..', 'public', 'media', 'avatars');
+const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
 
 const R2_CONFIGURED = !!(
   process.env.R2_ACCOUNT_ID &&
@@ -33,16 +34,9 @@ function getR2Client() {
   });
 }
 
-function auth(req, res, next) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid token' }); }
-}
-
 async function storeAvatar(buf, mimeType, voiceId) {
-  const ext = mimeType === 'image/png' ? 'png'
-            : mimeType === 'image/gif' ? 'gif'
+  const ext = mimeType === 'image/png'  ? 'png'
+            : mimeType === 'image/gif'  ? 'gif'
             : mimeType === 'image/webp' ? 'webp'
             : 'jpg';
   const filename = `voice-${voiceId}.${ext}`;
@@ -59,8 +53,6 @@ async function storeAvatar(buf, mimeType, voiceId) {
     const publicUrl = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
     return `${publicUrl}/avatars/${filename}`;
   }
-
-  // Local fallback
   fs.mkdirSync(AVATAR_DIR, { recursive: true });
   fs.writeFileSync(path.join(AVATAR_DIR, filename), buf);
   return `/media/avatars/${filename}`;
@@ -101,149 +93,107 @@ function generatePreview(text, voiceId, apiKey) {
   });
 }
 
-// GET /api/voices — public (main site may need it)
-router.get('/', async (req, res) => {
-  try {
-    const voices = await db.prepare('SELECT * FROM voices ORDER BY is_default DESC, created_at ASC').all();
-    res.json(voices);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// GET /api/voices — public
+router.get('/', asyncHandler(async (req, res) => {
+  const voices = await db.prepare('SELECT * FROM voices ORDER BY is_default DESC, created_at ASC').all();
+  res.json(voices);
+}));
 
-// POST /api/voices — create voice (auth required)
-router.post('/', auth, async (req, res) => {
-  const { name, voice_id, description, is_default } = req.body;
-  if (!name || !voice_id) return res.status(400).json({ error: 'name and voice_id required' });
+// POST /api/voices
+router.post('/', auth, asyncHandler(async (req, res) => {
+  const body = validate(voiceCreate, req.body, res);
+  if (!body) return;
 
-  try {
-    if (is_default) {
-      await db.prepare('UPDATE voices SET is_default = 0').run();
-    }
-    await db.prepare(
-      'INSERT INTO voices (name, voice_id, description, is_default) VALUES (?, ?, ?, ?)'
-    ).run(name, voice_id, description || '', is_default ? 1 : 0);
+  const { name, voice_id, description, is_default } = body;
 
-    const voice = await db.prepare('SELECT * FROM voices ORDER BY id DESC LIMIT 1').get();
-    res.json(voice);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
+  await db.prepare(
+    'INSERT INTO voices (name, voice_id, description, is_default) VALUES ($1, $2, $3, $4)'
+  ).run(name, voice_id, description || '', is_default ? 1 : 0);
 
-// PUT /api/voices/:id — update voice (auth required)
-router.put('/:id', auth, async (req, res) => {
+  const voice = await db.prepare('SELECT * FROM voices ORDER BY id DESC LIMIT 1').get();
+  res.json(voice);
+}));
+
+// PUT /api/voices/:id
+router.put('/:id', auth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, voice_id, description, is_default } = req.body;
-  if (!name || !voice_id) return res.status(400).json({ error: 'name and voice_id required' });
+  const body = validate(voiceUpdate, req.body, res);
+  if (!body) return;
 
-  try {
-    if (is_default) {
-      await db.prepare('UPDATE voices SET is_default = 0').run();
-    }
-    await db.prepare(
-      'UPDATE voices SET name = ?, voice_id = ?, description = ?, is_default = ? WHERE id = ?'
-    ).run(name, voice_id, description || '', is_default ? 1 : 0, id);
+  const { name, voice_id, description, is_default } = body;
 
-    const voice = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    if (!voice) return res.status(404).json({ error: 'Voice not found' });
-    res.json(voice);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
+  await db.prepare(
+    'UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4 WHERE id = $5'
+  ).run(name, voice_id, description || '', is_default ? 1 : 0, id);
 
-// DELETE /api/voices/:id — delete voice (auth required)
-router.delete('/:id', auth, async (req, res) => {
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  if (!voice) return res.status(404).json({ error: 'Voice not found' });
+  res.json(voice);
+}));
+
+// DELETE /api/voices/:id
+router.delete('/:id', auth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  try {
-    const voice = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    if (!voice) return res.status(404).json({ error: 'Voice not found' });
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
-    const count = await db.prepare('SELECT COUNT(*) as cnt FROM voices').get();
-    if (parseInt(count.cnt) <= 1) {
-      return res.status(400).json({ error: 'Cannot delete the only voice' });
-    }
+  const count = await db.prepare('SELECT COUNT(*) as cnt FROM voices').get();
+  if (parseInt(count.cnt) <= 1) return res.status(400).json({ error: 'Cannot delete the only voice' });
 
-    await db.prepare('DELETE FROM voices WHERE id = ?').run(id);
-
-    // If deleted voice was default, assign default to next voice
-    if (voice.is_default) {
-      await db.prepare('UPDATE voices SET is_default = 1 WHERE id = (SELECT id FROM voices ORDER BY created_at ASC LIMIT 1)').run();
-    }
-
-    res.json({ message: 'Voice deleted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  await db.prepare('DELETE FROM voices WHERE id = $1').run(id);
+  if (voice.is_default) {
+    await db.prepare('UPDATE voices SET is_default = 1 WHERE id = (SELECT id FROM voices ORDER BY created_at ASC LIMIT 1)').run();
   }
-});
+  res.json({ message: 'Voice deleted' });
+}));
 
-// POST /api/voices/:id/avatar — upload avatar image (auth required)
-router.post('/:id/avatar', auth, async (req, res) => {
+// POST /api/voices/:id/avatar
+router.post('/:id/avatar', auth, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { dataUrl } = req.body;
   if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
 
-  try {
-    const voice = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    if (!voice) return res.status(404).json({ error: 'Voice not found' });
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
-    // Parse data URL: data:<mime>;base64,<data>
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
 
-    const mimeType = match[1];
-    const buf = Buffer.from(match[2], 'base64');
+  const avatarUrl = await storeAvatar(Buffer.from(match[2], 'base64'), match[1], id);
+  await db.prepare('UPDATE voices SET avatar_url = $1 WHERE id = $2').run(avatarUrl, id);
+  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  res.json(updated);
+}));
 
-    const avatarUrl = await storeAvatar(buf, mimeType, id);
-    await db.prepare('UPDATE voices SET avatar_url = ? WHERE id = ?').run(avatarUrl, id);
-
-    const updated = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/voices/preview — TTS preview (auth required)
-// Note: this must be defined BEFORE /:id routes to avoid conflict, but Express handles it OK since 'preview' != integer
-router.post('/preview', auth, async (req, res) => {
+// POST /api/voices/preview
+router.post('/preview', auth, asyncHandler(async (req, res) => {
   const { voice_id, api_key } = req.body;
   if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
 
-  try {
-    // Resolve API key: param → settings table → env var
-    let apiKey = api_key;
-    if (!apiKey) {
-      const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
-      apiKey = (setting && setting.value) ? setting.value : (process.env.ELEVENLABS_API_KEY || '');
-    }
-
-    const DEFAULT_PREVIEW = 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest in artificial intelligence.';
-    const previewText = (req.body.text && req.body.text.trim()) ? req.body.text.trim().slice(0, 500) : DEFAULT_PREVIEW;
-    const mp3Buf = await generatePreview(previewText, voice_id, apiKey);
-    const base64 = mp3Buf.toString('base64');
-    res.json({ audio: base64, mimeType: 'audio/mpeg' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  let apiKey = api_key;
+  if (!apiKey) {
+    const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
+    apiKey = (setting && setting.value) ? setting.value : (process.env.ELEVENLABS_API_KEY || '');
   }
-});
 
-// PUT /api/voices/:id/default — set as default voice (auth required)
-router.put('/:id/default', auth, async (req, res) => {
+  const DEFAULT_PREVIEW = 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest in artificial intelligence.';
+  const previewText = (req.body.text && req.body.text.trim()) ? req.body.text.trim().slice(0, 500) : DEFAULT_PREVIEW;
+  const mp3Buf = await generatePreview(previewText, voice_id, apiKey);
+  res.json({ audio: mp3Buf.toString('base64'), mimeType: 'audio/mpeg' });
+}));
+
+// PUT /api/voices/:id/default
+router.put('/:id/default', auth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  try {
-    const voice = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    if (!voice) return res.status(404).json({ error: 'Voice not found' });
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
-    await db.prepare('UPDATE voices SET is_default = 0').run();
-    await db.prepare('UPDATE voices SET is_default = 1 WHERE id = ?').run(id);
-
-    const updated = await db.prepare('SELECT * FROM voices WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  await db.prepare('UPDATE voices SET is_default = 0').run();
+  await db.prepare('UPDATE voices SET is_default = 1 WHERE id = $1').run(id);
+  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  res.json(updated);
+}));
 
 module.exports = router;

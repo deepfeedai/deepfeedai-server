@@ -4,8 +4,14 @@
  * Exposes the same prepare().run/get/all API as the previous sql.js wrapper,
  * but all methods return Promises — callers must await them.
  */
-const { Pool }  = require('pg');
-const bcrypt    = require('bcryptjs');
+const { Pool }        = require('pg');
+const bcrypt          = require('bcryptjs');
+const { serializeRow } = require('./lib/utils');
+
+if (!process.env.ADMIN_PASSWORD) {
+  console.error('FATAL: ADMIN_PASSWORD environment variable is not set. Refusing to start.');
+  process.exit(1);
+}
 
 let pool = null;
 
@@ -17,55 +23,35 @@ function getPool() {
       connectionString,
       ssl: { rejectUnauthorized: false }, // required for Neon / Railway Postgres
       max: 10,
+      idleTimeoutMillis: 30000,  // release idle clients after 30s
+      connectionTimeoutMillis: 5000,
+      keepAlive: true,
+    });
+    // Swallow pool-level errors so one bad connection doesn't crash the process
+    pool.on('error', (err) => {
+      console.error('[DB] Pool client error:', err.message);
     });
   }
   return pool;
 }
 
-// Serialize Date objects to ISO strings so callers get consistent string values
-function serializeRow(row) {
-  if (!row) return null;
-  const out = {};
-  for (const [k, v] of Object.entries(row)) {
-    out[k] = v instanceof Date ? v.toISOString() : v;
-  }
-  return out;
-}
-
-// Convert SQLite-style ? placeholders → Postgres $N
-// Convert SQLite datetime() calls → Postgres equivalents
-function normalizeSql(sql) {
-  let i = 0;
-  return sql
-    // datetime('now', '-24 hours') → NOW() - INTERVAL '24 hours'
-    .replace(/datetime\('now',\s*'([^']+)'\)/gi, (_, offset) => {
-      const m = offset.trim().match(/^([+-])(\d+)\s+(\w+)$/);
-      if (m) return `NOW() ${m[1] === '-' ? '-' : '+'} INTERVAL '${m[2]} ${m[3]}'`;
-      return 'NOW()';
-    })
-    // datetime('now') → NOW()
-    .replace(/datetime\('now'\)/gi, 'NOW()')
-    // ? → $1, $2, ...
-    .replace(/\?/g, () => `$${++i}`);
-}
-
 /**
- * prepare(sql) — mirrors the sql.js synchronous API but returns async methods.
- * Usage: await db.prepare('SELECT ...').all(param1, param2)
+ * prepare(sql) — thin Postgres query wrapper with a familiar API.
+ * Accepts native Postgres $N placeholders — no SQLite translation.
+ * Usage: await db.prepare('SELECT * FROM t WHERE id = $1').get(id)
  */
 function prepare(sql) {
-  const pgSql = normalizeSql(sql);
   return {
     run: async function (...params) {
-      await getPool().query(pgSql, params.length ? params : undefined);
-      return { changes: 1 };
+      const result = await getPool().query(sql, params.length ? params : undefined);
+      return { changes: result.rowCount ?? 0 };
     },
     get: async function (...params) {
-      const result = await getPool().query(pgSql, params.length ? params : undefined);
+      const result = await getPool().query(sql, params.length ? params : undefined);
       return serializeRow(result.rows[0] || null);
     },
     all: async function (...params) {
-      const result = await getPool().query(pgSql, params.length ? params : undefined);
+      const result = await getPool().query(sql, params.length ? params : undefined);
       return result.rows.map(serializeRow);
     },
   };
@@ -133,6 +119,12 @@ async function initDb() {
       value      TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS summary_cache (
+      cache_key  TEXT PRIMARY KEY,
+      payload    JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   // Migrations — add columns that may not exist on older DBs
@@ -147,10 +139,10 @@ async function initDb() {
   }
 
   // Seed admin user
-  const existingAdmin = await prepare('SELECT id FROM users WHERE username = ?').get('admin');
+  const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');
   if (!existingAdmin) {
-    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'deepfeedai2026', 10);
-    await prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('admin', hash);
+    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+    await prepare('INSERT INTO users (username, password_hash) VALUES ($1, $2)').run('admin', hash);
     console.log('✅ Seeded admin user');
   }
 
@@ -159,18 +151,18 @@ async function initDb() {
   if (parseInt(voiceCount.cnt) === 0) {
     const defaultVoiceId = process.env.ELEVENLABS_VOICE_ID || '';
     if (defaultVoiceId) {
-      await prepare('INSERT INTO voices (name, voice_id, description, is_default) VALUES (?, ?, ?, 1)')
+      await prepare('INSERT INTO voices (name, voice_id, description, is_default) VALUES ($1, $2, $3, 1)')
         .run('Default Anchor', defaultVoiceId, 'Default ElevenLabs voice');
       console.log('✅ Seeded default voice');
     }
   }
 
   // Seed default RSS source
-  const existingSource = await prepare('SELECT id FROM sources WHERE url = ?').get(
+  const existingSource = await prepare('SELECT id FROM sources WHERE url = $1').get(
     'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'
   );
   if (!existingSource) {
-    await prepare('INSERT INTO sources (name, url, priority) VALUES (?, ?, ?)').run(
+    await prepare('INSERT INTO sources (name, url, priority) VALUES ($1, $2, $3)').run(
       'The Verge AI',
       'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml',
       1

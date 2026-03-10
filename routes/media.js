@@ -5,14 +5,14 @@
  * Local dev: saves MP3 to public/media/audio/ (R2 env vars not set).
  */
 const express = require('express');
-const router  = express.Router();
+const router  = require('express').Router();
 const https   = require('https');
 const fs      = require('fs');
 const path    = require('path');
-const jwt     = require('jsonwebtoken');
 const db      = require('../db');
 
-const JWT_SECRET    = process.env.JWT_SECRET      || 'deepfeedai_super_secret_jwt_key_2026';
+const { auth, }              = require('../middleware/auth');
+const { toSlug, asyncHandler } = require('../lib/utils');
 const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const EL_VOICE_ID   = process.env.ELEVENLABS_VOICE_ID;
 const { getPool }   = require('../db');
@@ -42,16 +42,7 @@ function getR2Client() {
   });
 }
 
-function auth(req, res, next) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid token' }); }
-}
 
-function toSlug(title) {
-  return title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
-}
 
 async function getAiSummary(title, rawSummary) {
   if (!GEMINI_API_KEY) return null;
@@ -153,15 +144,15 @@ async function deleteAudio(audioUrl) {
 }
 
 // POST /api/media/generate-audio  { articleId, voiceId? }
-router.post('/generate-audio', auth, async (req, res) => {
+router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
   const { articleId, voiceId } = req.body;
   if (!articleId) return res.status(400).json({ error: 'articleId required' });
 
-  const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(articleId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot generate audio for archived article' });
 
-  await db.prepare("UPDATE articles SET audio_status = 'pending', updated_at = NOW() WHERE id = ?").run(articleId);
+  await db.prepare("UPDATE articles SET audio_status = 'pending', updated_at = NOW() WHERE id = $1").run(articleId);
 
   try {
     // Resolve voice: explicit voiceId → default voice → env vars
@@ -170,7 +161,7 @@ router.post('/generate-audio', auth, async (req, res) => {
     let resolvedVoiceAvatarUrl = null;
 
     if (voiceId) {
-      const v = await db.prepare('SELECT * FROM voices WHERE id = ?').get(voiceId);
+      const v = await db.prepare('SELECT * FROM voices WHERE id = $1').get(voiceId);
       if (v) {
         resolvedVoiceId = v.voice_id;
         resolvedVoiceName = v.name;
@@ -198,18 +189,18 @@ router.post('/generate-audio', auth, async (req, res) => {
 
     await db.prepare(`
       UPDATE articles
-      SET audio_url = ?, audio_status = 'ready', audio_transcript = ?,
-          audio_voice_name = ?, audio_voice_avatar_url = ?, updated_at = NOW()
-      WHERE id = ?
+      SET audio_url = $1, audio_status = 'ready', audio_transcript = $2,
+          audio_voice_name = $3, audio_voice_avatar_url = $4, updated_at = NOW()
+      WHERE id = $5
     `).run(audioUrl, text, resolvedVoiceName, resolvedVoiceAvatarUrl, articleId);
 
     res.json({ audioUrl, charCount: text.length, ttsText: text, voiceName: resolvedVoiceName });
   } catch (err) {
-    await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = ?").run(articleId);
+    await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = $1").run(articleId);
     console.error('[Media] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // POST /api/media/generate-image  { articleId }
 const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
@@ -279,11 +270,11 @@ async function storeImage(pngBuf, filename) {
   return `/media/images/${filename}`;
 }
 
-router.post('/generate-image', auth, async (req, res) => {
+router.post('/generate-image', auth, asyncHandler(async (req, res) => {
   const { articleId } = req.body;
   if (!articleId) return res.status(400).json({ error: 'articleId required' });
 
-  const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(articleId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
   // Resolve API key and model from settings (DB overrides env var)
@@ -355,31 +346,31 @@ router.post('/generate-image', auth, async (req, res) => {
     const filename = `img-${randHex}-${Date.now()}.png`;
     const imageUrl = await storeImage(pngBuf, filename);
 
-    await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(imageUrl, articleId);
+    await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2').run(imageUrl, articleId);
 
     res.json({ imageUrl, visualConcept, fullPrompt });
   } catch (err) {
     console.error('[Media] Image generation error:', err.message);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // DELETE /api/media/audio/:id
-router.delete('/audio/:id', auth, async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
+router.delete('/audio/:id', auth, asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   await deleteAudio(article.audio_url);
-  await db.prepare("UPDATE articles SET audio_url = NULL, audio_status = NULL, updated_at = NOW() WHERE id = ?").run(req.params.id);
+  await db.prepare("UPDATE articles SET audio_url = NULL, audio_status = NULL, updated_at = NOW() WHERE id = $1").run(req.params.id);
   res.json({ message: 'Audio removed' });
-});
+}));
 
 // PUT /api/media/toggle/:id
-router.put('/toggle/:id', auth, async (req, res) => {
-  const article = await db.prepare('SELECT id, media_enabled FROM articles WHERE id = ?').get(req.params.id);
+router.put('/toggle/:id', auth, asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT id, media_enabled FROM articles WHERE id = $1').get(req.params.id);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   const newVal = article.media_enabled ? 0 : 1;
-  await db.prepare("UPDATE articles SET media_enabled = ?, updated_at = NOW() WHERE id = ?").run(newVal, req.params.id);
+  await db.prepare("UPDATE articles SET media_enabled = $1, updated_at = NOW() WHERE id = $2").run(newVal, req.params.id);
   res.json({ media_enabled: newVal });
-});
+}));
 
 module.exports = router;

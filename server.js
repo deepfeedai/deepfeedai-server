@@ -1,16 +1,64 @@
 require('dotenv').config({ override: true });
 const express = require('express');
-const cors    = require('cors');
+const helmet  = require('helmet');
 const path    = require('path');
 const db      = require('./db');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
-// ── Middleware ──────────────────────────────────────────────────────
-// CORS open — all mutating endpoints are JWT-protected, CORS is not the security layer.
-// The admin panel itself (Railway URL) needs to call its own API, so we allow all origins.
-app.use(cors());
+// ── Security Headers ───────────────────────────────────────────────
+// CSP disabled — admin panel uses inline scripts and is an internal tool.
+// All other helmet protections (HSTS, X-Frame-Options, etc.) remain active.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// ── CORS ───────────────────────────────────────────────────────────
+// Restrict cross-origin access to known origins.
+// Same-origin requests (browser on same host:port) are always allowed —
+// this handles admin panel pages making fetch calls to their own API without
+// needing to enumerate the deployment URL in ALLOWED_ORIGINS.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+// Dev fallback — allow localhost when no env var is set
+if (ALLOWED_ORIGINS.length === 0) {
+  ALLOWED_ORIGINS.push('http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000');
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // No origin header — curl, server-to-server, same-origin in some browsers
+  if (!origin) return next();
+
+  // Same-origin check: compare origin against the server's own host
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const serverOrigin = `${proto}://${req.headers.host}`;
+  if (origin === serverOrigin) return next();
+
+  // Cross-origin — check allowlist
+  if (!ALLOWED_ORIGINS.includes(origin)) {
+    console.error(`[CORS] Blocked: ${origin}`);
+    return res.status(403).json({ error: 'CORS: origin not allowed' });
+  }
+
+  // Allowed cross-origin — set headers
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Vary', 'Origin');
+
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Max-Age', '86400');
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
+// ── Body Parsers ───────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -25,65 +73,13 @@ app.use('/api/article',   require('./routes/article'));    // public — single 
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
 app.use('/api/summary',   require('./routes/summary'));    // public — AI TLDR
 app.use('/api/media',     require('./routes/media'));
-app.use('/api/voices',   require('./routes/voices'));
-app.use('/api/settings', require('./routes/settings'));
+app.use('/api/voices',    require('./routes/voices'));
+app.use('/api/settings',  require('./routes/settings'));
+app.use('/api/news',      require('./routes/news'));       // public — news feed
 
 const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
-
-// ── Public: news feed ───────────────────────────────────────────────
-app.get('/api/news', async (req, res) => {
-  try {
-    const { category, limit: lim, featured } = req.query;
-    let query = 'SELECT * FROM articles WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)';
-    const params = [];
-
-    if (category) {
-      params.push(category);
-      query += ` AND category = $${params.length}`;
-    }
-    if (featured !== undefined) {
-      params.push(parseInt(featured));
-      query += ` AND is_featured = $${params.length}`;
-    }
-
-    query += ' ORDER BY is_featured DESC, published_at DESC';
-
-    if (lim) {
-      params.push(parseInt(lim));
-      query += ` LIMIT $${params.length}`;
-    }
-
-    const { getPool } = require('./db');
-    const result = await getPool().query(query, params.length ? params : undefined);
-    const items = result.rows.map(row => {
-      const out = {};
-      for (const [k, v] of Object.entries(row)) {
-        out[k] = v instanceof Date ? v.toISOString() : v;
-      }
-      return out;
-    });
-
-    res.json({ status: 'ok', items, count: items.length });
-  } catch (err) {
-    console.error('[/api/news]', err.message);
-    res.status(500).json({ error: 'Failed to fetch articles' });
-  }
-});
-
-// ── Public: cache-bust timestamp ───────────────────────────────────
-app.get('/api/news/updated-at', async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  try {
-    const row = await db.prepare(
-      'SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles'
-    ).get();
-    res.json({ updatedAt: row?.ts || null });
-  } catch {
-    res.json({ updatedAt: null });
-  }
-});
 
 // ── SPA fallback ────────────────────────────────────────────────────
 app.get('*', (req, res) => {
@@ -92,6 +88,17 @@ app.get('*', (req, res) => {
   } else {
     res.status(404).json({ error: 'Not found' });
   }
+});
+
+// ── Global error handler ────────────────────────────────────────────
+// Catches errors forwarded via next(err) from asyncHandler-wrapped routes.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  // Don't leak stack traces in production
+  const isDev = process.env.NODE_ENV !== 'production';
+  console.error('[Error]', err.message, isDev ? err.stack : '');
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: isDev ? err.message : 'Internal server error' });
 });
 
 // ── Cron: RSS auto-fetch every 30 min ──────────────────────────────
@@ -115,7 +122,7 @@ cron.schedule('0 * * * *', async () => {
         AND archived_at <= NOW() - INTERVAL '24 hours'
     `).run();
     if (result.changes > 0) {
-      console.log(`[Cron] Purged archived articles older than 24h`);
+      console.log(`[Cron] Purged ${result.changes} archived article(s) older than 24h`);
     }
   } catch (e) {
     console.error('[Cron] Purge error:', e.message);
