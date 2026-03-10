@@ -16,6 +16,7 @@ async function fetchAllSources(autoPublish = false) {
   const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1').all();
   let inserted = 0, skipped = 0;
   const errors = [];
+  const needsImage = []; // { id, source_url } — newly inserted articles without an RSS image
 
   for (const source of sources) {
     const shouldAutoPublish = source.auto_publish ? true : autoPublish;
@@ -38,7 +39,13 @@ async function fetchAllSources(autoPublish = false) {
         if (existing) { skipped++; continue; }
 
         const category = detectCategory(item);
-        const image    = item.enclosure?.url || item['media:thumbnail']?.['$']?.url || null;
+        const image    =
+          item.enclosure?.url                              ||  // standard podcast/media enclosure
+          item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
+          item['media:thumbnail']?.['$']?.url             ||  // media:thumbnail
+          item.image?.url                                  ||  // image.url (some feeds)
+          item['itunes:image']?.['$']?.href               ||  // iTunes image
+          null;
         const summary  = (item.contentSnippet || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 500) || null;
         const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
         const author   = item.creator || item.author || null;
@@ -51,6 +58,12 @@ async function fetchAllSources(autoPublish = false) {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
         ).run(item.title, summary, category, source.name, url, image, author, publish, pubDate);
         inserted++;
+
+        // Track articles without an RSS image for synchronous OG enrichment below
+        if (!image) {
+          const row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
+          if (row) needsImage.push({ id: row.id, source_url: url });
+        }
       }
       await db.prepare('UPDATE sources SET last_fetched = $1 WHERE id = $2').run(new Date().toISOString(), source.id);
     } catch (err) {
@@ -58,18 +71,40 @@ async function fetchAllSources(autoPublish = false) {
     }
   }
 
-  // Enrich articles missing images via OG scraping — fire and forget
+  // ── Synchronous OG enrichment for current batch ─────────────────────────
+  // Run inline (blocking) for up to 15 newly fetched articles that had no RSS
+  // image, so they get a real thumbnail before the response is returned.
+  // Concurrency 5, ~5s per article max → typically finishes in a few seconds.
+  if (needsImage.length > 0) {
+    const SYNC_LIMIT = 15;
+    const syncBatch  = needsImage.slice(0, SYNC_LIMIT);
+    const CONCURRENCY = 5;
+    for (let i = 0; i < syncBatch.length; i += CONCURRENCY) {
+      const chunk = syncBatch.slice(i, i + CONCURRENCY);
+      await Promise.all(chunk.map(async ({ id, source_url }) => {
+        try {
+          const img = await scrapeOgImage(source_url);
+          if (img) await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2').run(img, id);
+        } catch { /* ignore per-article scrape failures */ }
+      }));
+    }
+  }
+
+  // ── Background enrichment for remaining / older articles without images ──
   setImmediate(async () => {
     try {
+      // Exclude IDs already handled synchronously above
+      const syncIds = needsImage.map(a => a.id);
       const noImage = await db.prepare(
         `SELECT id, source_url FROM articles
          WHERE (image_url IS NULL OR image_url = '')
            AND (is_archived = 0 OR is_archived IS NULL)
          ORDER BY id DESC LIMIT 30`
       ).all();
+      const remaining = noImage.filter(a => !syncIds.includes(a.id));
       const CONCURRENCY = 3;
-      for (let i = 0; i < noImage.length; i += CONCURRENCY) {
-        const batch = noImage.slice(i, i + CONCURRENCY);
+      for (let i = 0; i < remaining.length; i += CONCURRENCY) {
+        const batch = remaining.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (a) => {
           try {
             const img = await scrapeOgImage(a.source_url);
