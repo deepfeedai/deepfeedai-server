@@ -8,10 +8,20 @@ All notable changes to Deep Feed AI Admin are documented here.
 > Features planned or in progress
 
 - **Phase 2 — HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
-- Cloudflare R2 setup for persistent production audio storage
 - Up to 3 featured articles with priority ordering
 - Newsletter send interface
 - Analytics dashboard (page views, subscriber growth)
+
+---
+
+## [2.1.0] — 2026-03-09
+
+### Added
+- **48-hour article age filter** — RSS fetch now skips any article whose `pubDate` is older than 48 hours; prevents stale historical articles from polluting the feed; articles without a `pubDate` are still accepted; old articles counted in the `skipped` total returned by `POST /api/fetch`
+- **Original article link in admin** — articles table actions column now includes a 🔗 button that opens `source_url` in a new tab (`rel="noopener"`); only rendered when `source_url` is present
+
+### Fixed
+- **Cloudflare R2 audio storage live in production** — `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, and `R2_PUBLIC_URL` env vars confirmed set in Railway; audio generation now uploads MP3s directly to R2 and stores the full CDN URL in the DB; confirmed working end-to-end
 
 ---
 
