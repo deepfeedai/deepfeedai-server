@@ -5,6 +5,10 @@ let articles = [];
   let sortDir = 'desc';
   let selectedIds = new Set();
   let showArchived = false;
+  let searchQuery = '';
+  let audioFilter = 'all';
+  let dateFilter  = 'all';
+  let activeTab   = 'all';
 
   function escHtml(str) {
     if (!str) return '';
@@ -29,21 +33,97 @@ let articles = [];
         th.classList.remove('active-sort');
       }
     });
-    articles.sort((a, b) => {
-      let va = a[sortCol], vb = b[sortCol];
-      if (va == null) va = '';
-      if (vb == null) vb = '';
-      if (['is_published','is_featured'].includes(sortCol)) {
-        va = Number(va); vb = Number(vb);
-      } else if (['published_at','created_at'].includes(sortCol)) {
-        va = new Date(va); vb = new Date(vb);
-      } else {
-        va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+    applyFilters();
+  }
+
+  function applyFilters() {
+    // Update draft count badge regardless of active tab
+    const draftCountEl = document.getElementById('draftCount');
+    if (draftCountEl) {
+      const draftCount = allArticles.filter(a => !a.is_archived && !a.is_published).length;
+      draftCountEl.textContent = draftCount || '';
+      draftCountEl.style.display = draftCount ? 'inline-flex' : 'none';
+    }
+
+    // Drafts tab — override all other filters
+    if (activeTab === 'drafts') {
+      let filtered = allArticles.filter(a => !a.is_archived && !a.is_published);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a =>
+          (a.title   && a.title.toLowerCase().includes(q)) ||
+          (a.summary && a.summary.toLowerCase().includes(q))
+        );
       }
+      // Default sort: oldest first (surface stale drafts)
+      filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      articles = filtered;
+      const countEl = document.getElementById('filterCount');
+      if (countEl) {
+        countEl.textContent = `${filtered.length} draft${filtered.length !== 1 ? 's' : ''}`;
+        countEl.classList.remove('filter-count-active');
+      }
+      renderTable();
+      return;
+    }
+
+    // 1. Start from full list, apply archived toggle
+    let filtered = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
+
+    // 2. Full-text search on title + summary
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(a =>
+        (a.title   && a.title.toLowerCase().includes(q)) ||
+        (a.summary && a.summary.toLowerCase().includes(q))
+      );
+    }
+
+    // 3. Audio filter
+    if (audioFilter === 'has-audio') {
+      filtered = filtered.filter(a => a.audio_status === 'ready' && a.audio_url);
+    } else if (audioFilter === 'no-audio') {
+      filtered = filtered.filter(a => !a.audio_status || a.audio_status === 'error');
+    } else if (audioFilter === 'hidden') {
+      filtered = filtered.filter(a => a.audio_status === 'ready' && a.audio_url && !a.media_enabled);
+    }
+
+    // 4. Date filter
+    if (dateFilter !== 'all') {
+      const now = Date.now();
+      const msMap = { '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+      const ms = msMap[dateFilter] || 0;
+      if (ms) filtered = filtered.filter(a => {
+        const d = new Date(a.published_at || a.created_at);
+        return now - d.getTime() <= ms;
+      });
+    }
+
+    // 5. Sort
+    filtered.sort((a, b) => {
+      let va = a[sortCol], vb = b[sortCol];
+      if (va == null) va = ''; if (vb == null) vb = '';
+      if (['is_published','is_featured'].includes(sortCol)) { va = Number(va); vb = Number(vb); }
+      else if (['published_at','created_at'].includes(sortCol)) { va = new Date(va); vb = new Date(vb); }
+      else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
+
+    articles = filtered;
+
+    // 6. Update count badge
+    const countEl = document.getElementById('filterCount');
+    if (countEl) {
+      const total = (showArchived ? allArticles : allArticles.filter(a => !a.is_archived)).length;
+      const isFiltered = searchQuery || audioFilter !== 'all' || dateFilter !== 'all';
+      countEl.textContent = isFiltered
+        ? `${articles.length} of ${total}`
+        : `${total} articles`;
+      countEl.classList.toggle('filter-count-active', isFiltered && articles.length < total);
+    }
+
     renderTable();
   }
 
@@ -82,9 +162,16 @@ let articles = [];
         <td class="td-check">
           <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
         </td>
-        <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : ''}</td>
+        <td class="td-title" title="${escHtml(a.title)}">
+          <span class="td-editable-text">${escHtml(a.title)}</span>
+          ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
+        </td>
         <td style="color:var(--muted);font-size:12px;">${escHtml(a.source || '—')}</td>
-        <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
+        <td class="td-category">
+          ${isArchived
+            ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
+            : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
+        </td>
         <td>${isArchived ? '<span class="badge badge-muted">—</span>' : `
           <button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
             style="cursor:pointer;border:none;background:inherit;"
@@ -356,22 +443,73 @@ let articles = [];
     }
   }
 
+  // ── Inline edit ────────────────────────────────────────────────────────────
+  const INLINE_CATEGORIES = ['LLMs','Image AI','Research','Tools','Business','Policy','CyberSecurity','Industry'];
+
+  async function startInlineEdit(id, field) {
+    const a = articles.find(x => x.id === id);
+    if (!a) return;
+
+    if (field === 'title') {
+      const td = document.querySelector(`#row-${id} .td-title`);
+      if (!td || td.querySelector('input')) return;
+      const original = a.title || '';
+      td.innerHTML = `<input class="inline-edit-input" type="text" value="${escHtml(original)}" />`;
+      const input = td.querySelector('input');
+      input.focus(); input.select();
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); input._done = true; commitInlineEdit(id, 'title', input.value.trim(), original); }
+        if (e.key === 'Escape') { input._done = true; cancelInlineEdit(id); }
+      });
+      input.addEventListener('blur', () => {
+        if (input._done) return;
+        const val = input.value.trim();
+        if (val && val !== original) commitInlineEdit(id, 'title', val, original);
+        else cancelInlineEdit(id);
+      });
+    }
+
+    if (field === 'category') {
+      const td = document.querySelector(`#row-${id} .td-category`);
+      if (!td || td.querySelector('select')) return;
+      const original = a.category || 'Industry';
+      const opts = INLINE_CATEGORIES.map(c =>
+        `<option value="${c}"${c === original ? ' selected' : ''}>${c}</option>`
+      ).join('');
+      td.innerHTML = `<select class="inline-edit-select">${opts}</select>`;
+      const select = td.querySelector('select');
+      select.focus();
+      select.addEventListener('change', () => { select._done = true; commitInlineEdit(id, 'category', select.value, original); });
+      select.addEventListener('blur',   () => { if (!select._done) cancelInlineEdit(id); });
+      select.addEventListener('keydown', e => { if (e.key === 'Escape') { select._done = true; cancelInlineEdit(id); } });
+    }
+  }
+
+  async function commitInlineEdit(id, field, value, original) {
+    if (!value || value === original) return cancelInlineEdit(id);
+    try {
+      const updated = await apiFetch(`/articles/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ [field]: value })
+      });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], updated);
+      showAlert(`${field === 'title' ? 'Title' : 'Category'} updated ✓`);
+      applyFilters();
+    } catch (err) {
+      showAlert('Update failed: ' + err.message, 'error');
+      applyFilters();
+    }
+  }
+
+  function cancelInlineEdit(id) {
+    applyFilters();
+  }
+
   async function loadArticles() {
     try {
       allArticles = await apiFetch('/articles');
-      articles = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
-      // Re-apply current sort after reload
-      articles.sort((a, b) => {
-        let va = a[sortCol], vb = b[sortCol];
-        if (va == null) va = ''; if (vb == null) vb = '';
-        if (['is_published','is_featured'].includes(sortCol)) { va = Number(va); vb = Number(vb); }
-        else if (['published_at','created_at'].includes(sortCol)) { va = new Date(va); vb = new Date(vb); }
-        else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
-        if (va < vb) return sortDir === 'asc' ? -1 : 1;
-        if (va > vb) return sortDir === 'asc' ? 1 : -1;
-        return 0;
-      });
-      renderTable();
+      applyFilters();
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
     }
@@ -600,9 +738,8 @@ let articles = [];
 
     document.getElementById('showArchived').addEventListener('change', e => {
       showArchived = e.target.checked;
-      articles = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
       selectedIds.clear();
-      renderTable();
+      applyFilters();
     });
 
     // Sortable column headers
@@ -628,6 +765,60 @@ let articles = [];
     document.getElementById('bulkClearBtn').addEventListener('click', () => {
       selectedIds.clear();
       renderTable();
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.dataset.tab;
+        selectedIds.clear();
+        // Show/hide "Show archived" — only relevant in All tab
+        const archivedWrap = document.getElementById('showArchivedWrap');
+        if (archivedWrap) archivedWrap.style.display = activeTab === 'drafts' ? 'none' : 'flex';
+        // Reset search when switching tabs
+        searchQuery = '';
+        document.getElementById('articleSearch').value = '';
+        document.getElementById('clearSearch').style.display = 'none';
+        applyFilters();
+      });
+    });
+
+    // Search input
+    let _searchDebounce;
+    document.getElementById('articleSearch').addEventListener('input', e => {
+      searchQuery = e.target.value.trim();
+      const clearBtn = document.getElementById('clearSearch');
+      if (clearBtn) clearBtn.style.display = searchQuery ? 'inline-flex' : 'none';
+      clearTimeout(_searchDebounce);
+      _searchDebounce = setTimeout(applyFilters, 250);
+    });
+    document.getElementById('clearSearch').addEventListener('click', () => {
+      searchQuery = '';
+      document.getElementById('articleSearch').value = '';
+      document.getElementById('clearSearch').style.display = 'none';
+      applyFilters();
+    });
+
+    // Audio filter pills
+    document.querySelectorAll('[data-audio-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-audio-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        audioFilter = btn.dataset.audioFilter;
+        applyFilters();
+      });
+    });
+
+    // Date filter pills
+    document.querySelectorAll('[data-date-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-date-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        dateFilter = btn.dataset.dateFilter;
+        applyFilters();
+      });
     });
 
     await loadArticles();

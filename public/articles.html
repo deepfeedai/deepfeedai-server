@@ -40,13 +40,40 @@
       <div id="alertArea"></div>
 
       <div class="section-header">
-        <div class="section-title">All Articles</div>
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="all">All Articles</button>
+          <button class="tab-btn" data-tab="drafts">Drafts <span class="tab-badge" id="draftCount"></span></button>
+        </div>
         <div style="display:flex;gap:8px;align-items:center;">
-          <label style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <label id="showArchivedWrap" style="font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" id="showArchived" /> Show archived
           </label>
           <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
         </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="filter-bar" id="filterBar">
+        <div class="filter-search-wrap">
+          <span class="filter-search-icon">🔍</span>
+          <input type="text" id="articleSearch" class="filter-search-input" placeholder="Search title or summary…" autocomplete="off" />
+          <button class="filter-search-clear" id="clearSearch" style="display:none;" title="Clear search">✕</button>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Audio</span>
+          <button class="filter-pill active" data-audio-filter="all">All</button>
+          <button class="filter-pill" data-audio-filter="has-audio">🎵 Has Audio</button>
+          <button class="filter-pill" data-audio-filter="no-audio">🔇 No Audio</button>
+          <button class="filter-pill" data-audio-filter="hidden">⬜ Hidden</button>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Date</span>
+          <button class="filter-pill active" data-date-filter="all">All</button>
+          <button class="filter-pill" data-date-filter="24h">24h</button>
+          <button class="filter-pill" data-date-filter="7d">7d</button>
+          <button class="filter-pill" data-date-filter="30d">30d</button>
+        </div>
+        <span class="filter-count" id="filterCount"></span>
       </div>
 
       <!-- Bulk action toolbar — hidden until rows are selected -->

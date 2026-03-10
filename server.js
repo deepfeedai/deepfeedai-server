@@ -135,6 +135,41 @@ cron.schedule('0 * * * *', async () => {
   }
 });
 
+// ── Cron: auto-purge old articles (runs nightly at 2 AM) ───────────
+cron.schedule('0 2 * * *', async () => {
+  try {
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE key LIKE $1').all('purge_%');
+    const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    if (s.purge_enabled !== '1') return;
+
+    const days            = Math.max(parseInt(s.purge_days) || 30, 7);
+    const protectFeatured = s.purge_protect_featured !== '0';
+    const protectAudio    = s.purge_protect_audio === '1';
+    const cutoff          = new Date(Date.now() - days * 86400000).toISOString();
+
+    const candidates = await db.prepare(`
+      SELECT id, is_featured, audio_status, audio_url
+      FROM articles
+      WHERE is_archived = 0
+        AND (created_at < $1 OR (published_at IS NOT NULL AND published_at < $1))
+    `).all(cutoff);
+
+    let purged = 0;
+    for (const row of candidates) {
+      if (protectFeatured && row.is_featured) continue;
+      if (protectAudio && row.audio_status === 'ready' && row.audio_url) continue;
+      await db.prepare(`
+        UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
+          archived_at = NOW(), updated_at = NOW() WHERE id = $1
+      `).run(row.id);
+      purged++;
+    }
+    if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days`);
+  } catch (e) {
+    console.error('[AutoPurge] Error:', e.message);
+  }
+});
+
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(() => {
   app.listen(PORT, () => {

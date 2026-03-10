@@ -7,36 +7,196 @@ onReady(async () => {
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
     try {
-      const [articles, sources] = await Promise.all([
+      const [articles, sources, settings] = await Promise.all([
         apiFetch('/articles'),
         apiFetch('/sources'),
+        apiFetch('/settings').catch(() => ({})),
       ]);
 
-      document.getElementById('statTotal').textContent     = articles.length;
-      document.getElementById('statPublished').textContent = articles.filter(a => a.is_published).length;
-      document.getElementById('statFeatured').textContent  = articles.filter(a => a.is_featured).length;
-      document.getElementById('statSources').textContent   = sources.filter(s => s.is_active).length;
+      const now       = Date.now();
+      const DAY_MS    = 86400000;
+      const WEEK_MS   = 7 * DAY_MS;
 
-      const recent = articles.slice(0, 10);
-      const tbody  = document.getElementById('recentBody');
+      const active    = articles.filter(a => !a.is_archived);
+      const published = active.filter(a => a.is_published);
+      const drafts    = active.filter(a => !a.is_published);
+      const today     = published.filter(a => now - new Date(a.published_at || a.created_at).getTime() <= DAY_MS);
+      const week      = published.filter(a => now - new Date(a.published_at || a.created_at).getTime() <= WEEK_MS);
+
+      const audioReady  = active.filter(a => a.audio_status === 'ready' && a.audio_url);
+      const audioLive   = audioReady.filter(a => a.media_enabled);
+      const audioHidden = audioReady.filter(a => !a.media_enabled);
+      const noAudio     = active.filter(a => !a.audio_status || a.audio_status === 'error');
+      const hasImage    = active.filter(a => a.image_url);
+
+      // ── Stat cards ────────────────────────────────────────────
+      document.getElementById('statTotal').textContent     = active.length;
+      document.getElementById('statPublished').textContent = published.length;
+      document.getElementById('statDrafts').textContent    = drafts.length;
+      document.getElementById('statToday').textContent     = today.length;
+      document.getElementById('statWeek').textContent      = week.length;
+      document.getElementById('statSources').textContent   = sources.filter(s => s.is_active).length;
+      document.getElementById('statAudioTotal').textContent  = audioReady.length;
+      document.getElementById('statAudioLive').textContent   = audioLive.length;
+      document.getElementById('statAudioHidden').textContent = audioHidden.length;
+      document.getElementById('statNoAudio').textContent     = noAudio.length;
+      document.getElementById('statImages').textContent      = hasImage.length;
+      document.getElementById('statFeatured').textContent    = active.filter(a => a.is_featured).length;
+
+      // Highlight drafts card if pending
+      if (drafts.length > 0) {
+        document.getElementById('statDraftsCard').classList.add('stat-card-warn');
+      }
+
+      // ── Category breakdown ────────────────────────────────────
+      const catCounts = {};
+      active.forEach(a => {
+        const cat = a.category || 'Uncategorized';
+        catCounts[cat] = (catCounts[cat] || 0) + 1;
+      });
+      const catSorted = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+      const catMax    = catSorted[0]?.[1] || 1;
+      const catColors = {
+        'LLMs': '#a78bfa', 'Image AI': '#f472b6', 'Research': '#60a5fa',
+        'Tools': '#34d399', 'Business': '#fbbf24', 'Policy': '#f87171',
+        'CyberSecurity': '#ff6b35', 'Industry': '#94a3b8'
+      };
+
+      document.getElementById('categoryBreakdown').innerHTML = catSorted.length
+        ? catSorted.map(([cat, count]) => {
+            const pct   = Math.round((count / catMax) * 100);
+            const color = catColors[cat] || 'var(--accent)';
+            const share = Math.round((count / active.length) * 100);
+            return `
+              <div class="cat-row">
+                <div class="cat-label">${escHtml(cat)}</div>
+                <div class="cat-bar-wrap">
+                  <div class="cat-bar" style="width:${pct}%;background:${color};"></div>
+                </div>
+                <div class="cat-count">${count} <span class="cat-pct">${share}%</span></div>
+              </div>`;
+          }).join('')
+        : '<p style="color:var(--muted);text-align:center;padding:24px 0;">No articles yet</p>';
+
+      // ── Needs Attention ───────────────────────────────────────
+      const attention = [];
+
+      if (drafts.length > 0) {
+        const stale = drafts.filter(a => now - new Date(a.created_at).getTime() > 3 * DAY_MS);
+        if (stale.length > 0) {
+          attention.push({
+            icon: '📝', level: 'warn',
+            text: `${stale.length} draft${stale.length > 1 ? 's' : ''} older than 3 days`,
+            link: '/articles.html', linkText: 'View Drafts'
+          });
+        } else {
+          attention.push({
+            icon: '📝', level: 'info',
+            text: `${drafts.length} unpublished draft${drafts.length > 1 ? 's' : ''} waiting`,
+            link: '/articles.html', linkText: 'View Drafts'
+          });
+        }
+      }
+
+      const noImageActive = active.filter(a => a.is_published && !a.image_url);
+      if (noImageActive.length > 0) {
+        attention.push({
+          icon: '🖼️', level: 'warn',
+          text: `${noImageActive.length} published article${noImageActive.length > 1 ? 's' : ''} missing an image`,
+          link: '/articles.html', linkText: 'Fix in Articles'
+        });
+      }
+
+      const noAudioPublished = published.filter(a => !a.audio_status || a.audio_status === 'error');
+      if (noAudioPublished.length > 0) {
+        attention.push({
+          icon: '🎵', level: 'info',
+          text: `${noAudioPublished.length} published article${noAudioPublished.length > 1 ? 's' : ''} without audio`,
+          link: '/articles.html', linkText: 'Generate Audio'
+        });
+      }
+
+      const inactiveSources = sources.filter(s => !s.is_active);
+      if (inactiveSources.length > 0) {
+        attention.push({
+          icon: '📡', level: 'muted',
+          text: `${inactiveSources.length} source${inactiveSources.length > 1 ? 's' : ''} inactive`,
+          link: '/sources.html', linkText: 'Manage Sources'
+        });
+      }
+
+      // Purge eligibility
+      if (settings.purge_days) {
+        const purgeDays     = Math.max(parseInt(settings.purge_days) || 30, 7);
+        const purgeProtFeat = settings.purge_protect_featured !== '0';
+        const purgeProtAud  = settings.purge_protect_audio === '1';
+        const purgeCutoff   = Date.now() - purgeDays * 86400000;
+        const purgeEligible = active.filter(a => {
+          const age = new Date(a.published_at || a.created_at).getTime();
+          if (age >= purgeCutoff) return false;
+          if (purgeProtFeat && a.is_featured) return false;
+          if (purgeProtAud  && a.audio_status === 'ready' && a.audio_url) return false;
+          return true;
+        });
+        if (purgeEligible.length > 0) {
+          attention.push({
+            icon: '🗑️', level: 'muted',
+            text: `${purgeEligible.length} article${purgeEligible.length > 1 ? 's' : ''} eligible for purge (older than ${purgeDays}d)`,
+            link: '/settings.html', linkText: 'Manage in Settings'
+          });
+        }
+      }
+
+      const attentionEl = document.getElementById('attentionList');
+      if (attention.length === 0) {
+        attentionEl.innerHTML = `
+          <div class="attention-ok">
+            <div style="font-size:32px;">✅</div>
+            <div>Everything looks good!</div>
+          </div>`;
+      } else {
+        attentionEl.innerHTML = attention.map(item => `
+          <div class="attention-item attention-${item.level}">
+            <span class="attention-icon">${item.icon}</span>
+            <div class="attention-text">
+              <span>${item.text}</span>
+              ${item.link ? `<a href="${item.link}" class="attention-link">${item.linkText} →</a>` : ''}
+            </div>
+          </div>`).join('');
+      }
+
+      // ── Recent articles table ─────────────────────────────────
+      const recent = [...active]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 12);
+      const tbody = document.getElementById('recentBody');
 
       if (recent.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5">
+        tbody.innerHTML = `<tr><td colspan="6">
           <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet</p></div>
         </td></tr>`;
       } else {
-        tbody.innerHTML = recent.map(a => `
-          <tr>
-            <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
-            <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
-            <td>${badgePublished(a.is_published)}</td>
-            <td>${badgeFeatured(a.is_featured)}</td>
-            <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = recent.map(a => {
+          const audioTag = a.audio_status === 'ready' && a.audio_url
+            ? `<span class="badge badge-accent" style="font-size:10px;">🎵 ${a.media_enabled ? 'Live' : 'Hidden'}</span>`
+            : `<span class="badge badge-muted" style="font-size:10px;">—</span>`;
+          const imgTag = a.image_url
+            ? `<img src="${escHtml(a.image_url)}" style="width:36px;height:26px;object-fit:cover;border-radius:3px;border:1px solid var(--border);" onerror="this.style.display='none'" />`
+            : `<span style="color:var(--border);font-size:18px;">▭</span>`;
+          return `
+            <tr>
+              <td style="text-align:center;">${imgTag}</td>
+              <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
+              <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
+              <td>${badgePublished(a.is_published)}</td>
+              <td>${audioTag}</td>
+              <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
+            </tr>`;
+        }).join('');
       }
+
     } catch (err) {
-      showAlert('Failed to load dashboard data: ' + err.message, 'error');
+      showAlert('Failed to load dashboard: ' + err.message, 'error');
     }
   });
 

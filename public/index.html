@@ -16,22 +16,14 @@
     </div>
     <nav class="sidebar-nav">
       <div class="nav-section">Navigation</div>
-      <a class="nav-link active" href="/index.html">
-        <span class="icon">📊</span> Dashboard
-      </a>
-      <a class="nav-link" href="/articles.html">
-        <span class="icon">📰</span> Articles
-      </a>
-      <a class="nav-link" href="/sources.html">
-        <span class="icon">📡</span> Sources
-      </a>
+      <a class="nav-link active" href="/index.html"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-link" href="/articles.html"><span class="icon">📰</span> Articles</a>
+      <a class="nav-link" href="/sources.html"><span class="icon">📡</span> Sources</a>
       <a class="nav-link" href="/voices.html"><span class="icon">🎙️</span> Voices</a>
       <a class="nav-link" href="/settings.html"><span class="icon">⚙️</span> Settings</a>
     </nav>
     <div class="sidebar-footer">
-      <button class="nav-link" data-logout>
-        <span class="icon">🚪</span> Logout
-      </button>
+      <button class="nav-link" data-logout><span class="icon">🚪</span> Logout</button>
     </div>
   </aside>
 
@@ -48,8 +40,9 @@
     <div class="page-body">
       <div id="alertArea"></div>
 
-      <!-- Stat Cards -->
-      <div class="stat-grid" id="statGrid">
+      <!-- Stat Cards Row 1: Content -->
+      <div class="dash-section-label">Content</div>
+      <div class="stat-grid" id="statGrid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
         <div class="stat-card">
           <div class="stat-icon">📰</div>
           <div class="stat-label">Total Articles</div>
@@ -60,10 +53,20 @@
           <div class="stat-label">Published</div>
           <div class="stat-value" id="statPublished">—</div>
         </div>
+        <a href="/articles.html#drafts" class="stat-card stat-card-link" id="statDraftsCard">
+          <div class="stat-icon">📝</div>
+          <div class="stat-label">Drafts Pending</div>
+          <div class="stat-value" id="statDrafts">—</div>
+        </a>
         <div class="stat-card">
-          <div class="stat-icon">⭐</div>
-          <div class="stat-label">Featured</div>
-          <div class="stat-value" id="statFeatured">—</div>
+          <div class="stat-icon">🗓️</div>
+          <div class="stat-label">Published Today</div>
+          <div class="stat-value" id="statToday">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📅</div>
+          <div class="stat-label">This Week</div>
+          <div class="stat-value" id="statWeek">—</div>
         </div>
         <div class="stat-card">
           <div class="stat-icon">📡</div>
@@ -72,36 +75,87 @@
         </div>
       </div>
 
-      <!-- Quick Actions -->
-      <div class="quick-actions">
-        <a href="/articles.html" class="btn btn-primary">＋ Add Article</a>
-        <a href="/sources.html" class="btn btn-outline">＋ Add Source</a>
+      <!-- Stat Cards Row 2: Audio -->
+      <div class="dash-section-label">Audio</div>
+      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 28px;">
+        <div class="stat-card">
+          <div class="stat-icon">🎵</div>
+          <div class="stat-label">Audio Generated</div>
+          <div class="stat-value" id="statAudioTotal">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📢</div>
+          <div class="stat-label">Published on Site</div>
+          <div class="stat-value" id="statAudioLive">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⬜</div>
+          <div class="stat-label">Audio Hidden</div>
+          <div class="stat-value" id="statAudioHidden">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🔇</div>
+          <div class="stat-label">No Audio</div>
+          <div class="stat-value" id="statNoAudio">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🖼️</div>
+          <div class="stat-label">AI Images</div>
+          <div class="stat-value" id="statImages">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-label">Featured</div>
+          <div class="stat-value" id="statFeatured">—</div>
+        </div>
+      </div>
+
+      <!-- Two-column: Category Breakdown + Needs Attention -->
+      <div class="dash-two-col">
+
+        <!-- Category Breakdown -->
+        <div class="dash-panel">
+          <div class="dash-panel-title">Category Breakdown</div>
+          <div id="categoryBreakdown" class="category-breakdown">
+            <div style="color:var(--muted);text-align:center;padding:24px;"><span class="spinner"></span></div>
+          </div>
+        </div>
+
+        <!-- Needs Attention -->
+        <div class="dash-panel">
+          <div class="dash-panel-title">Needs Attention</div>
+          <div id="attentionList" class="attention-list">
+            <div style="color:var(--muted);text-align:center;padding:24px;"><span class="spinner"></span></div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Recent Articles -->
-      <div class="section-header">
+      <div class="section-header" style="margin-top:28px;">
         <div class="section-title">Recent Articles</div>
         <a href="/articles.html" class="btn btn-ghost btn-sm">View all →</a>
       </div>
-
       <div class="table-wrap">
         <table id="recentTable">
           <thead>
             <tr>
+              <th style="width:44px;">Image</th>
               <th>Title</th>
               <th>Category</th>
               <th>Status</th>
-              <th>Featured</th>
+              <th>Audio</th>
               <th>Date</th>
             </tr>
           </thead>
           <tbody id="recentBody">
-            <tr><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">
               <span class="spinner"></span>
             </td></tr>
           </tbody>
         </table>
       </div>
+
     </div>
   </div>
 </div>

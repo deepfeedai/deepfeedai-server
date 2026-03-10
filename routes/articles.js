@@ -158,4 +158,70 @@ router.put('/:id/publish', auth, asyncHandler(async (req, res) => {
   res.json({ id: article.id, is_published: newVal });
 }));
 
+// POST /api/articles/purge-old — archive articles older than N days
+router.post('/purge-old', auth, asyncHandler(async (req, res) => {
+  const {
+    days           = 30,
+    dryRun         = true,
+    protectFeatured = true,
+    protectAudio    = false,
+  } = req.body;
+
+  const minDays = 7;
+  const safeDays = Math.max(parseInt(days) || 30, minDays);
+  const cutoff = new Date(Date.now() - safeDays * 86400000).toISOString();
+
+  // Build query for eligible articles
+  let query = `
+    SELECT id, title, category, is_featured, audio_status, audio_url, created_at
+    FROM articles
+    WHERE is_archived = 0
+      AND (created_at < $1 OR (published_at IS NOT NULL AND published_at < $1))
+  `;
+  const rows = await db.prepare(query).all(cutoff);
+
+  const eligible  = [];
+  const protected_ = [];
+
+  for (const row of rows) {
+    let reason = null;
+    if (protectFeatured && row.is_featured) reason = 'featured';
+    else if (protectAudio && row.audio_status === 'ready' && row.audio_url) reason = 'has audio';
+
+    if (reason) protected_.push({ id: row.id, title: row.title, reason });
+    else eligible.push(row);
+  }
+
+  if (dryRun) {
+    return res.json({
+      dryRun: true,
+      days: safeDays,
+      eligible: eligible.map(r => ({ id: r.id, title: r.title, category: r.category, created_at: r.created_at })),
+      eligibleCount: eligible.length,
+      protectedCount: protected_.length,
+      protected: protected_,
+    });
+  }
+
+  // Execute: soft-archive all eligible
+  let purgedCount = 0;
+  for (const row of eligible) {
+    await db.prepare(`
+      UPDATE articles
+      SET is_archived = 1, is_published = 0, is_featured = 0,
+          archived_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+    `).run(row.id);
+    purgedCount++;
+  }
+
+  res.json({
+    dryRun: false,
+    days: safeDays,
+    purgedCount,
+    protectedCount: protected_.length,
+    message: `${purgedCount} article(s) archived. ${protected_.length} protected.`,
+  });
+}));
+
 module.exports = router;
