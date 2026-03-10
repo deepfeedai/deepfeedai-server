@@ -13,16 +13,20 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // ── CORS ───────────────────────────────────────────────────────────
-// Restrict cross-origin access to known origins.
-// Same-origin requests (browser on same host:port) are always allowed —
-// this handles admin panel pages making fetch calls to their own API without
-// needing to enumerate the deployment URL in ALLOWED_ORIGINS.
+// Public read routes are open to all origins — they serve the main site
+// (deepfeedai.com) and any other consumers. JWT auth protects all write
+// and admin endpoints, so open CORS on reads is safe.
+//
+// For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
+// used as an allowlist (set in Railway). Same-origin requests (admin panel
+// fetching its own API) are always allowed.
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary'];
+
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean);
 
-// Dev fallback — allow localhost when no env var is set
 if (ALLOWED_ORIGINS.length === 0) {
   ALLOWED_ORIGINS.push('http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000');
 }
@@ -33,22 +37,24 @@ app.use((req, res, next) => {
   // No origin header — curl, server-to-server, same-origin in some browsers
   if (!origin) return next();
 
-  // Same-origin check: compare origin against the server's own host
+  // Always set CORS headers for preflight
+  const isPublic = PUBLIC_PATHS.some(p => req.path.startsWith(p));
+
+  // Same-origin check
   const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
   const serverOrigin = `${proto}://${req.headers.host}`;
-  if (origin === serverOrigin) return next();
+  const isSameOrigin = origin === serverOrigin;
 
-  // Cross-origin — check allowlist
-  if (!ALLOWED_ORIGINS.includes(origin)) {
+  if (!isSameOrigin && !isPublic && !ALLOWED_ORIGINS.includes(origin)) {
     console.error(`[CORS] Blocked: ${origin}`);
     return res.status(403).json({ error: 'CORS: origin not allowed' });
   }
 
-  // Allowed cross-origin — set headers
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  // Allow the request — public routes get wildcard, others get reflected origin
+  res.setHeader('Access-Control-Allow-Origin', isPublic ? '*' : origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-  res.setHeader('Vary', 'Origin');
+  if (!isPublic) res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Max-Age', '86400');
