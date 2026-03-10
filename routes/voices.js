@@ -219,7 +219,8 @@ router.post('/preview', auth, async (req, res) => {
       apiKey = (setting && setting.value) ? setting.value : (process.env.ELEVENLABS_API_KEY || '');
     }
 
-    const previewText = 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest in artificial intelligence.';
+    const DEFAULT_PREVIEW = 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest in artificial intelligence.';
+    const previewText = (req.body.text && req.body.text.trim()) ? req.body.text.trim().slice(0, 500) : DEFAULT_PREVIEW;
     const mp3Buf = await generatePreview(previewText, voice_id, apiKey);
     const base64 = mp3Buf.toString('base64');
     res.json({ audio: base64, mimeType: 'audio/mpeg' });

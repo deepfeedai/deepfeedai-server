@@ -14,6 +14,30 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0] — 2026-03-10
+
+### Added
+- **Voice Characters system** — full multi-voice management for ElevenLabs TTS audio generation
+  - `voices` table: stores name, ElevenLabs voice ID, description, avatar image URL, and default flag
+  - `settings` table: key/value store for admin-managed config (e.g. API key overrides)
+  - `GET/POST/PUT/DELETE /api/voices` — full CRUD; delete auto-reassigns default if needed
+  - `PUT /api/voices/:id/default` — set any voice as the global default
+  - `POST /api/voices/:id/avatar` — upload avatar as base64 dataURL; stored to Cloudflare R2 (production) or local filesystem (dev)
+  - `GET/PUT /api/settings` — upsert key/value settings; supports `elevenlabs_api_key` override
+  - `POST /api/voices/preview` — generates a TTS preview clip (up to 500 chars) using selected voice; returns base64 MP3
+- **Voice picker on audio generation** — "🎙️ Generate" button now opens a voice selection modal showing all available voices with avatars; pre-selects the default; selected voice is sent with the request
+- **Voice snapshot on articles** — `audio_voice_name` and `audio_voice_avatar_url` stored on each article at audio generation time; survives voice edits/deletions
+- **Voices page** (`/voices.html`) — full voice management UI: table with avatar, name, voice ID, description, default badge; add/edit modal with avatar upload + preview; set-default button
+- **Voice Test Studio** — panel at the top of `/voices.html` with editable sample text (500 char limit with live counter), voice dropdown, ▶ Test Voice button, live playback with avatar + name display, ⏹ Stop button
+- **Settings page** (`/settings.html`) — ElevenLabs API key override input (password field, show/hide toggle); saved to DB, overrides env var at runtime; falls back to env var if blank
+- **Sidebar nav updated** — Voices and Settings links added to all admin pages (`index.html`, `articles.html`, `sources.html`)
+- Express body size limit raised to **10 MB** to support base64 avatar image uploads in JSON
+
+### Changed
+- `POST /api/media/generate-audio` — now accepts optional `voiceId`; resolves voice from `voices` table (explicit → default → env var fallback); resolves API key from `settings` table (DB → env var fallback); stores `audio_voice_name` and `audio_voice_avatar_url` snapshot on the article
+
+---
+
 ## [2.1.0] — 2026-03-09
 
 ### Added
