@@ -212,7 +212,7 @@ router.post('/generate-audio', auth, async (req, res) => {
 });
 
 // POST /api/media/generate-image  { articleId }
-const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict`;
+const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
 const IMAGE_DIR  = path.join(__dirname, '..', 'public', 'media', 'images');
 
 const CATEGORY_STYLES = {
@@ -278,7 +278,19 @@ router.post('/generate-image', auth, async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
-  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+  // Resolve API key and model from settings (DB overrides env var)
+  let resolvedImageApiKey = GEMINI_API_KEY;
+  let resolvedImagenUrl = IMAGEN_URL;
+  try {
+    const modelSetting  = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model'").get();
+    const apiKeySetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_api_key'").get();
+    if (modelSetting && modelSetting.value) {
+      resolvedImagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
+    }
+    if (apiKeySetting && apiKeySetting.value) resolvedImageApiKey = apiKeySetting.value;
+  } catch { /* fall back to defaults */ }
+
+  if (!resolvedImageApiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
 
   try {
     const category = article.category || '';
@@ -287,11 +299,10 @@ router.post('/generate-image', auth, async (req, res) => {
     // Step 1: Get visual concept from Gemini
     let visualConcept = await getVisualConcept(article.title, article.summary, category);
     if (!visualConcept) {
-      // Fallback: use title + category directly
       visualConcept = `Abstract cinematic representation of ${article.title}, tech news visual`;
     }
 
-    // Step 2: Assemble full prompt and call Imagen 3
+    // Step 2: Assemble full prompt and call Imagen
     const fullPrompt = `${visualConcept}. ${stylePreset}. Dark background, cinematic lighting, no text, no words, no logos, no people, editorial quality, ultra detailed.`;
 
     const controller = new AbortController();
@@ -299,7 +310,7 @@ router.post('/generate-image', auth, async (req, res) => {
 
     let imagenRes;
     try {
-      imagenRes = await fetch(`${IMAGEN_URL}?key=${GEMINI_API_KEY}`, {
+      imagenRes = await fetch(`${resolvedImagenUrl}?key=${resolvedImageApiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
