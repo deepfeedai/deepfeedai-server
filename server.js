@@ -9,7 +9,9 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ── Security Headers ───────────────────────────────────────────────
-app.use(helmet());
+// CSP disabled — admin panel uses inline scripts and is an internal tool.
+// All other helmet protections (HSTS, X-Frame-Options, etc.) remain active.
+app.use(helmet({ contentSecurityPolicy: false }));
 
 // ── CORS ───────────────────────────────────────────────────────────
 // Restrict to known origins. Public API routes (/api/news, /api/article,
