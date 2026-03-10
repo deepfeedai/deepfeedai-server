@@ -11,8 +11,8 @@ const PORT = process.env.PORT || 4000;
 // CORS open — all mutating endpoints are JWT-protected, CORS is not the security layer.
 // The admin panel itself (Railway URL) needs to call its own API, so we allow all origins.
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Static files ────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
@@ -25,6 +25,8 @@ app.use('/api/article',   require('./routes/article'));    // public — single 
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
 app.use('/api/summary',   require('./routes/summary'));    // public — AI TLDR
 app.use('/api/media',     require('./routes/media'));
+app.use('/api/voices',   require('./routes/voices'));
+app.use('/api/settings', require('./routes/settings'));
 
 const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');

@@ -15,6 +15,7 @@ const db      = require('../db');
 const JWT_SECRET    = process.env.JWT_SECRET      || 'deepfeedai_super_secret_jwt_key_2026';
 const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const EL_VOICE_ID   = process.env.ELEVENLABS_VOICE_ID;
+const { getPool }   = require('../db');
 const AUDIO_DIR     = path.join(__dirname, '..', 'public', 'media', 'audio');
 const MAX_CHARS     = 900;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -79,9 +80,11 @@ async function buildTtsText(title, summary, source) {
   return `From ${source}. ${title}. ${body}`.slice(0, MAX_CHARS);
 }
 
-function generateSpeech(text) {
+function generateSpeech(text, voiceId, apiKey) {
+  const resolvedVoiceId = voiceId || EL_VOICE_ID;
+  const resolvedApiKey  = apiKey  || EL_API_KEY;
   return new Promise((resolve, reject) => {
-    if (!EL_API_KEY || !EL_VOICE_ID) return reject(new Error('ElevenLabs credentials not configured'));
+    if (!resolvedApiKey || !resolvedVoiceId) return reject(new Error('ElevenLabs credentials not configured'));
     const body = JSON.stringify({
       text,
       model_id: 'eleven_turbo_v2',
@@ -89,11 +92,11 @@ function generateSpeech(text) {
     });
     const req = https.request({
       hostname: 'api.elevenlabs.io',
-      path:     `/v1/text-to-speech/${EL_VOICE_ID}`,
+      path:     `/v1/text-to-speech/${resolvedVoiceId}`,
       method:   'POST',
       headers: {
         'Content-Type':   'application/json',
-        'xi-api-key':     EL_API_KEY,
+        'xi-api-key':     resolvedApiKey,
         'Accept':         'audio/mpeg',
         'Content-Length': Buffer.byteLength(body),
       },
@@ -149,9 +152,9 @@ async function deleteAudio(audioUrl) {
   }
 }
 
-// POST /api/media/generate-audio  { articleId }
+// POST /api/media/generate-audio  { articleId, voiceId? }
 router.post('/generate-audio', auth, async (req, res) => {
-  const { articleId } = req.body;
+  const { articleId, voiceId } = req.body;
   if (!articleId) return res.status(400).json({ error: 'articleId required' });
 
   const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
@@ -161,19 +164,46 @@ router.post('/generate-audio', auth, async (req, res) => {
   await db.prepare("UPDATE articles SET audio_status = 'pending', updated_at = NOW() WHERE id = ?").run(articleId);
 
   try {
+    // Resolve voice: explicit voiceId → default voice → env vars
+    let resolvedVoiceId = EL_VOICE_ID;
+    let resolvedVoiceName = null;
+    let resolvedVoiceAvatarUrl = null;
+
+    if (voiceId) {
+      const v = await db.prepare('SELECT * FROM voices WHERE id = ?').get(voiceId);
+      if (v) {
+        resolvedVoiceId = v.voice_id;
+        resolvedVoiceName = v.name;
+        resolvedVoiceAvatarUrl = v.avatar_url || null;
+      }
+    } else {
+      const defaultVoice = await db.prepare('SELECT * FROM voices WHERE is_default = 1 LIMIT 1').get();
+      if (defaultVoice) {
+        resolvedVoiceId = defaultVoice.voice_id;
+        resolvedVoiceName = defaultVoice.name;
+        resolvedVoiceAvatarUrl = defaultVoice.avatar_url || null;
+      }
+    }
+
+    // Resolve API key: settings table → env var
+    let resolvedApiKey = EL_API_KEY;
+    const apiKeySetting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
+    if (apiKeySetting && apiKeySetting.value) resolvedApiKey = apiKeySetting.value;
+
     const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI');
-    const mp3Buf   = await generateSpeech(text);
+    const mp3Buf   = await generateSpeech(text, resolvedVoiceId, resolvedApiKey);
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;
     const audioUrl = await storeAudio(mp3Buf, filename);
 
     await db.prepare(`
       UPDATE articles
-      SET audio_url = ?, audio_status = 'ready', audio_transcript = ?, updated_at = NOW()
+      SET audio_url = ?, audio_status = 'ready', audio_transcript = ?,
+          audio_voice_name = ?, audio_voice_avatar_url = ?, updated_at = NOW()
       WHERE id = ?
-    `).run(audioUrl, text, articleId);
+    `).run(audioUrl, text, resolvedVoiceName, resolvedVoiceAvatarUrl, articleId);
 
-    res.json({ audioUrl, charCount: text.length, ttsText: text });
+    res.json({ audioUrl, charCount: text.length, ttsText: text, voiceName: resolvedVoiceName });
   } catch (err) {
     await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = ?").run(articleId);
     console.error('[Media] Error:', err.message);

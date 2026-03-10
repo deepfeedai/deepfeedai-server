@@ -24,18 +24,20 @@ router.get('/', async (req, res) => {
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
   res.json({
-    title:            match.title,
-    summary:          match.summary,
-    category:         match.category,
-    source:           match.source,
-    url:              match.source_url,
-    image:            match.image_url,
-    publishedAt:      match.published_at,
-    is_featured:      match.is_featured,
-    audio_url:        match.audio_url        || null,
-    audio_status:     match.audio_status     || null,
-    audio_transcript: match.audio_transcript || null,
-    media_enabled:    match.media_enabled    || 0,
+    title:                  match.title,
+    summary:                match.summary,
+    category:               match.category,
+    source:                 match.source,
+    url:                    match.source_url,
+    image:                  match.image_url,
+    publishedAt:            match.published_at,
+    is_featured:            match.is_featured,
+    audio_url:              match.audio_url              || null,
+    audio_status:           match.audio_status           || null,
+    audio_transcript:       match.audio_transcript       || null,
+    media_enabled:          match.media_enabled          || 0,
+    audio_voice_name:       match.audio_voice_name       || null,
+    audio_voice_avatar_url: match.audio_voice_avatar_url || null,
   });
 });
 
