@@ -329,6 +329,7 @@
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
           ` : `
+            <button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
           `}
@@ -463,6 +464,23 @@
       }
     });
   });
+
+  async function generateImage(id) {
+    const btn = document.querySelector(`#row-${id} [title="Generate AI image"]`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      await apiFetch('/media/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: id })
+      });
+      showAlert('Image generated ✓');
+      await loadArticles();
+    } catch (err) {
+      showAlert('Image generation failed: ' + err.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '🎨'; }
+    }
+  }
 
   function previewAudio(id) {
     const el = document.getElementById(`ap-${id}`);

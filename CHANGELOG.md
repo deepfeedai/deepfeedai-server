@@ -14,6 +14,20 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.1.0] — 2026-03-10
+
+### Added
+- **AI-generated article thumbnails** — new `POST /api/media/generate-image` endpoint in `routes/media.js`
+  - Accepts `{ articleId }`, fetches the article from DB, and runs a two-step AI pipeline
+  - **Step 1 — Gemini visual concept:** uses `gemini-2.5-flash-lite` to write a short (≤40 words) abstract, cinematic visual concept for the article based on title, summary, and category
+  - **Step 2 — Imagen 3 generation:** calls `imagen-3.0-generate-002` with the visual concept combined with a category-specific style preset (LLMs, Research, Tools, Policy, Business, CyberSecurity, Image AI, Industry, Agents, Hardware) at 16:9 aspect ratio
+  - **Storage:** uploads PNG to Cloudflare R2 (`images/article-{id}.png`) when R2 is configured; falls back to local `public/media/images/` in dev
+  - **DB update:** saves CDN/local URL to `articles.image_url`; main site picks up the new image automatically on next load
+  - Includes 30-second timeout on Imagen API call; falls back to title-based prompt if Gemini concept step fails
+- **🎨 Generate AI image button** in admin articles table — appears on all non-archived articles in the actions column; shows ⏳ spinner while generating, restores on error
+
+---
+
 ## [3.0.0] — 2026-03-10
 
 ### Added

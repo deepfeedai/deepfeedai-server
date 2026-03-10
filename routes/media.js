@@ -211,6 +211,134 @@ router.post('/generate-audio', auth, async (req, res) => {
   }
 });
 
+// POST /api/media/generate-image  { articleId }
+const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict`;
+const IMAGE_DIR  = path.join(__dirname, '..', 'public', 'media', 'images');
+
+const CATEGORY_STYLES = {
+  'LLMs':          'glowing neural network nodes, synaptic connections, deep blue and cyan tones, abstract digital art',
+  'Research':      'abstract scientific data visualization, clean geometric forms, cool blue and white palette',
+  'Tools':         'holographic software interface, floating UI panels, dark theme, neon accent lines',
+  'Policy':        'dramatic government architecture with digital light overlay, serious and authoritative',
+  'Business':      'modern corporate technology landscape, clean lines, glass and steel aesthetic',
+  'CyberSecurity': 'digital security matrix, glowing lock symbol, high contrast red and blue, cyber aesthetic',
+  'Image AI':      'vibrant generative art canvas, colorful abstract shapes emerging from darkness',
+  'Industry':      'sweeping circuit board landscape, warm amber and gold tones, macro detail',
+  'Agents':        'autonomous robotic forms, interconnected decision nodes, silver and blue glow',
+  'Hardware':      'close-up microchip architecture, copper traces, dramatic macro photography style',
+};
+const DEFAULT_STYLE = 'futuristic technology abstract, dark background, cool blue tones';
+
+async function getVisualConcept(title, summary, category) {
+  if (!GEMINI_API_KEY) return null;
+  const cleanSummary = (summary || '').replace(/<[^>]+>/g, '').slice(0, 400);
+  const prompt = `You are a creative director for a tech news site. Write a short visual concept (1-2 sentences, no more than 40 words) describing an abstract, cinematic image that represents this AI news article. Focus on mood, metaphor, and visual elements. No text, no people, no faces, no logos.
+
+Article title: ${title}
+Article summary: ${cleanSummary}
+Category: ${category || 'Technology'}
+
+Visual concept:`;
+
+  try {
+    const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+  } catch { return null; }
+}
+
+async function storeImage(pngBuf, filename) {
+  if (R2_CONFIGURED) {
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const s3 = getR2Client();
+    await s3.send(new PutObjectCommand({
+      Bucket:      process.env.R2_BUCKET_NAME,
+      Key:         `images/${filename}`,
+      Body:        pngBuf,
+      ContentType: 'image/png',
+    }));
+    const publicUrl = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+    return `${publicUrl}/images/${filename}`;
+  }
+  // Local fallback
+  fs.mkdirSync(IMAGE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(IMAGE_DIR, filename), pngBuf);
+  return `/media/images/${filename}`;
+}
+
+router.post('/generate-image', auth, async (req, res) => {
+  const { articleId } = req.body;
+  if (!articleId) return res.status(400).json({ error: 'articleId required' });
+
+  const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
+  if (!GEMINI_API_KEY) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+
+  try {
+    const category = article.category || '';
+    const stylePreset = CATEGORY_STYLES[category] || DEFAULT_STYLE;
+
+    // Step 1: Get visual concept from Gemini
+    let visualConcept = await getVisualConcept(article.title, article.summary, category);
+    if (!visualConcept) {
+      // Fallback: use title + category directly
+      visualConcept = `Abstract cinematic representation of ${article.title}, tech news visual`;
+    }
+
+    // Step 2: Assemble full prompt and call Imagen 3
+    const fullPrompt = `${visualConcept}. ${stylePreset}. Dark background, cinematic lighting, no text, no words, no logos, no people, editorial quality, ultra detailed.`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    let imagenRes;
+    try {
+      imagenRes = await fetch(`${IMAGEN_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: fullPrompt }],
+          parameters: {
+            sampleCount: 1,
+            aspectRatio: '16:9',
+            safetyFilterLevel: 'block_few',
+            personGeneration: 'dont_allow',
+          },
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!imagenRes.ok) {
+      const errBody = await imagenRes.text().catch(() => '');
+      throw new Error(`Imagen API ${imagenRes.status}: ${errBody.slice(0, 300)}`);
+    }
+
+    const imagenData = await imagenRes.json();
+    const b64 = imagenData?.predictions?.[0]?.bytesBase64Encoded;
+    if (!b64) throw new Error('Imagen returned no image data');
+
+    const pngBuf  = Buffer.from(b64, 'base64');
+    const filename = `article-${articleId}.png`;
+    const imageUrl = await storeImage(pngBuf, filename);
+
+    await db.prepare('UPDATE articles SET image_url = ?, updated_at = NOW() WHERE id = ?').run(imageUrl, articleId);
+
+    res.json({ imageUrl });
+  } catch (err) {
+    console.error('[Media] Image generation error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/media/audio/:id
 router.delete('/audio/:id', auth, async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = ?').get(req.params.id);
