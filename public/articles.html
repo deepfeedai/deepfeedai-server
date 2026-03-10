@@ -348,7 +348,6 @@
         </td>
         <td class="td-actions">
           ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original article">🔗</a>` : ''}
-          ${!isArchived ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
           ${isArchived ? `
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
