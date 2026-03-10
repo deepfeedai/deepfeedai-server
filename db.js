@@ -23,6 +23,13 @@ function getPool() {
       connectionString,
       ssl: { rejectUnauthorized: false }, // required for Neon / Railway Postgres
       max: 10,
+      idleTimeoutMillis: 30000,  // release idle clients after 30s
+      connectionTimeoutMillis: 5000,
+      keepAlive: true,
+    });
+    // Swallow pool-level errors so one bad connection doesn't crash the process
+    pool.on('error', (err) => {
+      console.error('[DB] Pool client error:', err.message);
     });
   }
   return pool;
