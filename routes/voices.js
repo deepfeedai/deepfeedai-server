@@ -12,6 +12,7 @@ const db                    = require('../db');
 const { auth }              = require('../middleware/auth');
 const { asyncHandler }      = require('../lib/utils');
 const { voiceCreate, voiceUpdate, validate } = require('../lib/schemas');
+const { decryptSetting }    = require('../lib/crypto');
 
 const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
 
@@ -175,7 +176,7 @@ router.post('/preview', auth, asyncHandler(async (req, res) => {
   let apiKey = api_key;
   if (!apiKey) {
     const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
-    apiKey = (setting && setting.value) ? setting.value : (process.env.ELEVENLABS_API_KEY || '');
+    apiKey = (setting && setting.value) ? decryptSetting(setting.value) : (process.env.ELEVENLABS_API_KEY || '');
   }
 
   const DEFAULT_PREVIEW = 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest in artificial intelligence.';
