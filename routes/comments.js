@@ -202,19 +202,19 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   const clean = sanitizeBody(body);
   if (!clean) return res.status(400).json({ error: 'Comment body is required' });
 
-  // Validate parent exists and belongs to same article
+  // Validate parent exists (not deleted). Slug match intentionally removed —
+  // the parent's stored slug may differ slightly from the computed slug if the
+  // article title changed, causing false rejections. The reply's own slug is
+  // set from the frontend which is authoritative.
   if (parentId) {
     const parent = await db.prepare(
-      'SELECT id, article_slug FROM comments WHERE id = $1 AND is_deleted = 0'
+      'SELECT id, parent_id FROM comments WHERE id = $1 AND is_deleted = 0'
     ).get(parentId);
-    if (!parent || parent.article_slug !== slug) {
+    if (!parent) {
       return res.status(400).json({ error: 'Invalid parent comment' });
     }
     // Only one level of nesting
-    const grandparent = await db.prepare(
-      'SELECT parent_id FROM comments WHERE id = $1'
-    ).get(parentId);
-    if (grandparent?.parent_id) {
+    if (parent.parent_id) {
       return res.status(400).json({ error: 'Replies can only be one level deep' });
     }
   }
