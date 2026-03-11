@@ -461,12 +461,11 @@ router.get('/admin', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 /* ── Admin: POST /api/comments/admin/:id/restore ────────────────────── */
+// Un-hides a comment — works as long as the row still exists.
 router.post('/admin/:id/restore', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const row = await db.prepare('SELECT body FROM comments WHERE id = $1').get(id);
+  const row = await db.prepare('SELECT id FROM comments WHERE id = $1').get(id);
   if (!row) return res.status(404).json({ error: 'Comment not found' });
-  // Can only restore if the body still exists (hide sets body=NULL — can't restore content-less)
-  if (!row.body) return res.status(400).json({ error: 'Cannot restore — comment body was cleared' });
   await db.prepare(
     'UPDATE comments SET is_deleted = 0, updated_at = NOW() WHERE id = $1'
   ).run(id);
@@ -474,12 +473,15 @@ router.post('/admin/:id/restore', requireAdmin, asyncHandler(async (req, res) =>
 }));
 
 /* ── Admin: POST /api/comments/admin/:id/hide ─────────────────────── */
+// Soft-hides a comment — sets is_deleted=1 but PRESERVES the body so the
+// comment can be fully restored later via /restore. Reports are cleared.
+// Use DELETE /admin/:id for permanent removal.
 router.post('/admin/:id/hide', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   await db.prepare(
-    'UPDATE comments SET is_deleted = 1, body = NULL, updated_at = NOW() WHERE id = $1'
+    'UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id = $1'
   ).run(id);
-  // Clear reports after hiding
+  // Clear reports after hiding — no further action needed on those
   await db.prepare('DELETE FROM comment_reports WHERE comment_id = $1').run(id);
   res.json({ ok: true });
 }));
