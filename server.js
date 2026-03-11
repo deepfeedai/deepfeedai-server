@@ -52,7 +52,7 @@ const publicApiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/contact', '/api/thumbnail', '/api/trends'];
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -115,7 +115,12 @@ app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/settings',  require('./routes/settings'));
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
-app.use('/api/comments', require('./routes/comments'));   // public read, user write, admin mod
+app.use('/api/comments',   require('./routes/comments'));    // public read, user write, admin mod
+app.use('/api/subscribe',  require('./routes/subscribe'));   // public — newsletter signup
+app.use('/api/contact',    require('./routes/contact'));     // public — contact form
+app.use('/api/thumbnail',  require('./routes/thumbnail'));   // public — AI thumbnail generation
+app.use('/api/trends',     require('./routes/trends'));      // public — trending analysis
+app.use('/api/newsletter', require('./routes/newsletter')); // admin — newsletter send
 
 const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');
@@ -139,6 +144,33 @@ app.use((err, req, res, _next) => {
   console.error('[Error]', err.message, isDev ? err.stack : '');
   const status = err.status || err.statusCode || 500;
   res.status(status).json({ error: isDev ? err.message : 'Internal server error' });
+});
+
+// ── Cron: send weekly newsletter every Monday at 14:00 UTC ─────────
+// Mirrors the previous Vercel Cron schedule: "0 14 * * 1"
+cron.schedule('0 14 * * 1', async () => {
+  const resendKey  = process.env.RESEND_API_KEY;
+  const audienceId = process.env.RESEND_AUDIENCE_ID;
+  if (!resendKey || !audienceId) return; // skip if not configured
+  console.log('[Cron] Sending weekly newsletter...');
+  try {
+    const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'x-cron-secret':  process.env.CRON_SECRET || '',
+      },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      console.log(`[Cron] Newsletter sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
+    } else {
+      console.error('[Cron] Newsletter failed:', data.error);
+    }
+  } catch (e) {
+    console.error('[Cron] Newsletter error:', e.message);
+  }
 });
 
 // ── Cron: RSS auto-fetch every 30 min ──────────────────────────────

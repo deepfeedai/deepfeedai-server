@@ -175,6 +175,24 @@ async function initDb() {
       payload    JSONB NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS thumbnail_cache (
+      cache_key  TEXT PRIMARY KEY,
+      payload    JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS trends_cache (
+      id         SERIAL PRIMARY KEY,
+      payload    JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS trends_history (
+      snapshot_date DATE PRIMARY KEY,
+      payload       JSONB NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   // comment_reactions table — one emoji reaction per user per comment
