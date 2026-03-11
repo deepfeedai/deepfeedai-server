@@ -37,7 +37,8 @@ const db        = require('../db');
 const requireUser  = require('../middleware/user-jwt');
 const { auth: requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
-const { checkSpam }    = require('../lib/spam');
+const { checkSpam }            = require('../lib/spam');
+const { sendReplyNotification } = require('../lib/notify');
 
 const router = express.Router();
 
@@ -269,6 +270,42 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
     return res.status(202).json({
       queued:  true,
       message: 'Your comment is pending review and will appear once approved.',
+    });
+  }
+
+  // ── Reply notification ────────────────────────────────────────────
+  // Fire-and-forget: don't let email failure affect the response
+  if (parentId && isApproved) {
+    setImmediate(async () => {
+      try {
+        const parent = await db.prepare(
+          'SELECT c.user_id, c.body, u.email, u.display_name, u.notify_replies, u.notify_token FROM comments c JOIN public_users u ON u.id = c.user_id WHERE c.id = $1'
+        ).get(parentId);
+
+        // Don't notify if: no parent, same user, opted out, or no email
+        if (!parent || parent.user_id === req.user.sub) return;
+        if (!parent.notify_replies || !parent.email || !parent.notify_token) return;
+
+        // Best-effort title lookup — slugs are computed not stored, so we do a fuzzy
+        // match on the first word of the slug to find the article
+        const slugWord  = (slug || '').split('-').slice(0, 4).join(' ');
+        const article   = await db.prepare(
+          `SELECT title FROM articles WHERE LOWER(title) LIKE $1 AND is_published = 1 LIMIT 1`
+        ).get(`%${slugWord}%`);
+
+        await sendReplyNotification({
+          toEmail:      parent.email,
+          toName:       parent.display_name,
+          replierName:  user.display_name || 'Someone',
+          articleSlug:  slug,
+          articleTitle: article?.title || slug,
+          replyBody:    clean,
+          commentId:    parent.user_id, // anchor to parent comment
+          unsubToken:   parent.notify_token,
+        });
+      } catch (err) {
+        console.warn('[Notify] Reply notification failed:', err.message);
+      }
     });
   }
 

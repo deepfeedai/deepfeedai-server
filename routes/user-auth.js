@@ -78,21 +78,25 @@ async function findOrCreateUser(provider, providerId, email, displayName, avatar
   ).get(provider, String(providerId));
 
   if (!user) {
+    const notifyToken = crypto.randomBytes(24).toString('hex');
     user = await db.prepare(`
-      INSERT INTO public_users (provider, provider_id, email, display_name, avatar_url)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO public_users (provider, provider_id, email, display_name, avatar_url, notify_token)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
-    `).get(provider, String(providerId), email || null, safeName, avatarUrl || null);
+    `).get(provider, String(providerId), email || null, safeName, avatarUrl || null, notifyToken);
   } else {
+    // Backfill notify_token for existing users who don't have one
+    const token = user.notify_token || crypto.randomBytes(24).toString('hex');
     user = await db.prepare(`
       UPDATE public_users
       SET email        = $1,
           display_name = $2,
           avatar_url   = $3,
+          notify_token = COALESCE(notify_token, $4),
           updated_at   = NOW()
-      WHERE id = $4
+      WHERE id = $5
       RETURNING *
-    `).get(email || null, safeName, avatarUrl || null, user.id);
+    `).get(email || null, safeName, avatarUrl || null, token, user.id);
   }
 
   return user;
@@ -316,6 +320,65 @@ router.get('/me', async (req, res) => {
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
   }
+});
+
+/* ── GET /api/user-auth/preferences ─────────────────────────────── */
+router.get('/preferences', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
+  try {
+    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const user    = await db.prepare('SELECT notify_replies FROM public_users WHERE id = $1').get(payload.sub);
+    if (!user) return res.status(404).json({ error: 'Not found' });
+    res.json({ notifyReplies: !!user.notify_replies });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+/* ── PUT /api/user-auth/preferences ─────────────────────────────── */
+router.put('/preferences', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
+  try {
+    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { notifyReplies } = req.body;
+    await db.prepare(
+      'UPDATE public_users SET notify_replies = $1, updated_at = NOW() WHERE id = $2'
+    ).run(notifyReplies ? 1 : 0, payload.sub);
+    res.json({ ok: true, notifyReplies: !!notifyReplies });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+/* ── GET /api/user-auth/unsubscribe ──────────────────────────────── */
+// One-click unsubscribe from reply notifications via tokenized link in emails.
+// No auth required — token in URL is the secret.
+router.get('/unsubscribe', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).send('Missing token');
+
+  const user = await db.prepare(
+    'SELECT id, display_name FROM public_users WHERE notify_token = $1'
+  ).get(token);
+
+  if (!user) return res.status(404).send('Invalid unsubscribe link');
+
+  await db.prepare(
+    'UPDATE public_users SET notify_replies = 0, updated_at = NOW() WHERE id = $1'
+  ).run(user.id);
+
+  // Friendly HTML response
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>Unsubscribed — Deep Feed AI</title>
+    <style>body{font-family:sans-serif;background:#0f1117;color:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
+    .box{text-align:center;padding:40px;max-width:400px;}h1{color:#00d9ff;}a{color:#00d9ff;}</style>
+    </head><body><div class="box">
+    <h1>✅ Unsubscribed</h1>
+    <p>You won't receive reply notifications anymore, ${user.display_name}.</p>
+    <p>You can re-enable them anytime from your comment settings on <a href="${process.env.MAIN_SITE_URL || 'https://deepfeedai.com'}">Deep Feed AI</a>.</p>
+    </div></body></html>`);
 });
 
 module.exports = router;

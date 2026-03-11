@@ -202,6 +202,9 @@ async function initDb() {
     // Spam detection: score 0.0–1.0 from Perspective API; reason = matched rule or 'perspective'
     `ALTER TABLE comments ADD COLUMN IF NOT EXISTS spam_score              NUMERIC(4,3)`,
     `ALTER TABLE comments ADD COLUMN IF NOT EXISTS spam_reason             TEXT`,
+    // Reply notifications: opt-in flag + unsubscribe token
+    `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_replies      INTEGER DEFAULT 1`,
+    `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_token        TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
