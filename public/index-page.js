@@ -7,10 +7,11 @@ onReady(async () => {
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
     try {
-      const [articles, sources, settings] = await Promise.all([
+      const [articles, sources, settings, commentsData] = await Promise.all([
         apiFetch('/articles'),
         apiFetch('/sources'),
         apiFetch('/settings').catch(() => ({})),
+        apiFetch('/comments/admin').catch(() => ({ comments: [] })),
       ]);
 
       const now       = Date.now();
@@ -46,6 +47,19 @@ onReady(async () => {
       // Highlight drafts card if pending
       if (drafts.length > 0) {
         document.getElementById('statDraftsCard').classList.add('stat-card-warn');
+      }
+
+      // ── Community stats ───────────────────────────────────────
+      const comments     = (commentsData.comments || []).filter(c => !c.isDeleted);
+      const flagged      = comments.filter(c => c.reportCount > 0);
+      const publicUsers  = new Set(comments.filter(c => c.user).map(c => c.user.id));
+
+      document.getElementById('statComments').textContent    = comments.length;
+      document.getElementById('statFlagged').textContent     = flagged.length;
+      document.getElementById('statPublicUsers').textContent = publicUsers.size;
+
+      if (flagged.length > 0) {
+        document.getElementById('statFlaggedCard').classList.add('stat-card-warn');
       }
 
       // ── Category breakdown ────────────────────────────────────
@@ -113,6 +127,14 @@ onReady(async () => {
           icon: '🎵', level: 'info',
           text: `${noAudioPublished.length} published article${noAudioPublished.length > 1 ? 's' : ''} without audio`,
           link: '/articles.html', linkText: 'Generate Audio'
+        });
+      }
+
+      if (flagged.length > 0) {
+        attention.push({
+          icon: '🚩', level: 'warn',
+          text: `${flagged.length} comment${flagged.length > 1 ? 's' : ''} reported by users`,
+          link: '/comments.html?filter=reported', linkText: 'Review Comments'
         });
       }
 

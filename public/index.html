@@ -20,6 +20,7 @@
       <a class="nav-link" href="/articles.html"><span class="icon">📰</span> Articles</a>
       <a class="nav-link" href="/sources.html"><span class="icon">📡</span> Sources</a>
       <a class="nav-link" href="/voices.html"><span class="icon">🎙️</span> Voices</a>
+      <a class="nav-link" href="/comments.html"><span class="icon">💬</span> Comments</a>
       <a class="nav-link" href="/settings.html"><span class="icon">⚙️</span> Settings</a>
     </nav>
     <div class="sidebar-footer">
@@ -107,6 +108,26 @@
           <div class="stat-icon">⭐</div>
           <div class="stat-label">Featured</div>
           <div class="stat-value" id="statFeatured">—</div>
+        </div>
+      </div>
+
+      <!-- Stat Cards Row 3: Community -->
+      <div class="dash-section-label">Community</div>
+      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 28px;">
+        <div class="stat-card">
+          <div class="stat-icon">💬</div>
+          <div class="stat-label">Total Comments</div>
+          <div class="stat-value" id="statComments">—</div>
+        </div>
+        <a href="/comments.html?filter=reported" class="stat-card stat-card-link" id="statFlaggedCard">
+          <div class="stat-icon">🚩</div>
+          <div class="stat-label">Flagged</div>
+          <div class="stat-value" id="statFlagged">—</div>
+        </a>
+        <div class="stat-card">
+          <div class="stat-icon">👥</div>
+          <div class="stat-label">Public Users</div>
+          <div class="stat-value" id="statPublicUsers">—</div>
         </div>
       </div>
 

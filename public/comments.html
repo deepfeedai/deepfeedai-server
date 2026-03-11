@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Comments</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="admin-layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🤖 Deep Feed<span>AI</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Navigation</div>
+      <a class="nav-link" href="/index.html"><span class="icon">📊</span> Dashboard</a>
+      <a class="nav-link" href="/articles.html"><span class="icon">📰</span> Articles</a>
+      <a class="nav-link" href="/sources.html"><span class="icon">📡</span> Sources</a>
+      <a class="nav-link" href="/voices.html"><span class="icon">🎙️</span> Voices</a>
+      <a class="nav-link active" href="/comments.html"><span class="icon">💬</span> Comments</a>
+      <a class="nav-link" href="/settings.html"><span class="icon">⚙️</span> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-link" data-logout><span class="icon">🚪</span> Logout</button>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- Main -->
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+      <div class="topbar-title">Comments</div>
+      <span id="topbarUser" style="color:var(--muted);font-size:13px;"></span>
+    </header>
+
+    <div class="page-body">
+      <div id="alertArea"></div>
+
+      <!-- Stat Cards -->
+      <div class="dash-section-label">Overview</div>
+      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-bottom: 28px;">
+        <div class="stat-card">
+          <div class="stat-icon">💬</div>
+          <div class="stat-label">Total Comments</div>
+          <div class="stat-value" id="statTotal">—</div>
+        </div>
+        <div class="stat-card" id="statFlaggedCard">
+          <div class="stat-icon">🚩</div>
+          <div class="stat-label">Flagged</div>
+          <div class="stat-value" id="statFlagged">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">👥</div>
+          <div class="stat-label">Unique Commenters</div>
+          <div class="stat-value" id="statUsers">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🗑️</div>
+          <div class="stat-label">Deleted</div>
+          <div class="stat-value" id="statDeleted">—</div>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="section-header" style="margin-bottom: 12px;">
+        <div class="section-title">Comment List</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-ghost filter-tab active" data-filter="all">All</button>
+          <button class="btn btn-sm btn-ghost filter-tab" data-filter="reported">🚩 Reported Only</button>
+          <input type="text" id="slugFilter" class="input" placeholder="Filter by slug…"
+                 style="width:200px;height:32px;font-size:13px;" />
+        </div>
+      </div>
+
+      <!-- Comments table -->
+      <div class="table-wrap">
+        <table id="commentsTable">
+          <thead>
+            <tr>
+              <th style="width:140px;">Article</th>
+              <th>Comment</th>
+              <th style="width:130px;">User</th>
+              <th style="width:70px;">Reports</th>
+              <th style="width:100px;">Date</th>
+              <th style="width:100px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="commentsBody">
+            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">
+              <span class="spinner"></span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <div class="modal-title" id="confirmTitle">Confirm</div>
+    </div>
+    <div class="modal-body">
+      <p id="confirmMsg" style="color:var(--muted);margin:0;"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="btn btn-danger" id="confirmOkBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/comments-page.js"></script>
+</body>
+</html>
