@@ -3,7 +3,8 @@
  * Public comment system for article pages.
  *
  * Public endpoints (no auth):
- *   GET  /api/comments?slug=  — fetch comments for an article
+ *   GET  /api/comments?slug=         — fetch comments for an article
+ *   GET  /api/comments/leaderboard   — top commenters by count (public)
  *
  * User endpoints (requireUser middleware):
  *   POST   /api/comments              — post a comment (rate-limited)
@@ -104,6 +105,41 @@ router.get('/', asyncHandler(async (req, res) => {
   `).all(slug);
 
   res.json({ comments: rows.map(formatComment), count: rows.filter(r => !r.is_deleted).length });
+}));
+
+/* ── GET /api/comments/leaderboard ──────────────────────────────────
+   Public endpoint — returns top N commenters ranked by comment count.
+   ?limit=10 (max 50)
+ ─────────────────────────────────────────────────────────────────── */
+router.get('/leaderboard', asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+
+  const rows = await db.prepare(`
+    SELECT
+      u.id,
+      u.display_name,
+      u.avatar_url,
+      u.provider,
+      COUNT(c.id) AS comment_count
+    FROM public_users u
+    JOIN comments c ON c.user_id = u.id
+    WHERE c.is_deleted = 0
+      AND u.is_banned  = 0
+    GROUP BY u.id, u.display_name, u.avatar_url, u.provider
+    ORDER BY comment_count DESC
+    LIMIT $1
+  `).all(limit);
+
+  res.json({
+    leaderboard: rows.map((r, i) => ({
+      rank:         i + 1,
+      id:           r.id,
+      displayName:  r.display_name,
+      avatarUrl:    r.avatar_url || null,
+      provider:     r.provider,
+      commentCount: parseInt(r.comment_count, 10),
+    })),
+  });
 }));
 
 /* ── POST /api/comments — post a new comment ─────────────────────── */
