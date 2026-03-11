@@ -9,6 +9,8 @@ let articles = [];
   let audioFilter = 'all';
   let dateFilter  = 'all';
   let activeTab   = 'all';
+  let artPage     = 1;
+  let artPageSize = 25;
 
   function escHtml(str) {
     if (!str) return '';
@@ -58,6 +60,7 @@ let articles = [];
       // Default sort: oldest first (surface stale drafts)
       filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       articles = filtered;
+      artPage = 1;
       const countEl = document.getElementById('filterCount');
       if (countEl) {
         countEl.textContent = `${filtered.length} draft${filtered.length !== 1 ? 's' : ''}`;
@@ -112,6 +115,7 @@ let articles = [];
     });
 
     articles = filtered;
+    artPage = 1;
 
     // 6. Update count badge
     const countEl = document.getElementById('filterCount');
@@ -145,13 +149,16 @@ let articles = [];
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
       tbody.innerHTML = `<tr><td colspan="9">
-        <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
+        <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
+      document.getElementById('articlesPagination').innerHTML = '';
       updateBulkToolbar();
       return;
     }
 
-    tbody.innerHTML = articles.map(a => {
+    const pageArticles = articles.slice((artPage - 1) * artPageSize, artPage * artPageSize);
+
+    tbody.innerHTML = pageArticles.map(a => {
       const isArchived = !!a.is_archived;
       const rowClass = [
         selectedIds.has(a.id) ? 'row-selected' : '',
@@ -186,7 +193,7 @@ let articles = [];
             ${a.is_featured ? '⭐ Yes' : '—'}
           </button>`}
         </td>
-        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
+        <td style="color:var(--muted);font-size:12px;"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
           ${isArchived ? '—' : renderImageCell(a)}
         </td>
@@ -219,6 +226,11 @@ let articles = [];
     });
 
     updateBulkToolbar();
+
+    renderPagination('articlesPagination', articles.length, artPage, artPageSize,
+      (p) => { artPage = p; renderTable(); },
+      (s) => { artPageSize = s; artPage = 1; renderTable(); }
+    );
   }
 
   /* ---------- Image helpers ---------- */
@@ -507,6 +519,8 @@ let articles = [];
   }
 
   async function loadArticles() {
+    const tbody = document.getElementById('articlesBody');
+    if (tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       allArticles = await apiFetch('/articles');
       applyFilters();
@@ -822,4 +836,52 @@ let articles = [];
     });
 
     await loadArticles();
+
+    // ── Keyboard navigation ──────────────────────────────
+    let focusedRowId = null;
+
+    function getFocusableRows() {
+      return [...document.querySelectorAll('#articlesBody tr[id^="row-"]')];
+    }
+
+    function setFocusedRow(id) {
+      document.querySelectorAll('#articlesBody tr.kb-focus').forEach(r => r.classList.remove('kb-focus'));
+      focusedRowId = id;
+      if (id != null) {
+        const row = document.getElementById(`row-${id}`);
+        if (row) { row.classList.add('kb-focus'); row.scrollIntoView({ block: 'nearest' }); }
+      }
+    }
+
+    document.addEventListener('keydown', e => {
+      if (isInputFocused()) return;
+      const rows = getFocusableRows();
+      if (!rows.length) return;
+
+      if (e.key === '?') {
+        showKbdHelp([
+          { key: 'j / ↓', desc: 'Next row' },
+          { key: 'k / ↑', desc: 'Previous row' },
+          { key: 'e',      desc: 'Edit focused article' },
+          { key: 'd',      desc: 'Archive focused article' },
+          { key: '?',      desc: 'Toggle this help' },
+        ]);
+        return;
+      }
+
+      const ids = rows.map(r => parseInt(r.id.replace('row-', '')));
+      const idx = focusedRowId != null ? ids.indexOf(focusedRowId) : -1;
+
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedRow(ids[Math.min(idx + 1, ids.length - 1)]);
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedRow(ids[Math.max(idx - 1, 0)]);
+      } else if (e.key === 'e' && focusedRowId != null) {
+        openEdit(focusedRowId);
+      } else if (e.key === 'd' && focusedRowId != null) {
+        openDelete(focusedRowId);
+      }
+    });
   });

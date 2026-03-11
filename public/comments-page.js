@@ -4,6 +4,8 @@ let allComments  = [];
 let queueItems   = [];
 let activeFilter = 'all';
 let slugFilter   = '';
+let cmtPage      = 1;
+let cmtPageSize  = 25;
 
 onReady(async () => {
   if (!requireAuth()) return;
@@ -32,6 +34,10 @@ onReady(async () => {
 
 /* ── Load all comments ────────────────────────────────────────────── */
 async function loadComments() {
+  const tbody = document.getElementById('commentsBody');
+  if (tbody && activeFilter !== 'queue') {
+    tbody.innerHTML = skeletonRows(['sk-w-md','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
+  }
   try {
     const data = await apiFetch('/comments/admin');
     allComments = data.comments || [];
@@ -113,17 +119,20 @@ function renderTable() {
   if (filtered.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6">
       <div class="empty-state"><div class="empty-icon">💬</div>
-      <p>${activeFilter === 'reported' ? 'No reported comments' : 'No comments yet'}</p></div>
+      <p>${activeFilter === 'reported' ? 'No reported comments — all clear' : 'No comments yet — looking clean ✨'}</p></div>
     </td></tr>`;
+    document.getElementById('commentsPagination').innerHTML = '';
     return;
   }
 
-  tbody.innerHTML = filtered.map(c => {
+  const pageComments = filtered.slice((cmtPage - 1) * cmtPageSize, cmtPage * cmtPageSize);
+
+  tbody.innerHTML = pageComments.map(c => {
     const slug        = escHtml(c.articleSlug || '—');
     const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
     const userName    = escHtml(c.user?.displayName || 'Unknown');
     const provider    = escHtml(c.user?.provider || '');
-    const date        = fmtDate(c.createdAt);
+    const date        = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const reports     = c.reportCount || 0;
     const reportBadge = reports > 0
       ? `<span class="badge badge-danger" style="font-size:11px;">🚩 ${reports}</span>`
@@ -163,13 +172,18 @@ function renderTable() {
         <td>${actions}</td>
       </tr>`;
   }).join('');
+
+  renderPagination('commentsPagination', filtered.length, cmtPage, cmtPageSize,
+    (p) => { cmtPage = p; renderTable(); },
+    (s) => { cmtPageSize = s; cmtPage = 1; renderTable(); }
+  );
 }
 
 function renderQueueTable(tbody) {
   if (queueItems.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6">
       <div class="empty-state"><div class="empty-icon">✅</div>
-      <p>Queue is empty — no comments pending review</p></div>
+      <p>Queue is empty — nothing to review</p></div>
     </td></tr>`;
     return;
   }
@@ -179,7 +193,7 @@ function renderQueueTable(tbody) {
     const body     = escHtml((c.body || '').slice(0, 160)) + (c.body && c.body.length > 160 ? '…' : '');
     const userName = escHtml(c.user?.displayName || 'Unknown');
     const provider = escHtml(c.user?.provider || '');
-    const date     = fmtDate(c.createdAt);
+    const date     = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const prior    = c.priorApproved ?? 0;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
     const articleLink  = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
@@ -232,6 +246,7 @@ function initFilters() {
       document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeFilter = btn.dataset.filter;
+      cmtPage = 1;
       renderTable();
     });
   });
@@ -239,6 +254,7 @@ function initFilters() {
   const slugInput = document.getElementById('slugFilter');
   slugInput.addEventListener('input', () => {
     slugFilter = slugInput.value.trim().toLowerCase();
+    cmtPage = 1;
     renderTable();
   });
 }
@@ -325,6 +341,59 @@ async function hardDelete(id) {
     showAlert('Failed to delete: ' + err.message, 'error');
   }
 }
+
+/* ── Keyboard navigation ──────────────────────────────────────────── */
+(function initKeyNav() {
+  let focusedId = null;
+
+  function getFocusableRows() {
+    return [...document.querySelectorAll('#commentsBody tr[data-id]')];
+  }
+
+  function setFocusedRow(id) {
+    document.querySelectorAll('#commentsBody tr.kb-focus').forEach(r => r.classList.remove('kb-focus'));
+    focusedId = id;
+    if (id != null) {
+      const row = document.querySelector(`#commentsBody tr[data-id="${id}"]`);
+      if (row) { row.classList.add('kb-focus'); row.scrollIntoView({ block: 'nearest' }); }
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (isInputFocused()) return;
+    const rows = getFocusableRows();
+
+    if (e.key === '?') {
+      showKbdHelp([
+        { key: 'j / ↓', desc: 'Next row' },
+        { key: 'k / ↑', desc: 'Previous row' },
+        { key: 'a',      desc: 'Approve focused comment (queue)' },
+        { key: 'd',      desc: 'Delete focused comment' },
+        { key: 'h',      desc: 'Hide focused comment' },
+        { key: '?',      desc: 'Toggle this help' },
+      ]);
+      return;
+    }
+
+    if (!rows.length) return;
+    const ids = rows.map(r => parseInt(r.dataset.id));
+    const idx = focusedId != null ? ids.indexOf(focusedId) : -1;
+
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedRow(ids[Math.min(idx + 1, ids.length - 1)]);
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedRow(ids[Math.max(idx - 1, 0)]);
+    } else if (e.key === 'a' && focusedId != null && activeFilter === 'queue') {
+      approveComment(focusedId);
+    } else if (e.key === 'd' && focusedId != null) {
+      confirmDelete(focusedId);
+    } else if (e.key === 'h' && focusedId != null) {
+      confirmHide(focusedId);
+    }
+  });
+})();
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 function escHtml(str) {
