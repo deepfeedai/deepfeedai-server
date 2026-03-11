@@ -92,11 +92,10 @@ function renderTable() {
     return;
   }
 
-  let filtered = allComments.filter(c => !c.isDeleted);
-
-  if (activeFilter === 'reported') {
-    filtered = filtered.filter(c => c.reportCount > 0);
-  }
+  // Include hidden comments in the list (all = visible + hidden, reported = reported only)
+  let filtered = activeFilter === 'reported'
+    ? allComments.filter(c => !c.isDeleted && c.reportCount > 0)
+    : allComments; // show everything including hidden
 
   if (slugFilter) {
     filtered = filtered.filter(c =>
@@ -105,6 +104,8 @@ function renderTable() {
   }
 
   filtered.sort((a, b) => {
+    // Hidden to bottom, then by report count desc, then newest first
+    if (a.isDeleted !== b.isDeleted) return a.isDeleted ? 1 : -1;
     if (b.reportCount !== a.reportCount) return b.reportCount - a.reportCount;
     return new Date(b.createdAt) - new Date(a.createdAt);
   });
@@ -118,24 +119,39 @@ function renderTable() {
   }
 
   tbody.innerHTML = filtered.map(c => {
-    const slug      = escHtml(c.articleSlug || '—');
-    const body      = escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
-    const userName  = escHtml(c.user?.displayName || 'Unknown');
-    const provider  = escHtml(c.user?.provider || '');
-    const date      = fmtDate(c.createdAt);
-    const reports   = c.reportCount || 0;
+    const slug        = escHtml(c.articleSlug || '—');
+    const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
+    const userName    = escHtml(c.user?.displayName || 'Unknown');
+    const provider    = escHtml(c.user?.provider || '');
+    const date        = fmtDate(c.createdAt);
+    const reports     = c.reportCount || 0;
     const reportBadge = reports > 0
       ? `<span class="badge badge-danger" style="font-size:11px;">🚩 ${reports}</span>`
       : `<span style="color:var(--muted);font-size:12px;">—</span>`;
+    const hiddenBadge = c.isDeleted
+      ? `<span class="badge badge-muted" style="font-size:11px;margin-left:4px;">🙈 Hidden</span>`
+      : '';
     const articleLink = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
       style="color:var(--accent);font-size:12px;word-break:break-all;"
       title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
+    const rowStyle    = c.isDeleted ? 'opacity:0.55;' : '';
+
+    // Actions differ: hidden comments get restore + delete; visible get hide + delete
+    const actions = c.isDeleted
+      ? `<div style="display:flex;gap:6px;">
+           <button class="btn btn-ghost btn-sm" onclick="restoreComment(${c.id})" title="Restore comment">↩️</button>
+           <button class="btn btn-danger btn-sm" onclick="confirmDelete(${c.id})" title="Delete permanently">🗑️</button>
+         </div>`
+      : `<div style="display:flex;gap:6px;">
+           <button class="btn btn-ghost btn-sm" onclick="confirmHide(${c.id})" title="Hide comment">🙈</button>
+           <button class="btn btn-danger btn-sm" onclick="confirmDelete(${c.id})" title="Delete permanently">🗑️</button>
+         </div>`;
 
     return `
-      <tr data-id="${c.id}">
+      <tr data-id="${c.id}" style="${rowStyle}">
         <td style="font-size:12px;">${articleLink}</td>
-        <td style="font-size:13px;color:var(--text-secondary);">${body}</td>
+        <td style="font-size:13px;color:var(--text-secondary);">${bodyText}${hiddenBadge}</td>
         <td style="font-size:12px;">
           ${c.user?.avatarUrl
             ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />`
@@ -144,12 +160,7 @@ function renderTable() {
         </td>
         <td style="text-align:center;">${reportBadge}</td>
         <td style="color:var(--muted);font-size:12px;">${date}</td>
-        <td>
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-ghost btn-sm" onclick="confirmHide(${c.id})" title="Hide comment">🙈</button>
-            <button class="btn btn-danger btn-sm" onclick="confirmDelete(${c.id})" title="Delete permanently">🗑️</button>
-          </div>
-        </td>
+        <td>${actions}</td>
       </tr>`;
   }).join('');
 }
@@ -243,6 +254,20 @@ async function rejectComment(id) {
     showAlert('Comment rejected and deleted.', 'success');
   } catch (err) {
     showAlert('Failed to reject: ' + err.message, 'error');
+  }
+}
+
+/* ── Restore Action ───────────────────────────────────────────────── */
+async function restoreComment(id) {
+  try {
+    await apiFetch(`/comments/admin/${id}/restore`, { method: 'POST' });
+    const c = allComments.find(c => c.id === id);
+    if (c) c.isDeleted = false;
+    renderStats();
+    renderTable();
+    showAlert('Comment restored and visible publicly.', 'success');
+  } catch (err) {
+    showAlert('Failed to restore: ' + err.message, 'error');
   }
 }
 

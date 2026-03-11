@@ -460,6 +460,19 @@ router.get('/admin', requireAdmin, asyncHandler(async (req, res) => {
   res.json({ comments: rows.map(r => ({ ...formatComment(r), reportCount: parseInt(r.report_count, 10) })) });
 }));
 
+/* ── Admin: POST /api/comments/admin/:id/restore ────────────────────── */
+router.post('/admin/:id/restore', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const row = await db.prepare('SELECT body FROM comments WHERE id = $1').get(id);
+  if (!row) return res.status(404).json({ error: 'Comment not found' });
+  // Can only restore if the body still exists (hide sets body=NULL — can't restore content-less)
+  if (!row.body) return res.status(400).json({ error: 'Cannot restore — comment body was cleared' });
+  await db.prepare(
+    'UPDATE comments SET is_deleted = 0, updated_at = NOW() WHERE id = $1'
+  ).run(id);
+  res.json({ ok: true });
+}));
+
 /* ── Admin: POST /api/comments/admin/:id/hide ─────────────────────── */
 router.post('/admin/:id/hide', requireAdmin, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
