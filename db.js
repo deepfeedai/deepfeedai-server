@@ -175,6 +175,24 @@ async function initDb() {
       payload    JSONB NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS thumbnail_cache (
+      cache_key  TEXT PRIMARY KEY,
+      payload    JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS trends_cache (
+      id         SERIAL PRIMARY KEY,
+      payload    JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS trends_history (
+      snapshot_date DATE PRIMARY KEY,
+      payload       JSONB NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
 
   // comment_reactions table — one emoji reaction per user per comment
@@ -205,6 +223,8 @@ async function initDb() {
     // Reply notifications: opt-in flag + unsubscribe token
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_replies      INTEGER DEFAULT 1`,
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_token        TEXT`,
+    // Phase 3: track article origin — 'rss' | 'newsapi' | 'brave'
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_type             TEXT DEFAULT 'rss'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
