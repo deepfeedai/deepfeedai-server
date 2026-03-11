@@ -374,6 +374,8 @@ code {
 
 .table-scroll {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 65vh;
 }
 
 table {
@@ -385,7 +387,7 @@ table {
 thead {
   background: var(--bg-card);
   position: sticky;
-  top: var(--header-h);
+  top: 0;
   z-index: 10;
 }
 
@@ -401,12 +403,6 @@ th {
   white-space: nowrap;
   background: var(--bg-card);
 }
-
-/* Preserve rounded corners without overflow:hidden */
-th:first-child { border-radius: 10px 0 0 0; }
-th:last-child  { border-radius: 0 10px 0 0; }
-tr:last-child td:first-child { border-radius: 0 0 0 10px; }
-tr:last-child td:last-child  { border-radius: 0 0 10px 0; }
 
 td {
   padding: var(--space-3) var(--space-4);
