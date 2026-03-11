@@ -4,6 +4,8 @@ let allComments  = [];
 let queueItems   = [];
 let activeFilter = 'all';
 let slugFilter   = '';
+let cmtPage      = 1;
+let cmtPageSize  = 25;
 
 onReady(async () => {
   if (!requireAuth()) return;
@@ -119,10 +121,13 @@ function renderTable() {
       <div class="empty-state"><div class="empty-icon">💬</div>
       <p>${activeFilter === 'reported' ? 'No reported comments — all clear' : 'No comments yet — looking clean ✨'}</p></div>
     </td></tr>`;
+    document.getElementById('commentsPagination').innerHTML = '';
     return;
   }
 
-  tbody.innerHTML = filtered.map(c => {
+  const pageComments = filtered.slice((cmtPage - 1) * cmtPageSize, cmtPage * cmtPageSize);
+
+  tbody.innerHTML = pageComments.map(c => {
     const slug        = escHtml(c.articleSlug || '—');
     const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
     const userName    = escHtml(c.user?.displayName || 'Unknown');
@@ -167,6 +172,11 @@ function renderTable() {
         <td>${actions}</td>
       </tr>`;
   }).join('');
+
+  renderPagination('commentsPagination', filtered.length, cmtPage, cmtPageSize,
+    (p) => { cmtPage = p; renderTable(); },
+    (s) => { cmtPageSize = s; cmtPage = 1; renderTable(); }
+  );
 }
 
 function renderQueueTable(tbody) {
@@ -236,6 +246,7 @@ function initFilters() {
       document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       activeFilter = btn.dataset.filter;
+      cmtPage = 1;
       renderTable();
     });
   });
@@ -243,6 +254,7 @@ function initFilters() {
   const slugInput = document.getElementById('slugFilter');
   slugInput.addEventListener('input', () => {
     slugFilter = slugInput.value.trim().toLowerCase();
+    cmtPage = 1;
     renderTable();
   });
 }
@@ -329,6 +341,59 @@ async function hardDelete(id) {
     showAlert('Failed to delete: ' + err.message, 'error');
   }
 }
+
+/* ── Keyboard navigation ──────────────────────────────────────────── */
+(function initKeyNav() {
+  let focusedId = null;
+
+  function getFocusableRows() {
+    return [...document.querySelectorAll('#commentsBody tr[data-id]')];
+  }
+
+  function setFocusedRow(id) {
+    document.querySelectorAll('#commentsBody tr.kb-focus').forEach(r => r.classList.remove('kb-focus'));
+    focusedId = id;
+    if (id != null) {
+      const row = document.querySelector(`#commentsBody tr[data-id="${id}"]`);
+      if (row) { row.classList.add('kb-focus'); row.scrollIntoView({ block: 'nearest' }); }
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (isInputFocused()) return;
+    const rows = getFocusableRows();
+
+    if (e.key === '?') {
+      showKbdHelp([
+        { key: 'j / ↓', desc: 'Next row' },
+        { key: 'k / ↑', desc: 'Previous row' },
+        { key: 'a',      desc: 'Approve focused comment (queue)' },
+        { key: 'd',      desc: 'Delete focused comment' },
+        { key: 'h',      desc: 'Hide focused comment' },
+        { key: '?',      desc: 'Toggle this help' },
+      ]);
+      return;
+    }
+
+    if (!rows.length) return;
+    const ids = rows.map(r => parseInt(r.dataset.id));
+    const idx = focusedId != null ? ids.indexOf(focusedId) : -1;
+
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedRow(ids[Math.min(idx + 1, ids.length - 1)]);
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedRow(ids[Math.max(idx - 1, 0)]);
+    } else if (e.key === 'a' && focusedId != null && activeFilter === 'queue') {
+      approveComment(focusedId);
+    } else if (e.key === 'd' && focusedId != null) {
+      confirmDelete(focusedId);
+    } else if (e.key === 'h' && focusedId != null) {
+      confirmHide(focusedId);
+    }
+  });
+})();
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 function escHtml(str) {

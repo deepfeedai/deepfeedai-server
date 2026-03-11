@@ -212,6 +212,78 @@ function categoryOptions(selected = '') {
   ).join('');
 }
 
+// ── Pagination ────────────────────────────────────────────
+function renderPagination(containerId, total, page, pageSize, onPageChange, onSizeChange) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+  const start = (page - 1) * pageSize + 1;
+  const end   = Math.min(page * pageSize, total);
+
+  // Build page number list with ellipsis
+  const rawPages = new Set([1, 2, page - 1, page, page + 1, totalPages - 1, totalPages]);
+  const pages = [...rawPages].filter(p => p >= 1 && p <= totalPages).sort((a, b) => a - b);
+
+  let btns = '';
+  let prev = 0;
+  for (const p of pages) {
+    if (prev && p - prev > 1) btns += `<span class="page-ellipsis">…</span>`;
+    btns += `<button class="page-btn${p === page ? ' active' : ''}" data-page="${p}">${p}</button>`;
+    prev = p;
+  }
+
+  container.innerHTML = `
+    <div class="pagination">
+      <span class="pagination-info">Page ${page} of ${totalPages} &middot; ${start}–${end} of ${total}</span>
+      <div class="pagination-controls">
+        <button class="page-btn" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>‹ Prev</button>
+        ${btns}
+        <button class="page-btn" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next ›</button>
+        <select class="page-size-select" aria-label="Items per page">
+          ${[25, 50, 100].map(s => `<option value="${s}"${s === pageSize ? ' selected' : ''}>${s} / page</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+
+  container.querySelectorAll('.page-btn[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => onPageChange(Number(btn.dataset.page)));
+  });
+  container.querySelector('.page-size-select').addEventListener('change', e => onSizeChange(Number(e.target.value)));
+}
+
+// ── Keyboard shortcut guard ────────────────────────────────
+function isInputFocused() {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  return ['input','textarea','select'].includes(tag) || document.activeElement?.isContentEditable;
+}
+
+// ── Keyboard help overlay ──────────────────────────────────
+function showKbdHelp(shortcuts) {
+  const existing = document.getElementById('kbdOverlay');
+  if (existing) { existing.remove(); return; }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'kbd-overlay';
+  overlay.id = 'kbdOverlay';
+  overlay.innerHTML = `
+    <div class="kbd-panel">
+      <h3>Keyboard Shortcuts <button id="kbdClose" class="btn btn-ghost btn-sm">✕</button></h3>
+      <div class="kbd-list">
+        ${shortcuts.map(s => `
+          <div class="kbd-row">
+            <span class="kbd-desc">${s.desc}</span>
+            <kbd>${s.key}</kbd>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  overlay.querySelector('#kbdClose').addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
+}
+
 // ── Skeleton helpers ──────────────────────────────────────
 function skeletonRows(cols, count = 4) {
   const cells = cols.map(w => `<td><span class="skeleton sk-text ${w}"></span></td>`).join('');
