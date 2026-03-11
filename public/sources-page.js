@@ -30,15 +30,14 @@ let sources = [];
 
   function fmtLastFetched(val) {
     if (!val) return '<span style="color:var(--muted);font-size:12px;">Never</span>';
-    const d = new Date(val);
-    return `<span style="color:var(--muted);font-size:12px;">${d.toLocaleString()}</span>`;
+    return `<span style="color:var(--muted);font-size:12px;" title="${fmtDate(val)}">${relativeTime(val)}</span>`;
   }
 
   function renderTable() {
     const tbody = document.getElementById('sourcesBody');
     if (sources.length === 0) {
       tbody.innerHTML = `<tr><td colspan="7">
-        <div class="empty-state"><div class="empty-icon">📡</div><p>No sources yet. Add one!</p></div>
+        <div class="empty-state"><div class="empty-icon">📡</div><p>No sources configured — add one to get started</p></div>
       </td></tr>`;
       return;
     }

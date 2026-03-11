@@ -32,6 +32,10 @@ onReady(async () => {
 
 /* ── Load all comments ────────────────────────────────────────────── */
 async function loadComments() {
+  const tbody = document.getElementById('commentsBody');
+  if (tbody && activeFilter !== 'queue') {
+    tbody.innerHTML = skeletonRows(['sk-w-md','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
+  }
   try {
     const data = await apiFetch('/comments/admin');
     allComments = data.comments || [];
@@ -113,7 +117,7 @@ function renderTable() {
   if (filtered.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6">
       <div class="empty-state"><div class="empty-icon">💬</div>
-      <p>${activeFilter === 'reported' ? 'No reported comments' : 'No comments yet'}</p></div>
+      <p>${activeFilter === 'reported' ? 'No reported comments — all clear' : 'No comments yet — looking clean ✨'}</p></div>
     </td></tr>`;
     return;
   }
@@ -123,7 +127,7 @@ function renderTable() {
     const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
     const userName    = escHtml(c.user?.displayName || 'Unknown');
     const provider    = escHtml(c.user?.provider || '');
-    const date        = fmtDate(c.createdAt);
+    const date        = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const reports     = c.reportCount || 0;
     const reportBadge = reports > 0
       ? `<span class="badge badge-danger" style="font-size:11px;">🚩 ${reports}</span>`
@@ -169,7 +173,7 @@ function renderQueueTable(tbody) {
   if (queueItems.length === 0) {
     tbody.innerHTML = `<tr><td colspan="6">
       <div class="empty-state"><div class="empty-icon">✅</div>
-      <p>Queue is empty — no comments pending review</p></div>
+      <p>Queue is empty — nothing to review</p></div>
     </td></tr>`;
     return;
   }
@@ -179,7 +183,7 @@ function renderQueueTable(tbody) {
     const body     = escHtml((c.body || '').slice(0, 160)) + (c.body && c.body.length > 160 ? '…' : '');
     const userName = escHtml(c.user?.displayName || 'Unknown');
     const provider = escHtml(c.user?.provider || '');
-    const date     = fmtDate(c.createdAt);
+    const date     = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const prior    = c.priorApproved ?? 0;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
     const articleLink  = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"

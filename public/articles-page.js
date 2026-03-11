@@ -145,7 +145,7 @@ let articles = [];
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
       tbody.innerHTML = `<tr><td colspan="9">
-        <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet. Add one!</p></div>
+        <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
       updateBulkToolbar();
       return;
@@ -186,7 +186,7 @@ let articles = [];
             ${a.is_featured ? '⭐ Yes' : '—'}
           </button>`}
         </td>
-        <td style="color:var(--muted);font-size:12px;">${fmtDate(a.published_at || a.created_at)}</td>
+        <td style="color:var(--muted);font-size:12px;"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
           ${isArchived ? '—' : renderImageCell(a)}
         </td>
@@ -507,6 +507,8 @@ let articles = [];
   }
 
   async function loadArticles() {
+    const tbody = document.getElementById('articlesBody');
+    if (tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       allArticles = await apiFetch('/articles');
       applyFilters();

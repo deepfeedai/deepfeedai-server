@@ -6,6 +6,15 @@ onReady(async () => {
     const user = localStorage.getItem('deepfeedai_user');
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
+    // Show skeletons while data loads
+    ['statTotal','statPublished','statDrafts','statToday','statWeek','statSources',
+     'statAudioTotal','statAudioLive','statAudioHidden','statNoAudio','statImages','statFeatured'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<span class="skeleton sk-stat-value" style="width:50px;height:28px;display:block;"></span>';
+    });
+    const recentBodyEl = document.getElementById('recentBody');
+    if (recentBodyEl) recentBodyEl.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-md'], 5);
+
     try {
       const [articles, sources, settings, commentsData, queueData] = await Promise.all([
         apiFetch('/articles'),
@@ -205,7 +214,7 @@ onReady(async () => {
 
       if (recent.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6">
-          <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet</p></div>
+          <div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet — publish your first one</p></div>
         </td></tr>`;
       } else {
         tbody.innerHTML = recent.map(a => {
@@ -222,7 +231,7 @@ onReady(async () => {
               <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
               <td>${badgePublished(a.is_published)}</td>
               <td>${audioTag}</td>
-              <td style="color:var(--muted);font-size:12px;">${fmtDate(a.created_at)}</td>
+              <td style="color:var(--muted);font-size:12px;"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
             </tr>`;
         }).join('');
       }

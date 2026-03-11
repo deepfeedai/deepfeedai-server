@@ -15,7 +15,7 @@ let voices = [];
   function renderVoices() {
     const tbody = document.getElementById('voicesBody');
     if (!voices.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted);">No voices yet. Add one!</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🎙️</div><p>No voices configured — add one to get started</p></div></td></tr>';
       return;
     }
 
