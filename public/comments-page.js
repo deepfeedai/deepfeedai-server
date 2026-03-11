@@ -185,10 +185,21 @@ function renderQueueTable(tbody) {
     const articleLink  = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
       style="color:var(--accent);font-size:12px;" title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
 
+    // Spam indicator
+    const spamScore  = c.spamScore != null ? Math.round(c.spamScore * 100) : null;
+    const spamReason = c.spamReason || null;
+    const spamBadge  = spamScore != null
+      ? `<span class="badge" style="font-size:10px;background:rgba(251,146,60,0.15);color:#fb923c;border:1px solid rgba(251,146,60,0.3);"
+              title="${escHtml(spamReason || '')}">🤖 ${spamScore}%</span>`
+      : '';
+    const reasonLabel = spamReason
+      ? `<div style="color:#fb923c;font-size:10px;margin-top:2px;">${escHtml(spamReason)}</div>`
+      : '';
+
     return `
       <tr data-id="${c.id}">
         <td style="font-size:12px;">${articleLink}</td>
-        <td style="font-size:13px;color:var(--text-secondary);">${body}</td>
+        <td style="font-size:13px;color:var(--text-secondary);">${body}${reasonLabel}</td>
         <td style="font-size:12px;">
           ${c.user?.avatarUrl
             ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />`
@@ -197,7 +208,10 @@ function renderQueueTable(tbody) {
           <div style="color:var(--muted);font-size:11px;margin-top:2px;">${prior} prior approved</div>
         </td>
         <td style="text-align:center;">
-          <span class="badge badge-muted" style="font-size:11px;">⏳ Pending</span>
+          <div style="display:flex;flex-direction:column;gap:3px;align-items:center;">
+            <span class="badge badge-muted" style="font-size:11px;">⏳ Pending</span>
+            ${spamBadge}
+          </div>
         </td>
         <td style="color:var(--muted);font-size:12px;">${date}</td>
         <td>

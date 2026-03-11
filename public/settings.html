@@ -163,6 +163,64 @@
         <div id="purgeSettingsStatus" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
       </div>
 
+      <!-- ── Spam Detection ───────────────────────────────────────── -->
+      <div class="section-title" style="margin-top:32px;">🛡️ Spam Detection</div>
+      <div class="dash-panel" style="margin-bottom:24px;">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+          Comments matching the blocklist are silently rejected. Perspective API adds ML-based toxicity scoring.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="spamBlocklist">Custom keyword blocklist</label>
+          <textarea class="form-control" id="spamBlocklist" rows="3"
+                    placeholder="buy now, click here, free money"
+                    style="font-size:13px;resize:vertical;margin-top:6px;"></textarea>
+          <p style="color:var(--muted);font-size:12px;margin-top:4px;">Comma-separated. Case-insensitive. Matched comments are silently blocked.</p>
+        </div>
+
+        <div class="form-group" style="margin-top:18px;">
+          <div class="form-label" style="margin-bottom:10px;">Google Perspective API <span style="color:var(--muted);font-size:11px;">(optional — ML toxicity scoring)</span></div>
+          <label class="form-label">
+            <input type="checkbox" id="perspectiveEnabled" style="margin-right:8px;" />
+            Enable Perspective API scoring
+          </label>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+            <input type="password" class="form-control" id="perspectiveKey"
+                   placeholder="AIza…" style="flex:1;font-family:monospace;" />
+            <button class="btn btn-ghost btn-sm" id="togglePerspKeyBtn">👁️</button>
+          </div>
+          <p style="color:var(--muted);font-size:12px;margin-top:4px;">
+            Get a free key at <a href="https://perspectiveapi.com" target="_blank" rel="noopener" style="color:var(--accent);">perspectiveapi.com</a>
+          </p>
+        </div>
+
+        <div class="form-group" style="margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <label class="form-label" for="spamBlockThreshold">Auto-block threshold</label>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+              <input type="number" class="form-control" id="spamBlockThreshold"
+                     value="0.85" min="0.5" max="1.0" step="0.05" style="width:80px;" />
+              <span style="color:var(--muted);font-size:12px;">0.0 – 1.0</span>
+            </div>
+            <p style="color:var(--muted);font-size:12px;margin-top:4px;">Score ≥ this → silently blocked</p>
+          </div>
+          <div>
+            <label class="form-label" for="spamQueueThreshold">Auto-queue threshold</label>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+              <input type="number" class="form-control" id="spamQueueThreshold"
+                     value="0.50" min="0.1" max="0.99" step="0.05" style="width:80px;" />
+              <span style="color:var(--muted);font-size:12px;">0.0 – 1.0</span>
+            </div>
+            <p style="color:var(--muted);font-size:12px;margin-top:4px;">Score ≥ this → held for review</p>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:20px;">
+          <button class="btn btn-primary" id="saveSpamSettingsBtn">Save Settings</button>
+        </div>
+        <div id="spamSettingsStatus" style="font-size:12px;color:var(--muted);margin-top:10px;"></div>
+      </div>
+
       <!-- ── Moderation Queue ──────────────────────────────────────── -->
       <div class="section-title" style="margin-top:32px;">💬 Comment Moderation Queue</div>
       <div class="dash-panel" style="margin-bottom:24px;">

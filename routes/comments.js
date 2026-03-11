@@ -37,6 +37,7 @@ const db        = require('../db');
 const requireUser  = require('../middleware/user-jwt');
 const { auth: requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
+const { checkSpam }    = require('../lib/spam');
 
 const router = express.Router();
 
@@ -88,6 +89,8 @@ function formatComment(row) {
     isDeleted,
     createdAt:   row.created_at,
     updatedAt:   row.updated_at,
+    spamScore:   row.spam_score  != null ? parseFloat(row.spam_score)  : null,
+    spamReason:  row.spam_reason || null,
     user: isDeleted ? null : {
       id:          row.user_id,
       displayName: row.display_name,
@@ -215,6 +218,19 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
     }
   }
 
+  // ── Spam detection ───────────────────────────────────────────────
+  const spamSettings = await db.prepare(`
+    SELECT key, value FROM settings
+    WHERE key IN ('spam_blocklist','spam_perspective_enabled','spam_perspective_key','spam_block_threshold','spam_queue_threshold')
+  `).all();
+  const spamMap    = Object.fromEntries(spamSettings.map(r => [r.key, r.value]));
+  const spamResult = await checkSpam(clean, spamMap);
+
+  if (spamResult.action === 'block') {
+    // Generic message — don't reveal why it was blocked
+    return res.status(400).json({ error: 'Your comment could not be posted. Please review our community guidelines.' });
+  }
+
   // ── Moderation queue check ────────────────────────────────────────
   // Load settings; default to queue disabled so existing deploys are unaffected
   const modSettings = await db.prepare(
@@ -225,7 +241,10 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   const threshold   = parseInt(modMap.mod_queue_threshold || '1', 10);
 
   let isApproved = 1; // default: auto-approve
-  if (queueOn) {
+  if (spamResult.action === 'queue') {
+    // Perspective flagged it — always queue regardless of user trust
+    isApproved = 0;
+  } else if (queueOn) {
     // Count how many approved comments this user already has
     const approvedRow = await db.prepare(
       `SELECT COUNT(*) AS cnt FROM comments WHERE user_id = $1 AND is_approved = 1 AND is_deleted = 0`
@@ -235,10 +254,10 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   }
 
   const row = await db.prepare(`
-    INSERT INTO comments (article_slug, user_id, body, parent_id, is_approved)
-    VALUES ($1, $2, $3, $4, $5)
+    INSERT INTO comments (article_slug, user_id, body, parent_id, is_approved, spam_score, spam_reason)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING *
-  `).get(slug, req.user.sub, clean, parentId || null, isApproved);
+  `).get(slug, req.user.sub, clean, parentId || null, isApproved, spamResult.score ?? null, spamResult.reason ?? null);
 
   // Attach user info for immediate render
   const user = await db.prepare(
@@ -396,13 +415,14 @@ router.get('/admin/queue', requireAdmin, asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT
       c.id, c.article_slug, c.parent_id, c.body, c.is_deleted, c.is_approved,
+      c.spam_score, c.spam_reason,
       c.created_at, c.updated_at, c.user_id,
       u.display_name, u.avatar_url, u.provider,
       (SELECT COUNT(*) FROM comments ac WHERE ac.user_id = c.user_id AND ac.is_approved = 1 AND ac.is_deleted = 0) AS prior_approved
     FROM comments c
     LEFT JOIN public_users u ON u.id = c.user_id
     WHERE c.is_approved = 0 AND c.is_deleted = 0
-    ORDER BY c.created_at ASC
+    ORDER BY c.spam_score DESC NULLS LAST, c.created_at ASC
   `).all();
 
   res.json({

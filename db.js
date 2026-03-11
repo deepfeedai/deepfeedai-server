@@ -199,6 +199,9 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_avatar_url  TEXT`,
     // Moderation queue: 0 = pending review, 1 = approved (default 1 = legacy rows stay visible)
     `ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_approved             INTEGER DEFAULT 1`,
+    // Spam detection: score 0.0–1.0 from Perspective API; reason = matched rule or 'perspective'
+    `ALTER TABLE comments ADD COLUMN IF NOT EXISTS spam_score              NUMERIC(4,3)`,
+    `ALTER TABLE comments ADD COLUMN IF NOT EXISTS spam_reason             TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

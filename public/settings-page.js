@@ -198,6 +198,48 @@ let apiKeyVisible = false;
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // ── Spam detection settings ───────────────────────────────────────
+  let perspKeyVisible = false;
+  document.getElementById('togglePerspKeyBtn')?.addEventListener('click', function () {
+    const inp = document.getElementById('perspectiveKey');
+    perspKeyVisible = !perspKeyVisible;
+    inp.type = perspKeyVisible ? 'text' : 'password';
+    this.textContent = perspKeyVisible ? '🙈' : '👁️';
+  });
+
+  function loadSpamSettings(settings) {
+    const blocklist  = document.getElementById('spamBlocklist');
+    const enabled    = document.getElementById('perspectiveEnabled');
+    const blockThr   = document.getElementById('spamBlockThreshold');
+    const queueThr   = document.getElementById('spamQueueThreshold');
+    if (blocklist) blocklist.value  = settings.spam_blocklist          || '';
+    if (enabled)   enabled.checked  = settings.spam_perspective_enabled === '1';
+    if (blockThr)  blockThr.value   = settings.spam_block_threshold    || '0.85';
+    if (queueThr)  queueThr.value   = settings.spam_queue_threshold    || '0.50';
+    // Don't pre-fill API key
+  }
+
+  document.getElementById('saveSpamSettingsBtn')?.addEventListener('click', async function () {
+    const statusEl = document.getElementById('spamSettingsStatus');
+    const payload  = {
+      spam_blocklist:            document.getElementById('spamBlocklist').value.trim(),
+      spam_perspective_enabled:  document.getElementById('perspectiveEnabled').checked ? '1' : '0',
+      spam_block_threshold:      document.getElementById('spamBlockThreshold').value,
+      spam_queue_threshold:      document.getElementById('spamQueueThreshold').value,
+    };
+    const key = document.getElementById('perspectiveKey').value.trim();
+    if (key) payload.spam_perspective_key = key;
+
+    try {
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      statusEl.textContent = '✅ Saved';
+      document.getElementById('perspectiveKey').value = '';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+    }
+  });
+
   // ── Moderation queue settings ──────────────────────────────────────
   function loadModQueueSettings(settings) {
     const enabled   = document.getElementById('modQueueEnabled');
@@ -238,6 +280,7 @@ let apiKeyVisible = false;
       }
       loadImagenSettings(settings);
       loadPurgeSettings(settings);
+      loadSpamSettings(settings);
       loadModQueueSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
