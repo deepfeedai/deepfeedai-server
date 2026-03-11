@@ -30,8 +30,9 @@ const { asyncHandler } = require('../lib/utils');
 
 const router = express.Router();
 
-const MAX_BODY_LEN  = 1000;
+const MAX_BODY_LEN   = 1000;
 const EDIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const ALLOWED_EMOJIS = new Set(['👍', '❤️', '😂', '😮']);
 
 /* ── Rate limiter — 5 comments per 5 min per user ────────────────── */
 const commentRateLimit = rateLimit({
@@ -87,10 +88,10 @@ function formatComment(row) {
 }
 
 /* ── GET /api/comments?slug= ─────────────────────────────────────── */
-// Fetches all non-hard-deleted comments for an article, joined with user info.
-// Deleted comments are included as tombstones so threading stays intact.
+// Fetches all non-hard-deleted comments for an article, joined with user info
+// and aggregated reaction counts. Optional ?viewer_id= to flag user's own reaction.
 router.get('/', asyncHandler(async (req, res) => {
-  const { slug } = req.query;
+  const { slug, viewer_id } = req.query;
   if (!slug) return res.status(400).json({ error: 'slug is required' });
 
   const rows = await db.prepare(`
@@ -104,7 +105,43 @@ router.get('/', asyncHandler(async (req, res) => {
     ORDER BY c.created_at ASC
   `).all(slug);
 
-  res.json({ comments: rows.map(formatComment), count: rows.filter(r => !r.is_deleted).length });
+  // Batch-fetch reaction counts for all comments in one query
+  const ids = rows.map(r => r.id);
+  let reactionMap = {};   // { commentId: { '👍': 3, '❤️': 1 } }
+  let myReactions  = {};  // { commentId: '👍' }
+
+  if (ids.length > 0) {
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+    const rxRows = await db.prepare(`
+      SELECT comment_id, emoji, COUNT(*) AS cnt
+      FROM comment_reactions
+      WHERE comment_id IN (${placeholders})
+      GROUP BY comment_id, emoji
+    `).all(...ids);
+
+    for (const r of rxRows) {
+      if (!reactionMap[r.comment_id]) reactionMap[r.comment_id] = {};
+      reactionMap[r.comment_id][r.emoji] = parseInt(r.cnt, 10);
+    }
+
+    // If viewer is authenticated, fetch their reactions too
+    const viewerId = parseInt(viewer_id, 10);
+    if (viewerId) {
+      const myRows = await db.prepare(`
+        SELECT comment_id, emoji FROM comment_reactions
+        WHERE comment_id IN (${placeholders}) AND user_id = $${ids.length + 1}
+      `).all(...ids, viewerId);
+      for (const r of myRows) myReactions[r.comment_id] = r.emoji;
+    }
+  }
+
+  const comments = rows.map(r => ({
+    ...formatComment(r),
+    reactions:   reactionMap[r.id]  || {},
+    myReaction:  myReactions[r.id]  || null,
+  }));
+
+  res.json({ comments, count: rows.filter(r => !r.is_deleted).length });
 }));
 
 /* ── GET /api/comments/leaderboard ──────────────────────────────────
@@ -257,6 +294,63 @@ router.post('/:id/report', requireUser, asyncHandler(async (req, res) => {
     }
     throw err;
   }
+}));
+
+/* ── POST /api/comments/:id/react ────────────────────────────────── */
+// Toggle a reaction on a comment. If the user already reacted with the same
+// emoji, it's removed (unlike). If they reacted with a different emoji, it's
+// swapped. Passing no emoji or an empty string removes any existing reaction.
+router.post('/:id/react', requireUser, asyncHandler(async (req, res) => {
+  const id    = parseInt(req.params.id, 10);
+  const emoji = (req.body.emoji || '').trim();
+
+  // Validate emoji if provided
+  if (emoji && !ALLOWED_EMOJIS.has(emoji)) {
+    return res.status(400).json({ error: 'Invalid emoji. Allowed: 👍 ❤️ 😂 😮' });
+  }
+
+  const comment = await db.prepare(
+    'SELECT id, user_id FROM comments WHERE id = $1 AND is_deleted = 0'
+  ).get(id);
+  if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+  // Fetch any existing reaction from this user
+  const existing = await db.prepare(
+    'SELECT emoji FROM comment_reactions WHERE comment_id = $1 AND user_id = $2'
+  ).get(id, req.user.sub);
+
+  if (!emoji || (existing && existing.emoji === emoji)) {
+    // Remove reaction (toggle off or explicit remove)
+    await db.prepare(
+      'DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2'
+    ).run(id, req.user.sub);
+  } else if (existing) {
+    // Swap to different emoji
+    await db.prepare(
+      'UPDATE comment_reactions SET emoji = $1 WHERE comment_id = $2 AND user_id = $3'
+    ).run(emoji, id, req.user.sub);
+  } else {
+    // New reaction
+    await db.prepare(
+      'INSERT INTO comment_reactions (comment_id, user_id, emoji) VALUES ($1, $2, $3)'
+    ).run(id, req.user.sub, emoji);
+  }
+
+  // Return fresh counts for this comment
+  const counts = await db.prepare(`
+    SELECT emoji, COUNT(*) AS cnt
+    FROM comment_reactions WHERE comment_id = $1
+    GROUP BY emoji
+  `).all(id);
+
+  const reactions = {};
+  for (const r of counts) reactions[r.emoji] = parseInt(r.cnt, 10);
+
+  const myReaction = (!emoji || (existing && existing.emoji === emoji))
+    ? null
+    : emoji;
+
+  res.json({ ok: true, reactions, myReaction });
 }));
 
 /* ── Admin: GET /api/comments/admin ──────────────────────────────── */

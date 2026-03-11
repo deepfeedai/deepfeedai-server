@@ -177,6 +177,20 @@ async function initDb() {
     );
   `);
 
+  // comment_reactions table — one emoji reaction per user per comment
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS comment_reactions (
+      id         SERIAL PRIMARY KEY,
+      comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      emoji      TEXT NOT NULL DEFAULT '👍',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(comment_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reactions_comment ON comment_reactions(comment_id);
+    CREATE INDEX IF NOT EXISTS idx_reactions_user    ON comment_reactions(user_id);
+  `);
+
   // Migrations — add columns that may not exist on older DBs
   const migrations = [
     `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish     INTEGER DEFAULT 0`,
