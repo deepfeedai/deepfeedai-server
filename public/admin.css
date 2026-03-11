@@ -1092,6 +1092,24 @@ textarea.form-control {
   margin-top: 10px;
 }
 
+/* ===== INLINE COMMENT EXPAND ===== */
+.cmt-row { cursor: pointer; }
+.cmt-row:hover td { background: rgba(255,255,255,0.02); }
+
+.cmt-expand-row td { padding: 0 !important; border-bottom: 1px solid var(--border); }
+
+.cmt-expand-body {
+  padding: var(--space-4) var(--space-5);
+  background: rgba(0,217,255,0.03);
+  border-top: 1px solid rgba(0,217,255,0.12);
+  animation: expand-in 0.18s ease;
+}
+
+@keyframes expand-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Picker list in voice selector modal */
 .voice-picker-list {
   display: flex;
