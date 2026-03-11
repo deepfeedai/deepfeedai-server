@@ -18,6 +18,12 @@ router.get('/', asyncHandler(async (req, res) => {
   const match = articles.find(a => toSlug(a.title) === slug);
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
+  // Fetch comment count for this article
+  const countRow = await db.prepare(
+    'SELECT COUNT(*) AS cnt FROM comments WHERE article_slug = $1 AND is_deleted = 0'
+  ).get(slug);
+  const commentCount = parseInt(countRow?.cnt ?? 0, 10);
+
   res.json({
     title:                  match.title,
     summary:                match.summary,
@@ -33,6 +39,7 @@ router.get('/', asyncHandler(async (req, res) => {
     media_enabled:          match.media_enabled          || 0,
     audio_voice_name:       match.audio_voice_name       || null,
     audio_voice_avatar_url: match.audio_voice_avatar_url || null,
+    comment_count:          commentCount,
   });
 }));
 

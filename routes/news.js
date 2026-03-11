@@ -3,10 +3,10 @@
  * Public endpoint — returns all published, non-archived articles.
  * Used by the main site to populate the news feed.
  */
-const express                        = require('express');
-const router                         = express.Router();
-const { getPool }                    = require('../db');
-const { serializeRow, asyncHandler } = require('../lib/utils');
+const express                              = require('express');
+const router                               = express.Router();
+const { getPool }                          = require('../db');
+const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 
 // GET /api/news
 router.get('/', asyncHandler(async (req, res) => {
@@ -32,7 +32,31 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const result = await getPool().query(query, params.length ? params : undefined);
   const items  = result.rows.map(serializeRow);
-  res.json({ status: 'ok', items, count: items.length });
+
+  // Compute slugs and batch-fetch comment counts in a single query
+  const slugs = items.map(a => toSlug(a.title));
+  let countMap = {};
+  if (slugs.length > 0) {
+    const placeholders = slugs.map((_, i) => `$${i + 1}`).join(', ');
+    const countResult  = await getPool().query(
+      `SELECT article_slug, COUNT(*) AS cnt
+       FROM comments
+       WHERE article_slug IN (${placeholders}) AND is_deleted = 0
+       GROUP BY article_slug`,
+      slugs
+    );
+    for (const row of countResult.rows) {
+      countMap[row.article_slug] = parseInt(row.cnt, 10);
+    }
+  }
+
+  const enriched = items.map(a => ({
+    ...a,
+    slug:          toSlug(a.title),
+    comment_count: countMap[toSlug(a.title)] ?? 0,
+  }));
+
+  res.json({ status: 'ok', items: enriched, count: enriched.length });
 }));
 
 // GET /api/news/updated-at — lightweight cache-bust timestamp for the main site
