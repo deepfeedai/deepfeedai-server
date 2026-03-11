@@ -1,16 +1,48 @@
 require('dotenv').config({ override: true });
-const express = require('express');
-const helmet  = require('helmet');
-const path    = require('path');
-const db      = require('./db');
+const express   = require('express');
+const helmet    = require('helmet');
+const rateLimit = require('express-rate-limit');
+const path      = require('path');
+const db        = require('./db');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ── Security Headers ───────────────────────────────────────────────
-// CSP disabled — admin panel uses inline scripts and is an internal tool.
-// All other helmet protections (HSTS, X-Frame-Options, etc.) remain active.
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:     ["'self'"],
+      scriptSrc:      ["'self'", "'unsafe-inline'"], // inline onclick handlers in admin panel
+      styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
+      imgSrc:         ["'self'", 'data:', 'https:'],
+      connectSrc:     ["'self'"],
+      frameAncestors: ["'none'"],
+      objectSrc:      ["'none'"],
+      baseUri:        ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // not needed for admin panel
+}));
+
+// ── Public endpoint rate limits ────────────────────────────────────
+// Protect expensive AI endpoints and prevent scraping / quota exhaustion.
+const summaryLimiter = rateLimit({
+  windowMs:       60 * 60 * 1000, // 1 hour
+  max:            30,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:        { error: 'Too many summary requests. Please try again later.' },
+});
+
+const publicApiLimiter = rateLimit({
+  windowMs:       60 * 1000, // 1 minute
+  max:            120,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:        { error: 'Too many requests. Please slow down.' },
+});
 
 // ── CORS ───────────────────────────────────────────────────────────
 // Public read routes are open to all origins — they serve the main site
@@ -75,13 +107,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  require('./routes/articles'));
 app.use('/api/sources',   require('./routes/sources'));
-app.use('/api/article',   require('./routes/article'));    // public — single article by slug
+app.use('/api/article',   publicApiLimiter, require('./routes/article'));    // public — single article by slug
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
-app.use('/api/summary',   require('./routes/summary'));    // public — AI TLDR
+app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // public — AI TLDR (rate limited)
 app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/settings',  require('./routes/settings'));
-app.use('/api/news',      require('./routes/news'));       // public — news feed
+app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
 app.use('/api/comments', require('./routes/comments'));   // public read, user write, admin mod
 

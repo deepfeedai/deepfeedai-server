@@ -39,6 +39,7 @@ const { auth: requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
 const { checkSpam }            = require('../lib/spam');
 const { sendReplyNotification } = require('../lib/notify');
+const { decryptSetting }       = require('../lib/crypto');
 
 const router = express.Router();
 
@@ -224,7 +225,10 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
     SELECT key, value FROM settings
     WHERE key IN ('spam_blocklist','spam_perspective_enabled','spam_perspective_key','spam_block_threshold','spam_queue_threshold')
   `).all();
-  const spamMap    = Object.fromEntries(spamSettings.map(r => [r.key, r.value]));
+  const spamMap    = Object.fromEntries(spamSettings.map(r => [
+    r.key,
+    r.key === 'spam_perspective_key' ? decryptSetting(r.value) : r.value,
+  ]));
   const spamResult = await checkSpam(clean, spamMap);
 
   if (spamResult.action === 'block') {

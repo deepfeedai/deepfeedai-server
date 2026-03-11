@@ -13,6 +13,7 @@ const db      = require('../db');
 
 const { auth, }              = require('../middleware/auth');
 const { toSlug, asyncHandler } = require('../lib/utils');
+const { decryptSetting }     = require('../lib/crypto');
 const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const EL_VOICE_ID   = process.env.ELEVENLABS_VOICE_ID;
 const { getPool }   = require('../db');
@@ -179,7 +180,7 @@ router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
     // Resolve API key: settings table → env var
     let resolvedApiKey = EL_API_KEY;
     const apiKeySetting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
-    if (apiKeySetting && apiKeySetting.value) resolvedApiKey = apiKeySetting.value;
+    if (apiKeySetting && apiKeySetting.value) resolvedApiKey = decryptSetting(apiKeySetting.value);
 
     const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI');
     const mp3Buf   = await generateSpeech(text, resolvedVoiceId, resolvedApiKey);
@@ -286,7 +287,7 @@ router.post('/generate-image', auth, asyncHandler(async (req, res) => {
     if (modelSetting && modelSetting.value) {
       resolvedImagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
     }
-    if (apiKeySetting && apiKeySetting.value) resolvedImageApiKey = apiKeySetting.value;
+    if (apiKeySetting && apiKeySetting.value) resolvedImageApiKey = decryptSetting(apiKeySetting.value);
   } catch { /* fall back to defaults */ }
 
   if (!resolvedImageApiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
