@@ -369,6 +369,10 @@ code {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
+  overflow: hidden;
+}
+
+.table-scroll {
   overflow-x: auto;
 }
 
