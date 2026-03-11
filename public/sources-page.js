@@ -29,8 +29,8 @@ let sources = [];
   }
 
   function fmtLastFetched(val) {
-    if (!val) return '<span style="color:var(--muted);font-size:12px;">Never</span>';
-    return `<span style="color:var(--muted);font-size:12px;" title="${fmtDate(val)}">${relativeTime(val)}</span>`;
+    if (!val) return '<span class="text-muted text-sm">Never</span>';
+    return `<span class="text-muted text-sm" title="${fmtDate(val)}">${relativeTime(val)}</span>`;
   }
 
   function renderTable() {
@@ -46,11 +46,11 @@ let sources = [];
       <tr id="srow-${s.id}">
         <td style="font-weight:500;">${escHtml(s.name)}</td>
         <td class="td-url" title="${escHtml(s.url)}">
-          <a href="${escHtml(s.url)}" target="_blank" rel="noopener" style="color:var(--muted);font-size:12px;">
+          <a href="${escHtml(s.url)}" target="_blank" rel="noopener" class="text-muted text-sm">
             ${escHtml(s.url.length > 45 ? s.url.slice(0, 45) + '…' : s.url)}
           </a>
         </td>
-        <td style="color:var(--muted);">${s.priority}</td>
+        <td class="text-muted">${s.priority}</td>
         <td>
           <button
             class="badge ${s.is_active ? 'badge-success' : 'badge-danger'}"
@@ -62,7 +62,7 @@ let sources = [];
         <td>
           ${s.auto_publish
             ? `<span class="badge badge-success" title="Auto-publishes up to ${s.auto_publish_max || 5} articles per fetch">✓ Max ${s.auto_publish_max || 5}</span>`
-            : `<span style="color:var(--muted);font-size:12px;">Draft only</span>`
+            : `<span class="text-muted text-sm">Draft only</span>`
           }
         </td>
         <td>${fmtLastFetched(s.last_fetched)}</td>

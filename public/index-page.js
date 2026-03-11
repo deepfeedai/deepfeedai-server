@@ -100,7 +100,7 @@ onReady(async () => {
                 <div class="cat-count">${count} <span class="cat-pct">${share}%</span></div>
               </div>`;
           }).join('')
-        : '<p style="color:var(--muted);text-align:center;padding:24px 0;">No articles yet</p>';
+        : '<div class="empty-state"><div class="empty-icon">📭</div><p>No articles yet — publish your first one</p></div>';
 
       // ── Needs Attention ───────────────────────────────────────
       const attention = [];
@@ -231,7 +231,7 @@ onReady(async () => {
               <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
               <td>${badgePublished(a.is_published)}</td>
               <td>${audioTag}</td>
-              <td style="color:var(--muted);font-size:12px;"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
+              <td class="text-muted text-sm"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
             </tr>`;
         }).join('');
       }

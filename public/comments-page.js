@@ -132,14 +132,14 @@ function renderTable() {
 
   const rows = pageComments.flatMap(c => {
     const slug        = escHtml(c.articleSlug || '—');
-    const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
+    const bodyText    = c.isDeleted ? '<em class="text-muted">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
     const userName    = escHtml(c.user?.displayName || 'Unknown');
     const provider    = escHtml(c.user?.provider || '');
     const date        = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const reports     = c.reportCount || 0;
     const reportBadge = reports > 0
       ? `<span class="badge badge-danger" style="font-size:11px;">🚩 ${reports}</span>`
-      : `<span style="color:var(--muted);font-size:12px;">—</span>`;
+      : `<span class="text-muted text-sm">—</span>`;
     const hiddenBadge = c.isDeleted
       ? `<span class="badge badge-muted" style="font-size:11px;margin-left:4px;">🙈 Hidden</span>`
       : '';
@@ -176,7 +176,7 @@ function renderTable() {
           ${providerIcon} ${userName}
         </td>
         <td style="text-align:center;">${reportBadge}</td>
-        <td style="color:var(--muted);font-size:12px;">${date}</td>
+        <td class="text-muted text-sm">${date}</td>
         <td onclick="event.stopPropagation()">${actions}</td>
       </tr>`;
 
@@ -280,7 +280,7 @@ function renderQueueTable(tbody) {
             ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />`
             : ''}
           ${providerIcon} ${userName}
-          <div style="color:var(--muted);font-size:11px;margin-top:2px;">${prior} prior approved</div>
+          <div class="text-muted text-xs mt-1">${prior} prior approved</div>
         </td>
         <td style="text-align:center;">
           <div style="display:flex;flex-direction:column;gap:3px;align-items:center;">
@@ -288,7 +288,7 @@ function renderQueueTable(tbody) {
             ${spamBadge}
           </div>
         </td>
-        <td style="color:var(--muted);font-size:12px;">${date}</td>
+        <td class="text-muted text-sm">${date}</td>
         <td>
           <div style="display:flex;gap:6px;">
             <button class="btn btn-sm" style="background:rgba(52,211,153,0.15);color:#34d399;border:1px solid rgba(52,211,153,0.3);"
