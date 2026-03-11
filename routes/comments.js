@@ -275,36 +275,69 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
 
   // ── Reply notification ────────────────────────────────────────────
   // Fire-and-forget: don't let email failure affect the response
+  const replierId = req.user.sub;
   if (parentId && isApproved) {
     setImmediate(async () => {
       try {
-        const parent = await db.prepare(
-          'SELECT c.user_id, c.body, u.email, u.display_name, u.notify_replies, u.notify_token FROM comments c JOIN public_users u ON u.id = c.user_id WHERE c.id = $1'
-        ).get(parentId);
+        // Fetch parent comment + its author's notification prefs
+        const parent = await db.prepare(`
+          SELECT c.id, c.user_id, c.body,
+                 u.email, u.display_name, u.provider,
+                 u.notify_replies, u.notify_token
+          FROM comments c
+          JOIN public_users u ON u.id = c.user_id
+          WHERE c.id = $1 AND c.is_deleted = 0
+        `).get(parentId);
 
-        // Don't notify if: no parent, same user, opted out, or no email
-        if (!parent || parent.user_id === req.user.sub) return;
-        if (!parent.notify_replies || !parent.email || !parent.notify_token) return;
+        if (!parent) { console.warn('[Notify] Parent comment not found:', parentId); return; }
 
-        // Best-effort title lookup — slugs are computed not stored, so we do a fuzzy
-        // match on the first word of the slug to find the article
-        const slugWord  = (slug || '').split('-').slice(0, 4).join(' ');
-        const article   = await db.prepare(
+        // Don't notify if replying to yourself
+        if (parent.user_id === replierId) return;
+
+        // Don't notify if user has no email
+        if (!parent.email) { console.warn('[Notify] Parent user has no email, skipping'); return; }
+
+        // notify_replies defaults to 1 — treat NULL as opted-in (migration may not have run yet)
+        if (parent.notify_replies === 0) { console.warn('[Notify] User opted out'); return; }
+
+        // If notify_token is missing (migration not yet applied), generate one on the fly
+        let unsubToken = parent.notify_token;
+        if (!unsubToken) {
+          const crypto = require('crypto');
+          unsubToken = crypto.randomBytes(24).toString('hex');
+          await db.prepare(
+            'UPDATE public_users SET notify_token = $1 WHERE id = $2'
+          ).run(unsubToken, parent.user_id);
+        }
+
+        // Fetch replier's display name fresh from DB
+        const replierRow = await db.prepare(
+          'SELECT display_name FROM public_users WHERE id = $1'
+        ).get(replierId);
+        const replierName = replierRow?.display_name || 'Someone';
+
+        // Best-effort article title lookup
+        const slugWord = (slug || '').split('-').slice(0, 5).join(' ');
+        const article  = await db.prepare(
           `SELECT title FROM articles WHERE LOWER(title) LIKE $1 AND is_published = 1 LIMIT 1`
         ).get(`%${slugWord}%`);
+
+        console.log(`[Notify] Sending reply notification to ${parent.email} (parent comment #${parent.id})`);
 
         await sendReplyNotification({
           toEmail:      parent.email,
           toName:       parent.display_name,
-          replierName:  user.display_name || 'Someone',
+          replierName,
           articleSlug:  slug,
           articleTitle: article?.title || slug,
           replyBody:    clean,
-          commentId:    parent.user_id, // anchor to parent comment
-          unsubToken:   parent.notify_token,
+          commentId:    parent.id,   // was parent.user_id — BUG FIX
+          unsubToken,
         });
+
+        console.log(`[Notify] Reply notification sent to ${parent.email}`);
       } catch (err) {
-        console.warn('[Notify] Reply notification failed:', err.message);
+        console.warn('[Notify] Reply notification failed:', err.message, err.stack);
       }
     });
   }
