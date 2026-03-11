@@ -6,6 +6,8 @@ let activeFilter = 'all';
 let slugFilter   = '';
 let cmtPage      = 1;
 let cmtPageSize  = 25;
+let selectedCmtIds = new Set();
+let expandedCmtId  = null;
 
 onReady(async () => {
   if (!requireAuth()) return;
@@ -117,17 +119,18 @@ function renderTable() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6">
+    tbody.innerHTML = `<tr><td colspan="7">
       <div class="empty-state"><div class="empty-icon">💬</div>
       <p>${activeFilter === 'reported' ? 'No reported comments — all clear' : 'No comments yet — looking clean ✨'}</p></div>
     </td></tr>`;
     document.getElementById('commentsPagination').innerHTML = '';
+    updateCmtBulkToolbar();
     return;
   }
 
   const pageComments = filtered.slice((cmtPage - 1) * cmtPageSize, cmtPage * cmtPageSize);
 
-  tbody.innerHTML = pageComments.map(c => {
+  const rows = pageComments.flatMap(c => {
     const slug        = escHtml(c.articleSlug || '—');
     const bodyText    = c.isDeleted ? '<em style="color:var(--muted);">[hidden]</em>' : escHtml((c.body || '').slice(0, 120)) + (c.body && c.body.length > 120 ? '…' : '');
     const userName    = escHtml(c.user?.displayName || 'Unknown');
@@ -144,9 +147,13 @@ function renderTable() {
       style="color:var(--accent);font-size:12px;word-break:break-all;"
       title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
-    const rowStyle    = c.isDeleted ? 'opacity:0.55;' : '';
+    const rowClass    = [
+      c.isDeleted ? 'row-archived' : '',
+      selectedCmtIds.has(c.id) ? 'row-selected' : '',
+      expandedCmtId === c.id ? 'kb-focus' : ''
+    ].filter(Boolean).join(' ');
+    const isExpanded  = expandedCmtId === c.id;
 
-    // Actions differ: hidden comments get restore + delete; visible get hide + delete
     const actions = c.isDeleted
       ? `<div style="display:flex;gap:6px;">
            <button class="btn btn-ghost btn-sm" onclick="restoreComment(${c.id})" title="Restore comment">↩️</button>
@@ -157,26 +164,80 @@ function renderTable() {
            <button class="btn btn-danger btn-sm" onclick="confirmDelete(${c.id})" title="Delete permanently">🗑️</button>
          </div>`;
 
-    return `
-      <tr data-id="${c.id}" style="${rowStyle}">
+    const mainRow = `
+      <tr data-id="${c.id}" class="cmt-row ${rowClass}" style="cursor:pointer;">
+        <td class="td-check" onclick="event.stopPropagation()">
+          <input type="checkbox" class="cmt-check" data-id="${c.id}" ${selectedCmtIds.has(c.id) ? 'checked' : ''} />
+        </td>
         <td style="font-size:12px;">${articleLink}</td>
-        <td style="font-size:13px;color:var(--text-secondary);">${bodyText}${hiddenBadge}</td>
+        <td style="font-size:13px;">${bodyText}${hiddenBadge}</td>
         <td style="font-size:12px;">
-          ${c.user?.avatarUrl
-            ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />`
-            : ''}
+          ${c.user?.avatarUrl ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />` : ''}
           ${providerIcon} ${userName}
         </td>
         <td style="text-align:center;">${reportBadge}</td>
         <td style="color:var(--muted);font-size:12px;">${date}</td>
-        <td>${actions}</td>
+        <td onclick="event.stopPropagation()">${actions}</td>
       </tr>`;
-  }).join('');
+
+    const expandRow = isExpanded ? `
+      <tr class="cmt-expand-row" data-parent="${c.id}">
+        <td colspan="7" style="padding:0;">
+          <div class="cmt-expand-body">
+            <div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:var(--space-3);">${escHtml(c.body || '')}</div>
+            ${c.spamScore != null ? `<div style="font-size:12px;color:#fb923c;">🤖 Spam score: ${Math.round(c.spamScore * 100)}%${c.spamReason ? ` — ${escHtml(c.spamReason)}` : ''}</div>` : ''}
+            ${c.parentId ? `<div style="font-size:12px;color:var(--muted);margin-top:var(--space-1);">↩ Reply to comment #${c.parentId}</div>` : ''}
+          </div>
+        </td>
+      </tr>` : '';
+
+    return mainRow + expandRow;
+  });
+
+  tbody.innerHTML = rows.join('');
+
+  // Wire checkboxes
+  tbody.querySelectorAll('.cmt-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = parseInt(cb.dataset.id);
+      if (cb.checked) selectedCmtIds.add(id); else selectedCmtIds.delete(id);
+      const row = tbody.querySelector(`tr[data-id="${id}"]`);
+      if (row) row.classList.toggle('row-selected', cb.checked);
+      updateCmtBulkToolbar();
+    });
+  });
+
+  // Wire row click → expand
+  tbody.querySelectorAll('.cmt-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = parseInt(row.dataset.id);
+      expandedCmtId = expandedCmtId === id ? null : id;
+      renderTable();
+    });
+  });
+
+  // Sync select-all
+  const selectAll = document.getElementById('cmtSelectAll');
+  if (selectAll) selectAll.checked = pageComments.length > 0 && pageComments.every(c => selectedCmtIds.has(c.id));
+
+  updateCmtBulkToolbar();
 
   renderPagination('commentsPagination', filtered.length, cmtPage, cmtPageSize,
     (p) => { cmtPage = p; renderTable(); },
     (s) => { cmtPageSize = s; cmtPage = 1; renderTable(); }
   );
+}
+
+function updateCmtBulkToolbar() {
+  const toolbar = document.getElementById('cmtBulkToolbar');
+  const count   = document.getElementById('cmtBulkCount');
+  if (!toolbar) return;
+  if (selectedCmtIds.size > 0) {
+    toolbar.style.display = 'flex';
+    count.textContent = `${selectedCmtIds.size} selected`;
+  } else {
+    toolbar.style.display = 'none';
+  }
 }
 
 function renderQueueTable(tbody) {
@@ -257,6 +318,29 @@ function initFilters() {
     cmtPage = 1;
     renderTable();
   });
+
+  // Select-all
+  document.getElementById('cmtSelectAll')?.addEventListener('change', e => {
+    const tbody = document.getElementById('commentsBody');
+    tbody.querySelectorAll('.cmt-check').forEach(cb => {
+      cb.checked = e.target.checked;
+      const id = parseInt(cb.dataset.id);
+      if (e.target.checked) selectedCmtIds.add(id); else selectedCmtIds.delete(id);
+    });
+    updateCmtBulkToolbar();
+  });
+
+  // Bulk toolbar buttons
+  document.getElementById('cmtBulkApprove')?.addEventListener('click', () => bulkAction('approve'));
+  document.getElementById('cmtBulkHide')?.addEventListener('click',    () => bulkAction('hide'));
+  document.getElementById('cmtBulkDelete')?.addEventListener('click',  () => {
+    if (!confirm(`Permanently delete ${selectedCmtIds.size} comment(s)? This cannot be undone.`)) return;
+    bulkAction('delete');
+  });
+  document.getElementById('cmtBulkClear')?.addEventListener('click', () => {
+    selectedCmtIds.clear();
+    renderTable();
+  });
 }
 
 /* ── Queue Actions ────────────────────────────────────────────────── */
@@ -284,6 +368,25 @@ async function rejectComment(id) {
     showAlert('Comment rejected and deleted.', 'success');
   } catch (err) {
     showAlert('Failed to reject: ' + err.message, 'error');
+  }
+}
+
+/* ── Bulk Actions ────────────────────────────────────────────────── */
+async function bulkAction(action) {
+  const ids = [...selectedCmtIds];
+  if (!ids.length) return;
+  try {
+    await apiFetch('/comments/admin/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ ids, action }),
+    });
+    const label = action === 'approve' ? 'approved' : action === 'hide' ? 'hidden' : 'deleted';
+    showToast(`${ids.length} comment(s) ${label}`, 'success');
+    selectedCmtIds.clear();
+    expandedCmtId = null;
+    await loadComments();
+  } catch (err) {
+    showAlert('Bulk action failed: ' + err.message, 'error');
   }
 }
 

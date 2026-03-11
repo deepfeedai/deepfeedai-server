@@ -583,4 +583,39 @@ router.delete('/admin/:id', requireAdmin, asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ── Admin: POST /api/comments/admin/bulk ─────────────────────────── */
+// body: { ids: number[], action: 'approve' | 'hide' | 'delete' }
+router.post('/admin/bulk', requireAdmin, asyncHandler(async (req, res) => {
+  const { ids, action } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+  if (!['approve', 'hide', 'delete'].includes(action)) {
+    return res.status(400).json({ error: 'action must be approve | hide | delete' });
+  }
+
+  const validIds = ids.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n));
+  const placeholders = validIds.map((_, i) => `$${i + 1}`).join(', ');
+
+  if (action === 'approve') {
+    await db.prepare(
+      `UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id IN (${placeholders})`
+    ).run(...validIds);
+  } else if (action === 'hide') {
+    await db.prepare(
+      `UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id IN (${placeholders})`
+    ).run(...validIds);
+    await db.prepare(
+      `DELETE FROM comment_reports WHERE comment_id IN (${placeholders})`
+    ).run(...validIds);
+  } else if (action === 'delete') {
+    await db.prepare(
+      `DELETE FROM comments WHERE id IN (${placeholders})`
+    ).run(...validIds);
+  }
+
+  res.json({ ok: true, affected: validIds.length });
+}));
+
 module.exports = router;
