@@ -122,7 +122,7 @@ app.use('/api/thumbnail',  require('./routes/thumbnail'));   // public — AI th
 app.use('/api/trends',     require('./routes/trends'));      // public — trending analysis
 app.use('/api/newsletter', require('./routes/newsletter')); // admin — newsletter send
 
-const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
+const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
 
@@ -170,6 +170,19 @@ cron.schedule('0 14 * * 1', async () => {
     }
   } catch (e) {
     console.error('[Cron] Newsletter error:', e.message);
+  }
+});
+
+// ── Cron: live news auto-fetch every 60 min (if API keys configured) ─
+cron.schedule('0 * * * *', async () => {
+  if (!process.env.NEWS_API_KEY && !process.env.BRAVE_API_KEY) return;
+  console.log('[Cron] Auto-fetching live news sources...');
+  try {
+    const result = await fetchLiveSources(false);
+    console.log(`[Cron] Live news done — ${result.inserted} new, ${result.skipped} skipped`);
+    if (result.errors.length) console.warn('[Cron] Live news errors:', result.errors);
+  } catch (e) {
+    console.error('[Cron] Live news error:', e.message);
   }
 });
 

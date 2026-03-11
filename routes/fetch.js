@@ -118,6 +118,113 @@ async function fetchAllSources(autoPublish = false) {
   return { inserted, skipped, errors };
 }
 
+// ── Live news fetch (NewsAPI + Brave Search) ──────────────────────────────────
+
+const AI_QUERY    = '("artificial intelligence" OR "machine learning" OR "large language model" OR OpenAI OR Anthropic OR "deep learning" OR LLM OR ChatGPT OR "generative AI" OR "neural network")';
+const BRAVE_QUERY = 'artificial intelligence generative AI LLM OpenAI Anthropic machine learning deep learning';
+const LIVE_PAGE_SIZE = 20;
+
+async function fetchNewsAPIArticles(apiKey) {
+  const q   = encodeURIComponent(AI_QUERY);
+  const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=${LIVE_PAGE_SIZE}&apiKey=${apiKey}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
+  const data = await res.json();
+  return (data.articles || [])
+    .filter(a => a.title && a.title !== '[Removed]' && a.url)
+    .map(a => ({
+      title:       a.title.trim(),
+      summary:     (a.description || '').trim().slice(0, 500),
+      source:      a.source?.name || 'NewsAPI',
+      url:         a.url,
+      image:       a.urlToImage || null,
+      publishedAt: a.publishedAt || new Date().toISOString(),
+      sourceType:  'newsapi',
+    }));
+}
+
+async function fetchBraveArticles(apiKey) {
+  const q   = encodeURIComponent(BRAVE_QUERY);
+  const url = `https://api.search.brave.com/res/v1/news/search?q=${q}&count=${LIVE_PAGE_SIZE}&search_lang=en&freshness=pd`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`Brave API ${res.status}`);
+  const data = await res.json();
+  return (data.results || [])
+    .filter(a => a.title && a.url)
+    .map(a => ({
+      title:       a.title.trim(),
+      summary:     (a.description || a.extra_snippets?.[0] || '').trim().slice(0, 500),
+      source:      a.source?.name || a.meta_url?.netloc || 'Brave News',
+      url:         a.url,
+      image:       a.thumbnail?.src || null,
+      publishedAt: resolveAge(a.age),
+      sourceType:  'brave',
+    }));
+}
+
+function resolveAge(age) {
+  if (!age) return new Date().toISOString();
+  const m = age.match(/(\d+)\s+(minute|hour|day|week)/i);
+  if (!m) return new Date().toISOString();
+  const ms = { minute: 60000, hour: 3600000, day: 86400000, week: 604800000 }[m[2].toLowerCase()] || 0;
+  return new Date(Date.now() - parseInt(m[1]) * ms).toISOString();
+}
+
+async function fetchLiveSources(autoPublish = false) {
+  const newsApiKey = process.env.NEWS_API_KEY;
+  const braveKey   = process.env.BRAVE_API_KEY;
+
+  if (!newsApiKey && !braveKey) {
+    return { inserted: 0, skipped: 0, errors: [{ source: 'live', error: 'No API keys configured' }] };
+  }
+
+  const [newsApiResult, braveResult] = await Promise.allSettled([
+    newsApiKey ? fetchNewsAPIArticles(newsApiKey) : Promise.resolve([]),
+    braveKey   ? fetchBraveArticles(braveKey)     : Promise.resolve([]),
+  ]);
+
+  const errors = [];
+  if (newsApiResult.status === 'rejected') errors.push({ source: 'newsapi', error: newsApiResult.reason.message });
+  if (braveResult.status   === 'rejected') errors.push({ source: 'brave',   error: braveResult.reason.message   });
+
+  const candidates = [
+    ...(newsApiResult.status === 'fulfilled' ? newsApiResult.value : []),
+    ...(braveResult.status   === 'fulfilled' ? braveResult.value   : []),
+  ];
+
+  // Deduplicate by URL within this batch
+  const seen = new Set();
+  const deduped = candidates.filter(a => {
+    if (seen.has(a.url)) return false;
+    seen.add(a.url);
+    return true;
+  });
+
+  let inserted = 0, skipped = 0;
+
+  for (const item of deduped) {
+    // Skip if already in DB
+    const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(item.url);
+    if (existing) { skipped++; continue; }
+
+    // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
+    const category = detectCategory({ title: item.title, contentSnippet: item.summary });
+
+    const publish = autoPublish ? 1 : 0;
+
+    await db.prepare(
+      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
+    ).run(item.title, item.summary, category, item.source, item.url, item.image, item.publishedAt, publish, item.sourceType);
+    inserted++;
+  }
+
+  return { inserted, skipped, errors };
+}
+
 // POST /api/fetch
 router.post('/', auth, asyncHandler(async (req, res) => {
   const result = await fetchAllSources(req.body.autoPublish === true);
@@ -141,4 +248,10 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
   res.json({ status: 'ok', total: articles.length, updated });
 }));
 
-module.exports = { router, fetchAllSources, detectCategory };
+// POST /api/fetch/live — fetch from NewsAPI + Brave Search
+router.post('/live', auth, asyncHandler(async (req, res) => {
+  const result = await fetchLiveSources(req.body.autoPublish === true);
+  res.json({ status: 'ok', ...result });
+}));
+
+module.exports = { router, fetchAllSources, fetchLiveSources, detectCategory };

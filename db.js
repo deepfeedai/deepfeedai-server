@@ -223,6 +223,8 @@ async function initDb() {
     // Reply notifications: opt-in flag + unsubscribe token
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_replies      INTEGER DEFAULT 1`,
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_token        TEXT`,
+    // Phase 3: track article origin — 'rss' | 'newsapi' | 'brave'
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_type             TEXT DEFAULT 'rss'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
