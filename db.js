@@ -21,7 +21,9 @@ function getPool() {
     if (!connectionString) throw new Error('DATABASE_URL environment variable is not set');
     pool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false }, // required for Neon / Railway Postgres
+      ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
+        ? false
+        : { rejectUnauthorized: false }, // required for Neon / Railway Postgres
       max: 10,
       idleTimeoutMillis: 30000,  // release idle clients after 30s
       connectionTimeoutMillis: 5000,
@@ -102,6 +104,54 @@ async function initDb() {
       username      TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS public_users (
+      id           SERIAL PRIMARY KEY,
+      provider     TEXT NOT NULL,
+      provider_id  TEXT NOT NULL,
+      email        TEXT,
+      display_name TEXT NOT NULL,
+      avatar_url   TEXT,
+      is_banned    INTEGER DEFAULT 0,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(provider, provider_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_codes (
+      code        TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      used        INTEGER DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_auth_codes_user_id ON auth_codes(user_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at);
+
+    CREATE TABLE IF NOT EXISTS comments (
+      id           SERIAL PRIMARY KEY,
+      article_slug TEXT NOT NULL,
+      user_id      INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      body         TEXT,
+      parent_id    INTEGER REFERENCES comments(id) ON DELETE SET NULL,
+      is_deleted   INTEGER DEFAULT 0,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      updated_at   TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_comments_slug    ON comments(article_slug);
+    CREATE INDEX IF NOT EXISTS idx_comments_user_id ON comments(user_id);
+    CREATE INDEX IF NOT EXISTS idx_comments_parent  ON comments(parent_id);
+
+    CREATE TABLE IF NOT EXISTS comment_reports (
+      id         SERIAL PRIMARY KEY,
+      comment_id INTEGER NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      reason     TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(comment_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS voices (

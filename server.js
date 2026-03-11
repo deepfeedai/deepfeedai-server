@@ -20,7 +20,7 @@ app.use(helmet({ contentSecurityPolicy: false }));
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments'];
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -82,6 +82,8 @@ app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/settings',  require('./routes/settings'));
 app.use('/api/news',      require('./routes/news'));       // public — news feed
+app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
+app.use('/api/comments', require('./routes/comments'));   // public read, user write, admin mod
 
 const { router: fetchRouter, fetchAllSources } = require('./routes/fetch');
 const cron = require('node-cron');
@@ -115,6 +117,18 @@ cron.schedule('*/30 * * * *', async () => {
     console.log(`[Cron] Done — ${result.inserted} new, ${result.skipped} skipped`);
   } catch (e) {
     console.error('[Cron] Fetch error:', e.message);
+  }
+});
+
+// ── Cron: purge expired/used auth codes every 10 min ──────────────
+cron.schedule('*/10 * * * *', async () => {
+  try {
+    await db.prepare(`
+      DELETE FROM auth_codes
+      WHERE used = 1 OR expires_at <= NOW()
+    `).run();
+  } catch (e) {
+    console.error('[Cron] Auth code cleanup error:', e.message);
   }
 });
 
