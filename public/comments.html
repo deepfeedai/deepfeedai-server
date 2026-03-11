@@ -66,15 +66,17 @@
         </div>
       </div>
 
-      <!-- Filter bar -->
+      <!-- Tab bar -->
       <div class="section-header" style="margin-bottom: 12px;">
-        <div class="section-title">Comment List</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <button class="btn btn-sm btn-ghost filter-tab active" data-filter="all">All</button>
-          <button class="btn btn-sm btn-ghost filter-tab" data-filter="reported">🚩 Reported Only</button>
-          <input type="text" id="slugFilter" class="input" placeholder="Filter by slug…"
-                 style="width:200px;height:32px;font-size:13px;" />
+          <button class="btn btn-sm btn-ghost filter-tab" data-filter="reported">🚩 Reported</button>
+          <button class="btn btn-sm btn-ghost filter-tab" data-filter="queue" id="queueTab">
+            ⏳ Queue <span id="queueBadge" style="display:none;background:var(--accent);color:#000;border-radius:10px;padding:0 6px;font-size:11px;font-weight:700;margin-left:4px;"></span>
+          </button>
         </div>
+        <input type="text" id="slugFilter" class="input" placeholder="Filter by slug…"
+               style="width:200px;height:32px;font-size:13px;" />
       </div>
 
       <!-- Comments table -->

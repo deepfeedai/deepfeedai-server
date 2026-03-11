@@ -193,10 +193,12 @@ async function initDb() {
 
   // Migrations — add columns that may not exist on older DBs
   const migrations = [
-    `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish     INTEGER DEFAULT 0`,
-    `ALTER TABLE sources ADD COLUMN IF NOT EXISTS auto_publish_max INTEGER DEFAULT 5`,
-    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_name TEXT`,
-    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_avatar_url TEXT`,
+    `ALTER TABLE sources  ADD COLUMN IF NOT EXISTS auto_publish            INTEGER DEFAULT 0`,
+    `ALTER TABLE sources  ADD COLUMN IF NOT EXISTS auto_publish_max        INTEGER DEFAULT 5`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_name        TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS audio_voice_avatar_url  TEXT`,
+    // Moderation queue: 0 = pending review, 1 = approved (default 1 = legacy rows stay visible)
+    `ALTER TABLE comments ADD COLUMN IF NOT EXISTS is_approved             INTEGER DEFAULT 1`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

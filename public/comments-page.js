@@ -1,6 +1,7 @@
 /* ===== DeepFeedAI Admin — Comments Page ===== */
 
 let allComments  = [];
+let queueItems   = [];
 let activeFilter = 'all';
 let slugFilter   = '';
 
@@ -12,11 +13,13 @@ onReady(async () => {
   const user = localStorage.getItem('deepfeedai_user');
   if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
-  // Auto-activate filter from URL param (e.g. ?filter=reported from dashboard)
+  // Auto-activate filter from URL param
   const urlFilter = new URLSearchParams(window.location.search).get('filter');
+  const urlTab    = new URLSearchParams(window.location.search).get('tab');
   if (urlFilter === 'reported') activeFilter = 'reported';
+  if (urlTab    === 'queue')    activeFilter = 'queue';
 
-  await loadComments();
+  await Promise.all([loadComments(), loadQueue()]);
   initFilters();
 
   // Sync filter tab UI after load
@@ -27,15 +30,38 @@ onReady(async () => {
   }
 });
 
-/* ── Load comments from admin API ─────────────────────────────────── */
+/* ── Load all comments ────────────────────────────────────────────── */
 async function loadComments() {
   try {
     const data = await apiFetch('/comments/admin');
     allComments = data.comments || [];
     renderStats();
-    renderTable();
+    if (activeFilter !== 'queue') renderTable();
   } catch (err) {
     showAlert('Failed to load comments: ' + err.message, 'error');
+  }
+}
+
+/* ── Load moderation queue ────────────────────────────────────────── */
+async function loadQueue() {
+  try {
+    const data = await apiFetch('/comments/admin/queue');
+    queueItems = data.queue || [];
+    updateQueueBadge();
+    if (activeFilter === 'queue') renderTable();
+  } catch (err) {
+    console.warn('Queue load failed:', err.message);
+  }
+}
+
+function updateQueueBadge() {
+  const badge = document.getElementById('queueBadge');
+  if (!badge) return;
+  if (queueItems.length > 0) {
+    badge.textContent = queueItems.length;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
   }
 }
 
@@ -60,6 +86,12 @@ function renderStats() {
 function renderTable() {
   const tbody = document.getElementById('commentsBody');
 
+  // Queue tab: show pending comments with approve/reject actions
+  if (activeFilter === 'queue') {
+    renderQueueTable(tbody);
+    return;
+  }
+
   let filtered = allComments.filter(c => !c.isDeleted);
 
   if (activeFilter === 'reported') {
@@ -72,7 +104,6 @@ function renderTable() {
     );
   }
 
-  // Sort: most reports first, then newest
   filtered.sort((a, b) => {
     if (b.reportCount !== a.reportCount) return b.reportCount - a.reportCount;
     return new Date(b.createdAt) - new Date(a.createdAt);
@@ -96,11 +127,9 @@ function renderTable() {
     const reportBadge = reports > 0
       ? `<span class="badge badge-danger" style="font-size:11px;">🚩 ${reports}</span>`
       : `<span style="color:var(--muted);font-size:12px;">—</span>`;
-
     const articleLink = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
       style="color:var(--accent);font-size:12px;word-break:break-all;"
       title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
-
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
 
     return `
@@ -125,6 +154,52 @@ function renderTable() {
   }).join('');
 }
 
+function renderQueueTable(tbody) {
+  if (queueItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6">
+      <div class="empty-state"><div class="empty-icon">✅</div>
+      <p>Queue is empty — no comments pending review</p></div>
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = queueItems.map(c => {
+    const slug     = escHtml(c.articleSlug || '—');
+    const body     = escHtml((c.body || '').slice(0, 160)) + (c.body && c.body.length > 160 ? '…' : '');
+    const userName = escHtml(c.user?.displayName || 'Unknown');
+    const provider = escHtml(c.user?.provider || '');
+    const date     = fmtDate(c.createdAt);
+    const prior    = c.priorApproved ?? 0;
+    const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
+    const articleLink  = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
+      style="color:var(--accent);font-size:12px;" title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
+
+    return `
+      <tr data-id="${c.id}">
+        <td style="font-size:12px;">${articleLink}</td>
+        <td style="font-size:13px;color:var(--text-secondary);">${body}</td>
+        <td style="font-size:12px;">
+          ${c.user?.avatarUrl
+            ? `<img src="${escHtml(c.user.avatarUrl)}" style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'" />`
+            : ''}
+          ${providerIcon} ${userName}
+          <div style="color:var(--muted);font-size:11px;margin-top:2px;">${prior} prior approved</div>
+        </td>
+        <td style="text-align:center;">
+          <span class="badge badge-muted" style="font-size:11px;">⏳ Pending</span>
+        </td>
+        <td style="color:var(--muted);font-size:12px;">${date}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm" style="background:rgba(52,211,153,0.15);color:#34d399;border:1px solid rgba(52,211,153,0.3);"
+                    onclick="approveComment(${c.id})" title="Approve">✅</button>
+            <button class="btn btn-danger btn-sm" onclick="rejectComment(${c.id})" title="Reject & delete">🗑️</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
 /* ── Filters ──────────────────────────────────────────────────────── */
 function initFilters() {
   document.querySelectorAll('.filter-tab').forEach(btn => {
@@ -143,7 +218,35 @@ function initFilters() {
   });
 }
 
-/* ── Actions ──────────────────────────────────────────────────────── */
+/* ── Queue Actions ────────────────────────────────────────────────── */
+async function approveComment(id) {
+  try {
+    await apiFetch(`/comments/admin/${id}/approve`, { method: 'POST' });
+    queueItems = queueItems.filter(c => c.id !== id);
+    updateQueueBadge();
+    renderTable();
+    showAlert('Comment approved — now visible publicly.', 'success');
+    // Reload allComments so stats update
+    await loadComments();
+  } catch (err) {
+    showAlert('Failed to approve: ' + err.message, 'error');
+  }
+}
+
+async function rejectComment(id) {
+  if (!confirm('Reject and permanently delete this comment?')) return;
+  try {
+    await apiFetch(`/comments/admin/${id}/reject`, { method: 'POST' });
+    queueItems = queueItems.filter(c => c.id !== id);
+    updateQueueBadge();
+    renderTable();
+    showAlert('Comment rejected and deleted.', 'success');
+  } catch (err) {
+    showAlert('Failed to reject: ' + err.message, 'error');
+  }
+}
+
+/* ── Hide/Delete Actions ──────────────────────────────────────────── */
 function confirmHide(id) {
   document.getElementById('confirmTitle').textContent = 'Hide Comment';
   document.getElementById('confirmMsg').textContent   = 'This will soft-delete the comment and clear any reports. The user will see [deleted].';

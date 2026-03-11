@@ -198,7 +198,31 @@ let apiKeyVisible = false;
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // ── Extend loadSettings to include purge settings ─────────────────
+  // ── Moderation queue settings ──────────────────────────────────────
+  function loadModQueueSettings(settings) {
+    const enabled   = document.getElementById('modQueueEnabled');
+    const threshold = document.getElementById('modQueueThreshold');
+    if (enabled)   enabled.checked    = settings.mod_queue_enabled === '1';
+    if (threshold) threshold.value    = settings.mod_queue_threshold || '1';
+  }
+
+  document.getElementById('saveModQueueBtn')?.addEventListener('click', async function () {
+    const enabled   = document.getElementById('modQueueEnabled').checked ? '1' : '0';
+    const threshold = document.getElementById('modQueueThreshold').value || '1';
+    const statusEl  = document.getElementById('modQueueStatus');
+    try {
+      await apiFetch('/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ mod_queue_enabled: enabled, mod_queue_threshold: threshold }),
+      });
+      statusEl.textContent = '✅ Saved';
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+    }
+  });
+
+  // ── Extend loadSettings to include all setting sections ───────────
   const _origLoadSettings = loadSettings;
   loadSettings = async function() {
     try {
@@ -214,6 +238,7 @@ let apiKeyVisible = false;
       }
       loadImagenSettings(settings);
       loadPurgeSettings(settings);
+      loadModQueueSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }

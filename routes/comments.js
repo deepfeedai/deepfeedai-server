@@ -7,15 +7,25 @@
  *   GET  /api/comments/leaderboard   — top commenters by count (public)
  *
  * User endpoints (requireUser middleware):
- *   POST   /api/comments              — post a comment (rate-limited)
- *   PUT    /api/comments/:id          — edit own comment (10-min window)
- *   DELETE /api/comments/:id          — soft-delete own comment
- *   POST   /api/comments/:id/report   — report a comment
+ *   POST   /api/comments                    — post a comment (queued if new user)
+ *   PUT    /api/comments/:id                — edit own comment (10-min window)
+ *   DELETE /api/comments/:id                — soft-delete own comment
+ *   POST   /api/comments/:id/report         — report a comment
+ *   POST   /api/comments/:id/react          — toggle emoji reaction
  *
  * Admin endpoints (requireAdmin middleware):
- *   GET    /api/comments/admin        — list all comments (with reports count)
- *   DELETE /api/comments/admin/:id    — hard-delete any comment
- *   POST   /api/comments/admin/:id/hide — hide (soft-delete) any comment
+ *   GET    /api/comments/admin              — list all comments (with reports count)
+ *   GET    /api/comments/admin/queue        — pending (unapproved) comments
+ *   POST   /api/comments/admin/:id/approve  — approve a queued comment
+ *   POST   /api/comments/admin/:id/reject   — reject (hard-delete) a queued comment
+ *   DELETE /api/comments/admin/:id          — hard-delete any comment
+ *   POST   /api/comments/admin/:id/hide     — hide (soft-delete) any comment
+ *
+ * Moderation queue:
+ *   Controlled by settings: mod_queue_enabled (0/1), mod_queue_threshold (int).
+ *   New users whose approved comment count is below the threshold have new comments
+ *   held as is_approved=0. Once they hit the threshold they are auto-trusted.
+ *   Public GET only returns is_approved=1 comments.
  */
 
 'use strict';
@@ -96,12 +106,13 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const rows = await db.prepare(`
     SELECT
-      c.id, c.article_slug, c.parent_id, c.body, c.is_deleted,
+      c.id, c.article_slug, c.parent_id, c.body, c.is_deleted, c.is_approved,
       c.created_at, c.updated_at, c.user_id,
       u.display_name, u.avatar_url, u.provider
     FROM comments c
     LEFT JOIN public_users u ON u.id = c.user_id
     WHERE c.article_slug = $1
+      AND (c.is_approved = 1 OR c.is_approved IS NULL)
     ORDER BY c.created_at ASC
   `).all(slug);
 
@@ -204,16 +215,43 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
     }
   }
 
+  // ── Moderation queue check ────────────────────────────────────────
+  // Load settings; default to queue disabled so existing deploys are unaffected
+  const modSettings = await db.prepare(
+    `SELECT key, value FROM settings WHERE key IN ('mod_queue_enabled', 'mod_queue_threshold')`
+  ).all();
+  const modMap      = Object.fromEntries(modSettings.map(r => [r.key, r.value]));
+  const queueOn     = modMap.mod_queue_enabled === '1';
+  const threshold   = parseInt(modMap.mod_queue_threshold || '1', 10);
+
+  let isApproved = 1; // default: auto-approve
+  if (queueOn) {
+    // Count how many approved comments this user already has
+    const approvedRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM comments WHERE user_id = $1 AND is_approved = 1 AND is_deleted = 0`
+    ).get(req.user.sub);
+    const approvedCount = parseInt(approvedRow?.cnt ?? 0, 10);
+    isApproved = approvedCount >= threshold ? 1 : 0;
+  }
+
   const row = await db.prepare(`
-    INSERT INTO comments (article_slug, user_id, body, parent_id)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO comments (article_slug, user_id, body, parent_id, is_approved)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
-  `).get(slug, req.user.sub, clean, parentId || null);
+  `).get(slug, req.user.sub, clean, parentId || null, isApproved);
 
   // Attach user info for immediate render
   const user = await db.prepare(
     'SELECT display_name, avatar_url, provider FROM public_users WHERE id = $1'
   ).get(req.user.sub);
+
+  // If queued, return a pending signal instead of the full comment
+  if (!isApproved) {
+    return res.status(202).json({
+      queued:  true,
+      message: 'Your comment is pending review and will appear once approved.',
+    });
+  }
 
   res.status(201).json({
     comment: formatComment({ ...row, ...user }),
@@ -351,6 +389,45 @@ router.post('/:id/react', requireUser, asyncHandler(async (req, res) => {
     : emoji;
 
   res.json({ ok: true, reactions, myReaction });
+}));
+
+/* ── Admin: GET /api/comments/admin/queue ────────────────────────── */
+router.get('/admin/queue', requireAdmin, asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT
+      c.id, c.article_slug, c.parent_id, c.body, c.is_deleted, c.is_approved,
+      c.created_at, c.updated_at, c.user_id,
+      u.display_name, u.avatar_url, u.provider,
+      (SELECT COUNT(*) FROM comments ac WHERE ac.user_id = c.user_id AND ac.is_approved = 1 AND ac.is_deleted = 0) AS prior_approved
+    FROM comments c
+    LEFT JOIN public_users u ON u.id = c.user_id
+    WHERE c.is_approved = 0 AND c.is_deleted = 0
+    ORDER BY c.created_at ASC
+  `).all();
+
+  res.json({
+    queue: rows.map(r => ({
+      ...formatComment(r),
+      priorApproved: parseInt(r.prior_approved, 10),
+    })),
+  });
+}));
+
+/* ── Admin: POST /api/comments/admin/:id/approve ─────────────────── */
+router.post('/admin/:id/approve', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  await db.prepare(
+    'UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id = $1'
+  ).run(id);
+  res.json({ ok: true });
+}));
+
+/* ── Admin: POST /api/comments/admin/:id/reject ──────────────────── */
+router.post('/admin/:id/reject', requireAdmin, asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  // Hard-delete — rejected spam shouldn't leave a tombstone
+  await db.prepare('DELETE FROM comments WHERE id = $1').run(id);
+  res.json({ ok: true });
 }));
 
 /* ── Admin: GET /api/comments/admin ──────────────────────────────── */

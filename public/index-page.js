@@ -7,11 +7,12 @@ onReady(async () => {
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
     try {
-      const [articles, sources, settings, commentsData] = await Promise.all([
+      const [articles, sources, settings, commentsData, queueData] = await Promise.all([
         apiFetch('/articles'),
         apiFetch('/sources'),
         apiFetch('/settings').catch(() => ({})),
         apiFetch('/comments/admin').catch(() => ({ comments: [] })),
+        apiFetch('/comments/admin/queue').catch(() => ({ queue: [] })),
       ]);
 
       const now       = Date.now();
@@ -127,6 +128,15 @@ onReady(async () => {
           icon: '🎵', level: 'info',
           text: `${noAudioPublished.length} published article${noAudioPublished.length > 1 ? 's' : ''} without audio`,
           link: '/articles.html', linkText: 'Generate Audio'
+        });
+      }
+
+      const queue = queueData.queue || [];
+      if (queue.length > 0) {
+        attention.push({
+          icon: '⏳', level: 'warn',
+          text: `${queue.length} comment${queue.length > 1 ? 's' : ''} pending moderation review`,
+          link: '/comments.html?tab=queue', linkText: 'Review Queue'
         });
       }
 
