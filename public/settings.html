@@ -154,6 +154,35 @@
               </label>
               Never archive articles with generated audio
             </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;">
+              <label class="toggle">
+                <input type="checkbox" id="purgeProtectEngaged" />
+                <span class="toggle-slider"></span>
+              </label>
+              Never archive articles with recent comments or reactions
+            </label>
+          </div>
+        </div>
+
+        <div class="form-row mt-3" id="purgeEngagedDaysRow" style="display:none;">
+          <div class="form-group">
+            <label class="form-label" for="purgeProtectEngagedDays">Engagement lookback window</label>
+            <div class="input-row">
+              <input type="number" class="form-control" id="purgeProtectEngagedDays" value="7" min="1" max="90"
+                     style="width:90px;" />
+              <span class="text-muted text-sm">days — protect articles with activity in this window</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row mt-3">
+          <div class="form-group">
+            <label class="form-label" for="purgeGraceHours">Hard-delete grace period</label>
+            <div class="input-row">
+              <input type="number" class="form-control" id="purgeGraceHours" value="24" min="1" max="720"
+                     style="width:90px;" />
+              <span class="text-muted text-sm">hours after archiving before permanent deletion</span>
+            </div>
           </div>
         </div>
 

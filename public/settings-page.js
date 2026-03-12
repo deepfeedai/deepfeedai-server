@@ -102,18 +102,31 @@ let apiKeyVisible = false;
 
   // ── Content Lifecycle / Purge ─────────────────────────────────────
   function loadPurgeSettings(settings) {
-    document.getElementById('purgeEnabled').checked         = settings.purge_enabled === '1';
-    document.getElementById('purgeDays').value              = settings.purge_days || '30';
-    document.getElementById('purgeProtectFeatured').checked = settings.purge_protect_featured !== '0';
-    document.getElementById('purgeProtectAudio').checked    = settings.purge_protect_audio === '1';
+    document.getElementById('purgeEnabled').checked              = settings.purge_enabled === '1';
+    document.getElementById('purgeDays').value                   = settings.purge_days || '30';
+    document.getElementById('purgeProtectFeatured').checked      = settings.purge_protect_featured !== '0';
+    document.getElementById('purgeProtectAudio').checked         = settings.purge_protect_audio === '1';
+    document.getElementById('purgeProtectEngaged').checked       = settings.purge_protect_engaged === 'true';
+    document.getElementById('purgeProtectEngagedDays').value     = settings.purge_protect_engaged_days || '7';
+    document.getElementById('purgeGraceHours').value             = settings.purge_grace_hours || '24';
+    toggleEngagedDaysRow();
   }
+
+  function toggleEngagedDaysRow() {
+    const checked = document.getElementById('purgeProtectEngaged').checked;
+    document.getElementById('purgeEngagedDaysRow').style.display = checked ? '' : 'none';
+  }
+  document.getElementById('purgeProtectEngaged').addEventListener('change', toggleEngagedDaysRow);
 
   document.getElementById('savePurgeSettingsBtn').addEventListener('click', async function () {
     const payload = {
-      purge_enabled:          document.getElementById('purgeEnabled').checked ? '1' : '0',
-      purge_days:             String(Math.max(parseInt(document.getElementById('purgeDays').value) || 30, 7)),
-      purge_protect_featured: document.getElementById('purgeProtectFeatured').checked ? '1' : '0',
-      purge_protect_audio:    document.getElementById('purgeProtectAudio').checked    ? '1' : '0',
+      purge_enabled:               document.getElementById('purgeEnabled').checked ? '1' : '0',
+      purge_days:                  String(Math.max(parseInt(document.getElementById('purgeDays').value) || 30, 7)),
+      purge_protect_featured:      document.getElementById('purgeProtectFeatured').checked ? '1' : '0',
+      purge_protect_audio:         document.getElementById('purgeProtectAudio').checked    ? '1' : '0',
+      purge_protect_engaged:       document.getElementById('purgeProtectEngaged').checked  ? 'true' : 'false',
+      purge_protect_engaged_days:  String(Math.max(parseInt(document.getElementById('purgeProtectEngagedDays').value) || 7, 1)),
+      purge_grace_hours:           String(Math.max(parseInt(document.getElementById('purgeGraceHours').value) || 24, 1)),
     };
     try {
       this.disabled = true; this.textContent = 'Saving…';
@@ -163,7 +176,7 @@ let apiKeyVisible = false;
           </p>
           <ul style="list-style:none;padding:0;margin:0 0 10px;">${sampleRows}</ul>
           ${moreCount > 0 ? `<p style="font-size:12px;color:var(--muted);">…and ${moreCount} more</p>` : ''}
-          <p style="font-size:12px;color:var(--muted);margin-top:12px;">Archived articles are soft-deleted and permanently purged after 24 hours.</p>`;
+          <p style="font-size:12px;color:var(--muted);margin-top:12px;">Archived articles are soft-deleted and permanently purged after the configured grace period.</p>`;
         document.getElementById('confirmPurgeNowBtn').style.display = 'inline-flex';
       }
       openModal('purgePreviewModal');

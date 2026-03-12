@@ -4,6 +4,7 @@ const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path      = require('path');
 const db        = require('./db');
+const { toSlug } = require('./lib/utils');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
@@ -212,17 +213,20 @@ cron.schedule('*/10 * * * *', async () => {
   }
 });
 
-// ── Cron: purge archived articles older than 24h ───────────────────
+// ── Cron: purge archived articles past grace period ────────────────
 cron.schedule('0 * * * *', async () => {
   try {
-    const result = await db.prepare(`
-      DELETE FROM articles
-      WHERE is_archived = 1
-        AND archived_at IS NOT NULL
-        AND archived_at <= NOW() - INTERVAL '24 hours'
-    `).run();
-    if (result.changes > 0) {
-      console.log(`[Cron] Purged ${result.changes} archived article(s) older than 24h`);
+    const graceSetting = await db.prepare(`SELECT value FROM settings WHERE key = 'purge_grace_hours'`).get();
+    const graceHours = Math.max(parseInt(graceSetting?.value ?? '24', 10) || 24, 1);
+    const result = await db.getPool().query(
+      `DELETE FROM articles
+       WHERE is_archived = 1
+         AND archived_at IS NOT NULL
+         AND archived_at <= NOW() - ($1 || ' hours')::INTERVAL`,
+      [graceHours]
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Cron] Purged ${result.rowCount} archived article(s) older than ${graceHours}h`);
     }
   } catch (e) {
     console.error('[Cron] Purge error:', e.message);
@@ -239,10 +243,29 @@ cron.schedule('0 2 * * *', async () => {
     const days            = Math.max(parseInt(s.purge_days) || 30, 7);
     const protectFeatured = s.purge_protect_featured !== '0';
     const protectAudio    = s.purge_protect_audio === '1';
+    const protectEngaged  = s.purge_protect_engaged === 'true';
+    const engagedDays     = Math.max(parseInt(s.purge_protect_engaged_days) || 7, 1);
     const cutoff          = new Date(Date.now() - days * 86400000).toISOString();
 
+    // Build set of engaged article slugs (comments OR reactions within the lookback window)
+    let engagedSlugs = new Set();
+    if (protectEngaged) {
+      const engagedCutoff = new Date(Date.now() - engagedDays * 86400000).toISOString();
+      const commentSlugs = await db.prepare(`
+        SELECT DISTINCT article_slug FROM comments
+        WHERE created_at > $1 AND is_deleted = 0
+      `).all(engagedCutoff);
+      const reactionSlugs = await db.prepare(`
+        SELECT DISTINCT c.article_slug FROM comment_reactions r
+        JOIN comments c ON c.id = r.comment_id
+        WHERE r.created_at > $1 AND c.is_deleted = 0
+      `).all(engagedCutoff);
+      for (const row of commentSlugs)  engagedSlugs.add(row.article_slug);
+      for (const row of reactionSlugs) engagedSlugs.add(row.article_slug);
+    }
+
     const candidates = await db.prepare(`
-      SELECT id, is_featured, audio_status, audio_url
+      SELECT id, title, is_featured, audio_status, audio_url
       FROM articles
       WHERE is_archived = 0
         AND (created_at < $1 OR (published_at IS NOT NULL AND published_at < $1))
@@ -252,6 +275,7 @@ cron.schedule('0 2 * * *', async () => {
     for (const row of candidates) {
       if (protectFeatured && row.is_featured) continue;
       if (protectAudio && row.audio_status === 'ready' && row.audio_url) continue;
+      if (protectEngaged && engagedSlugs.has(toSlug(row.title))) continue;
       await db.prepare(`
         UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
           archived_at = NOW(), updated_at = NOW() WHERE id = $1

@@ -225,6 +225,10 @@ async function initDb() {
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_token        TEXT`,
     // Phase 3: track article origin — 'rss' | 'newsapi' | 'brave'
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_type             TEXT DEFAULT 'rss'`,
+    // Lifecycle settings: seed defaults if not already present
+    `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged_days', '7')  ON CONFLICT (key) DO NOTHING`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

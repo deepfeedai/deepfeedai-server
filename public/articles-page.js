@@ -206,7 +206,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
           ` : `
-            <button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>
+            ${!a.image_url ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
             <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
           `}
@@ -246,7 +246,7 @@ let articles = [];
           ${isAI ? '<span style="position:absolute;top:-4px;right:-4px;background:var(--accent);color:#000;font-size:8px;font-weight:700;border-radius:3px;padding:1px 3px;line-height:1.2;">AI</span>' : ''}
         </div>`;
     }
-    return `<button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 6px;" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>`;
+    return `<span style="color:var(--muted);font-size:11px;">—</span>`;
   }
 
   let _imagePreviewUrl = null;
