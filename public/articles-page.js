@@ -173,7 +173,7 @@ let articles = [];
           <span class="td-editable-text">${escHtml(a.title)}</span>
           ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
         </td>
-        <td style="color:var(--muted);font-size:12px;">${escHtml(a.source || '—')}</td>
+        <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
         <td class="td-category">
           ${isArchived
             ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
@@ -193,7 +193,7 @@ let articles = [];
             ${a.is_featured ? '⭐ Yes' : '—'}
           </button>`}
         </td>
-        <td style="color:var(--muted);font-size:12px;"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
+        <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
           ${isArchived ? '—' : renderImageCell(a)}
         </td>
@@ -329,7 +329,7 @@ let articles = [];
     list.innerHTML = '';
 
     if (voices.length === 0) {
-      list.innerHTML = '<p style="color:var(--muted);text-align:center;">No voices configured. <a href="/voices.html">Add one →</a></p>';
+      list.innerHTML = '<div class="empty-state"><div class="empty-icon">🎙️</div><p>No voices configured — <a href="/voices.html">add one to get started</a></p></div>';
     } else {
       voices.forEach(v => {
         const card = document.createElement('div');

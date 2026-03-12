@@ -36,7 +36,7 @@ router.post('/', async (req, res) => {
         body: JSON.stringify({
           email,
           subscribed:      true,
-          unsubscribe_url: 'https://deepfeedai.com/unsubscribe',
+          unsubscribe_url: `${(process.env.MAIN_SITE_URL || 'https://deepfeedai.com').replace(/\/$/, '')}/unsubscribe`,
         }),
       }
     );

@@ -7,7 +7,7 @@ const RSSParser          = require('rss-parser');
 const db                 = require('../db');
 const { scrapeOgImage }  = require('../lib/scrape');
 const { auth }           = require('../middleware/auth');
-const { asyncHandler }   = require('../lib/utils');
+const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 
 const parser = new RSSParser();
@@ -56,7 +56,7 @@ async function fetchAllSources(autoPublish = false) {
         await db.prepare(
           `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
-        ).run(item.title, summary, category, source.name, url, image, author, publish, pubDate);
+        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, publish, pubDate);
         inserted++;
 
         // Track articles without an RSS image for synchronous OG enrichment below
@@ -218,7 +218,7 @@ async function fetchLiveSources(autoPublish = false) {
     await db.prepare(
       `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
-    ).run(item.title, item.summary, category, item.source, item.url, item.image, item.publishedAt, publish, item.sourceType);
+    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, publish, item.sourceType);
     inserted++;
   }
 
@@ -242,6 +242,23 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
     const newCat = detectCategory({ title: a.title, contentSnippet: a.summary });
     if (newCat !== a.category) {
       await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2').run(newCat, a.id);
+      updated++;
+    }
+  }
+  res.json({ status: 'ok', total: articles.length, updated });
+}));
+
+// POST /api/fetch/decode-titles — one-time cleanup of HTML entities in existing titles
+router.post('/decode-titles', auth, asyncHandler(async (req, res) => {
+  const articles = await db.prepare(
+    `SELECT id, title FROM articles WHERE title LIKE '%&#%' OR title LIKE '%&amp;%' OR title LIKE '%&quot;%' OR title LIKE '%&apos;%'`
+  ).all();
+
+  let updated = 0;
+  for (const a of articles) {
+    const decoded = decodeEntities(a.title);
+    if (decoded !== a.title) {
+      await db.prepare('UPDATE articles SET title = $1, updated_at = NOW() WHERE id = $2').run(decoded, a.id);
       updated++;
     }
   }

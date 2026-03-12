@@ -159,8 +159,8 @@ let apiKeyVisible = false;
         preview.innerHTML = `
           <div style="text-align:center;padding:24px 0;">
             <div style="font-size:32px;margin-bottom:8px;">✅</div>
-            <p style="color:var(--muted);">No articles older than <strong>${days} days</strong> to archive.</p>
-            ${data.protectedCount > 0 ? `<p style="color:var(--muted);font-size:12px;margin-top:6px;">${data.protectedCount} article(s) are protected and would be skipped.</p>` : ''}
+            <p class="text-muted">No articles older than <strong>${days} days</strong> to archive.</p>
+            ${data.protectedCount > 0 ? `<p class="form-help">${data.protectedCount} article(s) are protected and would be skipped.</p>` : ''}
           </div>`;
         document.getElementById('confirmPurgeNowBtn').style.display = 'none';
       } else {
@@ -172,7 +172,7 @@ let apiKeyVisible = false;
           <p style="margin-bottom:14px;">
             <strong style="color:var(--danger);font-size:16px;">${data.eligibleCount}</strong>
             article${data.eligibleCount !== 1 ? 's' : ''} older than <strong>${days} days</strong> will be archived.
-            ${data.protectedCount > 0 ? `<span style="color:var(--muted);font-size:12px;"> (${data.protectedCount} protected)</span>` : ''}
+            ${data.protectedCount > 0 ? `<span class="text-muted text-sm"> (${data.protectedCount} protected)</span>` : ''}
           </p>
           <ul style="list-style:none;padding:0;margin:0 0 10px;">${sampleRows}</ul>
           ${moreCount > 0 ? `<p style="font-size:12px;color:var(--muted);">…and ${moreCount} more</p>` : ''}

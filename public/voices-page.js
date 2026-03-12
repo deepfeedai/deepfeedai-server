@@ -32,7 +32,7 @@ let voices = [];
         <td>${avatarHtml}</td>
         <td><strong>${esc(v.name)}</strong></td>
         <td><code style="font-size:11px;color:var(--muted);">${esc(v.voice_id)}</code></td>
-        <td style="color:var(--muted);font-size:13px;">${esc(v.description || '')}</td>
+        <td class="text-muted">${esc(v.description || '')}</td>
         <td style="text-align:center;">${defaultBadge}</td>
         <td>
           <div style="display:flex;gap:6px;">
