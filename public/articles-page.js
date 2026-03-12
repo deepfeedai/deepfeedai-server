@@ -257,24 +257,6 @@ let articles = [];
     openModal('imagePreviewModal');
   }
 
-  async function generateImage(id) {
-    const cell = document.getElementById(`img-cell-${id}`);
-    if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:10px;">⏳</span>';
-    try {
-      const data = await apiFetch('/media/generate-image', {
-        method: 'POST',
-        body: JSON.stringify({ articleId: id })
-      });
-      console.log('[ImageGen] Concept:', data.visualConcept);
-      console.log('[ImageGen] Full prompt:', data.fullPrompt);
-      showAlert('Image generated ✓');
-      await loadArticles();
-    } catch (err) {
-      showAlert('Image generation failed: ' + err.message, 'error');
-      await loadArticles();
-    }
-  }
-
   async function bulkGenerateImages() {
     const ids = [...selectedIds].filter(id => {
       const a = articles.find(x => x.id === id);
