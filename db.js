@@ -221,6 +221,22 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_article_reactions_user ON article_reactions(user_id);
   `);
 
+  // notifications — in-app notification center
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      type       TEXT NOT NULL DEFAULT 'reply',
+      payload    JSONB NOT NULL,
+      read_at    TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+      ON notifications(user_id, read_at) WHERE read_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+      ON notifications(user_id, created_at DESC);
+  `);
+
   // comment_reactions table — one emoji reaction per user per comment
   await p.query(`
     CREATE TABLE IF NOT EXISTS comment_reactions (
