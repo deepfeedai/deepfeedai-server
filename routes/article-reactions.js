@@ -1,0 +1,139 @@
+/**
+ * Deep Feed AI — routes/article-reactions.js
+ * Article-level 👍 / ❤️ reactions for signed-in public users.
+ *
+ * POST /api/article-reactions       { slug, emoji } — toggle (add/swap/remove)
+ * GET  /api/article-reactions?slugs=a,b,c           — batch fetch counts + viewer's reaction
+ */
+
+'use strict';
+
+const express = require('express');
+const jwt     = require('jsonwebtoken');
+const db      = require('../db');
+
+const router = express.Router();
+
+const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
+const ALLOWED_EMOJIS  = new Set(['👍', '❤️']);
+
+/* ── Auth helper ─────────────────────────────────────────────────── */
+
+function getUserId(req) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return null;
+  try {
+    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
+
+/* ── POST /api/article-reactions ─────────────────────────────────── */
+// Toggle logic:
+//   • No existing reaction → INSERT with given emoji
+//   • Same emoji → DELETE (toggle off)
+//   • Different emoji → UPDATE to new emoji (swap)
+// Returns updated counts + viewer's current reaction (null if removed).
+router.post('/', async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { slug, emoji } = req.body;
+  if (!slug || typeof slug !== 'string') return res.status(400).json({ error: 'Missing slug' });
+  if (!emoji || !ALLOWED_EMOJIS.has(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
+  const cleanSlug = slug.trim().slice(0, 200);
+
+  try {
+    const existing = await db.prepare(
+      'SELECT id, emoji FROM article_reactions WHERE user_id = $1 AND article_slug = $2'
+    ).get(userId, cleanSlug);
+
+    if (!existing) {
+      // Add new reaction
+      await db.prepare(
+        'INSERT INTO article_reactions (user_id, article_slug, emoji) VALUES ($1, $2, $3)'
+      ).run(userId, cleanSlug, emoji);
+    } else if (existing.emoji === emoji) {
+      // Same emoji — remove (toggle off)
+      await db.prepare(
+        'DELETE FROM article_reactions WHERE user_id = $1 AND article_slug = $2'
+      ).run(userId, cleanSlug);
+    } else {
+      // Different emoji — swap
+      await db.prepare(
+        'UPDATE article_reactions SET emoji = $1 WHERE user_id = $2 AND article_slug = $3'
+      ).run(emoji, userId, cleanSlug);
+    }
+
+    // Return fresh counts for this slug
+    const counts = await _getCounts([cleanSlug], userId);
+    res.json({ ok: true, ...counts[cleanSlug] });
+  } catch (err) {
+    console.error('[article-reactions/toggle]', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ── GET /api/article-reactions?slugs=a,b,c ─────────────────────── */
+// Batch fetch reaction counts for multiple slugs.
+// Optionally accepts viewer_id query param for unauthenticated callers
+// who want to show their own reaction (pass user id from localStorage).
+// viewer_id is NOT verified — it's display-only, not a security boundary.
+router.get('/', async (req, res) => {
+  const rawSlugs = (req.query.slugs || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (rawSlugs.length === 0) return res.json({ reactions: {} });
+  if (rawSlugs.length > 100) return res.status(400).json({ error: 'Too many slugs (max 100)' });
+
+  // Viewer id: from JWT (if provided) or viewer_id query param
+  let viewerId = getUserId(req);
+  if (!viewerId && req.query.viewer_id) {
+    viewerId = parseInt(req.query.viewer_id, 10) || null;
+  }
+
+  try {
+    const counts = await _getCounts(rawSlugs, viewerId);
+    res.json({ reactions: counts });
+  } catch (err) {
+    console.error('[article-reactions/batch]', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ── Helper: fetch counts for an array of slugs ─────────────────── */
+async function _getCounts(slugs, viewerId) {
+  const ph = slugs.map((_, i) => `$${i + 1}`).join(', ');
+
+  // Aggregate counts per slug per emoji
+  const rows = await db.prepare(`
+    SELECT article_slug, emoji, COUNT(*) AS cnt
+    FROM article_reactions
+    WHERE article_slug IN (${ph})
+    GROUP BY article_slug, emoji
+  `).all(...slugs);
+
+  // Viewer's own reactions
+  let myMap = {};
+  if (viewerId) {
+    const myRows = await db.prepare(`
+      SELECT article_slug, emoji FROM article_reactions
+      WHERE article_slug IN (${ph}) AND user_id = $${slugs.length + 1}
+    `).all(...slugs, viewerId);
+    for (const r of myRows) myMap[r.article_slug] = r.emoji;
+  }
+
+  // Build result map
+  const result = {};
+  for (const slug of slugs) {
+    result[slug] = { '👍': 0, '❤️': 0, myReaction: myMap[slug] || null };
+  }
+  for (const r of rows) {
+    if (result[r.article_slug]) {
+      result[r.article_slug][r.emoji] = parseInt(r.cnt, 10);
+    }
+  }
+  return result;
+}
+
+module.exports = router;

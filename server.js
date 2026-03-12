@@ -123,8 +123,9 @@ app.use('/api/subscribe',  require('./routes/subscribe'));   // public — newsl
 app.use('/api/contact',    require('./routes/contact'));     // public — contact form
 app.use('/api/thumbnail',  require('./routes/thumbnail'));   // public — AI thumbnail generation
 app.use('/api/trends',     require('./routes/trends'));      // public — trending analysis
-app.use('/api/newsletter', require('./routes/newsletter')); // admin — newsletter send
-app.use('/api/favorites',  require('./routes/favorites'));  // user — article bookmarks
+app.use('/api/newsletter',        require('./routes/newsletter'));        // admin — newsletter send
+app.use('/api/favorites',         require('./routes/favorites'));         // user — article bookmarks
+app.use('/api/article-reactions', require('./routes/article-reactions')); // user — article 👍❤️ reactions
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
