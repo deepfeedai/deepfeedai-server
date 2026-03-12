@@ -195,6 +195,18 @@ async function initDb() {
     );
   `);
 
+  // article_favorites — user bookmarks (one row per user+slug)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS article_favorites (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      article_slug TEXT NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, article_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_favorites_user ON article_favorites(user_id);
+  `);
+
   // comment_reactions table — one emoji reaction per user per comment
   await p.query(`
     CREATE TABLE IF NOT EXISTS comment_reactions (
