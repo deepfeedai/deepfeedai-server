@@ -195,6 +195,48 @@ async function initDb() {
     );
   `);
 
+  // article_favorites — user bookmarks (one row per user+slug)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS article_favorites (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      article_slug TEXT NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, article_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_favorites_user ON article_favorites(user_id);
+  `);
+
+  // article_reactions — 👍/❤️ reactions on articles (one per user per article)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS article_reactions (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      article_slug TEXT NOT NULL,
+      emoji        TEXT NOT NULL CHECK (emoji IN ('👍', '❤️')),
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, article_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_reactions_slug ON article_reactions(article_slug);
+    CREATE INDEX IF NOT EXISTS idx_article_reactions_user ON article_reactions(user_id);
+  `);
+
+  // notifications — in-app notification center
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      type       TEXT NOT NULL DEFAULT 'reply',
+      payload    JSONB NOT NULL,
+      read_at    TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+      ON notifications(user_id, read_at) WHERE read_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+      ON notifications(user_id, created_at DESC);
+  `);
+
   // comment_reactions table — one emoji reaction per user per comment
   await p.query(`
     CREATE TABLE IF NOT EXISTS comment_reactions (

@@ -381,4 +381,83 @@ router.get('/unsubscribe', async (req, res) => {
     </div></body></html>`);
 });
 
+/* ── GET /api/user-auth/activity ─────────────────────────────────── */
+// Returns the current user's comment history, paginated.
+// Each comment includes article title + slug (joined via news route slug logic).
+router.get('/activity', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
+
+  try {
+    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const userId  = payload.sub;
+
+    const page  = Math.max(1, parseInt(req.query.page  || '1',  10));
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
+    const offset = (page - 1) * limit;
+
+    const user = await db.prepare(
+      'SELECT id, display_name, avatar_url, email, provider, created_at FROM public_users WHERE id = $1'
+    ).get(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Two-step: fetch comments, then match article titles by slug
+    const commentRows = await db.prepare(`
+      SELECT c.id, c.body, c.article_slug, c.parent_id, c.created_at, c.updated_at
+      FROM comments c
+      WHERE c.user_id = $1 AND c.is_deleted = 0 AND c.is_approved = 1
+      ORDER BY c.created_at DESC
+      LIMIT $2 OFFSET $3
+    `).all(userId, limit, offset);
+
+    // Fetch total count
+    const countRow = await db.prepare(`
+      SELECT COUNT(*) AS cnt FROM comments
+      WHERE user_id = $1 AND is_deleted = 0 AND is_approved = 1
+    `).get(userId);
+    const total = parseInt(countRow?.cnt ?? 0, 10);
+
+    // Fetch all articles to match slugs → titles (mirrors /api/article approach)
+    let articleTitleMap = {};
+    if (commentRows.length > 0) {
+      const allArticles = await db.prepare(
+        'SELECT title FROM articles WHERE is_published = 1'
+      ).all();
+      const { toSlug } = require('../lib/utils');
+      for (const a of allArticles) {
+        articleTitleMap[toSlug(a.title)] = a.title;
+      }
+    }
+
+    const result = commentRows.map(c => ({
+      id:           c.id,
+      body:         c.body,
+      articleSlug:  c.article_slug,
+      articleTitle: articleTitleMap[c.article_slug] || null,
+      parentId:     c.parent_id,
+      createdAt:    c.created_at,
+      updatedAt:    c.updated_at,
+    }));
+
+    res.json({
+      user: {
+        id:          user.id,
+        displayName: user.display_name,
+        avatarUrl:   user.avatar_url,
+        email:       user.email,
+        provider:    user.provider,
+        memberSince: user.created_at,
+      },
+      comments:     result,
+      commentCount: total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error('[user-auth/activity]', err.message);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 module.exports = router;
