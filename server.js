@@ -13,7 +13,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc:     ["'self'"],
-      scriptSrc:      ["'self'", "'unsafe-inline'"], // inline onclick handlers in admin panel
+      scriptSrc:      ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr:  ["'unsafe-inline'"], // allow inline onclick handlers in admin panel
       styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
       imgSrc:         ["'self'", 'data:', 'https:'],
