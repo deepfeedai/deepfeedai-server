@@ -195,6 +195,20 @@ async function initDb() {
     );
   `);
 
+  // article_reactions — 👍/❤️ reactions on articles (one per user per article)
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS article_reactions (
+      id           SERIAL PRIMARY KEY,
+      user_id      INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      article_slug TEXT NOT NULL,
+      emoji        TEXT NOT NULL CHECK (emoji IN ('👍', '❤️')),
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, article_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_article_reactions_slug ON article_reactions(article_slug);
+    CREATE INDEX IF NOT EXISTS idx_article_reactions_user ON article_reactions(user_id);
+  `);
+
   // comment_reactions table — one emoji reaction per user per comment
   await p.query(`
     CREATE TABLE IF NOT EXISTS comment_reactions (

@@ -55,7 +55,7 @@ const publicApiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/contact', '/api/thumbnail', '/api/trends'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/article-reactions'];
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -123,7 +123,8 @@ app.use('/api/subscribe',  require('./routes/subscribe'));   // public — newsl
 app.use('/api/contact',    require('./routes/contact'));     // public — contact form
 app.use('/api/thumbnail',  require('./routes/thumbnail'));   // public — AI thumbnail generation
 app.use('/api/trends',     require('./routes/trends'));      // public — trending analysis
-app.use('/api/newsletter', require('./routes/newsletter')); // admin — newsletter send
+app.use('/api/newsletter',       require('./routes/newsletter'));       // admin — newsletter send
+app.use('/api/article-reactions', require('./routes/article-reactions')); // user — article 👍❤️ reactions
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
