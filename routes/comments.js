@@ -39,6 +39,7 @@ const { auth: requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
 const { checkSpam }            = require('../lib/spam');
 const { sendReplyNotification } = require('../lib/notify');
+const { createReplyNotification } = require('./notifications');
 const { decryptSetting }       = require('../lib/crypto');
 
 const router = express.Router();
@@ -298,22 +299,6 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
         // Don't notify if replying to yourself
         if (parent.user_id === replierId) return;
 
-        // Don't notify if user has no email
-        if (!parent.email) { console.warn('[Notify] Parent user has no email, skipping'); return; }
-
-        // notify_replies defaults to 1 — treat NULL as opted-in (migration may not have run yet)
-        if (parent.notify_replies === 0) { console.warn('[Notify] User opted out'); return; }
-
-        // If notify_token is missing (migration not yet applied), generate one on the fly
-        let unsubToken = parent.notify_token;
-        if (!unsubToken) {
-          const crypto = require('crypto');
-          unsubToken = crypto.randomBytes(24).toString('hex');
-          await db.prepare(
-            'UPDATE public_users SET notify_token = $1 WHERE id = $2'
-          ).run(unsubToken, parent.user_id);
-        }
-
         // Fetch replier's display name fresh from DB
         const replierRow = await db.prepare(
           'SELECT display_name FROM public_users WHERE id = $1'
@@ -325,6 +310,31 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
         const article  = await db.prepare(
           `SELECT title FROM articles WHERE LOWER(title) LIKE $1 AND is_published = 1 LIMIT 1`
         ).get(`%${slugWord}%`);
+
+        // In-app notification — always created (regardless of email opt-out)
+        await createReplyNotification(parent.user_id, {
+          commentId:    parent.id,
+          articleSlug:  slug,
+          articleTitle: article?.title || slug,
+          replyBody:    clean.slice(0, 200),
+          replyerName:  replierName,
+        });
+
+        // Email notification — only if user has email and is opted in
+        if (!parent.email) { console.warn('[Notify] Parent user has no email, skipping email'); return; }
+
+        // notify_replies defaults to 1 — treat NULL as opted-in (migration may not have run yet)
+        if (parent.notify_replies === 0) { console.warn('[Notify] User opted out of email'); return; }
+
+        // If notify_token is missing (migration not yet applied), generate one on the fly
+        let unsubToken = parent.notify_token;
+        if (!unsubToken) {
+          const crypto = require('crypto');
+          unsubToken = crypto.randomBytes(24).toString('hex');
+          await db.prepare(
+            'UPDATE public_users SET notify_token = $1 WHERE id = $2'
+          ).run(unsubToken, parent.user_id);
+        }
 
         console.log(`[Notify] Sending reply notification to ${parent.email} (parent comment #${parent.id})`);
 
