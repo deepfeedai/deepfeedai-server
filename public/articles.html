@@ -51,7 +51,16 @@
           <label id="showArchivedWrap" class="text-sm text-muted" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" id="showArchived" /> Show archived
           </label>
-          <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="dropdown" id="exportDropdown" style="position:relative;">
+              <button class="btn btn-outline btn-sm" id="exportBtn" title="Export articles">⬇ Export</button>
+              <div id="exportMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px;z-index:100;min-width:130px;box-shadow:0 4px 16px rgba(0,0,0,.3);">
+                <a class="export-option" data-format="json" href="#" style="display:block;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-radius:6px;">📄 JSON</a>
+                <a class="export-option" data-format="csv"  href="#" style="display:block;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-radius:6px;">📊 CSV</a>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="addArticleBtn">＋ Add Article</button>
+          </div>
         </div>
       </div>
 

@@ -740,6 +740,47 @@ let articles = [];
 
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
+
+    // ── Export dropdown ──────────────────────────────────────────────────────
+    const exportBtn  = document.getElementById('exportBtn');
+    const exportMenu = document.getElementById('exportMenu');
+
+    exportBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { if (exportMenu) exportMenu.style.display = 'none'; });
+
+    document.querySelectorAll('.export-option').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        exportMenu.style.display = 'none';
+        const format = link.dataset.format;
+        const token  = localStorage.getItem('deepfeedai_token');
+        // Build URL — apply active category filter if set
+        const cat = document.getElementById('fCategory')?.value || '';
+        const params = new URLSearchParams({ format });
+        if (cat && cat !== 'all') params.set('category', cat);
+        // Trigger download via hidden anchor with Authorization header workaround:
+        // fetch → blob → object URL
+        const url = `/api/articles/export?${params.toString()}`;
+        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => {
+            if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Export failed'); });
+            return r.blob();
+          })
+          .then(blob => {
+            const ts = new Date().toISOString().slice(0, 10);
+            const filename = `articles-${ts}.${format}`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          })
+          .catch(err => showAlert('Export failed: ' + err.message, 'error'));
+      });
+    });
     document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
     document.getElementById('confirmPurgeBtn').addEventListener('click', confirmPurge);
