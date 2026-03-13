@@ -341,4 +341,21 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
 
 
 
+// PUT /api/articles/:id/assign-writer
+router.put('/:id/assign-writer', auth, asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT id FROM articles WHERE id = $1').get(req.params.id);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { writerId } = req.body;
+  if (writerId !== null && writerId !== undefined) {
+    const writer = await db.prepare('SELECT id FROM voices WHERE id = $1').get(writerId);
+    if (!writer) return res.status(400).json({ error: 'Writer not found' });
+  }
+
+  const updated = await db.prepare(
+    'UPDATE articles SET writer_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *'
+  ).get(writerId ?? null, req.params.id);
+  res.json(updated);
+}));
+
 module.exports = router;
