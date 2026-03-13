@@ -55,7 +55,7 @@ const publicApiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers'];
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
@@ -115,6 +115,7 @@ app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scrape
 app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // public — AI TLDR (rate limited)
 app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
+app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     require('./routes/settings'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
