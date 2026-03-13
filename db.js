@@ -360,6 +360,11 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS full_content TEXT`,
+    // Editorial scoring for quality gate
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_score INTEGER`,
+    // Quality gate settings
+    `INSERT INTO settings (key, value) VALUES ('daily_publish_target', '20') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_editorial_scoring', '1') ON CONFLICT (key) DO NOTHING`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
