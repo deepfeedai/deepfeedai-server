@@ -56,4 +56,21 @@ router.get('/preview/:writerId', asyncHandler(async (req, res) => {
   });
 }));
 
+// DELETE /api/synthesis/purge — delete all original synthesis articles (testing/reset)
+// ?category=<name> — optional: purge only originals in a specific category
+router.delete('/purge', asyncHandler(async (req, res) => {
+  const { category } = req.query;
+  let deleted;
+  if (category) {
+    deleted = await db.prepare(
+      `DELETE FROM articles WHERE content_type = 'original' AND category = $1 RETURNING id`
+    ).all(category);
+  } else {
+    deleted = await db.prepare(
+      `DELETE FROM articles WHERE content_type = 'original' RETURNING id`
+    ).all();
+  }
+  res.json({ deleted: deleted.length });
+}));
+
 module.exports = router;

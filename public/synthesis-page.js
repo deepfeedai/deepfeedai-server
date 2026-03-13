@@ -53,7 +53,26 @@ onReady(async () => {
     }
   });
 
-  const forceCheck = document.getElementById('forceCheck');
+  const forceCheck  = document.getElementById('forceCheck');
+  const purgeBtn    = document.getElementById('purgeBtn');
+
+  // Purge all original articles
+  if (purgeBtn) {
+    purgeBtn.addEventListener('click', async () => {
+      if (!confirm('Delete ALL original AI-generated articles? This cannot be undone.')) return;
+      purgeBtn.disabled = true;
+      purgeBtn.textContent = 'Purging...';
+      try {
+        const data = await apiFetch('/synthesis/purge', { method: 'DELETE' });
+        showToast(`Purged ${data.deleted} original article${data.deleted !== 1 ? 's' : ''}`, 'success');
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        purgeBtn.disabled = false;
+        purgeBtn.textContent = 'Purge Originals';
+      }
+    });
+  }
 
   // Run single writer
   runBtn.addEventListener('click', async () => {
