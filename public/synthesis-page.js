@@ -35,7 +35,7 @@ onReady(async () => {
       const data = await apiFetch(`/synthesis/preview/${writerId}`);
       clusterLabel.textContent = data.writer.name + (data.writer.beat ? ` — ${data.writer.beat}` : '');
       if (!data.clusters.length) {
-        clusterTbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center" style="padding:24px;">No clusters found (need 3+ articles sharing 2+ title words)</td></tr>';
+        clusterTbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center" style="padding:24px;">No clusters found — ${data.articleCount || 0} articles in lookback window, none grouped into 3+ matching articles. Try fetching more articles or lowering min_cluster_size on the writer.</td></tr>`;
       } else {
         clusterTbody.innerHTML = data.clusters.map((c, i) => `
           <tr>
