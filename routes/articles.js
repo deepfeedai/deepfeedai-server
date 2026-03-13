@@ -23,6 +23,78 @@ router.get('/', auth, asyncHandler(async (req, res) => {
   res.json(result.rows.map(serializeRow));
 }));
 
+// ── GET /api/articles/export — must be BEFORE /:id to avoid "export" being parsed as an integer
+// Optional query params:
+//   format=csv|json (default: json)
+//   category=<name>  filter by category
+//   since=<ISO date> filter by published_at >= date
+router.get('/export', auth, asyncHandler(async (req, res) => {
+  const format   = (req.query.format || 'json').toLowerCase();
+  const category = req.query.category || null;
+  const since    = req.query.since    || null;
+
+  if (!['csv', 'json'].includes(format)) {
+    return res.status(400).json({ error: 'format must be csv or json' });
+  }
+
+  const conditions = [
+    `is_published = 1`,
+    `(is_archived = 0 OR is_archived IS NULL)`,
+  ];
+  const params = [];
+
+  if (category) {
+    params.push(category);
+    conditions.push(`category = $${params.length}`);
+  }
+  if (since) {
+    const sinceDate = new Date(since);
+    if (isNaN(sinceDate)) return res.status(400).json({ error: 'invalid since date' });
+    params.push(sinceDate.toISOString());
+    conditions.push(`published_at >= $${params.length}`);
+  }
+
+  const sql = `
+    SELECT id, title, summary, category, source, source_url, image_url, author,
+           is_featured, featured_priority, published_at, created_at, audio_url, media_enabled
+    FROM articles
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY published_at DESC
+  `;
+
+  const result = await getPool().query(sql, params);
+  const rows   = result.rows.map(serializeRow);
+  const ts     = new Date().toISOString().slice(0, 10);
+
+  if (format === 'json') {
+    res.setHeader('Content-Disposition', `attachment; filename="articles-${ts}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    return res.json({ exported_at: new Date().toISOString(), count: rows.length, articles: rows });
+  }
+
+  // CSV
+  const COLS = ['id','title','summary','category','source','source_url','image_url',
+                'author','is_featured','featured_priority','published_at','created_at',
+                'audio_url','media_enabled'];
+
+  function csvCell(val) {
+    if (val === null || val === undefined) return '';
+    const s = String(val);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
+  const header = COLS.join(',');
+  const lines  = rows.map(r => COLS.map(c => csvCell(r[c])).join(','));
+  const csv    = [header, ...lines].join('\r\n');
+
+  res.setHeader('Content-Disposition', `attachment; filename="articles-${ts}.csv"`);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  return res.send(csv);
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
@@ -268,77 +340,6 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
   });
 }));
 
-// ── GET /api/articles/export?format=csv|json ──────────────────────────────────
-// Auth required. Exports all published, non-archived articles.
-// Optional query params:
-//   format=csv|json (default: json)
-//   category=<name>  filter by category
-//   since=<ISO date> filter by published_at >= date
-router.get('/export', auth, asyncHandler(async (req, res) => {
-  const format   = (req.query.format || 'json').toLowerCase();
-  const category = req.query.category || null;
-  const since    = req.query.since    || null;
 
-  if (!['csv', 'json'].includes(format)) {
-    return res.status(400).json({ error: 'format must be csv or json' });
-  }
-
-  const conditions = [
-    `is_published = 1`,
-    `(is_archived = 0 OR is_archived IS NULL)`,
-  ];
-  const params = [];
-
-  if (category) {
-    params.push(category);
-    conditions.push(`category = $${params.length}`);
-  }
-  if (since) {
-    const sinceDate = new Date(since);
-    if (isNaN(sinceDate)) return res.status(400).json({ error: 'invalid since date' });
-    params.push(sinceDate.toISOString());
-    conditions.push(`published_at >= $${params.length}`);
-  }
-
-  const sql = `
-    SELECT id, title, summary, category, source, source_url, image_url, author,
-           is_featured, featured_priority, published_at, created_at, audio_url, media_enabled
-    FROM articles
-    WHERE ${conditions.join(' AND ')}
-    ORDER BY published_at DESC
-  `;
-
-  const result = await getPool().query(sql, params);
-  const rows   = result.rows.map(serializeRow);
-  const ts     = new Date().toISOString().slice(0, 10);
-
-  if (format === 'json') {
-    res.setHeader('Content-Disposition', `attachment; filename="articles-${ts}.json"`);
-    res.setHeader('Content-Type', 'application/json');
-    return res.json({ exported_at: new Date().toISOString(), count: rows.length, articles: rows });
-  }
-
-  // CSV
-  const COLS = ['id','title','summary','category','source','source_url','image_url',
-                'author','is_featured','featured_priority','published_at','created_at',
-                'audio_url','media_enabled'];
-
-  function csvCell(val) {
-    if (val === null || val === undefined) return '';
-    const s = String(val);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return '"' + s.replace(/"/g, '""') + '"';
-    }
-    return s;
-  }
-
-  const header = COLS.join(',');
-  const lines  = rows.map(r => COLS.map(c => csvCell(r[c])).join(','));
-  const csv    = [header, ...lines].join('\r\n');
-
-  res.setHeader('Content-Disposition', `attachment; filename="articles-${ts}.csv"`);
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  return res.send(csv);
-}));
 
 module.exports = router;
