@@ -124,4 +124,63 @@ router.get('/', asyncHandler(async (req, res) => {
   return res.json({ summary: structured });
 }));
 
+/**
+ * Pre-warm the summary cache for a given title + description.
+ * Used by synthesis pipeline to ensure the first page visitor never waits.
+ * Returns the structured summary or null on failure.
+ */
+async function prewarmSummary(title, description) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || !title) return null;
+
+    const key = cacheKey(title);
+    const existing = await getCached(key);
+    if (existing) return existing; // already cached
+
+    const site = await getSiteConfig();
+    const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+
+    const prompt = [
+      persona,
+      'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
+      '{',
+      '  "overview": "2 clear sentences summarizing what happened and who is involved.",',
+      '  "keyPoints": ["specific fact or detail", "specific number, date, or technical detail", "notable reaction, implication, or next step"],',
+      '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
+      '}',
+      'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
+      '',
+      `Title: ${title}`,
+      description ? `Context: ${description.slice(0, 800)}` : '',
+    ].filter(Boolean).join('\n');
+
+    const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+      }),
+    });
+    if (!upstream.ok) return null;
+
+    const data = await upstream.json();
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!raw) return null;
+
+    let structured;
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+      structured = JSON.parse(cleaned);
+    } catch {
+      structured = { overview: raw, keyPoints: [], whyItMatters: '' };
+    }
+
+    await setCached(key, structured);
+    return structured;
+  } catch { return null; }
+}
+
 module.exports = router;
+module.exports.prewarmSummary = prewarmSummary;

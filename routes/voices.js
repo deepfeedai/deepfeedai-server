@@ -109,6 +109,9 @@ router.post('/', auth, asyncHandler(async (req, res) => {
           bio, beat, keywords, system_prompt, is_auto, slug,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size } = body;
 
+  const { toSlug } = require('../lib/utils');
+  const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+
   if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
   const voice = await db.prepare(`
     INSERT INTO voices (name, voice_id, description, is_default,
@@ -119,7 +122,7 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   `).get(
     name, voice_id, description || '', is_default ? 1 : 0,
     bio || null, beat || null, keywords.length ? keywords : null,
-    system_prompt || null, is_auto || false, slug || null,
+    system_prompt || null, is_auto || false, resolvedSlug,
     synthesis_schedule, synthesis_lookback_hours, min_cluster_size
   );
   res.json(voice);
@@ -152,7 +155,7 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
     keywords !== undefined ? (keywords.length ? keywords : null) : existing.keywords,
     system_prompt !== undefined ? (system_prompt || null) : existing.system_prompt,
     is_auto !== undefined ? (is_auto || false) : existing.is_auto,
-    slug !== undefined ? (slug || null) : existing.slug,
+    slug !== undefined ? (slug || null) : (existing.slug || require('../lib/utils').toSlug(name || existing.name)),
     synthesis_schedule !== undefined ? synthesis_schedule : existing.synthesis_schedule,
     synthesis_lookback_hours !== undefined ? synthesis_lookback_hours : existing.synthesis_lookback_hours,
     min_cluster_size !== undefined ? min_cluster_size : existing.min_cluster_size,

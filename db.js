@@ -326,6 +326,7 @@ async function initDb() {
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_lookback_hours INTEGER DEFAULT 168`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 3`,
     // Writer persona columns on articles
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS slug TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS writer_id INTEGER REFERENCES voices(id) ON DELETE SET NULL`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
@@ -334,6 +335,15 @@ async function initDb() {
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
   }
+
+  // Backfill slugs for any voices missing one
+  try {
+    const noSlug = await prepare('SELECT id, name FROM voices WHERE slug IS NULL OR slug = \'\'').all();
+    for (const v of noSlug) {
+      const slug = v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      try { await prepare('UPDATE voices SET slug = $1 WHERE id = $2').run(slug, v.id); } catch { /* slug conflict, skip */ }
+    }
+  } catch { /* non-fatal */ }
 
   // Seed admin user
   const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');

@@ -803,6 +803,31 @@ let articles = [];
           .catch(err => showAlert('Export failed: ' + err.message, 'error'));
       });
     });
+    // Purge dropdown
+    const purgeArticlesBtn = document.getElementById('purgeArticlesBtn');
+    const purgeMenu        = document.getElementById('purgeMenu');
+    purgeArticlesBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      purgeMenu.style.display = purgeMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { if (purgeMenu) purgeMenu.style.display = 'none'; });
+    document.querySelectorAll('.purge-option').forEach(link => {
+      link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        purgeMenu.style.display = 'none';
+        const type = link.dataset.type;
+        const label = type === 'all' ? 'ALL articles' : `all ${type} articles`;
+        if (!confirm(`⚠️ Permanently delete ${label}? This cannot be undone.`)) return;
+        try {
+          const data = await apiFetch(`/articles/purge-all?type=${type}`, { method: 'DELETE' });
+          showAlert(`Deleted ${data.deleted} ${type} article${data.deleted !== 1 ? 's' : ''}`, 'success');
+          await loadArticles();
+        } catch (err) {
+          showAlert('Purge failed: ' + err.message, 'error');
+        }
+      });
+    });
+
     document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
     document.getElementById('confirmPurgeBtn').addEventListener('click', confirmPurge);
