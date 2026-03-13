@@ -9,6 +9,7 @@ const { scrapeOgImage }  = require('../lib/scrape');
 const { auth }           = require('../middleware/auth');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
+const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
 
 const parser = new RSSParser();
 
@@ -58,6 +59,24 @@ async function fetchAllSources(autoPublish = false) {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
         ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, publish, pubDate);
         inserted++;
+
+        // Fire-and-forget writer auto-assignment
+        try {
+          const inserted_row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
+          if (inserted_row) {
+            const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary, category, source: source.name };
+            (async () => {
+              try {
+                const writer = await findBestWriter(artObj);
+                if (writer) {
+                  await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, artObj.id);
+                  const tldr = await generateWriterTldr(artObj, writer);
+                  if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
+                }
+              } catch (e) { console.error('[fetch] auto-assign error:', e.message); }
+            })();
+          }
+        } catch { /* ignore */ }
 
         // Track articles without an RSS image for synchronous OG enrichment below
         if (!image) {
@@ -220,6 +239,24 @@ async function fetchLiveSources(autoPublish = false) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
     ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, publish, item.sourceType);
     inserted++;
+
+    // Fire-and-forget writer auto-assignment
+    try {
+      const inserted_row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(item.url);
+      if (inserted_row) {
+        const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary: item.summary, category, source: item.source };
+        (async () => {
+          try {
+            const writer = await findBestWriter(artObj);
+            if (writer) {
+              await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, artObj.id);
+              const tldr = await generateWriterTldr(artObj, writer);
+              if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
+            }
+          } catch (e) { console.error('[fetch] auto-assign error:', e.message); }
+        })();
+      }
+    } catch { /* ignore */ }
   }
 
   return { inserted, skipped, errors };
