@@ -53,15 +53,18 @@ onReady(async () => {
     }
   });
 
+  const forceCheck = document.getElementById('forceCheck');
+
   // Run single writer
   runBtn.addEventListener('click', async () => {
     const writerId = writerSelect.value;
     if (!writerId) return showToast('Select a writer first', 'error');
+    const force = forceCheck && forceCheck.checked;
     runBtn.disabled = true;
     runBtn.textContent = 'Running...';
     try {
-      const data = await apiFetch(`/synthesis/run/${writerId}`, { method: 'POST' });
-      showResult([data]);
+      const data = await apiFetch(`/synthesis/run/${writerId}${force ? '?force=true' : ''}`, { method: 'POST' });
+      showResult([{ ...data, name: writerSelect.options[writerSelect.selectedIndex]?.text }]);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -72,10 +75,11 @@ onReady(async () => {
 
   // Run all writers
   runAllBtn.addEventListener('click', async () => {
+    const force = forceCheck && forceCheck.checked;
     runAllBtn.disabled = true;
     runAllBtn.textContent = 'Running All...';
     try {
-      const data = await apiFetch('/synthesis/run-all', { method: 'POST' });
+      const data = await apiFetch(`/synthesis/run-all${force ? '?force=true' : ''}`, { method: 'POST' });
       showResult(data);
     } catch (err) {
       showToast(err.message, 'error');
@@ -95,6 +99,7 @@ onReady(async () => {
       <div class="result-item">
         <strong>${esc(r.name || 'Writer')}</strong>:
         ${r.generated} generated from ${r.clusters} cluster(s)
+        ${r.skippedDedup ? `<span class="text-muted"> · ${r.skippedDedup} skipped (duplicate)</span>` : ''}
         ${r.skipped ? `<span class="text-muted"> — ${esc(r.skipped)}</span>` : ''}
         ${r.errors && r.errors.length ? `<details style="margin-top:6px;font-size:12px;color:#f87171"><summary>Errors (${r.errors.length})</summary><ul>${r.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}
       </div>`).join('');

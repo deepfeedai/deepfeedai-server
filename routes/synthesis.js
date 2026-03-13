@@ -9,17 +9,21 @@ const { asyncHandler } = require('../lib/utils');
 const { clusterArticles, runSynthesisForWriter } = require('../lib/synthesis');
 
 // POST /api/synthesis/run/:writerId — run synthesis for a single writer
+// ?force=true bypasses cooldown and dedup checks
 router.post('/run/:writerId', asyncHandler(async (req, res) => {
-  const result = await runSynthesisForWriter(req.params.writerId);
+  const force = req.query.force === 'true';
+  const result = await runSynthesisForWriter(req.params.writerId, { force });
   res.json(result);
 }));
 
 // POST /api/synthesis/run-all — run synthesis for all auto writers
+// ?force=true bypasses cooldown and dedup checks
 router.post('/run-all', asyncHandler(async (req, res) => {
+  const force = req.query.force === 'true';
   const writers = await db.prepare('SELECT * FROM voices WHERE is_auto = true').all();
   const results = [];
   for (const writer of writers) {
-    const result = await runSynthesisForWriter(writer.id);
+    const result = await runSynthesisForWriter(writer.id, { force });
     results.push({ writerId: writer.id, name: writer.name, ...result });
   }
   res.json(results);
