@@ -88,18 +88,18 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
     `),
 
     // Top 10 articles by views (all time)
+    // Note: articles table has no slug column — slug is computed from title in JS.
+    // We store the slug in analytics_events at event time, so use it directly.
     pool.query(`
       SELECT
         ae.article_slug                                           AS slug,
         ae.category,
         COUNT(*) FILTER (WHERE ae.event_type = 'view')           AS views,
         COUNT(*) FILTER (WHERE ae.event_type = 'audio_play')     AS audio_plays,
-        COUNT(*) FILTER (WHERE ae.event_type = 'share')          AS shares,
-        a.title
+        COUNT(*) FILTER (WHERE ae.event_type = 'share')          AS shares
       FROM analytics_events ae
-      LEFT JOIN articles a ON a.slug = ae.article_slug
       WHERE ae.article_slug IS NOT NULL
-      GROUP BY ae.article_slug, ae.category, a.title
+      GROUP BY ae.article_slug, ae.category
       ORDER BY views DESC
       LIMIT 10
     `),
@@ -138,7 +138,7 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
     by_day:       byDay.rows.map(r => ({ day: r.day, views: parseInt(r.views) })),
     top_articles: topArticles.rows.map(r => ({
       slug:        r.slug,
-      title:       r.title || r.slug,
+      title:       r.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
       category:    r.category || 'Unknown',
       views:       parseInt(r.views)       || 0,
       audio_plays: parseInt(r.audio_plays) || 0,
