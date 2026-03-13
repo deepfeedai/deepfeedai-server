@@ -34,7 +34,7 @@ router.get('/preview/:writerId', asyncHandler(async (req, res) => {
   const lookbackHours = writer.synthesis_lookback_hours || 168; // default 7 days
   const minSize = writer.min_cluster_size || 3;
 
-  // Fetch articles — try beat filter first, fall back to all if empty
+  // Fetch articles — LIKE beat filter if beat is set, otherwise all recent
   let articles = [];
   if (writer.beat) {
     articles = await db.prepare(`
@@ -43,20 +43,15 @@ router.get('/preview/:writerId', asyncHandler(async (req, res) => {
         AND is_archived = 0
         AND created_at > NOW() - ($1 || ' hours')::INTERVAL
         AND LOWER(category) LIKE LOWER($2)
-      ORDER BY created_at DESC
-      LIMIT 200
+      ORDER BY created_at DESC LIMIT 200
     `).all(lookbackHours, `%${writer.beat}%`);
-  }
-
-  // Fallback: no beat or no articles matched — fetch all recent
-  if (!articles.length) {
+  } else {
     articles = await db.prepare(`
       SELECT id, title, summary, category, source, source_url FROM articles
       WHERE (content_type IS NULL OR content_type != 'original')
         AND is_archived = 0
         AND created_at > NOW() - ($1 || ' hours')::INTERVAL
-      ORDER BY created_at DESC
-      LIMIT 200
+      ORDER BY created_at DESC LIMIT 200
     `).all(lookbackHours);
   }
 

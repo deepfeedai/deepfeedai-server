@@ -96,6 +96,7 @@ onReady(async () => {
         <strong>${esc(r.name || 'Writer')}</strong>:
         ${r.generated} generated from ${r.clusters} cluster(s)
         ${r.skipped ? `<span class="text-muted"> — ${esc(r.skipped)}</span>` : ''}
+        ${r.errors && r.errors.length ? `<details style="margin-top:6px;font-size:12px;color:#f87171"><summary>Errors (${r.errors.length})</summary><ul>${r.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></details>` : ''}
       </div>`).join('');
   }
 
