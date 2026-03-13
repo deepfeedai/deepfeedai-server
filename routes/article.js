@@ -49,6 +49,10 @@ router.get('/', asyncHandler(async (req, res) => {
     writer_slug:            match.writer_slug            || null,
     writer_avatar_url:      match.writer_avatar_url      || null,
     writer_beat:            match.writer_beat            || null,
+    content_type:           match.content_type           || 'curated',
+    full_content:           match.full_content           || null,
+    source_article_ids:     match.source_article_ids     || null,
+    slug:                   match.slug                   || null,
   });
 }));
 
