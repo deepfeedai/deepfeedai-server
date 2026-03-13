@@ -56,7 +56,7 @@ async function fetchEngagement(slugs) {
 
 // GET /api/news
 router.get('/', asyncHandler(async (req, res) => {
-  const { category, limit: lim, featured } = req.query;
+  const { category, limit: lim, featured, writer } = req.query;
   let query = `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
                       v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
                FROM articles a
@@ -71,6 +71,10 @@ router.get('/', asyncHandler(async (req, res) => {
   if (featured !== undefined) {
     params.push(parseInt(featured));
     query += ` AND a.is_featured = $${params.length}`;
+  }
+  if (writer) {
+    params.push(writer);
+    query += ` AND v.slug = $${params.length}`;
   }
 
   query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';
