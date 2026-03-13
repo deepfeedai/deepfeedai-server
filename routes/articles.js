@@ -28,6 +28,22 @@ router.get('/', auth, asyncHandler(async (req, res) => {
 //   format=csv|json (default: json)
 //   category=<name>  filter by category
 //   since=<ISO date> filter by published_at >= date
+// DELETE /api/articles/purge-all — hard delete all articles (testing/reset)
+// ?type=curated|original|all (default: all)
+router.delete('/purge-all', auth, asyncHandler(async (req, res) => {
+  const { type = 'all' } = req.query;
+  let sql;
+  if (type === 'curated') {
+    sql = `DELETE FROM articles WHERE content_type != 'original' OR content_type IS NULL RETURNING id`;
+  } else if (type === 'original') {
+    sql = `DELETE FROM articles WHERE content_type = 'original' RETURNING id`;
+  } else {
+    sql = `DELETE FROM articles RETURNING id`;
+  }
+  const deleted = await db.prepare(sql).all();
+  res.json({ deleted: deleted.length, type });
+}));
+
 router.get('/export', auth, asyncHandler(async (req, res) => {
   const format   = (req.query.format || 'json').toLowerCase();
   const category = req.query.category || null;
