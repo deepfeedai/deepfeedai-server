@@ -19,6 +19,7 @@ const express = require('express');
 const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
+const { getSiteConfig } = require('../lib/site-config');
 
 const router = express.Router();
 
@@ -225,10 +226,12 @@ router.get('/github/callback', async (req, res) => {
     if (!tokens.access_token) throw new Error('No access_token from GitHub');
 
     // Fetch user profile
+    const ghSite = await getSiteConfig();
+    const ghUserAgent = `${ghSite.short_name || 'DeepFeedAI'}/1.0`;
     const infoRes = await fetch('https://api.github.com/user', {
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
-        'User-Agent':  'DeepFeedAI/1.0',
+        'User-Agent':  ghUserAgent,
       },
     });
     const info = await infoRes.json();
@@ -239,7 +242,7 @@ router.get('/github/callback', async (req, res) => {
       const emailRes = await fetch('https://api.github.com/user/emails', {
         headers: {
           Authorization: `Bearer ${tokens.access_token}`,
-          'User-Agent':  'DeepFeedAI/1.0',
+          'User-Agent':  ghUserAgent,
         },
       });
       const emails = await emailRes.json();
@@ -369,15 +372,19 @@ router.get('/unsubscribe', async (req, res) => {
     'UPDATE public_users SET notify_replies = 0, updated_at = NOW() WHERE id = $1'
   ).run(user.id);
 
+  const site     = await getSiteConfig();
+  const siteName = site.name || 'Deep Feed AI';
+  const siteUrl  = site.url || process.env.MAIN_SITE_URL || 'https://deepfeedai.com';
+
   // Friendly HTML response
   res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>Unsubscribed — Deep Feed AI</title>
+    <title>Unsubscribed — ${siteName}</title>
     <style>body{font-family:sans-serif;background:#0f1117;color:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
     .box{text-align:center;padding:40px;max-width:400px;}h1{color:#00d9ff;}a{color:#00d9ff;}</style>
     </head><body><div class="box">
     <h1>✅ Unsubscribed</h1>
     <p>You won't receive reply notifications anymore, ${user.display_name}.</p>
-    <p>You can re-enable them anytime from your comment settings on <a href="${process.env.MAIN_SITE_URL || 'https://deepfeedai.com'}">Deep Feed AI</a>.</p>
+    <p>You can re-enable them anytime from your comment settings on <a href="${siteUrl}">${siteName}</a>.</p>
     </div></body></html>`);
 });
 

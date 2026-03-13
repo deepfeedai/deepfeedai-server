@@ -267,10 +267,54 @@ async function initDb() {
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS notify_token        TEXT`,
     // Phase 3: track article origin — 'rss' | 'newsapi' | 'brave'
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_type             TEXT DEFAULT 'rss'`,
+    // Featured articles priority (1–3); NULL = not featured
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured_priority       INTEGER DEFAULT NULL`,
+    // Analytics events — lightweight time-series for views, audio plays, shares
+    `CREATE TABLE IF NOT EXISTS analytics_events (
+      id           SERIAL PRIMARY KEY,
+      event_type   TEXT        NOT NULL,
+      article_slug TEXT,
+      category     TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_created  ON analytics_events (created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_slug     ON analytics_events (article_slug)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_type     ON analytics_events (event_type)`,
+    // Newsletter send history
+    `CREATE TABLE IF NOT EXISTS newsletter_sends (
+      id           SERIAL PRIMARY KEY,
+      sent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      subject      TEXT,
+      article_count INTEGER,
+      broadcast_id TEXT,
+      status       TEXT NOT NULL DEFAULT 'sent'
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsletter_sends_sent_at ON newsletter_sends (sent_at DESC)`,
     // Lifecycle settings: seed defaults if not already present
     `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged_days', '7')  ON CONFLICT (key) DO NOTHING`,
+    // Site customization defaults (white-label)
+    `INSERT INTO settings (key, value) VALUES ('site_name', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_short_name', 'DeepFeedAI') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_tagline', 'Your daily signal in the AI noise') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_description', 'Curated AI news powered by machine learning and human curation.') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_logo_emoji', '🤖') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_logo_html', '🤖&nbsp;Deep Feed<span class="accent">AI</span>') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_domain', 'deepfeedai.com') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_url', 'https://deepfeedai.com') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_og_image', '/og-preview.png') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_twitter_handle', '@deepfeedai') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_copyright', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_footer_tagline', 'Built with ❤️ for the AI-curious') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_ga_id', 'G-WEJ64FE38R') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_adsense_id', 'ca-pub-5739407654850583') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_categories', '${JSON.stringify([{"name":"LLMs","color":"#7c3aed"},{"name":"Image AI","color":"#0ea5e9"},{"name":"Research","color":"#22d3ee"},{"name":"Tools","color":"#34d399"},{"name":"Business","color":"#f59e0b"},{"name":"Policy","color":"#f97316"},{"name":"CyberSecurity","color":"#ef4444"},{"name":"Industry","color":"#94a3b8"}])}') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_accent_color', '#4F8EF7') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_bg_color', '#0d1117') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_ai_persona', 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_newsletter_subject', '🤖 Deep Feed AI — Your Weekly AI Digest') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_email_from_name', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

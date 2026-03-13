@@ -187,11 +187,18 @@ let articles = [];
           </button>`}
         </td>
         <td>${isArchived ? '—' : `
-          <button class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}"
-            style="cursor:pointer;border:none;background:inherit;"
-            onclick="toggleFeature(${a.id})">
-            ${a.is_featured ? '⭐ Yes' : '—'}
-          </button>`}
+          <div class="featured-picker" style="display:flex;align-items:center;gap:4px;">
+            <span class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}" style="min-width:44px;text-align:center;">
+              ${a.is_featured ? (a.featured_priority ? '⭐' + a.featured_priority : '⭐') : '—'}
+            </span>
+            <select class="featured-priority-select" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;"
+              onchange="setFeaturedPriority(${a.id}, this.value)" title="Set featured priority (1=top)">
+              <option value="0"  ${!a.is_featured              ? 'selected' : ''}>Off</option>
+              <option value="1"  ${a.featured_priority === 1   ? 'selected' : ''}>#1</option>
+              <option value="2"  ${a.featured_priority === 2   ? 'selected' : ''}>#2</option>
+              <option value="3"  ${a.featured_priority === 3   ? 'selected' : ''}>#3</option>
+            </select>
+          </div>`}
         </td>
         <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
@@ -583,7 +590,7 @@ let articles = [];
     document.getElementById('fSourceUrl').value = a.source_url || '';
     document.getElementById('fImageUrl').value = a.image_url || '';
     document.getElementById('fPublished').checked = !!a.is_published;
-    document.getElementById('fFeatured').checked = !!a.is_featured;
+    document.getElementById('fFeatured').value = a.is_featured ? (a.featured_priority || 1) : 0;
     openModal('articleModal');
     document.getElementById('fTitle').focus();
   }
@@ -607,7 +614,8 @@ let articles = [];
       source_url: document.getElementById('fSourceUrl').value.trim() || null,
       image_url : document.getElementById('fImageUrl').value.trim() || null,
       is_published: document.getElementById('fPublished').checked,
-      is_featured : document.getElementById('fFeatured').checked,
+      is_featured       : parseInt(document.getElementById('fFeatured').value) > 0,
+      featured_priority : parseInt(document.getElementById('fFeatured').value) || null,
     };
 
     try {
@@ -683,9 +691,13 @@ let articles = [];
     } catch (err) { showAlert('Error: ' + err.message, 'error'); }
   }
 
-  async function toggleFeature(id) {
+  async function setFeaturedPriority(id, priority) {
     try {
-      await apiFetch(`/articles/${id}/feature`, { method: 'PUT' });
+      const p = parseInt(priority);
+      await apiFetch(`/articles/${id}/feature`, {
+        method: 'PUT',
+        body: JSON.stringify({ priority: p || null }),
+      });
       await loadArticles();
     } catch (err) { showAlert('Error: ' + err.message, 'error'); }
   }
@@ -728,6 +740,44 @@ let articles = [];
 
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
+
+    // ── Export dropdown ──────────────────────────────────────────────────────
+    const exportBtn  = document.getElementById('exportBtn');
+    const exportMenu = document.getElementById('exportMenu');
+
+    exportBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportMenu.style.display = exportMenu.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', () => { if (exportMenu) exportMenu.style.display = 'none'; });
+
+    document.querySelectorAll('.export-option').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        exportMenu.style.display = 'none';
+        const format = link.dataset.format;
+        const token  = localStorage.getItem('deepfeedai_token');
+        const params = new URLSearchParams({ format });
+        // Trigger download via hidden anchor with Authorization header workaround:
+        // fetch → blob → object URL
+        const url = `/api/articles/export?${params.toString()}`;
+        fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => {
+            if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'Export failed'); });
+            return r.blob();
+          })
+          .then(blob => {
+            const ts = new Date().toISOString().slice(0, 10);
+            const filename = `articles-${ts}.${format}`;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          })
+          .catch(err => showAlert('Export failed: ' + err.message, 'error'));
+      });
+    });
     document.getElementById('saveArticleBtn').addEventListener('click', saveArticle);
     document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
     document.getElementById('confirmPurgeBtn').addEventListener('click', confirmPurge);
