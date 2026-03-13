@@ -298,16 +298,32 @@ cron.schedule('0 2 * * *', async () => {
   }
 });
 
-// ── Cron: daily synthesis for auto-writers (6 AM UTC) ───────────────
-cron.schedule('0 6 * * *', async () => {
-  console.log('[Cron] Running daily synthesis...');
+// ── Cron: synthesis scheduler — runs hourly, honors each writer's synthesis_schedule ──
+cron.schedule('0 * * * *', async () => {
   try {
     const { runSynthesisForWriter } = require('./lib/synthesis');
-    const writers = await db.prepare('SELECT id, name FROM voices WHERE is_auto = true').all();
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM voices WHERE is_auto = true').all();
+    const hour = new Date().getUTCHours();
+    const dow  = new Date().getUTCDay(); // 0 = Sunday, 1 = Monday
+
     for (const w of writers) {
+      const schedule = w.synthesis_schedule || 'daily';
+
+      // Determine if this writer should run at this hour
+      let shouldRun = false;
+      if (schedule === 'daily')       shouldRun = (hour === 6);
+      else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
+      else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1); // Monday 6 AM
+      // 'manual' — never auto-run
+
+      if (!shouldRun) continue;
+
+      console.log(`[Cron] Running ${schedule} synthesis for ${w.name}...`);
       const result = await runSynthesisForWriter(w.id);
       if (result.generated > 0) {
         console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
+      } else if (result.skipped) {
+        console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
       }
     }
   } catch (e) {
