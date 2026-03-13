@@ -31,14 +31,14 @@ function cronOrAdmin(req, res, next) {
 }
 
 router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
+  const preview    = req.query.preview === 'true' || req.query.preview === '1';
   const resendKey  = process.env.RESEND_API_KEY;
   const audienceId = process.env.RESEND_AUDIENCE_ID;
 
-  if (!resendKey || !audienceId) {
+  // Only require Resend config when actually sending (not for preview)
+  if (!preview && (!resendKey || !audienceId)) {
     return res.status(500).json({ error: 'Missing Resend config' });
   }
-
-  const preview = req.query.preview === 'true' || req.query.preview === '1';
 
   // Fetch published articles directly from DB
   const dbResult = await getPool().query(
