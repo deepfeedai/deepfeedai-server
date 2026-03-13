@@ -37,10 +37,8 @@ router.get('/export', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'format must be csv or json' });
   }
 
-  const conditions = [
-    `is_published = 1`,
-    `(is_archived = 0 OR is_archived IS NULL)`,
-  ];
+  // By default export ALL articles; optional filters narrow the set
+  const conditions = ['1=1'];
   const params = [];
 
   if (category) {
@@ -56,7 +54,8 @@ router.get('/export', auth, asyncHandler(async (req, res) => {
 
   const sql = `
     SELECT id, title, summary, category, source, source_url, image_url, author,
-           is_featured, featured_priority, published_at, created_at, audio_url, media_enabled
+           is_featured, featured_priority, is_published, is_archived,
+           published_at, created_at, updated_at, audio_url, media_enabled
     FROM articles
     WHERE ${conditions.join(' AND ')}
     ORDER BY published_at DESC
@@ -74,8 +73,8 @@ router.get('/export', auth, asyncHandler(async (req, res) => {
 
   // CSV
   const COLS = ['id','title','summary','category','source','source_url','image_url',
-                'author','is_featured','featured_priority','published_at','created_at',
-                'audio_url','media_enabled'];
+                'author','is_featured','featured_priority','is_published','is_archived',
+                'published_at','created_at','updated_at','audio_url','media_enabled'];
 
   function csvCell(val) {
     if (val === null || val === undefined) return '';
