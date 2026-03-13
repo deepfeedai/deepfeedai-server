@@ -169,11 +169,21 @@ router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
         resolvedVoiceAvatarUrl = v.avatar_url || null;
       }
     } else {
-      const defaultVoice = await db.prepare('SELECT * FROM voices WHERE is_default = 1 LIMIT 1').get();
-      if (defaultVoice) {
-        resolvedVoiceId = defaultVoice.voice_id;
-        resolvedVoiceName = defaultVoice.name;
-        resolvedVoiceAvatarUrl = defaultVoice.avatar_url || null;
+      // Prefer the article's assigned writer voice, then fall back to default
+      const writerVoice = article.writer_id
+        ? await db.prepare('SELECT voice_id, name, avatar_url FROM voices WHERE id = $1').get(article.writer_id)
+        : null;
+      if (writerVoice) {
+        resolvedVoiceId = writerVoice.voice_id;
+        resolvedVoiceName = writerVoice.name;
+        resolvedVoiceAvatarUrl = writerVoice.avatar_url || null;
+      } else {
+        const defaultVoice = await db.prepare('SELECT * FROM voices WHERE is_default = 1 LIMIT 1').get();
+        if (defaultVoice) {
+          resolvedVoiceId = defaultVoice.voice_id;
+          resolvedVoiceName = defaultVoice.name;
+          resolvedVoiceAvatarUrl = defaultVoice.avatar_url || null;
+        }
       }
     }
 
