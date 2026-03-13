@@ -27,26 +27,44 @@ router.post('/run-all', asyncHandler(async (req, res) => {
 
 // GET /api/synthesis/preview/:writerId — preview clusters without generating
 router.get('/preview/:writerId', asyncHandler(async (req, res) => {
-  const writer = await db.prepare('SELECT * FROM voices WHERE id = $1 AND is_auto = true').get(req.params.writerId);
-  if (!writer) return res.status(404).json({ error: 'Writer not found or not auto-enabled' });
+  // Allow preview for any writer (not just is_auto) so admins can explore
+  const writer = await db.prepare('SELECT * FROM voices WHERE id = $1').get(req.params.writerId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
-  const beatFilter = writer.beat
-    ? `AND LOWER(category) = LOWER('${writer.beat.replace(/'/g, "''")}')`
-    : '';
+  const lookbackHours = writer.synthesis_lookback_hours || 168; // default 7 days
+  const minSize = writer.min_cluster_size || 3;
 
-  const articles = await db.prepare(`
-    SELECT * FROM articles
-    WHERE (content_type IS NULL OR content_type != 'original')
-      AND is_archived = 0
-      AND created_at > NOW() - INTERVAL '7 days'
-      ${beatFilter}
-    ORDER BY created_at DESC
-  `).all();
+  // Fetch articles — try beat filter first, fall back to all if empty
+  let articles = [];
+  if (writer.beat) {
+    articles = await db.prepare(`
+      SELECT id, title, summary, category, source, source_url FROM articles
+      WHERE (content_type IS NULL OR content_type != 'original')
+        AND is_archived = 0
+        AND created_at > NOW() - ($1 || ' hours')::INTERVAL
+        AND LOWER(category) LIKE LOWER($2)
+      ORDER BY created_at DESC
+      LIMIT 200
+    `).all(lookbackHours, `%${writer.beat}%`);
+  }
 
-  const clusters = clusterArticles(articles);
+  // Fallback: no beat or no articles matched — fetch all recent
+  if (!articles.length) {
+    articles = await db.prepare(`
+      SELECT id, title, summary, category, source, source_url FROM articles
+      WHERE (content_type IS NULL OR content_type != 'original')
+        AND is_archived = 0
+        AND created_at > NOW() - ($1 || ' hours')::INTERVAL
+      ORDER BY created_at DESC
+      LIMIT 200
+    `).all(lookbackHours);
+  }
+
+  const clusters = clusterArticles(articles, minSize);
 
   res.json({
     writer: { id: writer.id, name: writer.name, beat: writer.beat },
+    articleCount: articles.length,
     clusters: clusters.map(c => ({ topic: c.topic, articleCount: c.articles.length })),
   });
 }));
