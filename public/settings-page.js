@@ -299,11 +299,26 @@ let apiKeyVisible = false;
   ];
 
   // Logo HTML live preview
-  const logoHtmlInput = document.getElementById('siteLogoHtml');
-  const logoPreview   = document.getElementById('siteLogoPreview');
+  const logoHtmlInput  = document.getElementById('siteLogoHtml');
+  const logoPreview    = document.getElementById('siteLogoPreview');
+  const logoEmojiInput = document.getElementById('siteLogoEmoji');
+
   if (logoHtmlInput && logoPreview) {
     logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = logoHtmlInput.value; });
   }
+
+  // Auto-sync: when Logo Emoji changes, replace the leading emoji in Logo HTML
+  if (logoEmojiInput && logoHtmlInput) {
+    logoEmojiInput.addEventListener('input', () => {
+      const newEmoji = logoEmojiInput.value.trim();
+      if (!newEmoji) return;
+      const current = logoHtmlInput.value;
+      const updated = current.replace(/^[\p{Emoji}\u200d\uFE0F\u20E3\u{1F3FB}-\u{1F3FF}]+/u, newEmoji);
+      logoHtmlInput.value = updated !== current ? updated : newEmoji + current.replace(/^[^\s&]+/, '');
+      if (logoPreview) logoPreview.innerHTML = logoHtmlInput.value;
+    });
+  }
+
 
   // Color picker sync
   function syncColorPicker(pickerId, textId) {
