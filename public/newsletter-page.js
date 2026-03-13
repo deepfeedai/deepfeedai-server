@@ -30,7 +30,9 @@
     try {
       const token = localStorage.getItem('admin_token');
       const res   = await fetch('/api/newsletter/send?preview=true', {
-        headers: { Authorization: `Bearer ${token}` },
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(await res.text());
       const html = await res.text();
