@@ -68,7 +68,9 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   }
 
   const site    = await getSiteConfig();
-  const subject = site.newsletter_subject || '🤖 Deep Feed AI — Your Weekly AI Digest';
+  const subject = (req.body?.subject && String(req.body.subject).trim())
+    || site.newsletter_subject
+    || '🤖 Deep Feed AI — Your Weekly AI Digest';
   const html    = buildEmail(articles, site);
 
   // Preview mode — return rendered HTML
@@ -111,8 +113,29 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
     return res.status(500).json({ error: 'Failed to send broadcast', detail: err });
   }
 
+  // Log to DB
+  try {
+    await getPool().query(
+      `INSERT INTO newsletter_sends (subject, article_count, broadcast_id, status) VALUES ($1, $2, $3, 'sent')`,
+      [subject, articles.length, broadcastId]
+    );
+  } catch (e) {
+    console.error('[newsletter] failed to log send:', e.message);
+  }
+
   console.log(`[newsletter] sent broadcast ${broadcastId} with ${articles.length} articles`);
   return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
+}));
+
+// GET /api/newsletter/history — last 20 sends
+router.get('/history', auth, asyncHandler(async (req, res) => {
+  const result = await getPool().query(
+    `SELECT id, sent_at, subject, article_count, broadcast_id, status
+     FROM newsletter_sends
+     ORDER BY sent_at DESC
+     LIMIT 20`
+  );
+  return res.json(result.rows);
 }));
 
 // ── Email builder ─────────────────────────────────────────────────────────────

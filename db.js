@@ -280,6 +280,16 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_analytics_created  ON analytics_events (created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_analytics_slug     ON analytics_events (article_slug)`,
     `CREATE INDEX IF NOT EXISTS idx_analytics_type     ON analytics_events (event_type)`,
+    // Newsletter send history
+    `CREATE TABLE IF NOT EXISTS newsletter_sends (
+      id           SERIAL PRIMARY KEY,
+      sent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      subject      TEXT,
+      article_count INTEGER,
+      broadcast_id TEXT,
+      status       TEXT NOT NULL DEFAULT 'sent'
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsletter_sends_sent_at ON newsletter_sends (sent_at DESC)`,
     // Lifecycle settings: seed defaults if not already present
     `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (key) DO NOTHING`,
