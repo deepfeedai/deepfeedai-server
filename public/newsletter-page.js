@@ -28,7 +28,7 @@
     frame.style.display = 'none';
 
     try {
-      const token = localStorage.getItem('admin_token');
+      const token = localStorage.getItem('deepfeedai_token');
       const res   = await fetch('/api/newsletter/send?preview=true', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
