@@ -193,12 +193,14 @@
           </label>
           <span class="form-check-label">Published</span>
         </label>
-        <label class="form-check">
-          <label class="toggle">
-            <input type="checkbox" id="fFeatured" />
-            <span class="toggle-slider"></span>
-          </label>
+        <label class="form-check" style="align-items:center;gap:8px;">
           <span class="form-check-label">Featured</span>
+          <select id="fFeatured" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+            <option value="0">Off</option>
+            <option value="1">#1 — Top spot</option>
+            <option value="2">#2 — Second</option>
+            <option value="3">#3 — Third</option>
+          </select>
         </label>
       </div>
     </div>

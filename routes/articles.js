@@ -36,17 +36,22 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   if (!body) return;
 
   const { title, summary, content, category, source, source_url,
-          image_url, author, is_featured, is_published, published_at } = body;
+          image_url, author, is_featured, featured_priority: fp, is_published, published_at } = body;
 
-  if (is_featured) {
-    await db.prepare('UPDATE articles SET is_featured = 0, updated_at = NOW()').run();
+  const newPriority = fp ? parseInt(fp) : null;
+
+  if (is_featured && newPriority) {
+    // Evict whoever holds this slot
+    await db.prepare(
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1'
+    ).run(newPriority);
   }
 
   const article = await db.prepare(`
     INSERT INTO articles
       (title, summary, content, category, source, source_url, image_url, author,
-       is_featured, is_published, published_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       is_featured, featured_priority, is_published, published_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING *
   `).get(
     title,
@@ -58,6 +63,7 @@ router.post('/', auth, asyncHandler(async (req, res) => {
     image_url  || null,
     author     || null,
     is_featured  ? 1 : 0,
+    newPriority,
     is_published !== undefined ? (is_published ? 1 : 0) : 1,
     published_at || new Date().toISOString()
   );
@@ -73,18 +79,26 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
   if (!body) return;
 
   const { title, summary, content, category, source, source_url,
-          image_url, author, is_featured, is_published, published_at } = body;
+          image_url, author, is_featured, featured_priority, is_published, published_at } = body;
 
-  if (is_featured) {
-    await db.prepare('UPDATE articles SET is_featured = 0, updated_at = NOW() WHERE id != $1').run(req.params.id);
+  const newFeatured = is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured;
+  const newPriority = featured_priority !== undefined ? (featured_priority || null) : existing.featured_priority;
+
+  if (newFeatured) {
+    // If assigning a priority slot, evict whoever currently holds it
+    if (newPriority) {
+      await db.prepare(
+        'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2'
+      ).run(newPriority, req.params.id);
+    }
   }
 
   const updated = await db.prepare(`
     UPDATE articles SET
       title = $1, summary = $2, content = $3, category = $4, source = $5,
       source_url = $6, image_url = $7, author = $8, is_featured = $9,
-      is_published = $10, published_at = $11, updated_at = NOW()
-    WHERE id = $12
+      featured_priority = $10, is_published = $11, published_at = $12, updated_at = NOW()
+    WHERE id = $13
     RETURNING *
   `).get(
     title        !== undefined ? title        : existing.title,
@@ -95,7 +109,8 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
     source_url   !== undefined ? source_url   : existing.source_url,
     image_url    !== undefined ? image_url    : existing.image_url,
     author       !== undefined ? author       : existing.author,
-    is_featured  !== undefined ? (is_featured  ? 1 : 0) : existing.is_featured,
+    newFeatured,
+    newPriority,
     is_published !== undefined ? (is_published ? 1 : 0) : existing.is_published,
     published_at !== undefined ? published_at : existing.published_at,
     req.params.id
@@ -109,7 +124,7 @@ router.delete('/:id', auth, asyncHandler(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Article not found' });
   await db.prepare(`
     UPDATE articles
-    SET is_archived = 1, is_published = 0, is_featured = 0,
+    SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
         archived_at = NOW(), updated_at = NOW()
     WHERE id = $1
   `).run(req.params.id);
@@ -138,15 +153,44 @@ router.put('/:id/restore', auth, asyncHandler(async (req, res) => {
 }));
 
 // PUT /api/articles/:id/feature
+// Body: { priority: 1|2|3 } to feature at a slot, or omit/null to unfeature
 router.put('/:id/feature', auth, asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
   if (!article) return res.status(404).json({ error: 'Article not found' });
-  const newVal = article.is_featured ? 0 : 1;
-  if (newVal === 1) {
-    await db.prepare('UPDATE articles SET is_featured = 0, updated_at = NOW() WHERE id != $1').run(req.params.id);
+
+  const MAX_FEATURED = 3;
+  const { priority } = req.body || {};
+
+  // Unfeature: no priority supplied, or priority === 0/null
+  if (!priority) {
+    await db.prepare(
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE id = $1'
+    ).run(req.params.id);
+    return res.json({ id: article.id, is_featured: 0, featured_priority: null });
   }
-  await db.prepare('UPDATE articles SET is_featured = $1, updated_at = NOW() WHERE id = $2').run(newVal, req.params.id);
-  res.json({ id: article.id, is_featured: newVal });
+
+  const slot = parseInt(priority);
+  if (![1, 2, 3].includes(slot)) {
+    return res.status(400).json({ error: 'priority must be 1, 2, or 3' });
+  }
+
+  // Count currently featured (excluding this article)
+  const { count } = await db.prepare(
+    'SELECT COUNT(*) AS count FROM articles WHERE is_featured = 1 AND id != $1'
+  ).get(req.params.id);
+
+  if (count >= MAX_FEATURED) {
+    // Bump the article currently holding this slot (if any) to unfeature
+    await db.prepare(
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2'
+    ).run(slot, req.params.id);
+  }
+
+  await db.prepare(
+    'UPDATE articles SET is_featured = 1, featured_priority = $1, updated_at = NOW() WHERE id = $2'
+  ).run(slot, req.params.id);
+
+  res.json({ id: article.id, is_featured: 1, featured_priority: slot });
 }));
 
 // PUT /api/articles/:id/publish
@@ -208,7 +252,7 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
   for (const row of eligible) {
     await db.prepare(`
       UPDATE articles
-      SET is_archived = 1, is_published = 0, is_featured = 0,
+      SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
           archived_at = NOW(), updated_at = NOW()
       WHERE id = $1
     `).run(row.id);

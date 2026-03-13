@@ -69,7 +69,7 @@ router.get('/', asyncHandler(async (req, res) => {
     query += ` AND is_featured = $${params.length}`;
   }
 
-  query += ' ORDER BY is_featured DESC, published_at DESC';
+  query += ' ORDER BY is_featured DESC, COALESCE(featured_priority, 99) ASC, published_at DESC';
 
   if (lim) {
     params.push(parseInt(lim));
