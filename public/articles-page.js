@@ -757,10 +757,7 @@ let articles = [];
         exportMenu.style.display = 'none';
         const format = link.dataset.format;
         const token  = localStorage.getItem('deepfeedai_token');
-        // Build URL — apply active category filter if set
-        const cat = document.getElementById('fCategory')?.value || '';
         const params = new URLSearchParams({ format });
-        if (cat && cat !== 'all') params.set('category', cat);
         // Trigger download via hidden anchor with Authorization header workaround:
         // fetch → blob → object URL
         const url = `/api/articles/export?${params.toString()}`;
