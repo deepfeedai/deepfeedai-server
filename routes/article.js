@@ -12,7 +12,11 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
   const articles = await db.prepare(
-    'SELECT * FROM articles WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)'
+    `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
+            v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
+     FROM articles a
+     LEFT JOIN voices v ON v.id = a.writer_id
+     WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
   ).all();
 
   const match = articles.find(a => toSlug(a.title) === slug);
@@ -40,6 +44,11 @@ router.get('/', asyncHandler(async (req, res) => {
     audio_voice_name:       match.audio_voice_name       || null,
     audio_voice_avatar_url: match.audio_voice_avatar_url || null,
     comment_count:          commentCount,
+    writer_id:              match.writer_id              || null,
+    writer_name:            match.writer_name            || null,
+    writer_slug:            match.writer_slug            || null,
+    writer_avatar_url:      match.writer_avatar_url      || null,
+    writer_beat:            match.writer_beat            || null,
   });
 }));
 

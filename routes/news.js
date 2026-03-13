@@ -57,19 +57,23 @@ async function fetchEngagement(slugs) {
 // GET /api/news
 router.get('/', asyncHandler(async (req, res) => {
   const { category, limit: lim, featured } = req.query;
-  let query = 'SELECT * FROM articles WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)';
+  let query = `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
+                      v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
+               FROM articles a
+               LEFT JOIN voices v ON v.id = a.writer_id
+               WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
   const params = [];
 
   if (category) {
     params.push(category);
-    query += ` AND category = $${params.length}`;
+    query += ` AND a.category = $${params.length}`;
   }
   if (featured !== undefined) {
     params.push(parseInt(featured));
-    query += ` AND is_featured = $${params.length}`;
+    query += ` AND a.is_featured = $${params.length}`;
   }
 
-  query += ' ORDER BY is_featured DESC, COALESCE(featured_priority, 99) ASC, published_at DESC';
+  query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';
 
   if (lim) {
     params.push(parseInt(lim));
