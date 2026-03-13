@@ -281,6 +281,160 @@
         <div id="modQueueStatus" class="settings-status"></div>
       </div>
 
+      <!-- ── Site Customization ──────────────────────────────────── -->
+      <div class="settings-section-title">🎨 Site Customization</div>
+
+      <!-- Branding -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Branding</h3>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteName">Site Name</label>
+            <input type="text" class="form-control" id="siteName" placeholder="Deep Feed AI" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteShortName">Short Name</label>
+            <input type="text" class="form-control" id="siteShortName" placeholder="DeepFeedAI" />
+            <p class="form-help">Used in User-Agent strings, localStorage prefix</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="siteTagline">Tagline</label>
+          <input type="text" class="form-control" id="siteTagline" placeholder="Your daily signal in the AI noise" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="siteDescription">Description (SEO)</label>
+          <textarea class="form-control" id="siteDescription" rows="2" placeholder="Curated AI news..." style="resize:vertical;"></textarea>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteLogoEmoji">Logo Emoji</label>
+            <input type="text" class="form-control" id="siteLogoEmoji" placeholder="🤖" style="width:80px;" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteCopyright">Copyright Holder</label>
+            <input type="text" class="form-control" id="siteCopyright" placeholder="Deep Feed AI" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="siteLogoHtml">Logo HTML</label>
+          <input type="text" class="form-control" id="siteLogoHtml" placeholder='🤖&amp;nbsp;Deep Feed<span class="accent">AI</span>' />
+          <p class="form-help">Raw HTML for the nav logo. Preview: <span id="siteLogoPreview" style="font-weight:700;"></span></p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="siteFooterTagline">Footer Tagline</label>
+          <input type="text" class="form-control" id="siteFooterTagline" placeholder="Built with ❤️ for the AI-curious" />
+        </div>
+      </div>
+
+      <!-- Domain & URLs -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Domain &amp; URLs</h3>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteDomain">Domain</label>
+            <input type="text" class="form-control" id="siteDomain" placeholder="deepfeedai.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteUrl">Site URL</label>
+            <input type="text" class="form-control" id="siteUrl" placeholder="https://deepfeedai.com" />
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteOgImage">OG Image URL</label>
+            <input type="text" class="form-control" id="siteOgImage" placeholder="/og-preview.png" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteTwitterHandle">Twitter Handle</label>
+            <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Analytics -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Analytics</h3>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteGaId">Google Analytics ID</label>
+            <input type="text" class="form-control" id="siteGaId" placeholder="G-XXXXXXXXXX" />
+            <p class="form-help">Leave empty to disable</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteAdsenseId">AdSense Publisher ID</label>
+            <input type="text" class="form-control" id="siteAdsenseId" placeholder="ca-pub-XXXXXXXXXX" />
+            <p class="form-help">Leave empty to disable</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Categories -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Categories</h3>
+        <p class="form-help" style="margin-bottom:12px;">Manage categories and their badge colors. Order matters — first category is the default.</p>
+        <div id="siteCategoriesList"></div>
+        <button class="btn btn-outline btn-sm" id="addCategoryBtn" type="button" style="margin-top:8px;">+ Add Category</button>
+      </div>
+
+      <!-- Theme -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Theme</h3>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteAccentColor">Accent Color</label>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="color" id="siteAccentColor" value="#4F8EF7" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+              <input type="text" class="form-control" id="siteAccentColorText" placeholder="#4F8EF7" style="width:100px;font-family:monospace;" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteBgColor">Background Color</label>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="color" id="siteBgColor" value="#0d1117" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+              <input type="text" class="form-control" id="siteBgColorText" placeholder="#0d1117" style="width:100px;font-family:monospace;" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div class="dash-panel mb-6">
+        <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Content</h3>
+
+        <div class="form-group">
+          <label class="form-label" for="siteAiPersona">AI Persona (system prompt)</label>
+          <textarea class="form-control" id="siteAiPersona" rows="3" style="resize:vertical;"
+                    placeholder="You are a tech news analyst..."></textarea>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label" for="siteNewsletterSubject">Newsletter Subject</label>
+            <input type="text" class="form-control" id="siteNewsletterSubject" placeholder="🤖 Deep Feed AI — Your Weekly AI Digest" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteEmailFromName">Email Sender Name</label>
+            <input type="text" class="form-control" id="siteEmailFromName" placeholder="Deep Feed AI" />
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-group mb-6">
+        <button class="btn btn-primary" id="saveSiteSettingsBtn">Save Site Settings</button>
+      </div>
+      <div id="siteSettingsStatus" class="settings-status"></div>
+
     </div><!-- /page-body -->
   </div><!-- /main-content -->
 </div><!-- /admin-layout -->

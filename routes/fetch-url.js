@@ -9,16 +9,17 @@ const https                 = require('https');
 const http                  = require('http');
 const { auth }              = require('../middleware/auth');
 const { asyncHandler }      = require('../lib/utils');
+const { getSiteConfig }     = require('../lib/site-config');
 
 /** Fetch raw HTML from a URL, following up to 3 redirects */
-function fetchHtml(url, redirects = 0) {
+function fetchHtml(url, redirects = 0, userAgent) {
   return new Promise((resolve, reject) => {
     if (redirects > 3) return reject(new Error('Too many redirects'));
 
     const lib     = url.startsWith('https') ? https : http;
     const options = {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; DeepFeedAI-Bot/1.0)',
+        'User-Agent': userAgent || 'Mozilla/5.0 (compatible; DeepFeedAI-Bot/1.0)',
         'Accept':     'text/html,application/xhtml+xml',
       },
       timeout: 8000,
@@ -31,7 +32,7 @@ function fetchHtml(url, redirects = 0) {
           ? res.headers.location
           : new URL(res.headers.location, url).href;
         res.resume();
-        return resolve(fetchHtml(next, redirects + 1));
+        return resolve(fetchHtml(next, redirects + 1, userAgent));
       }
 
       let html = '';
@@ -91,7 +92,9 @@ router.get('/', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
-  const html = await fetchHtml(url);
+  const site = await getSiteConfig();
+  const botUA = `Mozilla/5.0 (compatible; ${site.short_name || 'DeepFeedAI'}-Bot/1.0)`;
+  const html = await fetchHtml(url, 0, botUA);
 
     const title   = getMeta(html, 'og:title', 'twitter:title')          || getTitle(html)          || '';
     const image   = getMeta(html, 'og:image', 'twitter:image')           || '';

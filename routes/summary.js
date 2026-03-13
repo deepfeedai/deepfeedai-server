@@ -12,6 +12,7 @@ const express          = require('express');
 const router           = express.Router();
 const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
+const { getSiteConfig } = require('../lib/site-config');
 
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -73,8 +74,11 @@ router.get('/', asyncHandler(async (req, res) => {
     return res.json({ summary: cached });
   }
 
+  const site = await getSiteConfig();
+  const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+
   const prompt = [
-    'You are a tech news analyst for Deep Feed AI, an AI news aggregator.',
+    persona,
     'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
     '{',
     '  "overview": "2 clear sentences summarizing what happened and who is involved.",',

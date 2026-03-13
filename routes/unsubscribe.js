@@ -9,6 +9,7 @@
  */
 const express = require('express');
 const router  = express.Router();
+const { getSiteConfig } = require('../lib/site-config');
 
 router.post('/', async (req, res) => {
   const apiKey     = process.env.RESEND_API_KEY;
@@ -41,9 +42,11 @@ router.post('/', async (req, res) => {
     const data = await upstream.json();
 
     if (upstream.ok || upstream.status === 200 || upstream.status === 409) {
+      const site     = await getSiteConfig();
+      const siteName = site.name || 'Deep Feed AI';
       return res.status(200).json({
         success: true,
-        message: "You've been unsubscribed from the Deep Feed AI newsletter.",
+        message: `You've been unsubscribed from the ${siteName} newsletter.`,
       });
     }
 

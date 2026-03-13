@@ -18,6 +18,7 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
+const { getSiteConfig } = require('../lib/site-config');
 
 const TOP_N = 8; // articles to include per newsletter
 
@@ -66,8 +67,9 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
     return res.status(500).json({ error: 'No published articles found' });
   }
 
-  const subject = '🤖 Deep Feed AI — Your Weekly AI Digest';
-  const html    = buildEmail(articles);
+  const site    = await getSiteConfig();
+  const subject = site.newsletter_subject || '🤖 Deep Feed AI — Your Weekly AI Digest';
+  const html    = buildEmail(articles, site);
 
   // Preview mode — return rendered HTML
   if (preview) {
@@ -81,8 +83,8 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
     headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       audience_id: audienceId,
-      from:        'Deep Feed AI <newsletter@deepfeedai.com>',
-      reply_to:    'hello@deepfeedai.com',
+      from:        `${site.email_from_name || 'Deep Feed AI'} <newsletter@${site.domain || 'deepfeedai.com'}>`,
+      reply_to:    `hello@${site.domain || 'deepfeedai.com'}`,
       subject,
       html,
     }),
@@ -115,16 +117,24 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
 
 // ── Email builder ─────────────────────────────────────────────────────────────
 
-function buildEmail(articles) {
-  const date  = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  const cards = articles.map(articleCard).join('');
+function buildEmail(articles, site = {}) {
+  const date      = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const siteName  = site.name || 'Deep Feed AI';
+  const logoEmoji = site.logo_emoji || '🤖';
+  const siteUrl   = (site.url || 'https://deepfeedai.com').replace(/\/$/, '');
+  const domain    = site.domain || 'deepfeedai.com';
+  const catColors = {};
+  if (Array.isArray(site.categories)) {
+    for (const c of site.categories) catColors[c.name] = c.color;
+  }
+  const cards = articles.map(a => articleCard(a, siteUrl, catColors)).join('');
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Deep Feed AI — Weekly Digest</title>
+<title>${siteName} — Weekly Digest</title>
 </head>
 <body style="margin:0;padding:0;background:#0d0d1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#0d0d1a;">
@@ -133,8 +143,8 @@ function buildEmail(articles) {
 
       <!-- Header -->
       <tr><td style="background:linear-gradient(135deg,#1a0a2e 0%,#0d1a3a 100%);border-radius:16px 16px 0 0;padding:40px 32px;text-align:center;border-bottom:2px solid #7c3aed;">
-        <div style="font-size:40px;margin-bottom:8px;">🤖</div>
-        <h1 style="margin:0;font-size:28px;font-weight:800;background:linear-gradient(90deg,#a855f7,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Deep Feed AI</h1>
+        <div style="font-size:40px;margin-bottom:8px;">${logoEmoji}</div>
+        <h1 style="margin:0;font-size:28px;font-weight:800;background:linear-gradient(90deg,#a855f7,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">${siteName}</h1>
         <p style="margin:8px 0 0;color:#94a3b8;font-size:14px;">Your Weekly AI News Digest &nbsp;·&nbsp; ${date}</p>
       </td></tr>
 
@@ -148,12 +158,12 @@ function buildEmail(articles) {
 
       <!-- CTA -->
       <tr><td style="background:#111827;padding:24px 32px;text-align:center;border-left:1px solid #1e293b;border-right:1px solid #1e293b;">
-        <a href="https://deepfeedai.com" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#0ea5e9);color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 32px;border-radius:8px;">View Full Feed →</a>
+        <a href="${siteUrl}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#0ea5e9);color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 32px;border-radius:8px;">View Full Feed →</a>
       </td></tr>
 
       <!-- Footer -->
       <tr><td style="background:#0d0d1a;border-radius:0 0 16px 16px;padding:24px 32px;text-align:center;border:1px solid #1e293b;border-top:none;">
-        <p style="margin:0 0 8px;color:#475569;font-size:13px;">You're receiving this because you subscribed at <a href="https://deepfeedai.com" style="color:#7c3aed;text-decoration:none;">deepfeedai.com</a></p>
+        <p style="margin:0 0 8px;color:#475569;font-size:13px;">You're receiving this because you subscribed at <a href="${siteUrl}" style="color:#7c3aed;text-decoration:none;">${domain}</a></p>
         <p style="margin:0;color:#475569;font-size:13px;"><a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color:#475569;">Unsubscribe</a></p>
       </td></tr>
 
@@ -164,12 +174,13 @@ function buildEmail(articles) {
 </html>`;
 }
 
-function articleCard(article) {
+function articleCard(article, siteUrl = 'https://deepfeedai.com', catColors = {}) {
   const cat      = article.category || 'AI';
-  const catColor = { LLMs: '#7c3aed', 'Image AI': '#0ea5e9', Research: '#10b981', Tools: '#f59e0b', Business: '#f97316', Policy: '#6366f1', Industry: '#ef4444', CyberSecurity: '#dc2626' }[cat] || '#7c3aed';
+  const fallbackColors = { LLMs: '#7c3aed', 'Image AI': '#0ea5e9', Research: '#10b981', Tools: '#f59e0b', Business: '#f97316', Policy: '#6366f1', Industry: '#ef4444', CyberSecurity: '#dc2626' };
+  const catColor = catColors[cat] || fallbackColors[cat] || '#7c3aed';
   const date     = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
   const summary  = article.description ? article.description.slice(0, 160) + (article.description.length > 160 ? '…' : '') : '';
-  const link     = `https://deepfeedai.com/article?u=${encodeURIComponent(article.url)}&t=${encodeURIComponent(article.title)}&s=${encodeURIComponent(article.source || '')}&c=${encodeURIComponent(cat)}`;
+  const link     = `${siteUrl}/article?u=${encodeURIComponent(article.url)}&t=${encodeURIComponent(article.title)}&s=${encodeURIComponent(article.source || '')}&c=${encodeURIComponent(cat)}`;
 
   const thumbRow = article.imageUrl ? `
       <tr>

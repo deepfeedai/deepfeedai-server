@@ -10,6 +10,7 @@
  */
 const express = require('express');
 const router  = express.Router();
+const { getSiteConfig } = require('../lib/site-config');
 
 function escHtml(str) {
   return String(str || '')
@@ -31,14 +32,18 @@ router.post('/', async (req, res) => {
   if (!resendKey) return res.status(500).json({ error: 'Missing Resend config' });
 
   try {
+    const site     = await getSiteConfig();
+    const siteName = site.name || 'Deep Feed AI';
+    const domain   = site.domain || 'deepfeedai.com';
+
     const emailRes = await fetch('https://api.resend.com/emails', {
       method:  'POST',
       headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from:     'Deep Feed AI <contact@deepfeedai.com>',
-        to:       ['contact@deepfeedai.com'],
+        from:     `${siteName} <contact@${domain}>`,
+        to:       [`contact@${domain}`],
         reply_to: email,
-        subject:  `[Deep Feed AI] Message from ${name}`,
+        subject:  `[${siteName}] Message from ${name}`,
         html: `
           <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
             <h2 style="color:#7c3aed;">New Contact Form Submission</h2>
@@ -47,7 +52,7 @@ router.post('/', async (req, res) => {
             <p><strong>Message:</strong></p>
             <div style="background:#f8f8f8;border-left:4px solid #7c3aed;padding:1rem;border-radius:4px;white-space:pre-wrap;">${escHtml(message)}</div>
             <hr style="margin:2rem 0;border:none;border-top:1px solid #eee;" />
-            <p style="color:#999;font-size:12px;">Sent from deepfeedai.com contact form</p>
+            <p style="color:#999;font-size:12px;">Sent from ${domain} contact form</p>
           </div>
         `,
       }),

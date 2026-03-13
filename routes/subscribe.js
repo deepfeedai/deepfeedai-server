@@ -9,6 +9,7 @@
  */
 const express = require('express');
 const router  = express.Router();
+const { getSiteConfig } = require('../lib/site-config');
 
 router.post('/', async (req, res) => {
   const apiKey     = process.env.RESEND_API_KEY;
@@ -25,6 +26,11 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    const site     = await getSiteConfig();
+    const siteName = site.name || 'Deep Feed AI';
+    const siteUrl  = (site.url || process.env.MAIN_SITE_URL || 'https://deepfeedai.com').replace(/\/$/, '');
+    const logoEmoji = site.logo_emoji || '🤖';
+
     const upstream = await fetch(
       `https://api.resend.com/audiences/${audienceId}/contacts`,
       {
@@ -36,7 +42,7 @@ router.post('/', async (req, res) => {
         body: JSON.stringify({
           email,
           subscribed:      true,
-          unsubscribe_url: `${(process.env.MAIN_SITE_URL || 'https://deepfeedai.com').replace(/\/$/, '')}/unsubscribe`,
+          unsubscribe_url: `${siteUrl}/unsubscribe`,
         }),
       }
     );
@@ -49,7 +55,7 @@ router.post('/', async (req, res) => {
         success: true,
         message: upstream.status === 409
           ? "You're already subscribed!"
-          : "You're subscribed! Welcome to Deep Feed AI. 🤖",
+          : `You're subscribed! Welcome to ${siteName}. ${logoEmoji}`,
       });
     }
 

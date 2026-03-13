@@ -277,6 +277,159 @@ let apiKeyVisible = false;
     }
   });
 
+  // ── Site Customization ────────────────────────────────────────────
+  const SITE_FIELDS = [
+    { id: 'siteName',              key: 'site_name' },
+    { id: 'siteShortName',        key: 'site_short_name' },
+    { id: 'siteTagline',          key: 'site_tagline' },
+    { id: 'siteDescription',      key: 'site_description' },
+    { id: 'siteLogoEmoji',        key: 'site_logo_emoji' },
+    { id: 'siteLogoHtml',         key: 'site_logo_html' },
+    { id: 'siteDomain',           key: 'site_domain' },
+    { id: 'siteUrl',              key: 'site_url' },
+    { id: 'siteOgImage',          key: 'site_og_image' },
+    { id: 'siteTwitterHandle',    key: 'site_twitter_handle' },
+    { id: 'siteCopyright',        key: 'site_copyright' },
+    { id: 'siteFooterTagline',    key: 'site_footer_tagline' },
+    { id: 'siteGaId',             key: 'site_ga_id' },
+    { id: 'siteAdsenseId',        key: 'site_adsense_id' },
+    { id: 'siteAiPersona',        key: 'site_ai_persona' },
+    { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
+    { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+  ];
+
+  // Logo HTML live preview
+  const logoHtmlInput = document.getElementById('siteLogoHtml');
+  const logoPreview   = document.getElementById('siteLogoPreview');
+  if (logoHtmlInput && logoPreview) {
+    logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = logoHtmlInput.value; });
+  }
+
+  // Color picker sync
+  function syncColorPicker(pickerId, textId) {
+    const picker = document.getElementById(pickerId);
+    const text   = document.getElementById(textId);
+    if (!picker || !text) return;
+    picker.addEventListener('input', () => { text.value = picker.value; });
+    text.addEventListener('input', () => {
+      if (/^#[0-9a-f]{6}$/i.test(text.value)) picker.value = text.value;
+    });
+  }
+  syncColorPicker('siteAccentColor', 'siteAccentColorText');
+  syncColorPicker('siteBgColor',     'siteBgColorText');
+
+  // Category list editor
+  let _siteCategories = [];
+
+  function renderCategories() {
+    const container = document.getElementById('siteCategoriesList');
+    if (!container) return;
+    container.innerHTML = _siteCategories.map((cat, i) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" data-cat-idx="${i}">
+        <input type="text" class="form-control" value="${escHtml(cat.name)}" data-cat-name="${i}"
+               style="flex:1;max-width:200px;" placeholder="Category name" />
+        <input type="color" value="${cat.color || '#7c3aed'}" data-cat-color="${i}"
+               style="width:36px;height:30px;border:none;background:none;cursor:pointer;" />
+        <input type="text" class="form-control" value="${cat.color || '#7c3aed'}" data-cat-color-text="${i}"
+               style="width:90px;font-family:monospace;font-size:12px;" />
+        <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
+      </div>
+    `).join('');
+
+    // Bind events
+    container.querySelectorAll('[data-cat-name]').forEach(el => {
+      el.addEventListener('input', () => {
+        _siteCategories[Number(el.dataset.catName)].name = el.value;
+      });
+    });
+    container.querySelectorAll('[data-cat-color]').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = Number(el.dataset.catColor);
+        _siteCategories[idx].color = el.value;
+        const textEl = container.querySelector(`[data-cat-color-text="${idx}"]`);
+        if (textEl) textEl.value = el.value;
+      });
+    });
+    container.querySelectorAll('[data-cat-color-text]').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = Number(el.dataset.catColorText);
+        if (/^#[0-9a-f]{6}$/i.test(el.value)) {
+          _siteCategories[idx].color = el.value;
+          const picker = container.querySelector(`[data-cat-color="${idx}"]`);
+          if (picker) picker.value = el.value;
+        }
+      });
+    });
+    container.querySelectorAll('[data-cat-remove]').forEach(el => {
+      el.addEventListener('click', () => {
+        _siteCategories.splice(Number(el.dataset.catRemove), 1);
+        renderCategories();
+      });
+    });
+  }
+
+  document.getElementById('addCategoryBtn')?.addEventListener('click', () => {
+    _siteCategories.push({ name: '', color: '#7c3aed' });
+    renderCategories();
+  });
+
+  function loadSiteSettings(settings) {
+    for (const f of SITE_FIELDS) {
+      const el = document.getElementById(f.id);
+      if (el) el.value = settings[f.key] || '';
+    }
+    // Colors
+    const accent = settings.site_accent_color || '#4F8EF7';
+    const bg     = settings.site_bg_color || '#0d1117';
+    const accentPicker = document.getElementById('siteAccentColor');
+    const accentText   = document.getElementById('siteAccentColorText');
+    const bgPicker     = document.getElementById('siteBgColor');
+    const bgText       = document.getElementById('siteBgColorText');
+    if (accentPicker) accentPicker.value = accent;
+    if (accentText)   accentText.value   = accent;
+    if (bgPicker)     bgPicker.value     = bg;
+    if (bgText)       bgText.value       = bg;
+
+    // Categories
+    try {
+      _siteCategories = JSON.parse(settings.site_categories || '[]');
+    } catch { _siteCategories = []; }
+    renderCategories();
+
+    // Logo preview
+    if (logoPreview && settings.site_logo_html) {
+      logoPreview.innerHTML = settings.site_logo_html;
+    }
+  }
+
+  document.getElementById('saveSiteSettingsBtn')?.addEventListener('click', async function () {
+    const payload = {};
+    for (const f of SITE_FIELDS) {
+      const el = document.getElementById(f.id);
+      if (el) payload[f.key] = el.value;
+    }
+    payload.site_accent_color = document.getElementById('siteAccentColorText')?.value || '#4F8EF7';
+    payload.site_bg_color     = document.getElementById('siteBgColorText')?.value || '#0d1117';
+
+    // Clean up categories — remove empty names
+    const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
+    payload.site_categories = JSON.stringify(cleanCats);
+
+    const statusEl = document.getElementById('siteSettingsStatus');
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      statusEl.textContent = '✅ Site settings saved';
+      showAlert('Site settings saved ✓');
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+      showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'Save Site Settings';
+    }
+  });
+
   // ── Extend loadSettings to include all setting sections ───────────
   const _origLoadSettings = loadSettings;
   loadSettings = async function() {
@@ -295,6 +448,7 @@ let apiKeyVisible = false;
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
+      loadSiteSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }

@@ -10,6 +10,7 @@ const { auth: requireAdmin } = require('../middleware/auth');
 const { asyncHandler }       = require('../lib/utils');
 const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
+const { bustSiteConfigCache } = require('../lib/site-config');
 
 // GET /api/settings — return all settings as key/value object (decrypt sensitive values)
 router.get('/', requireAdmin, asyncHandler(async (req, res) => {
@@ -27,7 +28,9 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   if (!body) return;
 
   const pool = getPool();
+  let hasSiteKey = false;
   for (const [key, value] of Object.entries(body)) {
+    if (key.startsWith('site_')) hasSiteKey = true;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
     await pool.query(
       `INSERT INTO settings (key, value, updated_at)
@@ -36,6 +39,8 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
       [key, stored]
     );
   }
+
+  if (hasSiteKey) bustSiteConfigCache();
 
   const rows = await db.prepare('SELECT key, value FROM settings').all();
   const result = {};
