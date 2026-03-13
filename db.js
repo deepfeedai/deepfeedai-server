@@ -315,6 +315,21 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('site_ai_persona', 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_newsletter_subject', '🤖 Deep Feed AI — Your Weekly AI Digest') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_email_from_name', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
+    // Writer persona columns on voices
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS bio TEXT`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS beat TEXT`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS keywords TEXT[]`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS system_prompt TEXT`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS is_auto BOOLEAN DEFAULT false`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_schedule TEXT DEFAULT 'daily'`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_lookback_hours INTEGER DEFAULT 168`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 3`,
+    // Writer persona columns on articles
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS writer_id INTEGER REFERENCES voices(id) ON DELETE SET NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS full_content TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
