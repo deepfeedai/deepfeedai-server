@@ -16,6 +16,7 @@ const express          = require('express');
 const router           = express.Router();
 const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
+const { logUsage } = require('../lib/ai-usage');
 
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_IMAGE_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
@@ -68,6 +69,7 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   const prompt = buildPrompt(title, category);
+  const _start = Date.now();
 
   const upstream = await fetch(`${GEMINI_IMAGE_URL}?key=${apiKey}`, {
     method:  'POST',
@@ -81,6 +83,7 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!upstream.ok) {
     const err = await upstream.text();
     console.error('[thumbnail] Gemini error:', err);
+    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: err }).catch(() => {});
     return res.status(upstream.status).json({ error: 'Image generation failed.' });
   }
 
@@ -90,9 +93,11 @@ router.get('/', asyncHandler(async (req, res) => {
 
   if (!img?.inlineData?.data) {
     console.error('[thumbnail] No image in Gemini response');
+    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: 'No image in response' }).catch(() => {});
     return res.status(502).json({ error: 'No image returned from Gemini.' });
   }
 
+  logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 1, durationMs: Date.now() - _start }).catch(() => {});
   const result = { image: img.inlineData.data, mimeType: img.inlineData.mimeType || 'image/png' };
   await setCached(key, result);
 

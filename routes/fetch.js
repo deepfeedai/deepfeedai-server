@@ -10,6 +10,7 @@ const { auth }           = require('../middleware/auth');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
+const { logUsage } = require('../lib/ai-usage');
 
 const parser = new RSSParser();
 
@@ -146,9 +147,14 @@ const LIVE_PAGE_SIZE = 20;
 async function fetchNewsAPIArticles(apiKey) {
   const q   = encodeURIComponent(AI_QUERY);
   const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=${LIVE_PAGE_SIZE}&apiKey=${apiKey}`;
+  const _start = Date.now();
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
+  if (!res.ok) {
+    logUsage({ provider: 'newsapi', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+    throw new Error(`NewsAPI ${res.status}`);
+  }
   const data = await res.json();
+  logUsage({ provider: 'newsapi', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start }).catch(() => {});
   return (data.articles || [])
     .filter(a => a.title && a.title !== '[Removed]' && a.url)
     .map(a => ({
@@ -165,12 +171,17 @@ async function fetchNewsAPIArticles(apiKey) {
 async function fetchBraveArticles(apiKey) {
   const q   = encodeURIComponent(BRAVE_QUERY);
   const url = `https://api.search.brave.com/res/v1/news/search?q=${q}&count=${LIVE_PAGE_SIZE}&search_lang=en&freshness=pd`;
+  const _start = Date.now();
   const res = await fetch(url, {
     headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Brave API ${res.status}`);
+  if (!res.ok) {
+    logUsage({ provider: 'brave', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+    throw new Error(`Brave API ${res.status}`);
+  }
   const data = await res.json();
+  logUsage({ provider: 'brave', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start }).catch(() => {});
   return (data.results || [])
     .filter(a => a.title && a.url)
     .map(a => ({
