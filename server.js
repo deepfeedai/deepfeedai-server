@@ -132,6 +132,9 @@ app.use('/api/favorites',         require('./routes/favorites'));            // 
 app.use('/api/article-reactions', require('./routes/article-reactions'));    // user — article 👍❤️ reactions
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
+const { auth } = require('./middleware/auth');
+app.use('/api/synthesis', auth, require('./routes/synthesis'));
+
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
@@ -291,6 +294,23 @@ cron.schedule('0 2 * * *', async () => {
     if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days`);
   } catch (e) {
     console.error('[AutoPurge] Error:', e.message);
+  }
+});
+
+// ── Cron: daily synthesis for auto-writers (6 AM UTC) ───────────────
+cron.schedule('0 6 * * *', async () => {
+  console.log('[Cron] Running daily synthesis...');
+  try {
+    const { runSynthesisForWriter } = require('./lib/synthesis');
+    const writers = await db.prepare('SELECT id, name FROM voices WHERE is_auto = true').all();
+    for (const w of writers) {
+      const result = await runSynthesisForWriter(w.id);
+      if (result.generated > 0) {
+        console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
+      }
+    }
+  } catch (e) {
+    console.error('[Cron] Synthesis error:', e.message);
   }
 });
 
