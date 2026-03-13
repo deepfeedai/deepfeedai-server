@@ -11,6 +11,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getSiteConfig } = require('../lib/site-config');
+const { logUsage } = require('../lib/ai-usage');
 
 function escHtml(str) {
   return String(str || '')
@@ -36,6 +37,7 @@ router.post('/', async (req, res) => {
     const siteName = site.name || 'Deep Feed AI';
     const domain   = site.domain || 'deepfeedai.com';
 
+    const _start = Date.now();
     const emailRes = await fetch('https://api.resend.com/emails', {
       method:  'POST',
       headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
@@ -61,9 +63,11 @@ router.post('/', async (req, res) => {
     if (!emailRes.ok) {
       const err = await emailRes.text();
       console.error('[contact] Resend error:', err);
+      logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start, success: false, error: err }).catch(() => {});
       return res.status(500).json({ error: 'Failed to send message' });
     }
 
+    logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start }).catch(() => {});
     return res.status(200).json({ success: true });
 
   } catch (err) {

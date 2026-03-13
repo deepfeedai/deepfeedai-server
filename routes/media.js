@@ -17,6 +17,7 @@ const { decryptSetting }     = require('../lib/crypto');
 const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const EL_VOICE_ID   = process.env.ELEVENLABS_VOICE_ID;
 const { getPool }   = require('../db');
+const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
 const AUDIO_DIR     = path.join(__dirname, '..', 'public', 'media', 'audio');
 const MAX_CHARS     = 900;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -55,13 +56,19 @@ Article summary: ${(rawSummary || '').replace(/<[^>]+>/g, '').slice(0, 800)}
 Spoken summary:`;
 
   try {
+    const _start = Date.now();
     const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'audio-script', trigger: 'manual', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+      return null;
+    }
     const data = await res.json();
+    const _tokens = extractGeminiTokens(data);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'audio-script', trigger: 'manual', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
     return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch { return null; }
 }
@@ -193,7 +200,9 @@ router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
     if (apiKeySetting && apiKeySetting.value) resolvedApiKey = decryptSetting(apiKeySetting.value);
 
     const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI');
+    const _elStart = Date.now();
     const mp3Buf   = await generateSpeech(text, resolvedVoiceId, resolvedApiKey);
+    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', characters: text.length, durationMs: Date.now() - _elStart }).catch(() => {});
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;
     const audioUrl = await storeAudio(mp3Buf, filename);
@@ -209,6 +218,7 @@ router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
   } catch (err) {
     await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = $1").run(articleId);
     console.error('[Media] Error:', err.message);
+    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message }).catch(() => {});
     res.status(500).json({ error: err.message });
   }
 }));
@@ -251,13 +261,19 @@ Category: ${category || 'Technology'}
 Specific visual concept for this article:`;
 
   try {
+    const _start = Date.now();
     const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'thumbnail-concept', trigger: 'manual', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+      return null;
+    }
     const data = await res.json();
+    const _tokens = extractGeminiTokens(data);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'thumbnail-concept', trigger: 'manual', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
     return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch { return null; }
 }
@@ -322,6 +338,7 @@ router.post('/generate-image', auth, asyncHandler(async (req, res) => {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
+    const _imgStart = Date.now();
 
     let imagenRes;
     try {
@@ -345,12 +362,15 @@ router.post('/generate-image', auth, asyncHandler(async (req, res) => {
 
     if (!imagenRes.ok) {
       const errBody = await imagenRes.text().catch(() => '');
+      logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'thumbnail-render', articleSlug: article.slug, trigger: 'manual', imageCount: 0, durationMs: Date.now() - _imgStart, success: false, error: `${imagenRes.status}: ${errBody.slice(0, 200)}` }).catch(() => {});
       throw new Error(`Imagen API ${imagenRes.status}: ${errBody.slice(0, 300)}`);
     }
 
     const imagenData = await imagenRes.json();
     const b64 = imagenData?.predictions?.[0]?.bytesBase64Encoded;
     if (!b64) throw new Error('Imagen returned no image data');
+
+    logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'thumbnail-render', articleSlug: article.slug, trigger: 'manual', imageCount: 1, durationMs: Date.now() - _imgStart }).catch(() => {});
 
     const pngBuf  = Buffer.from(b64, 'base64');
     const randHex  = require('crypto').randomBytes(8).toString('hex');

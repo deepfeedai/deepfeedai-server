@@ -19,6 +19,7 @@ const { getPool }      = require('../db');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
 const { getSiteConfig } = require('../lib/site-config');
+const { logUsage } = require('../lib/ai-usage');
 
 const TOP_N = 8; // articles to include per newsletter
 
@@ -80,6 +81,7 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   }
 
   // Create broadcast
+  const _nlStart = Date.now();
   const createRes = await fetch('https://api.resend.com/broadcasts', {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
@@ -95,6 +97,7 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   if (!createRes.ok) {
     const err = await createRes.text();
     console.error('[newsletter] create broadcast failed:', err);
+    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err }).catch(() => {});
     return res.status(500).json({ error: 'Failed to create broadcast', detail: err });
   }
 
@@ -110,8 +113,11 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   if (!sendRes.ok) {
     const err = await sendRes.text();
     console.error('[newsletter] send broadcast failed:', err);
+    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err }).catch(() => {});
     return res.status(500).json({ error: 'Failed to send broadcast', detail: err });
   }
+
+  logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', emailCount: articles.length, durationMs: Date.now() - _nlStart }).catch(() => {});
 
   // Log to DB
   try {

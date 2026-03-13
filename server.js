@@ -133,6 +133,7 @@ app.use('/api/article-reactions', require('./routes/article-reactions'));    // 
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
 const { auth } = require('./middleware/auth');
+app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/synthesis', auth, require('./routes/synthesis'));
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
