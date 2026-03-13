@@ -1,5 +1,6 @@
 let articles = [];
   let allArticles = []; // full list including archived
+  let writersList = []; // cached writers for dropdown
   let deleteTargetId = null;
   let sortCol = 'published_at';
   let sortDir = 'desc';
@@ -148,7 +149,7 @@ let articles = [];
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="9">
+      tbody.innerHTML = `<tr><td colspan="11">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
       document.getElementById('articlesPagination').innerHTML = '';
@@ -200,6 +201,7 @@ let articles = [];
             </select>
           </div>`}
         </td>
+        <td class="text-muted text-sm">${(() => { const w = writersList.find(x => x.id === a.writer_id); return w ? escHtml(w.name) : '<span style="color:var(--muted);">—</span>'; })()}</td>
         <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
           ${isArchived ? '—' : renderImageCell(a)}
@@ -507,10 +509,23 @@ let articles = [];
     applyFilters();
   }
 
+  async function loadWriters() {
+    try {
+      writersList = await apiFetch('/writers');
+    } catch { writersList = []; }
+  }
+
+  function populateWriterSelect(selectedId) {
+    const sel = document.getElementById('fWriter');
+    sel.innerHTML = '<option value="">Unassigned</option>' +
+      writersList.map(w => `<option value="${w.id}"${w.id === selectedId ? ' selected' : ''}>${escHtml(w.name)}</option>`).join('');
+  }
+
   async function loadArticles() {
     const tbody = document.getElementById('articlesBody');
-    if (tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
+    if (tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
+      await loadWriters();
       allArticles = await apiFetch('/articles');
       applyFilters();
     } catch (err) {
@@ -532,6 +547,7 @@ let articles = [];
     document.getElementById('fImageUrl').value = '';
     document.getElementById('fPublished').checked = true;
     document.getElementById('fFeatured').checked = false;
+    populateWriterSelect(null);
     openModal('articleModal');
     document.getElementById('fAutoUrl').focus();
   }
@@ -591,6 +607,7 @@ let articles = [];
     document.getElementById('fImageUrl').value = a.image_url || '';
     document.getElementById('fPublished').checked = !!a.is_published;
     document.getElementById('fFeatured').value = a.is_featured ? (a.featured_priority || 1) : 0;
+    populateWriterSelect(a.writer_id || null);
     openModal('articleModal');
     document.getElementById('fTitle').focus();
   }
@@ -618,15 +635,23 @@ let articles = [];
       featured_priority : parseInt(document.getElementById('fFeatured').value) || null,
     };
 
+    const writerVal = document.getElementById('fWriter').value;
+    const writerId = writerVal ? parseInt(writerVal) : null;
+
     try {
       const saveBtn = document.getElementById('saveArticleBtn');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
+      let saved;
       if (id) {
-        await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        saved = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+        await apiFetch(`/articles/${id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
         showAlert('Article updated ✓');
       } else {
-        await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
+        saved = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
+        if (saved && saved.id) {
+          await apiFetch(`/articles/${saved.id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
+        }
         showAlert('Article created ✓');
       }
       closeModal('articleModal');

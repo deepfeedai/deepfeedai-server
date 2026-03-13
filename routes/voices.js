@@ -105,32 +105,59 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   const body = validate(voiceCreate, req.body, res);
   if (!body) return;
 
-  const { name, voice_id, description, is_default } = body;
+  const { name, voice_id, description, is_default,
+          bio, beat, keywords, system_prompt, is_auto, slug,
+          synthesis_schedule, synthesis_lookback_hours, min_cluster_size } = body;
 
   if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
-  await db.prepare(
-    'INSERT INTO voices (name, voice_id, description, is_default) VALUES ($1, $2, $3, $4)'
-  ).run(name, voice_id, description || '', is_default ? 1 : 0);
-
-  const voice = await db.prepare('SELECT * FROM voices ORDER BY id DESC LIMIT 1').get();
+  const voice = await db.prepare(`
+    INSERT INTO voices (name, voice_id, description, is_default,
+      bio, beat, keywords, system_prompt, is_auto, slug,
+      synthesis_schedule, synthesis_lookback_hours, min_cluster_size)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    RETURNING *
+  `).get(
+    name, voice_id, description || '', is_default ? 1 : 0,
+    bio || null, beat || null, keywords.length ? keywords : null,
+    system_prompt || null, is_auto || false, slug || null,
+    synthesis_schedule, synthesis_lookback_hours, min_cluster_size
+  );
   res.json(voice);
 }));
 
 // PUT /api/voices/:id
 router.put('/:id', auth, asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const existing = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  if (!existing) return res.status(404).json({ error: 'Voice not found' });
+
   const body = validate(voiceUpdate, req.body, res);
   if (!body) return;
 
-  const { name, voice_id, description, is_default } = body;
+  const { name, voice_id, description, is_default,
+          bio, beat, keywords, system_prompt, is_auto, slug,
+          synthesis_schedule, synthesis_lookback_hours, min_cluster_size } = body;
 
   if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
-  await db.prepare(
-    'UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4 WHERE id = $5'
-  ).run(name, voice_id, description || '', is_default ? 1 : 0, id);
-
-  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
-  if (!voice) return res.status(404).json({ error: 'Voice not found' });
+  const voice = await db.prepare(`
+    UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4,
+      bio = $5, beat = $6, keywords = $7, system_prompt = $8, is_auto = $9, slug = $10,
+      synthesis_schedule = $11, synthesis_lookback_hours = $12, min_cluster_size = $13
+    WHERE id = $14
+    RETURNING *
+  `).get(
+    name, voice_id, description || '', is_default ? 1 : 0,
+    bio !== undefined ? (bio || null) : existing.bio,
+    beat !== undefined ? (beat || null) : existing.beat,
+    keywords !== undefined ? (keywords.length ? keywords : null) : existing.keywords,
+    system_prompt !== undefined ? (system_prompt || null) : existing.system_prompt,
+    is_auto !== undefined ? (is_auto || false) : existing.is_auto,
+    slug !== undefined ? (slug || null) : existing.slug,
+    synthesis_schedule !== undefined ? synthesis_schedule : existing.synthesis_schedule,
+    synthesis_lookback_hours !== undefined ? synthesis_lookback_hours : existing.synthesis_lookback_hours,
+    min_cluster_size !== undefined ? min_cluster_size : existing.min_cluster_size,
+    id
+  );
   res.json(voice);
 }));
 
