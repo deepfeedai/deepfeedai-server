@@ -4,11 +4,11 @@
  * POST /api/analytics/event  — public; records view/audio_play/share events
  * GET  /api/analytics/summary — auth required; returns dashboard aggregates
  */
-const express      = require('express');
-const router       = express.Router();
-const { getPool }  = require('../db');
-const auth         = require('../middleware/auth');
-const asyncHandler = require('../lib/async-handler');
+const express                        = require('express');
+const router                         = express.Router();
+const { getPool }                    = require('../db');
+const { auth }                       = require('../middleware/auth');
+const { asyncHandler }               = require('../lib/utils');
 
 const VALID_TYPES   = new Set(['view', 'audio_play', 'share']);
 const RATE_LIMIT_MS = 60 * 60 * 1000; // 1 hour per slug+type
