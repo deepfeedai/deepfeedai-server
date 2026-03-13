@@ -269,6 +269,17 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_type             TEXT DEFAULT 'rss'`,
     // Featured articles priority (1–3); NULL = not featured
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured_priority       INTEGER DEFAULT NULL`,
+    // Analytics events — lightweight time-series for views, audio plays, shares
+    `CREATE TABLE IF NOT EXISTS analytics_events (
+      id           SERIAL PRIMARY KEY,
+      event_type   TEXT        NOT NULL,
+      article_slug TEXT,
+      category     TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_created  ON analytics_events (created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_slug     ON analytics_events (article_slug)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_type     ON analytics_events (event_type)`,
     // Lifecycle settings: seed defaults if not already present
     `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (key) DO NOTHING`,
