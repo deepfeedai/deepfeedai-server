@@ -38,16 +38,10 @@
   let currentRange = '30d';
 
   async function loadData() {
-    const token = localStorage.getItem('token');
-    if (!token) { window.location.href = '/login.html'; return; }
+    if (!requireAuth()) return;
 
     try {
-      const res = await fetch(`/api/ai-usage/summary?range=${currentRange}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (res.status === 401) { window.location.href = '/login.html'; return; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await apiFetch(`/ai-usage/summary?range=${currentRange}`);
       render(data);
     } catch (err) {
       console.error('[ai-usage] load error:', err);
