@@ -41,11 +41,51 @@
     if (!requireAuth()) return;
 
     try {
-      const data = await apiFetch(`/ai-usage/summary?range=${currentRange}`);
+      const [data] = await Promise.all([
+        apiFetch(`/ai-usage/summary?range=${currentRange}`),
+        loadElevenLabs(),
+      ]);
       render(data);
     } catch (err) {
       console.error('[ai-usage] load error:', err);
     }
+  }
+
+  async function loadElevenLabs() {
+    try {
+      const el = await apiFetch('/ai-usage/elevenlabs');
+      if (!el || !el.configured) return;
+      renderElevenLabs(el);
+    } catch (err) {
+      console.error('[ai-usage] elevenlabs error:', err);
+    }
+  }
+
+  function renderElevenLabs(el) {
+    document.getElementById('elCard').hidden = false;
+    const pct = el.character_limit > 0
+      ? Math.round((el.character_count / el.character_limit) * 1000) / 10
+      : 0;
+
+    document.getElementById('elTier').textContent =
+      (el.tier || 'free') + (el.status && el.status !== 'active' ? ' (' + el.status + ')' : '');
+    document.getElementById('elUsed').textContent =
+      fmt(el.character_count) + ' / ' + fmt(el.character_limit) + ' characters';
+    document.getElementById('elPct').textContent = pct + '% used';
+    document.getElementById('elVoices').textContent =
+      'Voices: ' + (el.voice_slots_used || 0) + ' / ' + (el.voice_limit || 0);
+
+    if (el.next_reset_unix) {
+      const resetDate = new Date(el.next_reset_unix * 1000);
+      const daysLeft = Math.ceil((resetDate - Date.now()) / 86400000);
+      document.getElementById('elReset').textContent =
+        'Resets in ' + daysLeft + 'd (' + (resetDate.getMonth() + 1) + '/' + resetDate.getDate() + ')';
+    }
+
+    const safePct = Math.min(pct, 100);
+    const fill = document.getElementById('elFill');
+    fill.style.width = safePct + '%';
+    fill.style.background = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#8B5CF6';
   }
 
   function render(data) {

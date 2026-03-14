@@ -11,9 +11,21 @@
  *     hot_score   = engagement / (age_hours + 2) ^ gravity
  */
 const express                              = require('express');
+const jwt                                  = require('jsonwebtoken');
 const router                               = express.Router();
 const { getPool }                          = require('../db');
+const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
+
+const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
+
+function getUserId(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  try {
+    return jwt.verify(authHeader.slice(7), USER_JWT_SECRET).sub;
+  } catch { return null; }
+}
 
 /** Compute hot score — same formula used in both /hot and enriched feed */
 function hotScore(commentCount, reactionCount, publishedAt) {
@@ -55,14 +67,23 @@ async function fetchEngagement(slugs) {
 }
 
 // GET /api/news
+// ?feed=following — filter to articles by writers the current user follows (requires Bearer token)
 router.get('/', asyncHandler(async (req, res) => {
-  const { category, limit: lim, featured, writer } = req.query;
+  const { category, limit: lim, featured, writer, feed } = req.query;
   let query = `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
                       v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
                FROM articles a
                LEFT JOIN voices v ON v.id = a.writer_id
                WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
   const params = [];
+
+  // "Following" feed: only articles by writers the user follows
+  if (feed === 'following') {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized — sign in to use the following feed' });
+    params.push(userId);
+    query += ` AND a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${params.length})`;
+  }
 
   if (category) {
     params.push(category);

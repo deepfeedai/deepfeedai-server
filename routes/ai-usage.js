@@ -4,10 +4,13 @@
  * All endpoints require admin auth.
  */
 const express = require('express');
+const https   = require('https');
 const router  = express.Router();
+const db      = require('../db');
 const { getPool } = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { getTodaySpend, getMonthlySpend } = require('../lib/ai-usage');
+const { decryptSetting } = require('../lib/crypto');
 
 // GET /api/ai-usage/summary?range=7d|30d|90d
 router.get('/summary', asyncHandler(async (req, res) => {
@@ -133,6 +136,51 @@ router.get('/recent', asyncHandler(async (req, res) => {
     FROM ai_usage ORDER BY created_at DESC LIMIT $1
   `, [limit]);
   res.json(rows.rows);
+}));
+
+// GET /api/ai-usage/elevenlabs — proxy ElevenLabs subscription usage
+router.get('/elevenlabs', asyncHandler(async (req, res) => {
+  // Resolve API key: DB setting (encrypted) → env var
+  let apiKey = process.env.ELEVENLABS_API_KEY;
+  try {
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
+    if (row?.value) apiKey = decryptSetting(row.value);
+  } catch { /* fall back to env */ }
+
+  if (!apiKey) return res.json({ configured: false });
+
+  const data = await new Promise((resolve, reject) => {
+    const req_ = https.request({
+      hostname: 'api.elevenlabs.io',
+      path: '/v1/user/subscription',
+      method: 'GET',
+      headers: { 'xi-api-key': apiKey },
+    }, (resp) => {
+      let raw = '';
+      resp.on('data', c => raw += c);
+      resp.on('end', () => {
+        try {
+          if (resp.statusCode >= 400) return reject(new Error(`ElevenLabs ${resp.statusCode}: ${raw.slice(0, 200)}`));
+          resolve(JSON.parse(raw));
+        } catch (e) { reject(e); }
+      });
+    });
+    req_.on('error', reject);
+    req_.setTimeout(8000, () => { req_.destroy(); reject(new Error('ElevenLabs timeout')); });
+    req_.end();
+  });
+
+  res.json({
+    configured: true,
+    tier: data.tier,
+    status: data.status,
+    character_count: data.character_count,
+    character_limit: data.character_limit,
+    next_reset_unix: data.next_character_count_reset_unix,
+    voice_slots_used: data.voice_slots_used,
+    voice_limit: data.voice_limit,
+    billing_period: data.character_refresh_period,
+  });
 }));
 
 module.exports = router;
