@@ -11,6 +11,28 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.13.0] — 2026-03-14
+
+### Added — Unified Category System
+- **`categories` table** — dedicated Postgres table replaces `site_categories` JSON blob in settings; columns: name (unique), color, keywords (TEXT[]), sort_order
+- **One-time seed migration** — existing categories auto-migrated from legacy JSON setting on first boot
+- **`GET /api/categories`** — public endpoint for frontend filter bar and admin dropdowns
+- **`PUT /api/categories`** — admin bulk save with rename/delete detection (auto-updates articles + writer beats)
+- **Fallback chain** — `lib/categories.js` falls back to legacy JSON if table is empty during transition
+- **Dynamic auto-categorization** — `lib/categorize.js` rewritten to async keyword-driven detection from the categories table
+- **Writer beat dropdown** — changed from free-text input to category `<select>` populated from `/api/categories`
+
+### Changed — Settings UX
+- **Per-panel save buttons** — every settings panel now has its own save button (Branding, Domain & URLs, Theme, Categories, AI & Newsletter, Analytics & Ads, Perspective API); removed the single combined "Save Site Settings" button that was on a different tab from the fields it saved
+- **OG Image upload** — replaced text URL input with file upload widget (same pattern as logo/favicon); stores to Cloudflare R2 as `branding/site-og.{ext}`
+- **Backend branding upload** — `POST /api/settings/logo` now supports `type: 'ogimage'` via configurable `BRANDING_TYPES` map
+
+### Removed
+- Hardcoded `CATEGORIES` arrays from `lib/schemas.js` and `public/admin.js`
+- Category JSON migration logic from `PUT /api/settings` (moved to `PUT /api/categories`)
+
+---
+
 ## [1.12.0] — 2026-03-14
 
 ### Added — Site Branding & Theme Customization
