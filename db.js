@@ -310,6 +310,10 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('site_ga_id', 'G-WEJ64FE38R') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_adsense_id', 'ca-pub-5739407654850583') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_categories', '${JSON.stringify([{"name":"LLMs","color":"#7c3aed"},{"name":"Image AI","color":"#0ea5e9"},{"name":"Research","color":"#22d3ee"},{"name":"Tools","color":"#34d399"},{"name":"Business","color":"#f59e0b"},{"name":"Policy","color":"#f97316"},{"name":"CyberSecurity","color":"#ef4444"},{"name":"Industry","color":"#94a3b8"}])}') ON CONFLICT (key) DO NOTHING`,
+    // AI budget settings
+    `INSERT INTO settings (key, value) VALUES ('ai_daily_budget', '5.00') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('ai_monthly_budget', '50.00') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('ai_budget_warn_pct', '80') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_accent_color', '#4F8EF7') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_bg_color', '#0d1117') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_ai_persona', 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.') ON CONFLICT (key) DO NOTHING`,
@@ -325,12 +329,49 @@ async function initDb() {
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_schedule TEXT DEFAULT 'daily'`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_lookback_hours INTEGER DEFAULT 168`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 3`,
+    // AI usage tracking table
+    `CREATE TABLE IF NOT EXISTS ai_usage (
+      id              SERIAL PRIMARY KEY,
+      provider        TEXT NOT NULL,
+      model           TEXT,
+      operation       TEXT NOT NULL,
+      article_slug    TEXT,
+      writer_id       INTEGER,
+      trigger         TEXT DEFAULT 'manual',
+      input_tokens    INTEGER,
+      output_tokens   INTEGER,
+      characters      INTEGER,
+      image_count     INTEGER,
+      email_count     INTEGER,
+      estimated_cost  NUMERIC(10,6),
+      duration_ms     INTEGER,
+      success         BOOLEAN DEFAULT true,
+      error_message   TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_provider  ON ai_usage (provider)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_operation ON ai_usage (operation)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_created   ON ai_usage (created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_writer    ON ai_usage (writer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_slug      ON ai_usage (article_slug)`,
     // Writer persona columns on articles
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS slug TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS writer_id INTEGER REFERENCES voices(id) ON DELETE SET NULL`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS full_content TEXT`,
+    // Editorial scoring for quality gate
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_score INTEGER`,
+    // Quality gate settings
+    `INSERT INTO settings (key, value) VALUES ('daily_publish_target', '20') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_editorial_scoring', '1') ON CONFLICT (key) DO NOTHING`,
+    // Phase 3: Full autonomy settings
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_live', '0') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_quality_gate', '1') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_enabled', '0') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (key) DO NOTHING`,
+    // TLDR column for writer analysis
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

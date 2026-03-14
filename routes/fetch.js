@@ -10,6 +10,9 @@ const { auth }           = require('../middleware/auth');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
+const { logUsage } = require('../lib/ai-usage');
+const { getEditorialScore } = require('../lib/quality-gate');
+const { onArticlePublished } = require('../lib/post-publish');
 
 const parser = new RSSParser();
 
@@ -51,18 +54,19 @@ async function fetchAllSources(autoPublish = false) {
         const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
         const author   = item.creator || item.author || null;
 
-        const publish = shouldAutoPublish && autoPublishedForSource < maxToPublish ? 1 : 0;
-        if (publish) autoPublishedForSource++;
+        const wantPublish = shouldAutoPublish && autoPublishedForSource < maxToPublish;
+        if (wantPublish) autoPublishedForSource++;
 
+        // Insert as unpublished; quality gate decides whether to publish
         await db.prepare(
           `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
-        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, publish, pubDate);
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8)`
+        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, pubDate);
         inserted++;
 
-        // Fire-and-forget writer auto-assignment
+        // Fire-and-forget: writer assignment + quality gate auto-publish
         try {
-          const inserted_row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
+          const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1').get(url);
           if (inserted_row) {
             const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary, category, source: source.name };
             (async () => {
@@ -73,7 +77,19 @@ async function fetchAllSources(autoPublish = false) {
                   const tldr = await generateWriterTldr(artObj, writer);
                   if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
                 }
-              } catch (e) { console.error('[fetch] auto-assign error:', e.message); }
+
+                if (wantPublish) {
+                  const gate = await getEditorialScore(inserted_row);
+                  await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2').run(gate.score, inserted_row.id);
+                  if (gate.publish) {
+                    await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
+                    if (gate.feature_worthy) {
+                      await db.prepare('UPDATE articles SET is_featured = 1 WHERE id = $1').run(inserted_row.id);
+                    }
+                    onArticlePublished(inserted_row.id).catch(() => {});
+                  }
+                }
+              } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
           }
         } catch { /* ignore */ }
@@ -146,9 +162,14 @@ const LIVE_PAGE_SIZE = 20;
 async function fetchNewsAPIArticles(apiKey) {
   const q   = encodeURIComponent(AI_QUERY);
   const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=${LIVE_PAGE_SIZE}&apiKey=${apiKey}`;
+  const _start = Date.now();
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`NewsAPI ${res.status}`);
+  if (!res.ok) {
+    logUsage({ provider: 'newsapi', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+    throw new Error(`NewsAPI ${res.status}`);
+  }
   const data = await res.json();
+  logUsage({ provider: 'newsapi', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start }).catch(() => {});
   return (data.articles || [])
     .filter(a => a.title && a.title !== '[Removed]' && a.url)
     .map(a => ({
@@ -165,12 +186,17 @@ async function fetchNewsAPIArticles(apiKey) {
 async function fetchBraveArticles(apiKey) {
   const q   = encodeURIComponent(BRAVE_QUERY);
   const url = `https://api.search.brave.com/res/v1/news/search?q=${q}&count=${LIVE_PAGE_SIZE}&search_lang=en&freshness=pd`;
+  const _start = Date.now();
   const res = await fetch(url, {
     headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
     signal: AbortSignal.timeout(10000),
   });
-  if (!res.ok) throw new Error(`Brave API ${res.status}`);
+  if (!res.ok) {
+    logUsage({ provider: 'brave', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start, success: false, error: `${res.status}` }).catch(() => {});
+    throw new Error(`Brave API ${res.status}`);
+  }
   const data = await res.json();
+  logUsage({ provider: 'brave', operation: 'news-fetch', trigger: 'cron', durationMs: Date.now() - _start }).catch(() => {});
   return (data.results || [])
     .filter(a => a.title && a.url)
     .map(a => ({
@@ -232,28 +258,41 @@ async function fetchLiveSources(autoPublish = false) {
     // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
     const category = detectCategory({ title: item.title, contentSnippet: item.summary });
 
-    const publish = autoPublish ? 1 : 0;
-
+    // Insert as unpublished first; quality gate decides whether to publish
     await db.prepare(
       `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`
-    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, publish, item.sourceType);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8)`
+    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType);
     inserted++;
 
-    // Fire-and-forget writer auto-assignment
+    // Fire-and-forget: writer assignment + quality gate auto-publish
     try {
-      const inserted_row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(item.url);
+      const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1').get(item.url);
       if (inserted_row) {
         const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary: item.summary, category, source: item.source };
         (async () => {
           try {
+            // Writer assignment
             const writer = await findBestWriter(artObj);
             if (writer) {
               await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, artObj.id);
               const tldr = await generateWriterTldr(artObj, writer);
               if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
             }
-          } catch (e) { console.error('[fetch] auto-assign error:', e.message); }
+
+            // Auto-publish with quality gate
+            if (autoPublish) {
+              const gate = await getEditorialScore(inserted_row);
+              await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2').run(gate.score, inserted_row.id);
+              if (gate.publish) {
+                await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
+                if (gate.feature_worthy) {
+                  await db.prepare('UPDATE articles SET is_featured = 1 WHERE id = $1').run(inserted_row.id);
+                }
+                onArticlePublished(inserted_row.id).catch(() => {});
+              }
+            }
+          } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
         })();
       }
     } catch { /* ignore */ }

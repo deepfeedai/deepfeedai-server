@@ -13,6 +13,8 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { getSiteConfig } = require('../lib/site-config');
+const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+const { canSpend } = require('../lib/budget');
 
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -91,6 +93,7 @@ router.get('/', asyncHandler(async (req, res) => {
     description ? `Context: ${description}` : '',
   ].filter(Boolean).join('\n');
 
+  const _start = Date.now();
   const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -103,10 +106,13 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!upstream.ok) {
     const err = await upstream.text();
     console.error('[Summary] Gemini error:', err);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'summary', trigger: 'page-load', durationMs: Date.now() - _start, success: false, error: err }).catch(() => {});
     return res.status(upstream.status).json({ error: 'Summary generation failed.' });
   }
 
   const data = await upstream.json();
+  const _tokens = extractGeminiTokens(data);
+  logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'summary', trigger: 'page-load', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
   const raw  = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
   if (!raw) return res.status(502).json({ error: 'No summary returned.' });
 
@@ -138,6 +144,10 @@ async function prewarmSummary(title, description) {
     const existing = await getCached(key);
     if (existing) return existing; // already cached
 
+    // Budget check for automated pre-warming
+    const budgetCheck = await canSpend('summary');
+    if (!budgetCheck.allowed) return null;
+
     const site = await getSiteConfig();
     const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
 
@@ -155,6 +165,7 @@ async function prewarmSummary(title, description) {
       description ? `Context: ${description.slice(0, 800)}` : '',
     ].filter(Boolean).join('\n');
 
+    const _pwStart = Date.now();
     const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -163,9 +174,14 @@ async function prewarmSummary(title, description) {
         generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
       }),
     });
-    if (!upstream.ok) return null;
+    if (!upstream.ok) {
+      logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'summary', trigger: 'auto-assign', durationMs: Date.now() - _pwStart, success: false, error: `${upstream.status}` }).catch(() => {});
+      return null;
+    }
 
     const data = await upstream.json();
+    const _pwTokens = extractGeminiTokens(data);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'summary', trigger: 'auto-assign', inputTokens: _pwTokens.promptTokenCount, outputTokens: _pwTokens.candidatesTokenCount, durationMs: Date.now() - _pwStart }).catch(() => {});
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!raw) return null;
 

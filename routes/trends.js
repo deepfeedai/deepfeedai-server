@@ -16,6 +16,7 @@ const express          = require('express');
 const router           = express.Router();
 const { getPool }      = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
+const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
 
 const CACHE_TTL_HOURS = 2;
 
@@ -78,6 +79,7 @@ async function extractCompaniesParallel(articles) {
     const prompt = `Extract ONLY AI/tech company names from these article excerpts. Return a comma-separated list (e.g., OpenAI, Anthropic, Google). No explanations. If none, return "NONE".\n\n${texts}`;
 
     try {
+      const _start = Date.now();
       const resp = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
         {
@@ -90,8 +92,13 @@ async function extractCompaniesParallel(articles) {
           signal: AbortSignal.timeout(12000),
         }
       );
-      if (!resp.ok) return [];
+      if (!resp.ok) {
+        logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', durationMs: Date.now() - _start, success: false, error: `${resp.status}` }).catch(() => {});
+        return [];
+      }
       const data = await resp.json();
+      const _tokens = extractGeminiTokens(data);
+      logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
       const out = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       if (!out || out.toUpperCase().trim() === 'NONE') return [];
       return out.split(',').map(c => c.trim()).filter(c => c.length > 1 && c.length < 60);

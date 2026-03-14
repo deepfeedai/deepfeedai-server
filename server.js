@@ -133,6 +133,7 @@ app.use('/api/article-reactions', require('./routes/article-reactions'));    // 
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
 const { auth } = require('./middleware/auth');
+app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/synthesis', auth, require('./routes/synthesis'));
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
@@ -191,8 +192,10 @@ cron.schedule('0 * * * *', async () => {
   if (!process.env.NEWS_API_KEY && !process.env.BRAVE_API_KEY) return;
   console.log('[Cron] Auto-fetching live news sources...');
   try {
-    const result = await fetchLiveSources(false);
-    console.log(`[Cron] Live news done — ${result.inserted} new, ${result.skipped} skipped`);
+    const autoPublishSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_publish_live'").get();
+    const autoPublish = autoPublishSetting?.value === '1';
+    const result = await fetchLiveSources(autoPublish);
+    console.log(`[Cron] Live news done — ${result.inserted} new, ${result.skipped} skipped (auto-publish: ${autoPublish})`);
     if (result.errors.length) console.warn('[Cron] Live news errors:', result.errors);
   } catch (e) {
     console.error('[Cron] Live news error:', e.message);
@@ -297,20 +300,102 @@ cron.schedule('0 2 * * *', async () => {
   }
 });
 
-// ── Cron: daily synthesis for auto-writers (6 AM UTC) ───────────────
-cron.schedule('0 6 * * *', async () => {
-  console.log('[Cron] Running daily synthesis...');
+// ── Cron: synthesis scheduler — runs hourly, honors each writer's synthesis_schedule ──
+cron.schedule('0 * * * *', async () => {
   try {
     const { runSynthesisForWriter } = require('./lib/synthesis');
-    const writers = await db.prepare('SELECT id, name FROM voices WHERE is_auto = true').all();
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM voices WHERE is_auto = true').all();
+    const hour = new Date().getUTCHours();
+    const dow  = new Date().getUTCDay(); // 0 = Sunday, 1 = Monday
+
     for (const w of writers) {
+      const schedule = w.synthesis_schedule || 'daily';
+
+      // Determine if this writer should run at this hour
+      let shouldRun = false;
+      if (schedule === 'daily')       shouldRun = (hour === 6);
+      else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
+      else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1); // Monday 6 AM
+      // 'manual' — never auto-run
+
+      if (!shouldRun) continue;
+
+      console.log(`[Cron] Running ${schedule} synthesis for ${w.name}...`);
       const result = await runSynthesisForWriter(w.id);
       if (result.generated > 0) {
         console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
+      } else if (result.skipped) {
+        console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
       }
     }
   } catch (e) {
     console.error('[Cron] Synthesis error:', e.message);
+  }
+});
+
+// ── Cron: daily budget alert check (9 AM UTC) ───────────────────────
+cron.schedule('0 9 * * *', async () => {
+  try {
+    const { checkBudgetAlerts } = require('./lib/budget');
+    const alert = await checkBudgetAlerts();
+    if (!alert.warn) return;
+
+    // Only send once per day per level — check if we already sent today
+    const today = new Date().toISOString().slice(0, 10);
+    const alreadySent = await db.prepare(
+      `SELECT id FROM ai_usage
+       WHERE operation = 'email' AND trigger = 'cron'
+         AND error_message IS NULL
+         AND created_at >= $1::DATE
+       LIMIT 1`
+    ).get(today);
+    if (alreadySent) return;
+
+    const { sendBudgetAlert } = require('./lib/notify');
+    await sendBudgetAlert(alert);
+    console.log(`[Cron] Budget alert sent: ${alert.level} (${alert.pctUsed}%)`);
+  } catch (e) {
+    console.error('[Cron] Budget alert error:', e.message);
+  }
+});
+
+// ── Cron: auto-audio generation (daily at 8 AM UTC) ─────────────────
+cron.schedule('0 8 * * *', async () => {
+  try {
+    const enabledSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_audio_enabled'").get();
+    if (enabledSetting?.value !== '1') return;
+
+    const maxSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_audio_daily_max'").get();
+    const dailyMax = parseInt(maxSetting?.value) || 3;
+
+    // Find top articles without audio: featured, high editorial score, or original content
+    const candidates = await db.prepare(`
+      SELECT id, title FROM articles
+      WHERE is_published = 1 AND is_archived = 0
+        AND (audio_status IS NULL OR audio_status = '')
+        AND created_at > NOW() - INTERVAL '3 days'
+      ORDER BY
+        is_featured DESC,
+        editorial_score DESC NULLS LAST,
+        CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT $1
+    `).all(dailyMax);
+
+    if (!candidates.length) return;
+
+    const { generateAudioForArticle } = require('./lib/media-helpers');
+    let generated = 0;
+    for (const article of candidates) {
+      const result = await generateAudioForArticle(article.id);
+      if (result) {
+        generated++;
+        console.log(`[Cron] Auto-audio: "${article.title}" (${result.charCount} chars)`);
+      }
+    }
+    if (generated) console.log(`[Cron] Auto-audio: generated ${generated}/${candidates.length}`);
+  } catch (e) {
+    console.error('[Cron] Auto-audio error:', e.message);
   }
 });
 

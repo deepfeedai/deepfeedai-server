@@ -5,6 +5,7 @@ const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
+const { onArticlePublished } = require('../lib/post-publish');
 
 // GET /api/articles
 router.get('/', auth, asyncHandler(async (req, res) => {
@@ -286,6 +287,7 @@ router.put('/:id/publish', auth, asyncHandler(async (req, res) => {
   if (!article) return res.status(404).json({ error: 'Article not found' });
   const newVal = article.is_published ? 0 : 1;
   await db.prepare('UPDATE articles SET is_published = $1, updated_at = NOW() WHERE id = $2').run(newVal, req.params.id);
+  if (newVal === 1) onArticlePublished(article.id).catch(() => {});
   res.json({ id: article.id, is_published: newVal });
 }));
 
