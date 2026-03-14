@@ -14,169 +14,167 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
-## [3.1.0] — 2026-03-10
+## [1.10.0] — 2026-03-14
 
-### Added
-- **AI-generated article thumbnails** — new `POST /api/media/generate-image` endpoint in `routes/media.js`
-  - Accepts `{ articleId }`, fetches the article from DB, and runs a two-step AI pipeline
-  - **Step 1 — Gemini visual concept:** uses `gemini-2.5-flash-lite` to write a short (≤40 words) abstract, cinematic visual concept for the article based on title, summary, and category
-  - **Step 2 — Imagen 3 generation:** calls `imagen-3.0-generate-002` with the visual concept combined with a category-specific style preset (LLMs, Research, Tools, Policy, Business, CyberSecurity, Image AI, Industry, Agents, Hardware) at 16:9 aspect ratio
-  - **Storage:** uploads PNG to Cloudflare R2 (`images/article-{id}.png`) when R2 is configured; falls back to local `public/media/images/` in dev
-  - **DB update:** saves CDN/local URL to `articles.image_url`; main site picks up the new image automatically on next load
-  - Includes 30-second timeout on Imagen API call; falls back to title-based prompt if Gemini concept step fails
-- **🎨 Generate AI image button** in admin articles table — appears on all non-archived articles in the actions column; shows ⏳ spinner while generating, restores on error
+### Added — Phase 4: Writer Follows & Following Feed
+- **`writer_follows` table** — `(id, user_id FK→public_users, writer_id FK→voices, created_at, UNIQUE(user_id, writer_id))`; auto-created via migration in `db.js`
+- **`POST /api/writers/:slug/follow`** — follow a writer (JWT auth); creates `writer_follows` row; returns updated `follower_count`
+- **`DELETE /api/writers/:slug/follow`** — unfollow a writer (JWT auth); removes row; returns updated `follower_count`
+- **`GET /api/writers/following`** — list writers the authenticated user follows
+- **`is_following` annotation** — `GET /api/writers` and `GET /api/writers/:slug` now include `is_following: true/false` when a Bearer token is present
+- **`follower_count`** — writer list and detail endpoints include follower count via `LEFT JOIN` on `writer_follows`
+- **Following feed** — `GET /api/news?feed=following` filters articles to writers the authenticated user follows
+- **Follow notifications** — `createNewArticleNotification(writerId, articleSlug, articleTitle)` added to `routes/notifications.js`; synthesis pipeline notifies followers when a writer publishes an original article
+- **ElevenLabs subscription usage card** — AI Usage dashboard now shows ElevenLabs monthly character usage alongside Gemini/Imagen costs
 
 ---
 
-## [3.1.0] — 2026-03-10
+## [1.9.0] — 2026-03-14
+
+### Added — Phase 1: AI Usage Tracking & Cost Dashboard
+- **`ai_usage` table** — logs every AI API call with provider, model, operation, token counts, estimated cost, and metadata; auto-created via migration in `db.js`
+- **`lib/ai-usage.js`** — `logUsage()` helper with `estimateCost()` pricing for Gemini, Imagen, and ElevenLabs models; `extractGeminiTokens()` for automatic token extraction from API responses
+- **14 API call sites instrumented** — `logUsage().catch(() => {})` added after every AI API response across `routes/summary.js` (2), `routes/media.js` (3), `routes/thumbnail.js` (1), `routes/trends.js` (1), `lib/synthesis.js` (1), `lib/writer-assign.js` (1), `lib/notify.js` (1), `routes/newsletter.js` (1), `routes/contact.js` (1), `routes/fetch.js` (2)
+- **`GET /api/ai-usage/summary`** — dashboard API with `?range=7d|30d|90d`; returns totals by provider, operation, and day with budget status
+- **AI Usage admin page** (`public/ai-usage.html` + `public/ai-usage-page.js`) — cost breakdown charts, daily spend, per-operation breakdown, budget warnings
+- **AI Usage nav link** — added to sidebar on all admin pages
+- **Settings seeded** — `ai_daily_budget`, `ai_budget_warn_pct` defaults added to `db.js`
+
+### Added — Phase 2: Synthesis & Writer Pipeline Improvements
+- **Beat-scoped synthesis** — `runSynthesisForWriter()` now filters articles by `writer_id`; falls back to unassigned articles in the writer's beat category if below `min_cluster_size`
+- **Quality gate + editorial scoring** — new `lib/quality-gate.js` with `getEditorialScore(article)` returning `{ publish, newsworthiness, feature_worthy, reason }`; synthesized articles start as drafts and auto-publish only if they pass the quality gate
+- **`editorial_score` column** — `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_score INTEGER`
+- **Auto-thumbnail after synthesis** — `lib/media-helpers.js` extracted from `routes/media.js`; synthesis pipeline auto-generates thumbnails for originals that pass the quality gate
+- **Improved writer assignment** — abbreviation map, +2 title match weight, normalized comparisons
+- **Settings seeded** — `daily_publish_target` (default `20`), `auto_editorial_scoring` (default `1`)
+
+### Added — Phase 3: Full Autonomy
+- **Budget-aware execution** — new `lib/budget.js` with `canSpend(operation)` checking today's spend vs `ai_daily_budget`; wired into synthesis, quality gate, media helpers, and summary routes
+- **Auto-publish live news** — hourly cron reads `auto_publish_live` setting; articles run through heuristic checks → editorial scoring → daily target soft cap before publishing
+- **Post-publish hooks** — new `lib/post-publish.js` with `onArticlePublished(articleId)`: pre-warm TLDR, generate thumbnail if missing, auto-assign writer; all budget-checked and fire-and-forget
+- **Auto-audio cron** — daily `0 8 * * *` cron generates audio for top articles (editorial_score >= 8, featured, or original); capped at `auto_audio_daily_max`; respects `elevenlabs_monthly_chars` limit
+- **Budget alerts** — daily cron checks monthly spend vs budget; sends admin email via Resend if over warning threshold
+- **Settings seeded** — `auto_publish_live` (default `0`), `auto_publish_quality_gate` (default `1`), `auto_audio_enabled` (default `0`), `auto_audio_daily_max` (default `3`), `elevenlabs_monthly_chars` (default `100000`)
+
+---
+
+## [1.8.10] — 2026-03-11
+
+### Added
+- **Purge-all endpoint** — `DELETE /api/articles/purge-all` with dropdown (feed/original/all)
+- **Purge originals button** — `DELETE /api/synthesis/purge` for testing
+- **Synthesis dedup** — 50% source overlap check, 23h cooldown per writer, force override
+- **Writer personas** — AI writer characters with configurable name, beat, bio, avatar, tone, synthesis schedule
+- **Writer assignment** — auto-assigns articles to writers by beat/keyword matching
+- **Original article synthesis** — clusters related articles and generates original long-form content
+- **Public user auth** — JWT-based sign-up/sign-in for public users (separate from admin auth)
+- **Comments system** — threaded comments on articles with reply notifications
+- **Bookmarks** — save/unsave articles per user
+- **Notifications** — in-app notification system for replies and follows
+
+---
+
+## [1.8.9] — 2026-03-10
 
 ### Added
 - **AI-generated article thumbnails** via Google Imagen 4
-  - Two-step pipeline: Gemini writes a specific visual concept from the article title/summary/category → Imagen 4 renders a 16:9 image
-  - 10 per-category style presets (LLMs, Research, Tools, Policy, Business, CyberSecurity, Image AI, Industry, Agents, Hardware)
-  - Images stored to Cloudflare R2 (`images/` prefix) with randomized filenames (`img-{hex}-{timestamp}.png`); local `public/media/images/` fallback for dev
-  - `POST /api/media/generate-image` — accepts `{ articleId }`; updates `image_url` on article; returns `{ imageUrl, visualConcept, fullPrompt }` for debugging
-- **Image column in articles table** — 52×36px clickable thumbnail for articles with images; 🎨 generate button for articles without
-- **AI badge** — cyan `AI` pill overlaid on thumbnail corner for AI-generated images
-- **Image preview modal** — full-size preview on thumbnail click with "Open full size" link
-- **Bulk image generation** — select multiple articles → 🎨 Generate Images in bulk toolbar; runs sequentially with 500ms delay
-- **Image generation settings** (Settings page)
-  - Model selector: `imagen-4.0-generate-001` (Standard), `imagen-4.0-ultra-generate-001` (Ultra), `imagen-4.0-fast-generate-001` (Fast)
-  - API key override — separate from ElevenLabs; overrides `GEMINI_API_KEY` env var for image generation; saved to `settings` table as `imagen_model` + `imagen_api_key`
-- Prompt debug logging — server logs visual concept + full Imagen prompt per generation; browser console receives same via API response
-
-### Changed
-- Gemini visual concept prompt overhauled — explicit specificity rules, metaphor-first directive, banned generic tech visuals (screens, devices, people), 60-word limit (up from 40), 600-char summary context (up from 400)
-- Imagen prompt: added `photorealistic digital art`, `8K quality`, stronger no-text/no-people enforcement
+  - Two-step pipeline: Gemini writes visual concept → Imagen 4 renders 16:9 image
+  - 10 per-category style presets
+  - Images stored to Cloudflare R2; local fallback for dev
+- **Image column in articles table** — clickable thumbnail with AI badge
+- **Bulk image generation** — select multiple articles → Generate Images
+- **Image generation settings** — model selector (Standard/Ultra/Fast), API key override
 
 ---
 
-## [3.0.0] — 2026-03-10
+## [1.8.8] — 2026-03-10
 
 ### Added
-- **Voice Characters system** — full multi-voice management for ElevenLabs TTS audio generation
-  - `voices` table: stores name, ElevenLabs voice ID, description, avatar image URL, and default flag
-  - `settings` table: key/value store for admin-managed config (e.g. API key overrides)
-  - `GET/POST/PUT/DELETE /api/voices` — full CRUD; delete auto-reassigns default if needed
-  - `PUT /api/voices/:id/default` — set any voice as the global default
-  - `POST /api/voices/:id/avatar` — upload avatar as base64 dataURL; stored to Cloudflare R2 (production) or local filesystem (dev)
-  - `GET/PUT /api/settings` — upsert key/value settings; supports `elevenlabs_api_key` override
-  - `POST /api/voices/preview` — generates a TTS preview clip (up to 500 chars) using selected voice; returns base64 MP3
-- **Voice picker on audio generation** — "🎙️ Generate" button now opens a voice selection modal showing all available voices with avatars; pre-selects the default; selected voice is sent with the request
-- **Voice snapshot on articles** — `audio_voice_name` and `audio_voice_avatar_url` stored on each article at audio generation time; survives voice edits/deletions
-- **Voices page** (`/voices.html`) — full voice management UI: table with avatar, name, voice ID, description, default badge; add/edit modal with avatar upload + preview; set-default button
-- **Voice Test Studio** — panel at the top of `/voices.html` with editable sample text (500 char limit with live counter), voice dropdown, ▶ Test Voice button, live playback with avatar + name display, ⏹ Stop button
-- **Settings page** (`/settings.html`) — ElevenLabs API key override input (password field, show/hide toggle); saved to DB, overrides env var at runtime; falls back to env var if blank
-- **Sidebar nav updated** — Voices and Settings links added to all admin pages (`index.html`, `articles.html`, `sources.html`)
-- Express body size limit raised to **10 MB** to support base64 avatar image uploads in JSON
-
-### Changed
-- `POST /api/media/generate-audio` — now accepts optional `voiceId`; resolves voice from `voices` table (explicit → default → env var fallback); resolves API key from `settings` table (DB → env var fallback); stores `audio_voice_name` and `audio_voice_avatar_url` snapshot on the article
+- **Voice Characters system** — full multi-voice management for ElevenLabs TTS
+  - `voices` table with CRUD endpoints
+  - Voice picker modal on audio generation
+  - Voice snapshot on articles (`audio_voice_name`, `audio_voice_avatar_url`)
+- **Voices page** (`/voices.html`) — voice management UI with Voice Test Studio
+- **Settings page** (`/settings.html`) — ElevenLabs API key override
 
 ---
 
-## [2.1.0] — 2026-03-09
+## [1.8.7] — 2026-03-09
 
 ### Added
-- **48-hour article age filter** — RSS fetch now skips any article whose `pubDate` is older than 48 hours; prevents stale historical articles from polluting the feed; articles without a `pubDate` are still accepted; old articles counted in the `skipped` total returned by `POST /api/fetch`
-- **Original article link in admin** — articles table actions column now includes a 🔗 button that opens `source_url` in a new tab (`rel="noopener"`); only rendered when `source_url` is present
+- **48-hour article age filter** — RSS fetch skips articles older than 48 hours
+- **Original article link** — 🔗 button in admin articles table
 
 ### Fixed
-- **Cloudflare R2 audio storage live in production** — `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, and `R2_PUBLIC_URL` env vars confirmed set in Railway; audio generation now uploads MP3s directly to R2 and stores the full CDN URL in the DB; confirmed working end-to-end
+- **Cloudflare R2 audio storage** — confirmed working end-to-end in production
 
 ---
 
-## [2.0.0] — 2026-03-09
+## [1.8.6] — 2026-03-09
 
 ### Added
-- **Production deployment on Railway** — admin backend fully deployed and live at `https://deepfeedai-admin-production.up.railway.app`
-- **PostgreSQL support** — `db.js` rewritten for `pg` Pool; `normalizeSql()` converts `?` → `$N` params and `datetime('now')` → `NOW()` / `INTERVAL` syntax transparently; `serializeRow()` normalises pg `Date` objects to ISO strings
-  - Schema updated: `SERIAL PRIMARY KEY`, `TIMESTAMPTZ DEFAULT NOW()`, `BOOLEAN` types
-  - `prepare().run/get/all` all return Promises — all callers updated to `async/await`
-  - `INSERT … RETURNING *` pattern replaces "insert then SELECT" pattern
-  - `sql.js` removed from dependencies; `pg` added
-- **Cloudflare R2 audio storage** — `routes/media.js` uploads MP3s to R2 via `@aws-sdk/client-s3` when `R2_*` env vars are set; falls back to local `public/media/audio/` in dev; CDN URL stored in DB for production, relative path for dev
-- **`railway.json`** — healthcheck on `GET /api/news/updated-at`, `restartPolicyType: ON_FAILURE`
-- **`.env.example`** — documents all required env vars: `PORT`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DATABASE_URL`, `GEMINI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `R2_*`
-
-### Changed
-- **CORS** — replaced strict origin allowlist with `cors()` (open); security handled entirely by JWT on all authenticated endpoints; strict CORS was causing 500s when the admin panel's own browser called its own API
-- **OG image enrichment** — wrapped in `setImmediate()` (fire-and-forget); `POST /api/fetch` now responds immediately with inserted/skipped counts; enrichment continues in the background
-- **`fetchHtml()` timeout** — added `req.destroy()` call in the `timeout` event handler; previously the socket stayed open after the timeout event fired, causing concurrent scrapes to hang indefinitely
-- **Purge cron** — updated to use `NOW() - INTERVAL '24 hours'` syntax for Postgres
-- **Server startup** — `db.init()` awaited before `app.listen()`; admin user seeded on first run
+- **Production deployment on Railway**
+- **PostgreSQL support** — `db.js` rewritten for `pg` Pool with transparent SQL normalization
+- **Cloudflare R2 audio storage** — MP3 uploads via `@aws-sdk/client-s3`
+- **`railway.json`** + **`.env.example`**
 
 ### Fixed
-- **All routes** — converted to `async/await`; every `db.prepare().run/get/all` call properly awaited (pg returns Promises; previously only sql.js-style sync was used)
-- **Fetch endpoint hanging** — two-part fix: socket abort on timeout + fire-and-forget OG enrichment (see Changed above)
+- **All routes** — converted to `async/await` for pg Promises
+- **Fetch endpoint hanging** — socket abort on timeout + fire-and-forget OG enrichment
+
+---
+
+## [1.8.5] — 2026-03-09
+
+### Added
+- **Soft-delete / archive system** — archive, restore, purge endpoints; 24-hour auto-purge cron
+- **ElevenLabs audio generation** — Gemini writes spoken-word script → ElevenLabs TTS → MP3
+  - Generate, delete, toggle endpoints
+  - Audio columns in DB (`audio_url`, `audio_status`, `audio_transcript`, `media_enabled`)
+  - Audio controls in admin articles table
+
+---
+
+## [1.8.4] — 2026-03-09
+
+### Added
+- **AI summaries** (`GET /api/summary`) — Gemini structured TLDRs
+- **Single article lookup** (`GET /api/article?slug=`)
+- **URL auto-fill** (`GET /api/fetch-url?url=`) — OG tags + JSON-LD scraping
+- **Cache invalidation** (`GET /api/news/updated-at`)
 
 ---
 
 ## [1.3.0] — 2026-03-09
 
 ### Added
-- **Soft-delete / archive system** — articles can be archived instead of permanently deleted; archived articles are hidden from `/api/news` and trigger a cache bust on the main site; a 24-hour cron purges records older than 24 hours automatically
-  - `is_archived INTEGER DEFAULT 0` and `archived_at TEXT` columns added to DB
-  - `PUT /api/articles/:id/archive` — move to archive
-  - `PUT /api/articles/:id/restore` — restore from archive
-  - `DELETE /api/articles/:id/purge` — hard delete (admin only, for immediate removal)
-  - Archive tab on articles page with restore/purge actions per row
-- **ElevenLabs audio generation (Phase 1)** — generate MP3 narrations for any published article directly from the admin panel
-  - `POST /api/media/generate-audio` — Gemini 2.5 Flash Lite writes a natural 2–3 sentence spoken-word news anchor script, then ElevenLabs TTS converts it to MP3 and saves to `public/media/audio/{slug}-{id}.mp3`
-  - `DELETE /api/media/audio/:id` — remove audio file and clear DB record
-  - `PUT /api/media/toggle/:id` — toggle `media_enabled` (controls whether the audio player appears on the main site)
-  - Audio script (TTS text) stored as `audio_transcript` for karaoke caption display on the main site
-  - Falls back to cleaned RSS summary if Gemini is unavailable; text capped at 900 chars (ElevenLabs limit)
-- **Audio columns in DB** — `audio_url TEXT`, `audio_status TEXT` (`null | pending | ready | error`), `audio_transcript TEXT`, `media_enabled INTEGER DEFAULT 0` added to `articles` table via migration
-- **Audio column in admin articles table** — per-row controls: Generate button, ▶ preview player, 🗑 delete, ✅ On/Off toggle; status badge reflects `audio_status`
-- **`audio_transcript` exposed in `/api/article?slug=`** — single article lookup now returns the stored TTS script so the main site can render karaoke captions client-side
-- **`/media/*` served statically** — `public/media/` mounted as a static directory; audio files accessible at `/media/audio/{filename}.mp3`
-
-### Changed
-- **`buildTtsText()`** in `routes/media.js` prefers the Gemini-written spoken summary over raw RSS content; strips markdown, limits to 900 chars
-- **`/api/news` `SELECT *`** — automatically includes all new audio columns without query changes
-
-### Fixed
-- **`db.prepare().all()` used consistently** — `db.all()` does not exist in sql.js; corrected in `routes/article.js` (was causing silent 500s on slug lookups)
+- **RSS auto-fetch** (`POST /api/fetch`) — fetch all sources, deduplicate, insert as drafts
+- **30-minute cron job** — auto-fetch RSS sources
+- **Category detection** — per-article keyword matching (removed from sources)
 
 ---
 
 ## [1.2.0] — 2026-03-09
+
 ### Added
-- **AI summaries** (`GET /api/summary`) — Gemini 2.5 Flash Lite generates structured TLDRs (overview, key points, why it matters); in-memory cache per process; same interface as the Vercel serverless function
-- **Single article lookup** (`GET /api/article?slug=`) — public endpoint for `article.html` to fetch a single article by URL slug for direct/shared links
-- **URL auto-fill** (`GET /api/fetch-url?url=`) — scrapes Open Graph tags and JSON-LD structured data from any public URL to auto-populate the Add Article form (title, image, summary, source, author, date)
-- **Cache invalidation endpoint** (`GET /api/news/updated-at`) — lightweight endpoint returning the latest `updated_at` timestamp; used by the main site to detect DB changes and bust localStorage cache immediately
-- **`serve.js` proxy** — main site dev server now proxies `/api/*` to the admin, enabling AI summaries and article lookups locally
-
-### Changed
-- **Single featured article enforced** — featuring an article automatically unfeatures all others; enforced on toggle, create, and edit
-- **Featured articles sorted first** — `/api/news` now orders by `is_featured DESC, published_at DESC`
-- **Toggle functions reload from server** — publish/feature toggles re-fetch the full article list after each action, eliminating stale local state that caused table clearing
-- **`dotenv` uses `override: true`** — `.env` file takes precedence over any system environment variables (fixes expired system-level `GEMINI_API_KEY` override)
-- **Author extraction improved** — `fetch-url` now parses JSON-LD structured data for author in addition to meta tags (fixes missing author on sites like The Verge)
-
-### Fixed
-- **`updated_at` column added** to `articles` table — tracked on all mutations (update, toggle publish, toggle feature, delete)
-- **`is_featured` enforced on article save** — creating or editing an article with `is_featured: true` unfeatured all others first
+- **AI summaries** (`GET /api/summary`)
+- **Single article lookup** (`GET /api/article?slug=`)
+- **Cache invalidation endpoint**
+- **Featured article enforcement** — single featured at a time
 
 ---
 
 ## [1.1.0] — 2026-03-09
-### Added
-- **RSS auto-fetch** (`POST /api/fetch`) — fetches all active sources, deduplicates by URL, inserts new articles as drafts; triggered manually or via cron
-- **30-minute cron job** — auto-fetches RSS sources every 30 min; new articles saved as drafts for review
-- **"Fetch All Sources" button** on sources page — manual trigger with result summary alert
-- **`last_fetched` column** on sources — shows when each source was last fetched
-- **`rss-parser` + `node-cron`** dependencies added
 
-### Changed
-- **Category removed from sources** — category is detected per-article via keyword matching, not per-source
-- **Sources table simplified** — removed category column from UI and API
+### Added
+- **RSS auto-fetch** with 30-minute cron
+- **Fetch All Sources button** on sources page
+- **`last_fetched` column** on sources
 
 ---
 
 ## [1.0.0] — 2026-03-07
+
 ### Added
 - Initial release — Express + SQLite admin panel
 - JWT authentication with bcrypt password hashing
