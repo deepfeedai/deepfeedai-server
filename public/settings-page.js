@@ -548,11 +548,14 @@ let apiKeyVisible = false;
       if (empty) empty.style.display = 'none';
     }
 
-    // Categories — loaded separately from /api/categories
+    // Categories — loaded from /api/categories (falls back to legacy setting)
     try {
       const cats = await apiFetch('/categories');
-      _siteCategories = Array.isArray(cats) ? cats : [];
+      _siteCategories = Array.isArray(cats) && cats.length ? cats : [];
     } catch { _siteCategories = []; }
+    if (!_siteCategories.length && settings.site_categories) {
+      try { _siteCategories = JSON.parse(settings.site_categories); } catch { /* ignore */ }
+    }
     renderCategories();
 
     // Logo preview
@@ -576,19 +579,18 @@ let apiKeyVisible = false;
     try {
       this.disabled = true; this.textContent = 'Saving…';
 
-      // Save settings and categories in parallel
+      // Save settings and categories separately so one failure doesn't block the other
       const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
-      await Promise.all([
+      const [, catResult] = await Promise.allSettled([
         apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
         apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) }),
       ]);
 
       // Refresh category list with server response (gets new ids)
-      try {
-        const cats = await apiFetch('/categories');
-        _siteCategories = Array.isArray(cats) ? cats : [];
+      if (catResult.status === 'fulfilled' && Array.isArray(catResult.value)) {
+        _siteCategories = catResult.value;
         renderCategories();
-      } catch { /* non-critical */ }
+      }
 
       statusEl.textContent = '✅ Site settings saved';
       showAlert('Site settings saved ✓');
