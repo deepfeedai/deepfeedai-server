@@ -1,7 +1,6 @@
 onReady(async () => {
     if (!requireAuth()) return;
-    initSidebar();
-    initLogout();
+    renderSidebar();
 
     const user = localStorage.getItem('deepfeedai_user');
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;

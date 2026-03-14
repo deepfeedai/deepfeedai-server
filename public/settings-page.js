@@ -1,3 +1,27 @@
+// ── Settings Tab Switching ────────────────────────────────
+(function initSettingsTabs() {
+  const tabBar = document.getElementById('settingsTabs');
+  if (!tabBar) return;
+  const btns   = tabBar.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.tab-panel[data-tab]');
+
+  function switchTab(name) {
+    btns.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    panels.forEach(p => p.classList.toggle('active', p.dataset.tab === name));
+    sessionStorage.setItem('dfa_settings_tab', name);
+  }
+
+  tabBar.addEventListener('click', e => {
+    const btn = e.target.closest('.tab-btn');
+    if (btn) switchTab(btn.dataset.tab);
+  });
+
+  const saved = sessionStorage.getItem('dfa_settings_tab');
+  if (saved && document.querySelector('.tab-panel[data-tab="' + saved + '"]')) {
+    switchTab(saved);
+  }
+})();
+
 let apiKeyVisible = false;
 
   document.getElementById('toggleApiKeyBtn').addEventListener('click', function() {
@@ -469,5 +493,6 @@ let apiKeyVisible = false;
     }
   };
 
+  renderSidebar();
   initModals();
   loadSettings();

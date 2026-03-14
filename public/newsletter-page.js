@@ -97,6 +97,8 @@
 
   /* ── Init ────────────────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
+    if (!requireAuth()) return;
+    renderSidebar();
     document.getElementById('previewBtn')?.addEventListener('click', loadPreview);
     document.getElementById('refreshPreviewBtn')?.addEventListener('click', loadPreview);
     document.getElementById('sendBtn')?.addEventListener('click', sendNewsletter);

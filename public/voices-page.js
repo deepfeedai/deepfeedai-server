@@ -361,8 +361,7 @@ let voices = [];
 
   // Initialize
   async function init() {
-    initSidebar();
-    initLogout();
+    renderSidebar();
     initModals();
     await loadVoices();
     populateStudioVoices();

@@ -1,8 +1,7 @@
 /* ===== Synthesis Page ===== */
 onReady(async () => {
   if (!requireAuth()) return;
-  initSidebar();
-  initLogout();
+  renderSidebar();
 
   const writerSelect = document.getElementById('writerSelect');
   const previewBtn   = document.getElementById('previewBtn');

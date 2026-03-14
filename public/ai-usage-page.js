@@ -208,5 +208,6 @@
   document.getElementById('refreshBtn').addEventListener('click', loadData);
 
   // Init
+  renderSidebar();
   loadData();
 })();

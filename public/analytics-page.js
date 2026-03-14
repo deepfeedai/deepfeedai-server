@@ -122,6 +122,8 @@
 
   /* ── Init ───────────────────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', () => {
+    if (!requireAuth()) return;
+    renderSidebar();
     document.getElementById('refreshBtn')?.addEventListener('click', loadAnalytics);
     loadAnalytics();
   });
