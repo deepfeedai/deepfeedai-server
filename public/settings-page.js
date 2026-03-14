@@ -515,6 +515,52 @@ let apiKeyVisible = false;
     renderCategories();
   });
 
+  // Content tab save — categories + AI/newsletter fields
+  const CONTENT_FIELDS = [
+    { id: 'siteAiPersona',        key: 'site_ai_persona' },
+    { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
+    { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+  ];
+
+  document.getElementById('saveContentSettingsBtn')?.addEventListener('click', async function () {
+    const statusEl = document.getElementById('contentSettingsStatus');
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+
+      const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
+      const settingsPayload = {};
+      for (const f of CONTENT_FIELDS) {
+        const el = document.getElementById(f.id);
+        if (el) settingsPayload[f.key] = el.value;
+      }
+
+      const [settingsResult, catResult] = await Promise.allSettled([
+        Object.keys(settingsPayload).length
+          ? apiFetch('/settings', { method: 'PUT', body: JSON.stringify(settingsPayload) })
+          : Promise.resolve(),
+        apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) }),
+      ]);
+
+      // Refresh category list with server response (gets new ids)
+      if (catResult.status === 'fulfilled' && Array.isArray(catResult.value)) {
+        _siteCategories = catResult.value;
+        renderCategories();
+      }
+
+      const failed = [settingsResult, catResult].filter(r => r.status === 'rejected');
+      if (failed.length) throw new Error(failed[0].reason?.message || 'Save failed');
+
+      statusEl.textContent = '✅ Content settings saved';
+      showAlert('Content settings saved ✓');
+      setTimeout(() => { statusEl.textContent = ''; }, 3000);
+    } catch (err) {
+      statusEl.textContent = '❌ ' + err.message;
+      showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'Save Content Settings';
+    }
+  });
+
   async function loadSiteSettings(settings) {
     for (const f of SITE_FIELDS) {
       const el = document.getElementById(f.id);
