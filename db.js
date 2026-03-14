@@ -372,6 +372,16 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (key) DO NOTHING`,
     // TLDR column for writer analysis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
+    // Phase 4: Writer follows
+    `CREATE TABLE IF NOT EXISTS writer_follows (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      writer_id  INTEGER NOT NULL REFERENCES voices(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, writer_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_follows_user   ON writer_follows(user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_follows_writer ON writer_follows(writer_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

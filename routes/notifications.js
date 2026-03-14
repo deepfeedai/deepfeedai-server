@@ -128,4 +128,39 @@ async function createReplyNotification(userId, payload) {
   }
 }
 
-module.exports = { router, createReplyNotification };
+/**
+ * createNewArticleNotification(writerId, articleSlug, articleTitle)
+ * Called after a writer publishes a new original article.
+ * Notifies all users who follow this writer.
+ */
+async function createNewArticleNotification(writerId, articleSlug, articleTitle) {
+  try {
+    const followers = await db.prepare(
+      'SELECT user_id FROM writer_follows WHERE writer_id = $1'
+    ).all(writerId);
+
+    if (!followers.length) return;
+
+    const writer = await db.prepare(
+      'SELECT name, slug, avatar_url FROM voices WHERE id = $1'
+    ).get(writerId);
+
+    const payload = JSON.stringify({
+      articleSlug,
+      articleTitle,
+      writerName: writer?.name || 'A writer you follow',
+      writerSlug: writer?.slug || null,
+      writerAvatarUrl: writer?.avatar_url || null,
+    });
+
+    for (const { user_id } of followers) {
+      await db.prepare(
+        `INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'new_article', $2)`
+      ).run(user_id, payload);
+    }
+  } catch (err) {
+    console.warn('[notifications/new-article]', err.message);
+  }
+}
+
+module.exports = { router, createReplyNotification, createNewArticleNotification };
