@@ -76,7 +76,7 @@
             <input type="text" class="form-control" id="siteFooterTagline" placeholder="Built with ❤️ for the AI-curious" />
           </div>
 
-          <!-- Logo Upload -->
+          <!-- Logo Upload (below branding fields but inside branding panel) -->
           <div class="form-group" style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
             <label class="form-label">Site Logo Image</label>
             <p class="form-help" style="margin-bottom:10px;">Upload a logo image (PNG, SVG, WebP, JPG — max 2MB). Overrides the emoji/HTML logo on the main site.</p>
@@ -107,6 +107,11 @@
             </div>
             <div id="faviconUploadStatus" class="settings-status"></div>
           </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveBrandingBtn">Save Branding</button>
+          </div>
+          <div id="brandingStatus" class="settings-status"></div>
         </div>
 
         <!-- Domain & URLs -->
@@ -134,6 +139,11 @@
               <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" />
             </div>
           </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveDomainBtn">Save Domain & URLs</button>
+          </div>
+          <div id="domainStatus" class="settings-status"></div>
         </div>
 
         <!-- Theme -->
@@ -197,12 +207,12 @@
               </div>
             </div>
           </div>
-        </div>
 
-        <div class="btn-group mb-6">
-          <button class="btn btn-primary" id="saveSiteSettingsBtn">Save Site Settings</button>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveThemeBtn">Save Theme</button>
+          </div>
+          <div id="themeStatus" class="settings-status"></div>
         </div>
-        <div id="siteSettingsStatus" class="settings-status"></div>
 
       </div><!-- /general tab -->
 
@@ -293,6 +303,11 @@
               <p class="form-help">Leave empty to disable</p>
             </div>
           </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveAnalyticsBtn">Save Analytics & Ads</button>
+          </div>
+          <div id="analyticsAdsStatus" class="settings-status"></div>
         </div>
 
         <!-- Perspective API -->
@@ -321,6 +336,11 @@
               Get a free key at <a href="https://perspectiveapi.com" target="_blank" rel="noopener" style="color:var(--accent);">perspectiveapi.com</a>
             </p>
           </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="savePerspectiveBtn">Save Perspective Settings</button>
+          </div>
+          <div id="perspectiveStatus" class="settings-status"></div>
         </div>
 
       </div><!-- /integrations tab -->
@@ -334,6 +354,11 @@
           <p class="form-help" style="margin-bottom:12px;">Manage categories and their badge colors. Order matters — first category is the default.</p>
           <div id="siteCategoriesList"></div>
           <button class="btn btn-outline btn-sm" id="addCategoryBtn" type="button" style="margin-top:8px;">+ Add Category</button>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveCategoriesBtn">Save Categories</button>
+          </div>
+          <div id="categoriesStatus" class="settings-status"></div>
         </div>
 
         <!-- AI Persona & Newsletter -->
@@ -356,12 +381,12 @@
               <input type="text" class="form-control" id="siteEmailFromName" placeholder="Deep Feed AI" />
             </div>
           </div>
-        </div>
 
-        <div class="btn-group mb-6">
-          <button class="btn btn-primary" id="saveContentSettingsBtn">Save Content Settings</button>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveNewsletterBtn">Save AI & Newsletter</button>
+          </div>
+          <div id="newsletterStatus" class="settings-status"></div>
         </div>
-        <div id="contentSettingsStatus" class="settings-status"></div>
 
         <!-- Content Lifecycle -->
         <div class="settings-card">

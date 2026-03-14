@@ -515,50 +515,66 @@ let apiKeyVisible = false;
     renderCategories();
   });
 
-  // Content tab save — categories + AI/newsletter fields
-  const CONTENT_FIELDS = [
+  // ── Per-panel save helper ─────────────────────────────────────────
+  function panelSave(btnId, statusId, label, saveFn) {
+    document.getElementById(btnId)?.addEventListener('click', async function () {
+      const statusEl = document.getElementById(statusId);
+      try {
+        this.disabled = true; this.textContent = 'Saving…';
+        await saveFn();
+        statusEl.textContent = '✅ ' + label + ' saved';
+        showAlert(label + ' saved ✓');
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } catch (err) {
+        statusEl.textContent = '❌ ' + err.message;
+        showAlert('Save failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Save ' + label;
+      }
+    });
+  }
+
+  function saveFields(fields) {
+    const payload = {};
+    for (const f of fields) {
+      const el = document.getElementById(f.id);
+      if (el) payload[f.key] = el.value;
+    }
+    return apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  }
+
+  // ── Categories save ─────────────────────────────────────────────
+  panelSave('saveCategoriesBtn', 'categoriesStatus', 'Categories', async () => {
+    const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
+    const result = await apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) });
+    if (Array.isArray(result)) {
+      _siteCategories = result;
+      renderCategories();
+    }
+  });
+
+  // ── AI & Newsletter save ────────────────────────────────────────
+  panelSave('saveNewsletterBtn', 'newsletterStatus', 'AI & Newsletter', () => saveFields([
     { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
-  ];
+  ]));
 
-  document.getElementById('saveContentSettingsBtn')?.addEventListener('click', async function () {
-    const statusEl = document.getElementById('contentSettingsStatus');
-    try {
-      this.disabled = true; this.textContent = 'Saving…';
+  // ── Analytics & Ads save ────────────────────────────────────────
+  panelSave('saveAnalyticsBtn', 'analyticsAdsStatus', 'Analytics & Ads', () => saveFields([
+    { id: 'siteGaId',       key: 'site_ga_id' },
+    { id: 'siteAdsenseId',  key: 'site_adsense_id' },
+  ]));
 
-      const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
-      const settingsPayload = {};
-      for (const f of CONTENT_FIELDS) {
-        const el = document.getElementById(f.id);
-        if (el) settingsPayload[f.key] = el.value;
-      }
-
-      const [settingsResult, catResult] = await Promise.allSettled([
-        Object.keys(settingsPayload).length
-          ? apiFetch('/settings', { method: 'PUT', body: JSON.stringify(settingsPayload) })
-          : Promise.resolve(),
-        apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) }),
-      ]);
-
-      // Refresh category list with server response (gets new ids)
-      if (catResult.status === 'fulfilled' && Array.isArray(catResult.value)) {
-        _siteCategories = catResult.value;
-        renderCategories();
-      }
-
-      const failed = [settingsResult, catResult].filter(r => r.status === 'rejected');
-      if (failed.length) throw new Error(failed[0].reason?.message || 'Save failed');
-
-      statusEl.textContent = '✅ Content settings saved';
-      showAlert('Content settings saved ✓');
-      setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    } catch (err) {
-      statusEl.textContent = '❌ ' + err.message;
-      showAlert('Save failed: ' + err.message, 'error');
-    } finally {
-      this.disabled = false; this.textContent = 'Save Content Settings';
-    }
+  // ── Perspective API save ────────────────────────────────────────
+  panelSave('savePerspectiveBtn', 'perspectiveStatus', 'Perspective Settings', async () => {
+    const payload = {
+      spam_perspective_enabled: document.getElementById('perspectiveEnabled').checked ? '1' : '0',
+    };
+    const key = document.getElementById('perspectiveKey').value.trim();
+    if (key) payload.spam_perspective_key = key;
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (key) document.getElementById('perspectiveKey').value = '';
   });
 
   async function loadSiteSettings(settings) {
@@ -610,43 +626,34 @@ let apiKeyVisible = false;
     }
   }
 
-  document.getElementById('saveSiteSettingsBtn')?.addEventListener('click', async function () {
+  // ── Branding save ─────────────────────────────────────────────────
+  panelSave('saveBrandingBtn', 'brandingStatus', 'Branding', () => saveFields([
+    { id: 'siteName',          key: 'site_name' },
+    { id: 'siteShortName',    key: 'site_short_name' },
+    { id: 'siteTagline',      key: 'site_tagline' },
+    { id: 'siteDescription',  key: 'site_description' },
+    { id: 'siteLogoEmoji',    key: 'site_logo_emoji' },
+    { id: 'siteLogoHtml',     key: 'site_logo_html' },
+    { id: 'siteCopyright',    key: 'site_copyright' },
+    { id: 'siteFooterTagline',key: 'site_footer_tagline' },
+  ]));
+
+  // ── Domain & URLs save ──────────────────────────────────────────
+  panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
+    { id: 'siteDomain',        key: 'site_domain' },
+    { id: 'siteUrl',           key: 'site_url' },
+    { id: 'siteOgImage',       key: 'site_og_image' },
+    { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
+  ]));
+
+  // ── Theme save ──────────────────────────────────────────────────
+  panelSave('saveThemeBtn', 'themeStatus', 'Theme', async () => {
     const payload = {};
-    for (const f of SITE_FIELDS) {
-      const el = document.getElementById(f.id);
-      if (el) payload[f.key] = el.value;
-    }
     COLOR_FIELDS.forEach(f => {
       const text = document.getElementById(f.text);
       if (text) payload[f.key] = text.value;
     });
-
-    const statusEl = document.getElementById('siteSettingsStatus');
-    try {
-      this.disabled = true; this.textContent = 'Saving…';
-
-      // Save settings and categories separately so one failure doesn't block the other
-      const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
-      const [, catResult] = await Promise.allSettled([
-        apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
-        apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) }),
-      ]);
-
-      // Refresh category list with server response (gets new ids)
-      if (catResult.status === 'fulfilled' && Array.isArray(catResult.value)) {
-        _siteCategories = catResult.value;
-        renderCategories();
-      }
-
-      statusEl.textContent = '✅ Site settings saved';
-      showAlert('Site settings saved ✓');
-      setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    } catch (err) {
-      statusEl.textContent = '❌ ' + err.message;
-      showAlert('Save failed: ' + err.message, 'error');
-    } finally {
-      this.disabled = false; this.textContent = 'Save Site Settings';
-    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
   });
 
   // ── Extend loadSettings to include all setting sections ───────────
