@@ -75,6 +75,38 @@
             <label class="form-label" for="siteFooterTagline">Footer Tagline</label>
             <input type="text" class="form-control" id="siteFooterTagline" placeholder="Built with ❤️ for the AI-curious" />
           </div>
+
+          <!-- Logo Upload -->
+          <div class="form-group" style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
+            <label class="form-label">Site Logo Image</label>
+            <p class="form-help" style="margin-bottom:10px;">Upload a logo image (PNG, SVG, WebP, JPG — max 2MB). Overrides the emoji/HTML logo on the main site.</p>
+            <div style="display:flex;align-items:center;gap:16px;">
+              <img id="logoPreviewImg" src="" alt="Logo preview" style="max-height:48px;max-width:200px;display:none;border-radius:4px;background:var(--bg-card);" />
+              <span id="logoPreviewEmpty" class="text-muted text-sm">No logo uploaded</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;" />
+              <button class="btn btn-outline btn-sm" id="logoSelectBtn" type="button">Choose File</button>
+              <button class="btn btn-primary btn-sm" id="logoUploadBtn" type="button" style="display:none;">Upload Logo</button>
+            </div>
+            <div id="logoUploadStatus" class="settings-status"></div>
+          </div>
+
+          <!-- Favicon Upload -->
+          <div class="form-group" style="margin-top:14px;">
+            <label class="form-label">Site Favicon</label>
+            <p class="form-help" style="margin-bottom:10px;">Square icon for browser tabs (PNG, max 2MB).</p>
+            <div style="display:flex;align-items:center;gap:16px;">
+              <img id="faviconPreviewImg" src="" alt="Favicon preview" style="width:32px;height:32px;display:none;border-radius:4px;background:var(--bg-card);" />
+              <span id="faviconPreviewEmpty" class="text-muted text-sm">No favicon uploaded</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input type="file" id="faviconFileInput" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+              <button class="btn btn-outline btn-sm" id="faviconSelectBtn" type="button">Choose File</button>
+              <button class="btn btn-primary btn-sm" id="faviconUploadBtn" type="button" style="display:none;">Upload Favicon</button>
+            </div>
+            <div id="faviconUploadStatus" class="settings-status"></div>
+          </div>
         </div>
 
         <!-- Domain & URLs -->
@@ -108,19 +140,60 @@
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Theme</h3>
 
-          <div class="form-grid-2">
+          <!-- Presets -->
+          <div class="form-group">
+            <label class="form-label">Presets</label>
+            <div id="themePresets" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+
+          <div class="form-grid-2" style="margin-top:16px;">
             <div class="form-group">
-              <label class="form-label" for="siteAccentColor">Accent Color</label>
+              <label class="form-label" for="siteAccentColor">Accent</label>
               <div style="display:flex;align-items:center;gap:8px;">
                 <input type="color" id="siteAccentColor" value="#4F8EF7" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
                 <input type="text" class="form-control" id="siteAccentColorText" placeholder="#4F8EF7" style="width:100px;font-family:monospace;" />
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label" for="siteBgColor">Background Color</label>
+              <label class="form-label" for="siteBgColor">Background</label>
               <div style="display:flex;align-items:center;gap:8px;">
                 <input type="color" id="siteBgColor" value="#0d1117" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
                 <input type="text" class="form-control" id="siteBgColorText" placeholder="#0d1117" style="width:100px;font-family:monospace;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="siteBgCardColor">Surface</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="color" id="siteBgCardColor" value="#161b22" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+                <input type="text" class="form-control" id="siteBgCardColorText" placeholder="#161b22" style="width:100px;font-family:monospace;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="siteBorderColor">Border</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="color" id="siteBorderColor" value="#21262d" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+                <input type="text" class="form-control" id="siteBorderColorText" placeholder="#21262d" style="width:100px;font-family:monospace;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="siteTextColor">Text</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="color" id="siteTextColor" value="#e6edf3" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+                <input type="text" class="form-control" id="siteTextColorText" placeholder="#e6edf3" style="width:100px;font-family:monospace;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="siteMutedColor">Muted</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="color" id="siteMutedColor" value="#8b949e" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+                <input type="text" class="form-control" id="siteMutedColorText" placeholder="#8b949e" style="width:100px;font-family:monospace;" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="siteAccentDimColor">Accent Hover</label>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <input type="color" id="siteAccentDimColor" value="#2d5fbe" style="width:40px;height:32px;border:none;background:none;cursor:pointer;" />
+                <input type="text" class="form-control" id="siteAccentDimColorText" placeholder="#2d5fbe" style="width:100px;font-family:monospace;" />
               </div>
             </div>
           </div>

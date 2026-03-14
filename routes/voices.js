@@ -15,48 +15,12 @@ const { voiceCreate, voiceUpdate, validate } = require('../lib/schemas');
 const { decryptSetting }    = require('../lib/crypto');
 
 const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
-
-const R2_CONFIGURED = !!(
-  process.env.R2_ACCOUNT_ID &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY &&
-  process.env.R2_BUCKET_NAME
-);
-
-function getR2Client() {
-  const { S3Client } = require('@aws-sdk/client-s3');
-  return new S3Client({
-    region:   'auto',
-    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId:     process.env.R2_ACCESS_KEY_ID,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-    },
-  });
-}
+const { extFromMime, upload: r2Upload } = require('../lib/r2');
 
 async function storeAvatar(buf, mimeType, voiceId) {
-  const ext = mimeType === 'image/png'  ? 'png'
-            : mimeType === 'image/gif'  ? 'gif'
-            : mimeType === 'image/webp' ? 'webp'
-            : 'jpg';
+  const ext = extFromMime(mimeType);
   const filename = `voice-${voiceId}.${ext}`;
-
-  if (R2_CONFIGURED) {
-    const { PutObjectCommand } = require('@aws-sdk/client-s3');
-    const s3 = getR2Client();
-    await s3.send(new PutObjectCommand({
-      Bucket:      process.env.R2_BUCKET_NAME,
-      Key:         `avatars/${filename}`,
-      Body:        buf,
-      ContentType: mimeType,
-    }));
-    const publicUrl = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
-    return `${publicUrl}/avatars/${filename}`;
-  }
-  fs.mkdirSync(AVATAR_DIR, { recursive: true });
-  fs.writeFileSync(path.join(AVATAR_DIR, filename), buf);
-  return `/media/avatars/${filename}`;
+  return r2Upload(buf, mimeType, `avatars/${filename}`, AVATAR_DIR, `avatars/${filename}`);
 }
 
 function generatePreview(text, voiceId, apiKey) {
