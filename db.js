@@ -417,6 +417,20 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_writer_follows_user   ON writer_follows(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_writer_follows_writer ON writer_follows(writer_id)`,
+    // Phase 2: Multi-beat writers junction table
+    `CREATE TABLE IF NOT EXISTS writer_beats (
+      id          SERIAL PRIMARY KEY,
+      writer_id   INTEGER NOT NULL REFERENCES writers(id) ON DELETE CASCADE,
+      category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+      UNIQUE(writer_id, category_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_beats_writer   ON writer_beats(writer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_beats_category ON writer_beats(category_id)`,
+    // Phase 3: Writer style profile columns
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS tone TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS expertise_level TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_guide TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS few_shot_examples JSONB DEFAULT '[]'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
@@ -508,6 +522,26 @@ async function initDb() {
       console.log('✅ Writers migration complete');
     }
   } catch (err) { console.error('[DB] writers migration error:', err.message); }
+
+  // Seed writer_beats junction from legacy writers.beat column (one-time migration)
+  try {
+    const wbDone = await prepare("SELECT value FROM settings WHERE key = 'writer_beats_migration_done'").get();
+    if (!wbDone) {
+      const writersWithBeat = await prepare("SELECT id, beat FROM writers WHERE beat IS NOT NULL AND beat != ''").all();
+      let seeded = 0;
+      for (const w of writersWithBeat) {
+        const cat = await prepare("SELECT id FROM categories WHERE name = $1").get(w.beat);
+        if (cat) {
+          try {
+            await p.query('INSERT INTO writer_beats (writer_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [w.id, cat.id]);
+            seeded++;
+          } catch { /* skip */ }
+        }
+      }
+      await p.query("INSERT INTO settings (key, value) VALUES ('writer_beats_migration_done', '1') ON CONFLICT (key) DO NOTHING");
+      if (seeded > 0) console.log(`✅ Seeded ${seeded} writer_beats from legacy beat column`);
+    }
+  } catch (err) { console.error('[DB] writer_beats seed error:', err.message); }
 
   // Backfill slugs for writers missing one
   try {

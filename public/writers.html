@@ -5,10 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DeepFeedAI Admin — Writers</title>
   <link rel="stylesheet" href="/admin.css" />
+  <style>
+    .tab-bar { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:20px; }
+    .tab-btn { padding:10px 20px; background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; border-bottom:2px solid transparent; }
+    .tab-btn.active { color:var(--text); border-bottom-color:var(--accent); font-weight:600; }
+    .tab-btn:hover { color:var(--text); }
+    .checkbox-grid { display:flex; flex-wrap:wrap; gap:8px 16px; }
+    .checkbox-grid label { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; }
+    .checkbox-grid input[type="checkbox"] { width:14px; height:14px; }
+    .style-section { margin-top:16px; padding-top:16px; border-top:1px solid var(--border); }
+    .style-section summary { cursor:pointer; font-weight:600; font-size:13px; color:var(--text-muted); }
+    .style-section[open] summary { margin-bottom:12px; }
+    .few-shot-row { display:flex; gap:8px; align-items:flex-start; margin-bottom:8px; }
+    .few-shot-row input, .few-shot-row textarea { flex:1; }
+    .few-shot-row textarea { min-height:50px; }
+    .perf-val { text-align:center; font-variant-numeric:tabular-nums; }
+    .sortable { cursor:pointer; user-select:none; }
+    .sortable:hover { color:var(--accent); }
+    .sort-asc::after { content:' \u25B2'; font-size:10px; }
+    .sort-desc::after { content:' \u25BC'; font-size:10px; }
+  </style>
 </head>
 <body>
 <div class="admin-layout">
-  <!-- Main -->
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
@@ -16,32 +35,74 @@
     </header>
 
     <div class="page-body">
-      <div class="section-header">
-        <div class="section-title">Writer Personas</div>
-        <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
+      <!-- Tab bar -->
+      <div class="tab-bar" id="writerTabs">
+        <button class="tab-btn active" data-tab="writers">Writers</button>
+        <button class="tab-btn" data-tab="performance">Performance</button>
       </div>
 
-      <div class="table-wrap"><div class="table-scroll">
-        <table id="writersTable">
-          <thead>
-            <tr>
-              <th class="th-avatar">Avatar</th>
-              <th>Name</th>
-              <th>Beat</th>
-              <th class="th-center-sm">Auto</th>
-              <th>Voice</th>
-              <th class="th-center-sm">Articles</th>
-              <th class="th-actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="writersBody">
-            <tr><td colspan="7" class="td-loading"><span class="spinner"></span></td></tr>
-          </tbody>
-        </table>
-      </div></div>
-    </div><!-- /page-body -->
-  </div><!-- /main-content -->
-</div><!-- /admin-layout -->
+      <!-- Writers Tab -->
+      <div id="writersSection">
+        <div class="section-header">
+          <div class="section-title">Writer Personas</div>
+          <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
+        </div>
+
+        <div class="table-wrap"><div class="table-scroll">
+          <table id="writersTable">
+            <thead>
+              <tr>
+                <th class="th-avatar">Avatar</th>
+                <th>Name</th>
+                <th>Beats</th>
+                <th class="th-center-sm">Auto</th>
+                <th>Voice</th>
+                <th class="th-center-sm">Articles</th>
+                <th class="th-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="writersBody">
+              <tr><td colspan="7" class="td-loading"><span class="spinner"></span></td></tr>
+            </tbody>
+          </table>
+        </div></div>
+      </div>
+
+      <!-- Performance Tab -->
+      <div id="performanceSection" style="display:none;">
+        <div class="section-header">
+          <div class="section-title">Writer Performance</div>
+          <select id="perfRange" class="form-control" style="width:auto;">
+            <option value="7d">Last 7 days</option>
+            <option value="30d" selected>Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </select>
+        </div>
+        <div class="table-wrap"><div class="table-scroll">
+          <table id="perfTable">
+            <thead>
+              <tr>
+                <th>Writer</th>
+                <th class="perf-val sortable" data-sort="articles_total">Articles</th>
+                <th class="perf-val sortable" data-sort="articles_original">Originals</th>
+                <th class="perf-val sortable" data-sort="avg_editorial_score">Avg Score</th>
+                <th class="perf-val sortable" data-sort="total_views">Views</th>
+                <th class="perf-val sortable" data-sort="total_reactions">Reactions</th>
+                <th class="perf-val sortable" data-sort="total_comments">Comments</th>
+                <th class="perf-val sortable" data-sort="follower_count">Followers</th>
+                <th class="perf-val sortable" data-sort="total_cost">Cost</th>
+                <th class="perf-val sortable" data-sort="cost_per_article">$/Article</th>
+              </tr>
+            </thead>
+            <tbody id="perfBody">
+              <tr><td colspan="10" class="td-loading"><span class="spinner"></span></td></tr>
+            </tbody>
+          </table>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Add / Edit Writer Modal -->
 <div class="modal-overlay" id="writerModal">
@@ -77,10 +138,9 @@
       </div>
 
       <div class="form-group">
-        <label class="form-label">Beat</label>
-        <select class="form-control" id="fWriterBeat">
-          <option value="">None</option>
-        </select>
+        <label class="form-label">Beats</label>
+        <p class="form-help" style="margin-bottom:6px;">Categories this writer covers. Select one or more.</p>
+        <div id="fWriterBeats" class="checkbox-grid"></div>
       </div>
 
       <div class="form-group">
@@ -93,7 +153,46 @@
         <textarea class="form-control" id="fWriterSystemPrompt" rows="4" placeholder="You are Ghost, a no-nonsense cybersecurity analyst..."></textarea>
       </div>
 
-      <div class="form-group">
+      <!-- Style Profile -->
+      <details class="style-section">
+        <summary>Style Profile</summary>
+        <div class="form-row" style="margin-top:8px;">
+          <div class="form-group">
+            <label class="form-label">Tone</label>
+            <select class="form-control" id="fWriterTone">
+              <option value="">Default</option>
+              <option value="analytical">Analytical</option>
+              <option value="conversational">Conversational</option>
+              <option value="provocative">Provocative</option>
+              <option value="authoritative">Authoritative</option>
+              <option value="casual">Casual</option>
+              <option value="technical">Technical</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expertise Level</label>
+            <select class="form-control" id="fWriterExpertise">
+              <option value="">Default</option>
+              <option value="beginner-friendly">Beginner-Friendly</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="technical">Technical</option>
+              <option value="expert">Expert</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Style Guide</label>
+          <textarea class="form-control" id="fWriterStyleGuide" rows="3" placeholder="Free-form editorial guidelines for this writer's voice..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Few-Shot Examples</label>
+          <p class="form-help" style="margin-bottom:6px;">Provide example titles + excerpts to guide the writer's style.</p>
+          <div id="fewShotContainer"></div>
+          <button class="btn btn-outline btn-sm" type="button" id="addFewShotBtn" style="margin-top:6px;">+ Add Example</button>
+        </div>
+      </details>
+
+      <div class="form-group" style="margin-top:16px;">
         <label class="form-label">TTS Voice</label>
         <select class="form-control" id="fWriterVoice">
           <option value="">None (no audio)</option>

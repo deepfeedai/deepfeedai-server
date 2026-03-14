@@ -50,7 +50,7 @@ router.get('/preview/:writerId', asyncHandler(async (req, res) => {
   const clusters = clusterArticles(articles, minSize);
 
   res.json({
-    writer: { id: writer.id, name: writer.name, beat: writer.beat },
+    writer: { id: writer.id, name: writer.name },
     articleCount: articles.length,
     clusters: clusters.map(c => ({ topic: c.topic, articleCount: c.articles.length })),
   });
