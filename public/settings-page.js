@@ -22,6 +22,112 @@
   }
 })();
 
+// ── Theme Presets ────────────────────────────────────────
+const THEME_PRESETS = [
+  { name: 'Dark Blue',    accent: '#4F8EF7', bg: '#0d1117', bgCard: '#161b22', border: '#21262d', text: '#e6edf3', muted: '#8b949e', accentDim: '#2d5fbe' },
+  { name: 'Dark Cyan',    accent: '#00d9ff', bg: '#0d0d0d', bgCard: '#161616', border: '#222222', text: '#f0f0f0', muted: '#888888', accentDim: '#0099b3' },
+  { name: 'Dark Purple',  accent: '#a78bfa', bg: '#0f0b1a', bgCard: '#1a1525', border: '#2d2640', text: '#e8e0f0', muted: '#9990a8', accentDim: '#7c5fc4' },
+  { name: 'Midnight Green',accent: '#34d399', bg: '#0a1214', bgCard: '#121e22', border: '#1e3030', text: '#e0f0ec', muted: '#7da89e', accentDim: '#1f9e6f' },
+];
+
+const COLOR_FIELDS = [
+  { picker: 'siteAccentColor',    text: 'siteAccentColorText',    key: 'site_accent_color' },
+  { picker: 'siteBgColor',        text: 'siteBgColorText',        key: 'site_bg_color' },
+  { picker: 'siteBgCardColor',    text: 'siteBgCardColorText',    key: 'site_bg_card_color' },
+  { picker: 'siteBorderColor',    text: 'siteBorderColorText',    key: 'site_border_color' },
+  { picker: 'siteTextColor',      text: 'siteTextColorText',      key: 'site_text_color' },
+  { picker: 'siteMutedColor',     text: 'siteMutedColorText',     key: 'site_muted_color' },
+  { picker: 'siteAccentDimColor', text: 'siteAccentDimColorText', key: 'site_accent_dim_color' },
+];
+
+// Sync color picker ↔ text input for all 7 fields
+COLOR_FIELDS.forEach(f => {
+  const picker = document.getElementById(f.picker);
+  const text   = document.getElementById(f.text);
+  if (picker && text) {
+    picker.addEventListener('input', () => { text.value = picker.value; });
+    text.addEventListener('input', () => {
+      if (/^#[0-9a-fA-F]{6}$/.test(text.value)) picker.value = text.value;
+    });
+  }
+});
+
+// Render preset buttons
+(function renderPresets() {
+  const container = document.getElementById('themePresets');
+  if (!container) return;
+  THEME_PRESETS.forEach((preset, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-sm';
+    btn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+    btn.innerHTML = '<span style="width:12px;height:12px;border-radius:50%;background:' + preset.accent + ';display:inline-block;"></span> ' + preset.name;
+    btn.addEventListener('click', () => {
+      const vals = [preset.accent, preset.bg, preset.bgCard, preset.border, preset.text, preset.muted, preset.accentDim];
+      COLOR_FIELDS.forEach((f, j) => {
+        const picker = document.getElementById(f.picker);
+        const text   = document.getElementById(f.text);
+        if (picker) picker.value = vals[j];
+        if (text)   text.value = vals[j];
+      });
+    });
+    container.appendChild(btn);
+  });
+})();
+
+// ── Logo Upload ──────────────────────────────────────────
+function initLogoUpload(kind) {
+  const fileInput  = document.getElementById(kind + 'FileInput');
+  const selectBtn  = document.getElementById(kind + 'SelectBtn');
+  const uploadBtn  = document.getElementById(kind + 'UploadBtn');
+  const previewImg = document.getElementById(kind + 'PreviewImg');
+  const statusEl   = document.getElementById(kind + 'UploadStatus');
+  if (!fileInput || !selectBtn) return;
+
+  selectBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      statusEl.textContent = '⚠️ File too large (max 512KB)';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      previewImg.src = reader.result;
+      previewImg.style.display = 'block';
+      const emptyEl = document.getElementById(kind + 'PreviewEmpty');
+      if (emptyEl) emptyEl.style.display = 'none';
+      uploadBtn.style.display = 'inline-flex';
+      uploadBtn._dataUrl = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  uploadBtn.addEventListener('click', async () => {
+    if (!uploadBtn._dataUrl) return;
+    uploadBtn.disabled = true;
+    statusEl.textContent = 'Uploading…';
+    try {
+      const type = kind === 'favicon' ? 'favicon' : 'logo';
+      const res = await apiFetch('/settings/logo', {
+        method: 'POST',
+        body: JSON.stringify({ dataUrl: uploadBtn._dataUrl, type }),
+      });
+      statusEl.textContent = '✅ Uploaded successfully';
+      uploadBtn.style.display = 'none';
+      previewImg.src = res.url;
+    } catch (err) {
+      statusEl.textContent = '❌ Upload failed: ' + err.message;
+    } finally {
+      uploadBtn.disabled = false;
+    }
+  });
+}
+initLogoUpload('logo');
+initLogoUpload('favicon');
+
 let apiKeyVisible = false;
 
   document.getElementById('toggleApiKeyBtn').addEventListener('click', function() {
@@ -344,19 +450,6 @@ let apiKeyVisible = false;
   }
 
 
-  // Color picker sync
-  function syncColorPicker(pickerId, textId) {
-    const picker = document.getElementById(pickerId);
-    const text   = document.getElementById(textId);
-    if (!picker || !text) return;
-    picker.addEventListener('input', () => { text.value = picker.value; });
-    text.addEventListener('input', () => {
-      if (/^#[0-9a-f]{6}$/i.test(text.value)) picker.value = text.value;
-    });
-  }
-  syncColorPicker('siteAccentColor', 'siteAccentColorText');
-  syncColorPicker('siteBgColor',     'siteBgColorText');
-
   // Category list editor
   let _siteCategories = [];
 
@@ -417,17 +510,33 @@ let apiKeyVisible = false;
       const el = document.getElementById(f.id);
       if (el) el.value = settings[f.key] || '';
     }
-    // Colors
-    const accent = settings.site_accent_color || '#4F8EF7';
-    const bg     = settings.site_bg_color || '#0d1117';
-    const accentPicker = document.getElementById('siteAccentColor');
-    const accentText   = document.getElementById('siteAccentColorText');
-    const bgPicker     = document.getElementById('siteBgColor');
-    const bgText       = document.getElementById('siteBgColorText');
-    if (accentPicker) accentPicker.value = accent;
-    if (accentText)   accentText.value   = accent;
-    if (bgPicker)     bgPicker.value     = bg;
-    if (bgText)       bgText.value       = bg;
+    // Colors — load all 7 tokens
+    const colorDefaults = {
+      site_accent_color: '#4F8EF7', site_bg_color: '#0d1117', site_bg_card_color: '#161b22',
+      site_border_color: '#21262d', site_text_color: '#e6edf3', site_muted_color: '#8b949e',
+      site_accent_dim_color: '#2d5fbe',
+    };
+    COLOR_FIELDS.forEach(f => {
+      const val = settings[f.key] || colorDefaults[f.key] || '#000000';
+      const picker = document.getElementById(f.picker);
+      const text   = document.getElementById(f.text);
+      if (picker) picker.value = val;
+      if (text)   text.value   = val;
+    });
+
+    // Logo image previews
+    if (settings.site_logo_url) {
+      const img = document.getElementById('logoPreviewImg');
+      const empty = document.getElementById('logoPreviewEmpty');
+      if (img) { img.src = settings.site_logo_url; img.style.display = 'block'; }
+      if (empty) empty.style.display = 'none';
+    }
+    if (settings.site_favicon_url) {
+      const img = document.getElementById('faviconPreviewImg');
+      const empty = document.getElementById('faviconPreviewEmpty');
+      if (img) { img.src = settings.site_favicon_url; img.style.display = 'block'; }
+      if (empty) empty.style.display = 'none';
+    }
 
     // Categories
     try {
@@ -447,8 +556,10 @@ let apiKeyVisible = false;
       const el = document.getElementById(f.id);
       if (el) payload[f.key] = el.value;
     }
-    payload.site_accent_color = document.getElementById('siteAccentColorText')?.value || '#4F8EF7';
-    payload.site_bg_color     = document.getElementById('siteBgColorText')?.value || '#0d1117';
+    COLOR_FIELDS.forEach(f => {
+      const text = document.getElementById(f.text);
+      if (text) payload[f.key] = text.value;
+    });
 
     // Clean up categories — remove empty names
     const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());

@@ -11,6 +11,10 @@ const { asyncHandler }       = require('../lib/utils');
 const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
+const { extFromMime, upload: r2Upload } = require('../lib/r2');
+const path = require('path');
+
+const BRANDING_DIR = path.join(__dirname, '..', 'public', 'media', 'branding');
 
 // GET /api/settings — return all settings as key/value object (decrypt sensitive values)
 router.get('/', requireAdmin, asyncHandler(async (req, res) => {
@@ -48,6 +52,41 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
     result[row.key] = SENSITIVE_KEYS.has(row.key) ? decryptSetting(row.value) : row.value;
   }
   res.json(result);
+}));
+
+// POST /api/settings/logo — upload site logo image (base64 dataUrl)
+router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
+  const { dataUrl, type } = req.body; // type: 'logo' or 'favicon'
+  if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
+
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
+
+  const mimeType = match[1];
+  const buf = Buffer.from(match[2], 'base64');
+
+  if (buf.length > 512 * 1024) {
+    return res.status(400).json({ error: 'File too large (max 512KB)' });
+  }
+
+  const ext = extFromMime(mimeType);
+  const kind = type === 'favicon' ? 'favicon' : 'logo';
+  const filename = `site-${kind}.${ext}`;
+  const r2Key = `branding/${filename}`;
+
+  const url = await r2Upload(buf, mimeType, r2Key, BRANDING_DIR, filename);
+
+  const pool = getPool();
+  const settingKey = kind === 'favicon' ? 'site_favicon_url' : 'site_logo_url';
+  await pool.query(
+    `INSERT INTO settings (key, value, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [settingKey, url]
+  );
+
+  bustSiteConfigCache();
+  res.json({ url, key: settingKey });
 }));
 
 module.exports = router;
