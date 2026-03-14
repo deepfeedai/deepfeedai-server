@@ -127,6 +127,7 @@ function initLogoUpload(kind) {
 }
 initLogoUpload('logo');
 initLogoUpload('favicon');
+initLogoUpload('ogimage');
 
 let apiKeyVisible = false;
 
@@ -417,7 +418,6 @@ let apiKeyVisible = false;
     { id: 'siteLogoHtml',         key: 'site_logo_html' },
     { id: 'siteDomain',           key: 'site_domain' },
     { id: 'siteUrl',              key: 'site_url' },
-    { id: 'siteOgImage',          key: 'site_og_image' },
     { id: 'siteTwitterHandle',    key: 'site_twitter_handle' },
     { id: 'siteCopyright',        key: 'site_copyright' },
     { id: 'siteFooterTagline',    key: 'site_footer_tagline' },
@@ -457,14 +457,18 @@ let apiKeyVisible = false;
     const container = document.getElementById('siteCategoriesList');
     if (!container) return;
     container.innerHTML = _siteCategories.map((cat, i) => `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" data-cat-idx="${i}">
-        <input type="text" class="form-control" value="${escHtml(cat.name)}" data-cat-name="${i}"
-               style="flex:1;max-width:200px;" placeholder="Category name" />
-        <input type="color" value="${cat.color || '#7c3aed'}" data-cat-color="${i}"
-               style="width:36px;height:30px;border:none;background:none;cursor:pointer;" />
-        <input type="text" class="form-control" value="${cat.color || '#7c3aed'}" data-cat-color-text="${i}"
-               style="width:90px;font-family:monospace;font-size:12px;" />
-        <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
+      <div style="margin-bottom:12px;padding:10px;border:1px solid var(--border);border-radius:8px;" data-cat-idx="${i}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <input type="text" class="form-control" value="${escHtml(cat.name)}" data-cat-name="${i}"
+                 style="flex:1;max-width:200px;" placeholder="Category name" />
+          <input type="color" value="${cat.color || '#7c3aed'}" data-cat-color="${i}"
+                 style="width:36px;height:30px;border:none;background:none;cursor:pointer;" />
+          <input type="text" class="form-control" value="${cat.color || '#7c3aed'}" data-cat-color-text="${i}"
+                 style="width:90px;font-family:monospace;font-size:12px;" />
+          <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
+        </div>
+        <input type="text" class="form-control" value="${escHtml((cat.keywords || []).join(', '))}" data-cat-keywords="${i}"
+               style="font-size:12px;color:var(--muted);" placeholder="Keywords (comma-separated) for auto-categorization" />
       </div>
     `).join('');
 
@@ -492,6 +496,12 @@ let apiKeyVisible = false;
         }
       });
     });
+    container.querySelectorAll('[data-cat-keywords]').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = Number(el.dataset.catKeywords);
+        _siteCategories[idx].keywords = el.value.split(',').map(k => k.trim()).filter(Boolean);
+      });
+    });
     container.querySelectorAll('[data-cat-remove]').forEach(el => {
       el.addEventListener('click', () => {
         _siteCategories.splice(Number(el.dataset.catRemove), 1);
@@ -501,11 +511,73 @@ let apiKeyVisible = false;
   }
 
   document.getElementById('addCategoryBtn')?.addEventListener('click', () => {
-    _siteCategories.push({ name: '', color: '#7c3aed' });
+    _siteCategories.push({ name: '', color: '#7c3aed', keywords: [] });
     renderCategories();
   });
 
-  function loadSiteSettings(settings) {
+  // ── Per-panel save helper ─────────────────────────────────────────
+  function panelSave(btnId, statusId, label, saveFn) {
+    document.getElementById(btnId)?.addEventListener('click', async function () {
+      const statusEl = document.getElementById(statusId);
+      try {
+        this.disabled = true; this.textContent = 'Saving…';
+        await saveFn();
+        statusEl.textContent = '✅ ' + label + ' saved';
+        showAlert(label + ' saved ✓');
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } catch (err) {
+        statusEl.textContent = '❌ ' + err.message;
+        showAlert('Save failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Save ' + label;
+      }
+    });
+  }
+
+  function saveFields(fields) {
+    const payload = {};
+    for (const f of fields) {
+      const el = document.getElementById(f.id);
+      if (el) payload[f.key] = el.value;
+    }
+    return apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  }
+
+  // ── Categories save ─────────────────────────────────────────────
+  panelSave('saveCategoriesBtn', 'categoriesStatus', 'Categories', async () => {
+    const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
+    const result = await apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) });
+    if (Array.isArray(result)) {
+      _siteCategories = result;
+      renderCategories();
+    }
+  });
+
+  // ── AI & Newsletter save ────────────────────────────────────────
+  panelSave('saveNewsletterBtn', 'newsletterStatus', 'AI & Newsletter', () => saveFields([
+    { id: 'siteAiPersona',        key: 'site_ai_persona' },
+    { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
+    { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+  ]));
+
+  // ── Analytics & Ads save ────────────────────────────────────────
+  panelSave('saveAnalyticsBtn', 'analyticsAdsStatus', 'Analytics & Ads', () => saveFields([
+    { id: 'siteGaId',       key: 'site_ga_id' },
+    { id: 'siteAdsenseId',  key: 'site_adsense_id' },
+  ]));
+
+  // ── Perspective API save ────────────────────────────────────────
+  panelSave('savePerspectiveBtn', 'perspectiveStatus', 'Perspective Settings', async () => {
+    const payload = {
+      spam_perspective_enabled: document.getElementById('perspectiveEnabled').checked ? '1' : '0',
+    };
+    const key = document.getElementById('perspectiveKey').value.trim();
+    if (key) payload.spam_perspective_key = key;
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (key) document.getElementById('perspectiveKey').value = '';
+  });
+
+  async function loadSiteSettings(settings) {
     for (const f of SITE_FIELDS) {
       const el = document.getElementById(f.id);
       if (el) el.value = settings[f.key] || '';
@@ -537,11 +609,21 @@ let apiKeyVisible = false;
       if (img) { img.src = settings.site_favicon_url; img.style.display = 'block'; }
       if (empty) empty.style.display = 'none';
     }
+    if (settings.site_og_image) {
+      const img = document.getElementById('ogimagePreviewImg');
+      const empty = document.getElementById('ogimagePreviewEmpty');
+      if (img) { img.src = settings.site_og_image; img.style.display = 'block'; }
+      if (empty) empty.style.display = 'none';
+    }
 
-    // Categories
+    // Categories — loaded from /api/categories (falls back to legacy setting)
     try {
-      _siteCategories = JSON.parse(settings.site_categories || '[]');
+      const cats = await apiFetch('/categories');
+      _siteCategories = Array.isArray(cats) && cats.length ? cats : [];
     } catch { _siteCategories = []; }
+    if (!_siteCategories.length && settings.site_categories) {
+      try { _siteCategories = JSON.parse(settings.site_categories); } catch { /* ignore */ }
+    }
     renderCategories();
 
     // Logo preview
@@ -550,34 +632,33 @@ let apiKeyVisible = false;
     }
   }
 
-  document.getElementById('saveSiteSettingsBtn')?.addEventListener('click', async function () {
+  // ── Branding save ─────────────────────────────────────────────────
+  panelSave('saveBrandingBtn', 'brandingStatus', 'Branding', () => saveFields([
+    { id: 'siteName',          key: 'site_name' },
+    { id: 'siteShortName',    key: 'site_short_name' },
+    { id: 'siteTagline',      key: 'site_tagline' },
+    { id: 'siteDescription',  key: 'site_description' },
+    { id: 'siteLogoEmoji',    key: 'site_logo_emoji' },
+    { id: 'siteLogoHtml',     key: 'site_logo_html' },
+    { id: 'siteCopyright',    key: 'site_copyright' },
+    { id: 'siteFooterTagline',key: 'site_footer_tagline' },
+  ]));
+
+  // ── Domain & URLs save ──────────────────────────────────────────
+  panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
+    { id: 'siteDomain',        key: 'site_domain' },
+    { id: 'siteUrl',           key: 'site_url' },
+    { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
+  ]));
+
+  // ── Theme save ──────────────────────────────────────────────────
+  panelSave('saveThemeBtn', 'themeStatus', 'Theme', async () => {
     const payload = {};
-    for (const f of SITE_FIELDS) {
-      const el = document.getElementById(f.id);
-      if (el) payload[f.key] = el.value;
-    }
     COLOR_FIELDS.forEach(f => {
       const text = document.getElementById(f.text);
       if (text) payload[f.key] = text.value;
     });
-
-    // Clean up categories — remove empty names
-    const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
-    payload.site_categories = JSON.stringify(cleanCats);
-
-    const statusEl = document.getElementById('siteSettingsStatus');
-    try {
-      this.disabled = true; this.textContent = 'Saving…';
-      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
-      statusEl.textContent = '✅ Site settings saved';
-      showAlert('Site settings saved ✓');
-      setTimeout(() => { statusEl.textContent = ''; }, 3000);
-    } catch (err) {
-      statusEl.textContent = '❌ ' + err.message;
-      showAlert('Save failed: ' + err.message, 'error');
-    } finally {
-      this.disabled = false; this.textContent = 'Save Site Settings';
-    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
   });
 
   // ── Extend loadSettings to include all setting sections ───────────
@@ -598,7 +679,7 @@ let apiKeyVisible = false;
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
-      loadSiteSettings(settings);
+      await loadSiteSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }

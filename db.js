@@ -170,6 +170,15 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS categories (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      color       TEXT DEFAULT '#94a3b8',
+      keywords    TEXT[] DEFAULT '{}',
+      sort_order  INTEGER DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS summary_cache (
       cache_key  TEXT PRIMARY KEY,
       payload    JSONB NOT NULL,
@@ -309,7 +318,16 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('site_footer_tagline', 'Built with ❤️ for the AI-curious') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_ga_id', 'G-WEJ64FE38R') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_adsense_id', 'ca-pub-5739407654850583') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_categories', '${JSON.stringify([{"name":"LLMs","color":"#7c3aed"},{"name":"Image AI","color":"#0ea5e9"},{"name":"Research","color":"#22d3ee"},{"name":"Tools","color":"#34d399"},{"name":"Business","color":"#f59e0b"},{"name":"Policy","color":"#f97316"},{"name":"CyberSecurity","color":"#ef4444"},{"name":"Industry","color":"#94a3b8"}])}') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_categories', '${JSON.stringify([
+      {"name":"LLMs","color":"#7c3aed","keywords":["gpt-3","gpt-4","gpt4o","gpt-5","o1","o3","o4-mini","claude","sonnet","opus","haiku","gemini","llama","mistral","mixtral","falcon","phi","qwen","deepseek","grok","llm","llms","large language model","language model","foundation model","base model","multimodal model","vision language","text generation","context window","system prompt","prompt engineering","few-shot","zero-shot","chain of thought","retrieval augmented","rag","tokenizer","openai","anthropic","cohere","ai21","mistral ai","together ai","perplexity","xai","inflection"]},
+      {"name":"Image AI","color":"#0ea5e9","keywords":["midjourney","dall-e","stable diffusion","stability ai","ideogram","firefly","leonardo","flux","sora","runway","kling","pika","gen-2","gen-3","veo","lumiere","cogvideo","text to image","text to video","image generation","video generation","image synthesis","diffusion model","latent diffusion","generative image","ai art","ai generated image","text to speech","speech synthesis","voice clone","tts","audio generation","music generation","suno","udio","deepfake","synthetic media","ai video","ai image"]},
+      {"name":"Research","color":"#22d3ee","keywords":["arxiv","neurips","icml","iclr","acl","emnlp","cvpr","iccv","naacl","preprint","research paper","new paper","paper proposes","paper introduces","dataset","benchmark","evaluation framework","evals","ablation","hyperparameter","alignment","interpretability","mechanistic","scaling law","emergent ability","red team","adversarial","robustness","pretraining","fine-tuning","rlhf","reward model","constitutional ai","ai safety","ai risk","researchers","published","findings","experiment","hallucin","university","deepmind research","google brain","openai research"]},
+      {"name":"Tools","color":"#34d399","keywords":["github copilot","cursor ai","codeium","tabnine","codex","devin","replit","aider","mcp","model context protocol","function calling","ai agent","agentic","multi-agent","autonomous agent","chatbot","ai assistant","virtual assistant","copilot","plugin","extension","integration","workflow automation","now available","product launch","generally available","public beta","open beta","rolling out","sdk","api launch","no-code","low-code","zapier","n8n","automation platform"]},
+      {"name":"Business","color":"#f59e0b","keywords":["series a","series b","series c","seed round","venture round","funding round","raised $","secures $","acquisition","merger","ipo","valuation","unicorn","spac","funding","investment","investor","venture capital","andreessen","sequoia","a16z","softbank","revenue","earnings","profit","quarterly","fiscal","market share","stock","share price","ceo","cto","coo","cfo","founder","co-founder","layoff","laid off","job cut","reorg","restructur","downsiz","partnership","deal","contract","collaboration","strategic","expansion","startup","enterprise"]},
+      {"name":"Policy","color":"#f97316","keywords":["eu ai act","ai act","executive order","ai regulation","ai bill","ai law","ai legislation","lawsuit","sued","litigation","court ruling","judge","verdict","settlement","ftc","doj","congress","senate","parliament","regulation","legislation","policy","compliance","gdpr","ccpa","biometric","copyright","intellectual property","fair use","training data lawsuit","ai safety","ai ethics","bias","fairness","transparency","misinformation","disinformation","deepfake detect","election","propaganda","pentagon","military","national security","surveillance","privacy","data privacy","ban","restrict","prohibit","censor","guardrail"]},
+      {"name":"CyberSecurity","color":"#ef4444","keywords":["cyberattack","cyber attack","ransomware","malware","phishing","zero day","exploit","vulnerability","cve","ai security","llm security","prompt injection","jailbreak","adversarial attack","model theft","model extract","hacker","hacking","breach","data breach","intrusion","threat actor","apt","nation state","cybersecurity","infosec","soc","siem","threat intel","penetration test","red team security","ai powered attack","ai generated phishing","deepfake fraud","voice clone fraud","security","defend","defense","protect","encrypt","authentication","identity theft"]},
+      {"name":"Industry","color":"#94a3b8","keywords":[]}
+    ])}') ON CONFLICT (key) DO NOTHING`,
     // AI budget settings
     `INSERT INTO settings (key, value) VALUES ('ai_daily_budget', '5.00') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('ai_monthly_budget', '50.00') ON CONFLICT (key) DO NOTHING`,
@@ -386,6 +404,31 @@ async function initDb() {
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
   }
+
+  // Seed categories table from legacy site_categories JSON setting (one-time migration)
+  try {
+    const catCount = await prepare('SELECT COUNT(*) AS cnt FROM categories').get();
+    if (parseInt(catCount.cnt) === 0) {
+      const row = await prepare("SELECT value FROM settings WHERE key = $1").get('site_categories');
+      if (row && row.value) {
+        let cats = [];
+        try { cats = JSON.parse(row.value); } catch { /* ignore */ }
+        for (let i = 0; i < cats.length; i++) {
+          const c = cats[i];
+          if (!c.name) continue;
+          const kw = Array.isArray(c.keywords) ? c.keywords : [];
+          try {
+            await p.query(
+              `INSERT INTO categories (name, color, keywords, sort_order)
+               VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO NOTHING`,
+              [c.name, c.color || '#94a3b8', kw, i]
+            );
+          } catch { /* skip duplicates */ }
+        }
+        console.log(`✅ Seeded ${cats.length} categories from site_categories setting`);
+      }
+    }
+  } catch (err) { console.error('[DB] category seed error:', err.message); }
 
   // Backfill slugs for any voices missing one
   try {

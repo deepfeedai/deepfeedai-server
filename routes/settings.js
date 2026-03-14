@@ -33,6 +33,7 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
 
   const pool = getPool();
   let hasSiteKey = false;
+
   for (const [key, value] of Object.entries(body)) {
     if (key.startsWith('site_')) hasSiteKey = true;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
@@ -54,9 +55,16 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-// POST /api/settings/logo — upload site logo image (base64 dataUrl)
+// POST /api/settings/logo — upload site branding image (base64 dataUrl)
+// Supports type: 'logo', 'favicon', 'ogimage'
+const BRANDING_TYPES = {
+  logo:    { filename: 'site-logo',    settingKey: 'site_logo_url' },
+  favicon: { filename: 'site-favicon', settingKey: 'site_favicon_url' },
+  ogimage: { filename: 'site-og',      settingKey: 'site_og_image' },
+};
+
 router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
-  const { dataUrl, type } = req.body; // type: 'logo' or 'favicon'
+  const { dataUrl, type } = req.body;
   if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
 
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
@@ -69,24 +77,23 @@ router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'File too large (max 2MB)' });
   }
 
+  const bt = BRANDING_TYPES[type] || BRANDING_TYPES.logo;
   const ext = extFromMime(mimeType);
-  const kind = type === 'favicon' ? 'favicon' : 'logo';
-  const filename = `site-${kind}.${ext}`;
+  const filename = `${bt.filename}.${ext}`;
   const r2Key = `branding/${filename}`;
 
   const url = await r2Upload(buf, mimeType, r2Key, BRANDING_DIR, filename);
 
   const pool = getPool();
-  const settingKey = kind === 'favicon' ? 'site_favicon_url' : 'site_logo_url';
   await pool.query(
     `INSERT INTO settings (key, value, updated_at)
      VALUES ($1, $2, NOW())
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [settingKey, url]
+    [bt.settingKey, url]
   );
 
   bustSiteConfigCache();
-  res.json({ url, key: settingKey });
+  res.json({ url, key: bt.settingKey });
 }));
 
 module.exports = router;

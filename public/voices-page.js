@@ -359,10 +359,21 @@ let voices = [];
     studioTestBtn.textContent = '▶ Test Voice';
   });
 
+  async function populateBeatDropdown() {
+    await loadCategories();
+    const sel = document.getElementById('fVoiceBeat');
+    if (!sel) return;
+    const cats = window._siteCategories.length ? window._siteCategories : [];
+    sel.innerHTML = '<option value="">None</option>' + cats.map(c =>
+      `<option value="${c}">${c}</option>`
+    ).join('');
+  }
+
   // Initialize
   async function init() {
     renderSidebar();
     initModals();
+    await populateBeatDropdown();
     await loadVoices();
     populateStudioVoices();
   }
