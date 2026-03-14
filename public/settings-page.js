@@ -457,14 +457,18 @@ let apiKeyVisible = false;
     const container = document.getElementById('siteCategoriesList');
     if (!container) return;
     container.innerHTML = _siteCategories.map((cat, i) => `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;" data-cat-idx="${i}">
-        <input type="text" class="form-control" value="${escHtml(cat.name)}" data-cat-name="${i}"
-               style="flex:1;max-width:200px;" placeholder="Category name" />
-        <input type="color" value="${cat.color || '#7c3aed'}" data-cat-color="${i}"
-               style="width:36px;height:30px;border:none;background:none;cursor:pointer;" />
-        <input type="text" class="form-control" value="${cat.color || '#7c3aed'}" data-cat-color-text="${i}"
-               style="width:90px;font-family:monospace;font-size:12px;" />
-        <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
+      <div style="margin-bottom:12px;padding:10px;border:1px solid var(--border);border-radius:8px;" data-cat-idx="${i}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <input type="text" class="form-control" value="${escHtml(cat.name)}" data-cat-name="${i}"
+                 style="flex:1;max-width:200px;" placeholder="Category name" />
+          <input type="color" value="${cat.color || '#7c3aed'}" data-cat-color="${i}"
+                 style="width:36px;height:30px;border:none;background:none;cursor:pointer;" />
+          <input type="text" class="form-control" value="${cat.color || '#7c3aed'}" data-cat-color-text="${i}"
+                 style="width:90px;font-family:monospace;font-size:12px;" />
+          <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
+        </div>
+        <input type="text" class="form-control" value="${escHtml((cat.keywords || []).join(', '))}" data-cat-keywords="${i}"
+               style="font-size:12px;color:var(--muted);" placeholder="Keywords (comma-separated) for auto-categorization" />
       </div>
     `).join('');
 
@@ -492,6 +496,12 @@ let apiKeyVisible = false;
         }
       });
     });
+    container.querySelectorAll('[data-cat-keywords]').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = Number(el.dataset.catKeywords);
+        _siteCategories[idx].keywords = el.value.split(',').map(k => k.trim()).filter(Boolean);
+      });
+    });
     container.querySelectorAll('[data-cat-remove]').forEach(el => {
       el.addEventListener('click', () => {
         _siteCategories.splice(Number(el.dataset.catRemove), 1);
@@ -501,11 +511,11 @@ let apiKeyVisible = false;
   }
 
   document.getElementById('addCategoryBtn')?.addEventListener('click', () => {
-    _siteCategories.push({ name: '', color: '#7c3aed' });
+    _siteCategories.push({ name: '', color: '#7c3aed', keywords: [] });
     renderCategories();
   });
 
-  function loadSiteSettings(settings) {
+  async function loadSiteSettings(settings) {
     for (const f of SITE_FIELDS) {
       const el = document.getElementById(f.id);
       if (el) el.value = settings[f.key] || '';
@@ -538,9 +548,10 @@ let apiKeyVisible = false;
       if (empty) empty.style.display = 'none';
     }
 
-    // Categories
+    // Categories — loaded separately from /api/categories
     try {
-      _siteCategories = JSON.parse(settings.site_categories || '[]');
+      const cats = await apiFetch('/categories');
+      _siteCategories = Array.isArray(cats) ? cats : [];
     } catch { _siteCategories = []; }
     renderCategories();
 
@@ -561,14 +572,24 @@ let apiKeyVisible = false;
       if (text) payload[f.key] = text.value;
     });
 
-    // Clean up categories — remove empty names
-    const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
-    payload.site_categories = JSON.stringify(cleanCats);
-
     const statusEl = document.getElementById('siteSettingsStatus');
     try {
       this.disabled = true; this.textContent = 'Saving…';
-      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+
+      // Save settings and categories in parallel
+      const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
+      await Promise.all([
+        apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) }),
+        apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) }),
+      ]);
+
+      // Refresh category list with server response (gets new ids)
+      try {
+        const cats = await apiFetch('/categories');
+        _siteCategories = Array.isArray(cats) ? cats : [];
+        renderCategories();
+      } catch { /* non-critical */ }
+
       statusEl.textContent = '✅ Site settings saved';
       showAlert('Site settings saved ✓');
       setTimeout(() => { statusEl.textContent = ''; }, 3000);
@@ -598,7 +619,7 @@ let apiKeyVisible = false;
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
-      loadSiteSettings(settings);
+      await loadSiteSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }
