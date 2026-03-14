@@ -116,7 +116,6 @@ app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // 
 app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/writers',   require('./routes/writers'));
-app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/settings',     require('./routes/settings'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
@@ -135,6 +134,7 @@ app.use('/api/article-reactions', require('./routes/article-reactions'));    // 
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
 const { auth } = require('./middleware/auth');
+app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/synthesis', auth, require('./routes/synthesis'));
 
