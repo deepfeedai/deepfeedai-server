@@ -255,11 +255,25 @@ function badgeActive(v) {
     : '<span class="badge badge-danger">Off</span>';
 }
 
-// ── Categories ────────────────────────────────────────────
-const CATEGORIES = ['Industry', 'LLMs', 'Research', 'Tools', 'Policy', 'Hardware', 'Agents', 'Other'];
+// ── Categories (loaded dynamically from categories table) ─────────
+window._siteCategories = [];
+
+async function loadCategories() {
+  if (window._siteCategories.length) return window._siteCategories;
+  try {
+    const res = await fetch('/api/categories');
+    if (res.ok) {
+      const cats = await res.json();
+      window._siteCategories = Array.isArray(cats) ? cats.map(c => c.name) : [];
+    }
+  } catch { /* ignore */ }
+  if (!window._siteCategories.length) window._siteCategories = ['Industry'];
+  return window._siteCategories;
+}
 
 function categoryOptions(selected = '') {
-  return CATEGORIES.map(c =>
+  const cats = window._siteCategories.length ? window._siteCategories : ['Industry'];
+  return cats.map(c =>
     `<option value="${c}" ${c === selected ? 'selected' : ''}>${c}</option>`
   ).join('');
 }

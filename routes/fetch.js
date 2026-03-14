@@ -42,7 +42,7 @@ async function fetchAllSources(autoPublish = false) {
         const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
         if (existing) { skipped++; continue; }
 
-        const category = detectCategory(item);
+        const category = await detectCategory(item);
         const image    =
           item.enclosure?.url                              ||  // standard podcast/media enclosure
           item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
@@ -256,7 +256,7 @@ async function fetchLiveSources(autoPublish = false) {
     if (existing) { skipped++; continue; }
 
     // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
-    const category = detectCategory({ title: item.title, contentSnippet: item.summary });
+    const category = await detectCategory({ title: item.title, contentSnippet: item.summary });
 
     // Insert as unpublished first; quality gate decides whether to publish
     await db.prepare(
@@ -315,7 +315,7 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
 
   let updated = 0;
   for (const a of articles) {
-    const newCat = detectCategory({ title: a.title, contentSnippet: a.summary });
+    const newCat = await detectCategory({ title: a.title, contentSnippet: a.summary });
     if (newCat !== a.category) {
       await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2').run(newCat, a.id);
       updated++;

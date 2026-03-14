@@ -117,6 +117,7 @@ app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     require('./routes/settings'));
+app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed

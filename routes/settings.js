@@ -33,6 +33,7 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
 
   const pool = getPool();
   let hasSiteKey = false;
+
   for (const [key, value] of Object.entries(body)) {
     if (key.startsWith('site_')) hasSiteKey = true;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;

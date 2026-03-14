@@ -447,8 +447,6 @@ let articles = [];
   }
 
   // ── Inline edit ────────────────────────────────────────────────────────────
-  const INLINE_CATEGORIES = ['LLMs','Image AI','Research','Tools','Business','Policy','CyberSecurity','Industry'];
-
   async function startInlineEdit(id, field) {
     const a = articles.find(x => x.id === id);
     if (!a) return;
@@ -476,7 +474,8 @@ let articles = [];
       const td = document.querySelector(`#row-${id} .td-category`);
       if (!td || td.querySelector('select')) return;
       const original = a.category || 'Industry';
-      const opts = INLINE_CATEGORIES.map(c =>
+      const cats = window._siteCategories.length ? window._siteCategories : ['Industry'];
+      const opts = cats.map(c =>
         `<option value="${c}"${c === original ? ' selected' : ''}>${c}</option>`
       ).join('');
       td.innerHTML = `<select class="inline-edit-select">${opts}</select>`;
@@ -916,6 +915,7 @@ let articles = [];
       });
     });
 
+    await loadCategories();
     await loadArticles();
 
     // ── Keyboard navigation ──────────────────────────────
