@@ -461,29 +461,47 @@ async function initDb() {
     const migDone = await prepare("SELECT value FROM settings WHERE key = 'writers_migration_done'").get();
     if (!migDone) {
       const vCount = await prepare('SELECT COUNT(*) AS cnt FROM voices').get();
+      const wCount = await prepare('SELECT COUNT(*) AS cnt FROM writers').get();
       if (parseInt(vCount.cnt) > 0) {
-        // Copy persona data from voices into writers (voice_id links back to the source voice)
-        await p.query(`
-          INSERT INTO writers (name, slug, avatar_url, bio, beat, keywords, system_prompt,
-            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id, created_at)
-          SELECT name, slug, avatar_url, bio, beat, keywords, system_prompt,
-            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, id, created_at
-          FROM voices
-        `);
-        console.log('  Writers seeded from voices table');
+        // Seed writers from voices if not already done
+        if (parseInt(wCount.cnt) === 0) {
+          await p.query(`
+            INSERT INTO writers (name, slug, avatar_url, bio, beat, keywords, system_prompt,
+              is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id, created_at)
+            SELECT name, slug, avatar_url, bio, beat, keywords, system_prompt,
+              is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, id, created_at
+            FROM voices
+          `);
+          console.log('  Writers seeded from voices table');
 
-        // Build old voice_id → new writer_id mapping and update FKs
-        const mapping = await prepare('SELECT id AS writer_id, voice_id AS old_voice_id FROM writers').all();
-        for (const m of mapping) {
-          await p.query('UPDATE articles SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
-          await p.query('UPDATE writer_follows SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+          // Build old voice_id → new writer_id mapping and update FKs
+          const mapping = await prepare('SELECT id AS writer_id, voice_id AS old_voice_id FROM writers').all();
+          for (const m of mapping) {
+            await p.query('UPDATE articles SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+            await p.query('UPDATE writer_follows SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+          }
         }
 
-        // Drop old FK constraints and add new ones pointing to writers
-        try { await p.query('ALTER TABLE articles DROP CONSTRAINT IF EXISTS articles_writer_id_fkey'); } catch { /* may not exist */ }
-        try { await p.query('ALTER TABLE writer_follows DROP CONSTRAINT IF EXISTS writer_follows_writer_id_fkey'); } catch { /* may not exist */ }
-        await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL');
-        await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE');
+        // Drop ALL FK constraints on writer_id columns, then add new ones pointing to writers
+        // Find actual constraint names dynamically (names may vary across environments)
+        const artFks = await p.query(`
+          SELECT con.conname FROM pg_constraint con
+          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
+          WHERE con.conrelid = 'articles'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
+        `);
+        for (const row of artFks.rows) {
+          await p.query(`ALTER TABLE articles DROP CONSTRAINT "${row.conname}"`);
+        }
+        const wfFks = await p.query(`
+          SELECT con.conname FROM pg_constraint con
+          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
+          WHERE con.conrelid = 'writer_follows'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
+        `);
+        for (const row of wfFks.rows) {
+          await p.query(`ALTER TABLE writer_follows DROP CONSTRAINT "${row.conname}"`);
+        }
+        try { await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL'); } catch { /* already exists */ }
+        try { await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE'); } catch { /* already exists */ }
         console.log('  FK constraints re-pointed to writers table');
       }
       await p.query("INSERT INTO settings (key, value) VALUES ('writers_migration_done', '1') ON CONFLICT (key) DO NOTHING");
