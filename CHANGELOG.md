@@ -8,7 +8,18 @@ All notable changes to Deep Feed AI Admin are documented here.
 > Features planned or in progress
 
 - **HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
-- **Site branding & theme customization** — logo upload to R2, extended color token system, dark/light mode
+
+---
+
+## [1.12.0] — 2026-03-14
+
+### Added — Site Branding & Theme Customization
+- **Shared R2 upload helper** — extracted `lib/r2.js` from voices.js; reused by logo upload and avatar upload
+- **Logo/favicon upload** — `POST /api/settings/logo` endpoint accepts base64 dataUrl, stores to R2 under `branding/`, saves URL in settings table
+- **Upload widgets** — Settings > General > Branding now has file picker + preview for site logo and favicon (max 2MB)
+- **Extended color tokens** — 7 configurable theme colors: accent, background, surface, border, text, muted, accent hover
+- **Theme presets** — 4 one-click presets: Dark Blue, Dark Cyan, Dark Purple, Midnight Green
+- **Frontend consumption** — `brand.js` applies all 7 CSS custom properties + renders uploaded logo/favicon from site config
 
 ---
 
