@@ -365,6 +365,13 @@ async function initDb() {
     // Quality gate settings
     `INSERT INTO settings (key, value) VALUES ('daily_publish_target', '20') ON CONFLICT (key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('auto_editorial_scoring', '1') ON CONFLICT (key) DO NOTHING`,
+    // Phase 3: Full autonomy settings
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_live', '0') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_quality_gate', '1') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_enabled', '0') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (key) DO NOTHING`,
+    // TLDR column for writer analysis
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
