@@ -7,10 +7,27 @@ All notable changes to Deep Feed AI Admin are documented here.
 ## [Unreleased]
 > Features planned or in progress
 
-- **Phase 2 — HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
-- Up to 3 featured articles with priority ordering
-- Newsletter send interface
-- Analytics dashboard (page views, subscriber growth)
+- **HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
+- **Site branding & theme customization** — logo upload to R2, extended color token system, dark/light mode
+
+---
+
+## [1.11.0] — 2026-03-14
+
+### Changed — Admin UI Overhaul
+- **DRY sidebar** — extracted duplicated sidebar HTML from 10 pages into shared `renderSidebar()` function in `admin.js`
+- **Grouped navigation** — organized flat 10-item nav into 5 groups: Overview, Content, Engagement, Monitoring, System
+- **Auto-active detection** — replaced hardcoded `active` class with automatic pathname matching
+- **Settings tabs** — reorganized single long-scroll page into 4 tabs: General, Integrations, Content, Moderation
+- **Consolidated API keys** — moved ElevenLabs, Imagen, Perspective, GA, and AdSense configs under Integrations tab
+- Selected settings tab persists via `sessionStorage`
+
+---
+
+## [1.10.1] — 2026-03-14
+
+### Fixed
+- **Synthesis slugs** — stop appending timestamp to every synthesized article slug; timestamp now only used as fallback when title produces an empty slug
 
 ---
 
