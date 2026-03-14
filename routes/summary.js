@@ -14,6 +14,7 @@ const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+const { canSpend } = require('../lib/budget');
 
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -142,6 +143,10 @@ async function prewarmSummary(title, description) {
     const key = cacheKey(title);
     const existing = await getCached(key);
     if (existing) return existing; // already cached
+
+    // Budget check for automated pre-warming
+    const budgetCheck = await canSpend('summary');
+    if (!budgetCheck.allowed) return null;
 
     const site = await getSiteConfig();
     const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
