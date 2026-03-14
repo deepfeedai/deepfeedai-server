@@ -127,6 +127,7 @@ function initLogoUpload(kind) {
 }
 initLogoUpload('logo');
 initLogoUpload('favicon');
+initLogoUpload('ogimage');
 
 let apiKeyVisible = false;
 
@@ -417,7 +418,6 @@ let apiKeyVisible = false;
     { id: 'siteLogoHtml',         key: 'site_logo_html' },
     { id: 'siteDomain',           key: 'site_domain' },
     { id: 'siteUrl',              key: 'site_url' },
-    { id: 'siteOgImage',          key: 'site_og_image' },
     { id: 'siteTwitterHandle',    key: 'site_twitter_handle' },
     { id: 'siteCopyright',        key: 'site_copyright' },
     { id: 'siteFooterTagline',    key: 'site_footer_tagline' },
@@ -609,6 +609,12 @@ let apiKeyVisible = false;
       if (img) { img.src = settings.site_favicon_url; img.style.display = 'block'; }
       if (empty) empty.style.display = 'none';
     }
+    if (settings.site_og_image) {
+      const img = document.getElementById('ogimagePreviewImg');
+      const empty = document.getElementById('ogimagePreviewEmpty');
+      if (img) { img.src = settings.site_og_image; img.style.display = 'block'; }
+      if (empty) empty.style.display = 'none';
+    }
 
     // Categories — loaded from /api/categories (falls back to legacy setting)
     try {
@@ -642,7 +648,6 @@ let apiKeyVisible = false;
   panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
     { id: 'siteDomain',        key: 'site_domain' },
     { id: 'siteUrl',           key: 'site_url' },
-    { id: 'siteOgImage',       key: 'site_og_image' },
     { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
   ]));
 

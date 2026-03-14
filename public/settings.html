@@ -129,15 +129,25 @@
             </div>
           </div>
 
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label" for="siteOgImage">OG Image URL</label>
-              <input type="text" class="form-control" id="siteOgImage" placeholder="/og-preview.png" />
+          <div class="form-group">
+            <label class="form-label" for="siteTwitterHandle">Twitter Handle</label>
+            <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" style="max-width:300px;" />
+          </div>
+
+          <!-- OG Image Upload -->
+          <div class="form-group" style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
+            <label class="form-label">OG Image (Social Preview)</label>
+            <p class="form-help" style="margin-bottom:10px;">Large preview image shown when your site is shared on social media (PNG, JPG, WebP — max 2MB, recommended 1200×630).</p>
+            <div style="display:flex;align-items:center;gap:16px;">
+              <img id="ogimagePreviewImg" src="" alt="OG image preview" style="max-height:80px;max-width:300px;display:none;border-radius:4px;background:var(--bg-card);" />
+              <span id="ogimagePreviewEmpty" class="text-muted text-sm">No OG image uploaded</span>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="siteTwitterHandle">Twitter Handle</label>
-              <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" />
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <input type="file" id="ogimageFileInput" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+              <button class="btn btn-outline btn-sm" id="ogimageSelectBtn" type="button">Choose File</button>
+              <button class="btn btn-primary btn-sm" id="ogimageUploadBtn" type="button" style="display:none;">Upload OG Image</button>
             </div>
+            <div id="ogimageUploadStatus" class="settings-status"></div>
           </div>
 
           <div class="btn-group mt-5">
