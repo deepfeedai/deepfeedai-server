@@ -366,7 +366,7 @@ router.put('/:id/assign-writer', auth, asyncHandler(async (req, res) => {
 
   const { writerId } = req.body;
   if (writerId !== null && writerId !== undefined) {
-    const writer = await db.prepare('SELECT id FROM voices WHERE id = $1').get(writerId);
+    const writer = await db.prepare('SELECT id FROM writers WHERE id = $1').get(writerId);
     if (!writer) return res.status(400).json({ error: 'Writer not found' });
   }
 

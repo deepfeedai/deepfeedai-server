@@ -116,6 +116,7 @@ app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // 
 app.use('/api/media',     require('./routes/media'));
 app.use('/api/voices',    require('./routes/voices'));
 app.use('/api/writers',   require('./routes/writers'));
+app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/settings',     require('./routes/settings'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
@@ -305,7 +306,7 @@ cron.schedule('0 2 * * *', async () => {
 cron.schedule('0 * * * *', async () => {
   try {
     const { runSynthesisForWriter } = require('./lib/synthesis');
-    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM voices WHERE is_auto = true').all();
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE is_auto = true').all();
     const hour = new Date().getUTCHours();
     const dow  = new Date().getUTCDay(); // 0 = Sunday, 1 = Monday
 

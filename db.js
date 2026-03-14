@@ -179,6 +179,23 @@ async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS writers (
+      id                       SERIAL PRIMARY KEY,
+      name                     TEXT NOT NULL,
+      slug                     TEXT UNIQUE,
+      avatar_url               TEXT,
+      bio                      TEXT,
+      beat                     TEXT,
+      keywords                 TEXT[] DEFAULT '{}',
+      system_prompt            TEXT,
+      is_auto                  BOOLEAN DEFAULT false,
+      synthesis_schedule       TEXT DEFAULT 'daily',
+      synthesis_lookback_hours INTEGER DEFAULT 168,
+      min_cluster_size         INTEGER DEFAULT 3,
+      voice_id                 INTEGER REFERENCES voices(id) ON DELETE SET NULL,
+      created_at               TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS summary_cache (
       cache_key  TEXT PRIMARY KEY,
       payload    JSONB NOT NULL,
@@ -436,6 +453,50 @@ async function initDb() {
     for (const v of noSlug) {
       const slug = v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
       try { await prepare('UPDATE voices SET slug = $1 WHERE id = $2').run(slug, v.id); } catch { /* slug conflict, skip */ }
+    }
+  } catch { /* non-fatal */ }
+
+  // ── Writers table migration: seed from voices + re-point FKs ──
+  try {
+    const migDone = await prepare("SELECT value FROM settings WHERE key = 'writers_migration_done'").get();
+    if (!migDone) {
+      const vCount = await prepare('SELECT COUNT(*) AS cnt FROM voices').get();
+      if (parseInt(vCount.cnt) > 0) {
+        // Copy persona data from voices into writers (voice_id links back to the source voice)
+        await p.query(`
+          INSERT INTO writers (name, slug, avatar_url, bio, beat, keywords, system_prompt,
+            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id, created_at)
+          SELECT name, slug, avatar_url, bio, beat, keywords, system_prompt,
+            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, id, created_at
+          FROM voices
+        `);
+        console.log('  Writers seeded from voices table');
+
+        // Build old voice_id → new writer_id mapping and update FKs
+        const mapping = await prepare('SELECT id AS writer_id, voice_id AS old_voice_id FROM writers').all();
+        for (const m of mapping) {
+          await p.query('UPDATE articles SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+          await p.query('UPDATE writer_follows SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+        }
+
+        // Drop old FK constraints and add new ones pointing to writers
+        try { await p.query('ALTER TABLE articles DROP CONSTRAINT IF EXISTS articles_writer_id_fkey'); } catch { /* may not exist */ }
+        try { await p.query('ALTER TABLE writer_follows DROP CONSTRAINT IF EXISTS writer_follows_writer_id_fkey'); } catch { /* may not exist */ }
+        await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL');
+        await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE');
+        console.log('  FK constraints re-pointed to writers table');
+      }
+      await p.query("INSERT INTO settings (key, value) VALUES ('writers_migration_done', '1') ON CONFLICT (key) DO NOTHING");
+      console.log('✅ Writers migration complete');
+    }
+  } catch (err) { console.error('[DB] writers migration error:', err.message); }
+
+  // Backfill slugs for writers missing one
+  try {
+    const noSlug = await prepare("SELECT id, name FROM writers WHERE slug IS NULL OR slug = ''").all();
+    for (const w of noSlug) {
+      const slug = w.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      try { await prepare('UPDATE writers SET slug = $1 WHERE id = $2').run(slug, w.id); } catch { /* slug conflict, skip */ }
     }
   } catch { /* non-fatal */ }
 

@@ -12,10 +12,10 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
   const articles = await db.prepare(
-    `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
-            v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
+    `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
+            w.avatar_url AS writer_avatar_url, w.beat AS writer_beat
      FROM articles a
-     LEFT JOIN voices v ON v.id = a.writer_id
+     LEFT JOIN writers w ON w.id = a.writer_id
      WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
   ).all();
 

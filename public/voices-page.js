@@ -48,43 +48,6 @@ let voices = [];
     return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function clearPersonaFields() {
-    document.getElementById('fVoiceBio').value = '';
-    document.getElementById('fVoiceBeat').value = '';
-    document.getElementById('fVoiceKeywords').value = '';
-    document.getElementById('fVoiceSystemPrompt').value = '';
-    document.getElementById('fVoiceSlug').value = '';
-    document.getElementById('fVoiceIsAuto').checked = false;
-    document.getElementById('fVoiceSchedule').value = 'daily';
-    document.getElementById('fVoiceLookback').value = '168';
-    document.getElementById('fVoiceMinCluster').value = '3';
-    document.getElementById('personaSection').removeAttribute('open');
-  }
-
-  function populatePersonaFields(v) {
-    document.getElementById('fVoiceBio').value = v.bio || '';
-    document.getElementById('fVoiceBeat').value = v.beat || '';
-    document.getElementById('fVoiceKeywords').value = (v.keywords || []).join(', ');
-    document.getElementById('fVoiceSystemPrompt').value = v.system_prompt || '';
-    document.getElementById('fVoiceSlug').value = v.slug || '';
-    document.getElementById('fVoiceIsAuto').checked = !!v.is_auto;
-    document.getElementById('fVoiceSchedule').value = v.synthesis_schedule || 'daily';
-    document.getElementById('fVoiceLookback').value = v.synthesis_lookback_hours ?? 168;
-    document.getElementById('fVoiceMinCluster').value = v.min_cluster_size ?? 3;
-    // Auto-open if any persona field is populated
-    if (v.bio || v.beat || v.system_prompt || v.slug || v.is_auto) {
-      document.getElementById('personaSection').setAttribute('open', '');
-    } else {
-      document.getElementById('personaSection').removeAttribute('open');
-    }
-  }
-
-  // Auto-generate slug from name on create
-  document.getElementById('fVoiceName').addEventListener('input', function() {
-    if (document.getElementById('editVoiceId').value) return; // don't override on edit
-    const slug = this.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    document.getElementById('fVoiceSlug').value = slug;
-  });
 
   function openAdd() {
     document.getElementById('voiceModalTitle').textContent = 'Add Voice';
@@ -95,7 +58,6 @@ let voices = [];
     document.getElementById('fVoiceDefault').checked = false;
     document.getElementById('avatarPreviewWrap').style.display = 'none';
     document.getElementById('fVoiceAvatar').value = '';
-    clearPersonaFields();
     pendingAvatarDataUrl = null;
     openModal('voiceModal');
     document.getElementById('fVoiceName').focus();
@@ -110,7 +72,6 @@ let voices = [];
     document.getElementById('fVoiceId').value = v.voice_id;
     document.getElementById('fVoiceDesc').value = v.description || '';
     document.getElementById('fVoiceDefault').checked = !!v.is_default;
-    populatePersonaFields(v);
     pendingAvatarDataUrl = null;
     document.getElementById('fVoiceAvatar').value = '';
     if (v.avatar_url) {
@@ -192,25 +153,10 @@ let voices = [];
     const desc    = document.getElementById('fVoiceDesc').value.trim();
     const isDef   = document.getElementById('fVoiceDefault').checked;
 
-    // Persona fields
-    const bio           = document.getElementById('fVoiceBio').value.trim();
-    const beat          = document.getElementById('fVoiceBeat').value.trim();
-    const keywordsRaw   = document.getElementById('fVoiceKeywords').value.trim();
-    const keywords      = keywordsRaw ? keywordsRaw.split(',').map(k => k.trim()).filter(Boolean) : [];
-    const system_prompt = document.getElementById('fVoiceSystemPrompt').value.trim();
-    const slug          = document.getElementById('fVoiceSlug').value.trim();
-    const is_auto       = document.getElementById('fVoiceIsAuto').checked;
-    const synthesis_schedule       = document.getElementById('fVoiceSchedule').value;
-    const synthesis_lookback_hours = parseInt(document.getElementById('fVoiceLookback').value) || 168;
-    const min_cluster_size         = parseInt(document.getElementById('fVoiceMinCluster').value) || 3;
-
     if (!name || !voiceId) { showAlert('Name and Voice ID are required', 'error'); return; }
 
     const payload = {
       name, voice_id: voiceId, description: desc, is_default: isDef ? 1 : 0,
-      bio: bio || null, beat: beat || null, keywords,
-      system_prompt: system_prompt || null, slug: slug || null,
-      is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size
     };
 
     try {
@@ -359,21 +305,10 @@ let voices = [];
     studioTestBtn.textContent = '▶ Test Voice';
   });
 
-  async function populateBeatDropdown() {
-    await loadCategories();
-    const sel = document.getElementById('fVoiceBeat');
-    if (!sel) return;
-    const cats = window._siteCategories.length ? window._siteCategories : [];
-    sel.innerHTML = '<option value="">None</option>' + cats.map(c =>
-      `<option value="${c}">${c}</option>`
-    ).join('');
-  }
-
   // Initialize
   async function init() {
     renderSidebar();
     initModals();
-    await populateBeatDropdown();
     await loadVoices();
     populateStudioVoices();
   }

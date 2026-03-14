@@ -69,26 +69,14 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   const body = validate(voiceCreate, req.body, res);
   if (!body) return;
 
-  const { name, voice_id, description, is_default,
-          bio, beat, keywords, system_prompt, is_auto, slug,
-          synthesis_schedule, synthesis_lookback_hours, min_cluster_size } = body;
-
-  const { toSlug } = require('../lib/utils');
-  const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const { name, voice_id, description, is_default } = body;
 
   if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
   const voice = await db.prepare(`
-    INSERT INTO voices (name, voice_id, description, is_default,
-      bio, beat, keywords, system_prompt, is_auto, slug,
-      synthesis_schedule, synthesis_lookback_hours, min_cluster_size)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    INSERT INTO voices (name, voice_id, description, is_default)
+    VALUES ($1, $2, $3, $4)
     RETURNING *
-  `).get(
-    name, voice_id, description || '', is_default ? 1 : 0,
-    bio || null, beat || null, keywords.length ? keywords : null,
-    system_prompt || null, is_auto || false, resolvedSlug,
-    synthesis_schedule, synthesis_lookback_hours, min_cluster_size
-  );
+  `).get(name, voice_id, description || '', is_default ? 1 : 0);
   res.json(voice);
 }));
 
@@ -101,30 +89,14 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
   const body = validate(voiceUpdate, req.body, res);
   if (!body) return;
 
-  const { name, voice_id, description, is_default,
-          bio, beat, keywords, system_prompt, is_auto, slug,
-          synthesis_schedule, synthesis_lookback_hours, min_cluster_size } = body;
+  const { name, voice_id, description, is_default } = body;
 
   if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
   const voice = await db.prepare(`
-    UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4,
-      bio = $5, beat = $6, keywords = $7, system_prompt = $8, is_auto = $9, slug = $10,
-      synthesis_schedule = $11, synthesis_lookback_hours = $12, min_cluster_size = $13
-    WHERE id = $14
+    UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4
+    WHERE id = $5
     RETURNING *
-  `).get(
-    name, voice_id, description || '', is_default ? 1 : 0,
-    bio !== undefined ? (bio || null) : existing.bio,
-    beat !== undefined ? (beat || null) : existing.beat,
-    keywords !== undefined ? (keywords.length ? keywords : null) : existing.keywords,
-    system_prompt !== undefined ? (system_prompt || null) : existing.system_prompt,
-    is_auto !== undefined ? (is_auto || false) : existing.is_auto,
-    slug !== undefined ? (slug || null) : (existing.slug || require('../lib/utils').toSlug(name || existing.name)),
-    synthesis_schedule !== undefined ? synthesis_schedule : existing.synthesis_schedule,
-    synthesis_lookback_hours !== undefined ? synthesis_lookback_hours : existing.synthesis_lookback_hours,
-    min_cluster_size !== undefined ? min_cluster_size : existing.min_cluster_size,
-    id
-  );
+  `).get(name, voice_id, description || '', is_default ? 1 : 0, id);
   res.json(voice);
 }));
 

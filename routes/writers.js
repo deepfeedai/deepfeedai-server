@@ -28,14 +28,14 @@ router.get('/', asyncHandler(async (req, res) => {
   const userId = getUserId(req);
 
   const writers = await db.prepare(`
-    SELECT v.id, v.name, v.slug, v.avatar_url, v.bio, v.beat,
+    SELECT w.id, w.name, w.slug, w.avatar_url, w.bio, w.beat,
            COUNT(DISTINCT a.id)::int AS article_count,
            COUNT(DISTINCT wf.id)::int AS follower_count
-    FROM voices v
-    LEFT JOIN articles a ON a.writer_id = v.id
-    LEFT JOIN writer_follows wf ON wf.writer_id = v.id
-    GROUP BY v.id
-    ORDER BY v.name ASC
+    FROM writers w
+    LEFT JOIN articles a ON a.writer_id = w.id
+    LEFT JOIN writer_follows wf ON wf.writer_id = w.id
+    GROUP BY w.id
+    ORDER BY w.name ASC
   `).all();
 
   // If user is signed in, annotate which writers they follow
@@ -58,16 +58,16 @@ router.get('/following', asyncHandler(async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const writers = await db.prepare(`
-    SELECT v.id, v.name, v.slug, v.avatar_url, v.bio, v.beat,
+    SELECT w.id, w.name, w.slug, w.avatar_url, w.bio, w.beat,
            COUNT(DISTINCT a.id)::int AS article_count,
            COUNT(DISTINCT wf2.id)::int AS follower_count
     FROM writer_follows wf
-    JOIN voices v ON v.id = wf.writer_id
-    LEFT JOIN articles a ON a.writer_id = v.id
-    LEFT JOIN writer_follows wf2 ON wf2.writer_id = v.id
+    JOIN writers w ON w.id = wf.writer_id
+    LEFT JOIN articles a ON a.writer_id = w.id
+    LEFT JOIN writer_follows wf2 ON wf2.writer_id = w.id
     WHERE wf.user_id = $1
-    GROUP BY v.id
-    ORDER BY v.name ASC
+    GROUP BY w.id
+    ORDER BY w.name ASC
   `).all(userId);
 
   for (const w of writers) w.is_following = true;
@@ -80,15 +80,15 @@ router.get('/:slug', asyncHandler(async (req, res) => {
   const userId = getUserId(req);
 
   const writer = await db.prepare(`
-    SELECT v.id, v.name, v.slug, v.avatar_url, v.bio, v.beat,
+    SELECT w.id, w.name, w.slug, w.avatar_url, w.bio, w.beat,
            COUNT(DISTINCT a.id)::int AS article_count,
            COUNT(DISTINCT a.id) FILTER (WHERE a.content_type = 'original')::int AS original_count,
            COUNT(DISTINCT wf.id)::int AS follower_count
-    FROM voices v
-    LEFT JOIN articles a ON a.writer_id = v.id
-    LEFT JOIN writer_follows wf ON wf.writer_id = v.id
-    WHERE v.slug = $1
-    GROUP BY v.id
+    FROM writers w
+    LEFT JOIN articles a ON a.writer_id = w.id
+    LEFT JOIN writer_follows wf ON wf.writer_id = w.id
+    WHERE w.slug = $1
+    GROUP BY w.id
   `).get(req.params.slug);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
@@ -107,7 +107,7 @@ router.post('/:slug/follow', asyncHandler(async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const writer = await db.prepare('SELECT id FROM voices WHERE slug = $1').get(req.params.slug);
+  const writer = await db.prepare('SELECT id FROM writers WHERE slug = $1').get(req.params.slug);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   await db.prepare(
@@ -126,7 +126,7 @@ router.delete('/:slug/follow', asyncHandler(async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const writer = await db.prepare('SELECT id FROM voices WHERE slug = $1').get(req.params.slug);
+  const writer = await db.prepare('SELECT id FROM writers WHERE slug = $1').get(req.params.slug);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   await db.prepare(
