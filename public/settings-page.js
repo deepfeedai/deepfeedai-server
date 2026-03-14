@@ -89,8 +89,8 @@ function initLogoUpload(kind) {
   fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
     if (!file) return;
-    if (file.size > 512 * 1024) {
-      statusEl.textContent = '⚠️ File too large (max 512KB)';
+    if (file.size > 2 * 1024 * 1024) {
+      statusEl.textContent = '⚠️ File too large (max 2MB)';
       return;
     }
     const reader = new FileReader();

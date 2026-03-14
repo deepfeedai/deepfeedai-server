@@ -65,8 +65,8 @@ router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
   const mimeType = match[1];
   const buf = Buffer.from(match[2], 'base64');
 
-  if (buf.length > 512 * 1024) {
-    return res.status(400).json({ error: 'File too large (max 512KB)' });
+  if (buf.length > 2 * 1024 * 1024) {
+    return res.status(400).json({ error: 'File too large (max 2MB)' });
   }
 
   const ext = extFromMime(mimeType);
