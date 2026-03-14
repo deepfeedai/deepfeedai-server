@@ -130,6 +130,10 @@ code {
   color: var(--muted);
 }
 
+.nav-section:not(:first-child) {
+  margin-top: var(--space-3);
+}
+
 .nav-link {
   display: flex;
   align-items: center;
@@ -1572,6 +1576,9 @@ tr:hover .td-edit-btn { opacity: 1; }
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
 .tab-badge {
   background: var(--danger);
   color: #fff;

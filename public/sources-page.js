@@ -220,8 +220,7 @@ let sources = [];
 
   onReady(async () => {
     if (!requireAuth()) return;
-    initSidebar();
-    initLogout();
+    renderSidebar();
     initModals();
 
     document.getElementById('addSourceBtn').addEventListener('click', () => openAddSource());

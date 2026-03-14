@@ -759,8 +759,7 @@ let articles = [];
 
   onReady(async () => {
     if (!requireAuth()) return;
-    initSidebar();
-    initLogout();
+    renderSidebar();
     initModals();
 
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
