@@ -35,6 +35,7 @@
                 <a class="export-option" data-format="csv"  href="#" style="display:block;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-radius:6px;">📊 CSV</a>
               </div>
             </div>
+            <button class="btn btn-outline btn-sm" id="recategorizeAllBtn" title="Re-categorize articles using current keywords">🏷️ Recategorize</button>
             <div class="dropdown" id="purgeDropdown" style="position:relative;">
               <button class="btn btn-danger btn-sm" id="purgeArticlesBtn" title="Purge articles">🗑 Purge</button>
               <div id="purgeMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px;z-index:100;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.3);">
@@ -78,6 +79,7 @@
         <button class="btn btn-sm btn-outline" id="bulkPublishBtn">✅ Publish</button>
         <button class="btn btn-sm btn-outline" id="bulkUnpublishBtn">📄 Unpublish</button>
         <button class="btn btn-sm btn-outline" id="bulkImagesBtn">🎨 Generate Images</button>
+        <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn">🏷️ Recategorize</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
@@ -278,6 +280,20 @@
       <a id="previewLiveLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;">View on site</a>
       <a id="previewSourceLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;">View source</a>
       <button class="btn btn-outline" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="recategorizeModal">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">Re-categorize Articles</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="recategorizePreview" style="max-height:60vh;overflow-y:auto;">Loading preview…</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="confirmRecategorizeBtn">Apply Changes</button>
     </div>
   </div>
 </div>

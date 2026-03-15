@@ -589,6 +589,23 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="recategorizePromptModal">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title">Re-categorize Articles?</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;">Categories have been updated. Would you like to re-categorize existing articles using the new keywords?</p>
+      <div id="settingsRecategorizePreview" style="max-height:40vh;overflow-y:auto;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Skip</button>
+      <button class="btn btn-primary" id="settingsRecategorizeBtn">Re-categorize</button>
+    </div>
+  </div>
+</div>
+
 <script src="/admin.js"></script>
 <script src="/settings-page.js"></script>
 </body>
