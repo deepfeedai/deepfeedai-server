@@ -393,6 +393,89 @@ let articles = [];
     await loadArticles();
   }
 
+  /* ---------- Recategorize helpers ---------- */
+  let _recategorizePendingParams = null;
+
+  function renderRecategorizePreview(data) {
+    const el = document.getElementById('recategorizePreview');
+    if (!data || data.updated === 0) {
+      el.innerHTML = '<p style="color:var(--muted);">All articles are already correctly categorized. No changes needed.</p>';
+      document.getElementById('confirmRecategorizeBtn').style.display = 'none';
+      return;
+    }
+    document.getElementById('confirmRecategorizeBtn').style.display = '';
+    const rows = Object.entries(data.moves).map(([move, count]) =>
+      `<tr><td style="padding:6px 12px;">${escHtml(move)}</td><td style="padding:6px 12px;text-align:right;font-weight:600;">${count}</td></tr>`
+    ).join('');
+    el.innerHTML = `
+      <p style="margin-bottom:12px;">Scanned <strong>${data.total}</strong> articles. <strong>${data.updated}</strong> would be re-categorized:</p>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);"><th style="padding:6px 12px;text-align:left;">Move</th><th style="padding:6px 12px;text-align:right;">Count</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  async function showRecategorizePreview(params) {
+    _recategorizePendingParams = params;
+    const el = document.getElementById('recategorizePreview');
+    el.innerHTML = '<p style="color:var(--muted);">Analyzing articles…</p>';
+    document.getElementById('confirmRecategorizeBtn').style.display = 'none';
+    openModal('recategorizeModal');
+    // Clear pending params when modal is dismissed via Cancel/X
+    document.querySelectorAll('#recategorizeModal [data-close-modal]').forEach(el => {
+      el.addEventListener('click', () => { _recategorizePendingParams = null; }, { once: true });
+    });
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ...params, dryRun: true }),
+      });
+      renderRecategorizePreview(data);
+    } catch (err) {
+      el.innerHTML = `<p style="color:var(--danger);">Preview failed: ${err.message}</p>`;
+    }
+  }
+
+  async function confirmRecategorize() {
+    if (!_recategorizePendingParams) return;
+    const btn = document.getElementById('confirmRecategorizeBtn');
+    btn.disabled = true; btn.textContent = 'Applying…';
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ..._recategorizePendingParams, dryRun: false }),
+      });
+      closeModal('recategorizeModal');
+      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
+      showAlert(`Re-categorized ${data.updated} of ${data.total} articles${writerMsg}`);
+      selectedIds.clear();
+      await loadArticles();
+    } catch (err) {
+      showAlert('Re-categorize failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Apply Changes';
+      _recategorizePendingParams = null;
+    }
+  }
+
+  async function bulkRecategorize() {
+    const ids = [...selectedIds].filter(id => {
+      const a = articles.find(x => x.id === id);
+      return a && !a.is_archived;
+    });
+    if (!ids.length) { showAlert('No non-archived articles selected', 'error'); return; }
+    await showRecategorizePreview({ articleIds: ids });
+  }
+
+  async function recategorizeAll() {
+    const params = {};
+    // Scope by active date filter
+    if (dateFilter === '24h') params.days = 1;
+    else if (dateFilter === '7d') params.days = 7;
+    else if (dateFilter === '30d') params.days = 30;
+    await showRecategorizePreview(params);
+  }
+
   /* ---------- Audio helpers ---------- */
   function renderAudioCell(a) {
     const status = a.audio_status;
@@ -960,7 +1043,10 @@ let articles = [];
     document.getElementById('bulkPublishBtn').addEventListener('click', () => bulkSetPublish(1));
     document.getElementById('bulkUnpublishBtn').addEventListener('click', () => bulkSetPublish(0));
     document.getElementById('bulkImagesBtn').addEventListener('click', bulkGenerateImages);
+    document.getElementById('bulkRecategorizeBtn').addEventListener('click', bulkRecategorize);
     document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
+    document.getElementById('recategorizeAllBtn').addEventListener('click', recategorizeAll);
+    document.getElementById('confirmRecategorizeBtn').addEventListener('click', confirmRecategorize);
     document.getElementById('bulkClearBtn').addEventListener('click', () => {
       selectedIds.clear();
       renderTable();

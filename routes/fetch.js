@@ -271,20 +271,71 @@ router.post('/', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/fetch/recategorize
+// Body: { articleIds?, category?, days?, dryRun? }
 router.post('/recategorize', auth, asyncHandler(async (req, res) => {
-  const articles = await db.prepare(
-    'SELECT id, title, summary, category FROM articles WHERE is_archived = 0 OR is_archived IS NULL'
-  ).all();
+  const { articleIds, category, days, dryRun } = req.body || {};
 
-  let updated = 0;
+  // Build dynamic WHERE clause
+  const conditions = ['(is_archived = 0 OR is_archived IS NULL)'];
+  const params = [];
+  let idx = 1;
+
+  if (Array.isArray(articleIds) && articleIds.length) {
+    conditions.push(`id = ANY($${idx}::int[])`);
+    params.push(articleIds);
+    idx++;
+  }
+  if (category && typeof category === 'string') {
+    conditions.push(`category = $${idx}`);
+    params.push(category);
+    idx++;
+  }
+  if (days && Number(days) > 0) {
+    conditions.push(`COALESCE(published_at, created_at) > NOW() - ($${idx} || ' days')::INTERVAL`);
+    params.push(Number(days));
+    idx++;
+  }
+
+  const sql = `SELECT id, title, summary, category, writer_id FROM articles WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 2000`;
+  const articles = await db.prepare(sql).all(...params);
+
+  const moves = {};
+  const toUpdate = [];
+
   for (const a of articles) {
     const newCat = await detectCategory({ title: a.title, contentSnippet: a.summary });
     if (newCat !== a.category) {
-      await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2').run(newCat, a.id);
-      updated++;
+      const key = `${a.category} → ${newCat}`;
+      moves[key] = (moves[key] || 0) + 1;
+      toUpdate.push({ id: a.id, title: a.title, summary: a.summary, newCat, hasWriter: !!a.writer_id });
     }
   }
-  res.json({ status: 'ok', total: articles.length, updated });
+
+  let writerReassignments = 0;
+
+  if (!dryRun && toUpdate.length) {
+    for (const item of toUpdate) {
+      await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2').run(item.newCat, item.id);
+      // Re-run writer assignment for articles without a writer
+      if (!item.hasWriter) {
+        try {
+          const writer = await findBestWriter({ id: item.id, title: item.title, summary: item.summary, category: item.newCat });
+          if (writer) {
+            await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, item.id);
+            writerReassignments++;
+          }
+        } catch { /* best effort */ }
+      }
+    }
+  }
+
+  res.json({
+    total: articles.length,
+    updated: toUpdate.length,
+    unchanged: articles.length - toUpdate.length,
+    moves,
+    writerReassignments,
+  });
 }));
 
 // POST /api/fetch/decode-titles — one-time cleanup of HTML entities in existing titles

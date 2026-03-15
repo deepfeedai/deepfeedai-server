@@ -601,12 +601,62 @@ let apiKeyVisible = false;
   }
 
   // ── Categories save ─────────────────────────────────────────────
+  let _categoriesSaveSucceeded = false;
   panelSave('saveCategoriesBtn', 'categoriesStatus', 'Categories', async () => {
     const cleanCats = _siteCategories.filter(c => c.name && c.name.trim());
     const result = await apiFetch('/categories', { method: 'PUT', body: JSON.stringify(cleanCats) });
     if (Array.isArray(result)) {
       _siteCategories = result;
       renderCategories();
+    }
+    _categoriesSaveSucceeded = true;
+  });
+  // After save completes, offer to re-categorize (outside panelSave so button isn't frozen)
+  document.getElementById('saveCategoriesBtn')?.addEventListener('click', () => {
+    // Wait for panelSave to finish, then check
+    const check = setInterval(async () => {
+      if (!_categoriesSaveSucceeded) return;
+      clearInterval(check);
+      _categoriesSaveSucceeded = false;
+      try {
+        const preview = await apiFetch('/fetch/recategorize', {
+          method: 'POST',
+          body: JSON.stringify({ dryRun: true }),
+        });
+        if (preview.updated > 0) {
+          const previewEl = document.getElementById('settingsRecategorizePreview');
+          const rows = Object.entries(preview.moves).map(([move, count]) =>
+            `<tr><td style="padding:4px 8px;">${escHtml(move)}</td><td style="padding:4px 8px;text-align:right;font-weight:600;">${count}</td></tr>`
+          ).join('');
+          previewEl.innerHTML = `
+            <p><strong>${preview.updated}</strong> of ${preview.total} articles would be re-categorized:</p>
+            <table style="width:100%;font-size:13px;border-collapse:collapse;margin-top:8px;">
+              <thead><tr style="border-bottom:1px solid var(--border);"><th style="padding:4px 8px;text-align:left;">Move</th><th style="padding:4px 8px;text-align:right;">Count</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`;
+          openModal('recategorizePromptModal');
+        }
+      } catch { /* silent — recategorize prompt is best-effort */ }
+    }, 200);
+    // Safety: stop polling after 30s
+    setTimeout(() => clearInterval(check), 30000);
+  });
+
+  // ── Settings recategorize confirm ─────────────────────────────
+  document.getElementById('settingsRecategorizeBtn')?.addEventListener('click', async function () {
+    this.disabled = true; this.textContent = 'Re-categorizing…';
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ dryRun: false }),
+      });
+      closeModal('recategorizePromptModal');
+      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
+      showAlert(`Re-categorized ${data.updated} of ${data.total} articles${writerMsg}`);
+    } catch (err) {
+      showAlert('Re-categorize failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'Re-categorize';
     }
   });
 
