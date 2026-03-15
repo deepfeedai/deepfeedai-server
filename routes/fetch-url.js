@@ -8,7 +8,7 @@ const router                = express.Router();
 const https                 = require('https');
 const http                  = require('http');
 const { auth }              = require('../middleware/auth');
-const { asyncHandler }      = require('../lib/utils');
+const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { getSiteConfig }     = require('../lib/site-config');
 
 /** Fetch raw HTML from a URL, following up to 3 redirects */
@@ -39,7 +39,7 @@ function fetchHtml(url, redirects = 0, userAgent) {
       res.setEncoding('utf8');
       res.on('data', chunk => {
         html += chunk;
-        if (html.length > 200000) res.destroy(); // cap at ~200KB
+        if (html.length > 200000) { res.destroy(); resolve(html); } // cap at ~200KB, resolve with what we have
       });
       res.on('end', () => resolve(html));
     }).on('error', reject).on('timeout', () => reject(new Error('Request timed out')));
@@ -127,12 +127,12 @@ router.get('/', auth, asyncHandler(async (req, res) => {
     const cleanTitle = title.replace(/\s*[|\-–—]\s*[^|\-–—]+$/, '').trim() || title;
 
     res.json({
-      title:      cleanTitle,
+      title:      decodeEntities(cleanTitle),
       image:      image,
-      summary:    summary.slice(0, 500),
-      source:     siteName,
+      summary:    decodeEntities(summary.slice(0, 500)),
+      source:     decodeEntities(siteName),
       source_url: url,
-      author:     author,
+      author:     decodeEntities(author),
       published_at: pubDate ? new Date(pubDate).toISOString().split('T')[0] : '',
     });
 }));
