@@ -11,6 +11,19 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.15.0] — 2026-03-15
+
+### Added
+- **Auto-grab feed title** — new `POST /api/sources/preview-feed` endpoint validates RSS URLs and returns feed metadata; source name auto-populates when pasting a URL in the Add Source modal, with live validation status
+- **30-day lookback for new sources** — first fetch of a newly added source uses a 30-day cutoff instead of 48 hours, pulling in a reasonable article backlog; subsequent fetches use the normal 48-hour window
+
+### Fixed
+- **Manual article add broken** — Zod v4 renamed `error.errors` to `error.issues`, causing `validate()` to crash with 500 on any validation failure instead of returning a proper 400; added `featured_priority` to `articleCreate` schema; fixed `fFeatured` select reset in Add Article modal
+- **Fetch-url hang on large pages** — `res.destroy()` on pages exceeding 200KB cap never resolved the Promise, hanging the request indefinitely; now resolves with collected HTML (sufficient for OG meta extraction)
+- **HTML entity encoding in auto-fill** — title, summary, author fields from `GET /api/fetch-url` now decoded via `decodeEntities()` (e.g. `&#039;` → `'`)
+
+---
+
 ## [1.14.1] — 2026-03-15
 
 ### Added — Article Re-Categorization
