@@ -215,6 +215,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
           ` : `
+            <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
             ${!a.image_url ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
             <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
@@ -264,6 +265,110 @@ let articles = [];
     document.getElementById('imgPreviewEl').src = url;
     document.getElementById('imgPreviewLink').href = url;
     openModal('imagePreviewModal');
+  }
+
+  function toSlug(title) {
+    return (title || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim()
+      .replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+  }
+
+  function previewArticle(id) {
+    const a = allArticles.find(x => x.id === id);
+    if (!a) return;
+
+    const writer = writersList.find(w => w.id === a.writer_id);
+    const slug = a.slug || toSlug(a.title);
+    const date = a.published_at || a.created_at;
+    const fmtPubDate = date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+
+    let html = '';
+
+    // Hero image
+    if (a.image_url) {
+      html += `<img src="${escHtml(a.image_url)}" alt="" style="width:100%;max-height:340px;object-fit:cover;display:block;" />`;
+    }
+
+    html += `<div style="padding:24px 28px;">`;
+
+    // Status badges
+    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">`;
+    html += `<span class="badge">${escHtml(a.category || 'Industry')}</span>`;
+    if (a.is_published) html += `<span class="badge badge-success">Published</span>`;
+    else html += `<span class="badge badge-muted">Draft</span>`;
+    if (a.is_featured) html += `<span class="badge badge-accent">Featured #${a.featured_priority || '?'}</span>`;
+    if (a.content_type === 'original') html += `<span class="badge" style="background:var(--accent);color:#000;">Original</span>`;
+    if (a.editorial_score) html += `<span class="badge badge-muted">Score: ${a.editorial_score}/10</span>`;
+    html += `</div>`;
+
+    // Title
+    html += `<h2 style="margin:0 0 8px;font-size:22px;line-height:1.3;color:var(--text);">${escHtml(a.title)}</h2>`;
+
+    // Meta line
+    const metaParts = [];
+    if (a.source) metaParts.push(escHtml(a.source));
+    if (a.author) metaParts.push(`by ${escHtml(a.author)}`);
+    if (writer) metaParts.push(`Writer: ${escHtml(writer.name)}`);
+    if (fmtPubDate) metaParts.push(fmtPubDate);
+    if (metaParts.length) {
+      html += `<p style="margin:0 0 16px;font-size:13px;color:var(--muted);">${metaParts.join(' · ')}</p>`;
+    }
+
+    // Summary
+    if (a.summary) {
+      html += `<div style="margin-bottom:16px;font-size:14px;line-height:1.6;color:var(--text-secondary, var(--text));opacity:0.85;">${escHtml(a.summary)}</div>`;
+    }
+
+    // TLDR overview
+    if (a.tldr_overview) {
+      html += `<div style="margin-bottom:16px;padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;">TLDR</div>`;
+      html += `<div style="font-size:13px;line-height:1.6;color:var(--text);">${escHtml(a.tldr_overview)}</div>`;
+      html += `</div>`;
+    }
+
+    // Full content (for originals)
+    if (a.full_content) {
+      html += `<div style="margin-bottom:16px;padding:12px 16px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;">Full Content</div>`;
+      html += `<div style="font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;">${escHtml(a.full_content).slice(0, 2000)}${(a.full_content.length > 2000) ? '…' : ''}</div>`;
+      html += `</div>`;
+    }
+
+    // Audio player
+    if (a.audio_url) {
+      html += `<div style="margin-bottom:16px;">`;
+      html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;">Audio${a.audio_voice_name ? ' · ' + escHtml(a.audio_voice_name) : ''}</div>`;
+      html += `<audio controls style="width:100%;" src="${escHtml(a.audio_url)}"></audio>`;
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+
+    document.getElementById('articlePreviewBody').innerHTML = html;
+
+    // Footer links
+    const liveLink = document.getElementById('previewLiveLink');
+    const sourceLink = document.getElementById('previewSourceLink');
+
+    const host = window.location.hostname;
+    const siteBase = host === 'asgard.deepfeedai.com' ? 'https://staging.deepfeedai.com'
+      : host === 'olympus.deepfeedai.com' ? 'https://deepfeedai.com'
+      : 'http://localhost:3000';
+    if (a.is_published && slug) {
+      liveLink.href = `${siteBase}/article/${slug}`;
+      liveLink.style.display = '';
+    } else {
+      liveLink.style.display = 'none';
+    }
+
+    if (a.source_url) {
+      sourceLink.href = a.source_url;
+      sourceLink.style.display = '';
+    } else {
+      sourceLink.style.display = 'none';
+    }
+
+    openModal('articlePreviewModal');
   }
 
   async function bulkGenerateImages() {

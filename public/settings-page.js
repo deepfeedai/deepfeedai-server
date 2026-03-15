@@ -467,8 +467,11 @@ let apiKeyVisible = false;
                  style="width:90px;font-family:monospace;font-size:12px;" />
           <button class="btn btn-ghost btn-sm" data-cat-remove="${i}" type="button" title="Remove" style="color:var(--danger);">✕</button>
         </div>
-        <input type="text" class="form-control" value="${escHtml((cat.keywords || []).join(', '))}" data-cat-keywords="${i}"
-               style="font-size:12px;color:var(--muted);" placeholder="Keywords (comma-separated) for auto-categorization" />
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="text" class="form-control" value="${escHtml((cat.keywords || []).join(', '))}" data-cat-keywords="${i}"
+                 style="flex:1;font-size:12px;color:var(--muted);" placeholder="Keywords (comma-separated) for auto-categorization" />
+          <button class="btn btn-outline btn-sm" data-cat-generate="${i}" type="button" title="Auto-generate keywords with AI" style="white-space:nowrap;">AI</button>
+        </div>
       </div>
     `).join('');
 
@@ -508,11 +511,65 @@ let apiKeyVisible = false;
         renderCategories();
       });
     });
+    container.querySelectorAll('[data-cat-generate]').forEach(el => {
+      el.addEventListener('click', async () => {
+        const idx = Number(el.dataset.catGenerate);
+        const cat = _siteCategories[idx];
+        if (!cat || !cat.name.trim()) { showAlert('Enter a category name first', 'error'); return; }
+        el.disabled = true; el.textContent = '…';
+        try {
+          const result = await apiFetch('/categories/generate-keywords', {
+            method: 'POST',
+            body: JSON.stringify({ name: cat.name, existingKeywords: cat.keywords || [] }),
+          });
+          if (result.keywords && result.keywords.length) {
+            // Merge with existing, deduplicate
+            const merged = [...new Set([...(cat.keywords || []), ...result.keywords])];
+            _siteCategories[idx].keywords = merged;
+            renderCategories();
+            showAlert(`Generated ${result.keywords.length} keywords for ${cat.name}`);
+          }
+        } catch (err) {
+          showAlert('Keyword generation failed: ' + err.message, 'error');
+        } finally {
+          el.disabled = false; el.textContent = 'AI';
+        }
+      });
+    });
   }
 
   document.getElementById('addCategoryBtn')?.addEventListener('click', () => {
     _siteCategories.push({ name: '', color: '#7c3aed', keywords: [] });
     renderCategories();
+  });
+
+  document.getElementById('generateAllKeywordsBtn')?.addEventListener('click', async function () {
+    const catsWithNames = _siteCategories.filter(c => c.name && c.name.trim());
+    if (!catsWithNames.length) { showAlert('Add at least one category first', 'error'); return; }
+    this.disabled = true; this.textContent = 'Generating…';
+    let generated = 0;
+    try {
+      for (let i = 0; i < _siteCategories.length; i++) {
+        const cat = _siteCategories[i];
+        if (!cat.name || !cat.name.trim()) continue;
+        try {
+          const result = await apiFetch('/categories/generate-keywords', {
+            method: 'POST',
+            body: JSON.stringify({ name: cat.name, existingKeywords: cat.keywords || [] }),
+          });
+          if (result.keywords && result.keywords.length) {
+            _siteCategories[i].keywords = [...new Set([...(cat.keywords || []), ...result.keywords])];
+            generated++;
+          }
+        } catch { /* continue to next */ }
+      }
+      renderCategories();
+      showAlert(`Generated keywords for ${generated} of ${catsWithNames.length} categories. Review and press Save Categories when ready.`);
+    } catch (err) {
+      showAlert('Generation failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'AI Generate All';
+    }
   });
 
   // ── Per-panel save helper ─────────────────────────────────────────

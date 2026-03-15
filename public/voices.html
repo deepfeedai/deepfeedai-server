@@ -129,56 +129,7 @@
         <audio id="previewAudioEl" style="display:none;"></audio>
       </div>
 
-      <!-- Writer Persona Settings (collapsible) -->
-      <details class="persona-details" id="personaSection">
-        <summary class="persona-summary">Writer Persona Settings</summary>
-        <div class="persona-fields" style="margin-top:12px;">
-          <div class="form-group">
-            <label class="form-label" for="fVoiceBio">Bio</label>
-            <textarea class="form-control" id="fVoiceBio" rows="2" placeholder="Short bio for this writer persona"></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="fVoiceBeat">Beat</label>
-            <select class="form-control" id="fVoiceBeat">
-              <option value="">None</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="fVoiceKeywords">Keywords</label>
-            <input type="text" class="form-control" id="fVoiceKeywords" placeholder="Comma-separated, e.g. security, hacking, privacy" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="fVoiceSystemPrompt">System Prompt</label>
-            <textarea class="form-control" id="fVoiceSystemPrompt" rows="4" placeholder="You are Ghost, a no-nonsense cybersecurity analyst..."></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="fVoiceSlug">Slug</label>
-            <input type="text" class="form-control" id="fVoiceSlug" placeholder="Auto-generated from name" />
-          </div>
-          <div class="form-check" style="margin-bottom:12px;">
-            <input type="checkbox" id="fVoiceIsAuto" style="width:16px;height:16px;" />
-            <label for="fVoiceIsAuto" class="form-check-label">Auto mode (auto-claim articles and run synthesis)</label>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="fVoiceSchedule">Synthesis Schedule</label>
-              <select class="form-control" id="fVoiceSchedule">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="fVoiceLookback">Lookback Hours</label>
-              <input type="number" class="form-control" id="fVoiceLookback" value="168" min="1" max="8760" />
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="fVoiceMinCluster">Min Cluster Size</label>
-              <input type="number" class="form-control" id="fVoiceMinCluster" value="3" min="1" max="100" />
-            </div>
-          </div>
-        </div>
-      </details>
+      <p class="text-muted text-sm" style="margin-top:8px;">Writer personas are now managed on the <a href="/writers.html">Writers</a> page.</p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>

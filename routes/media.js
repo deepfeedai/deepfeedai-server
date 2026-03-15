@@ -176,10 +176,14 @@ router.post('/generate-audio', auth, asyncHandler(async (req, res) => {
         resolvedVoiceAvatarUrl = v.avatar_url || null;
       }
     } else {
-      // Prefer the article's assigned writer voice, then fall back to default
-      const writerVoice = article.writer_id
-        ? await db.prepare('SELECT voice_id, name, avatar_url FROM voices WHERE id = $1').get(article.writer_id)
-        : null;
+      // Prefer the article's assigned writer's linked voice, then fall back to default
+      let writerVoice = null;
+      if (article.writer_id) {
+        const writer = await db.prepare('SELECT voice_id FROM writers WHERE id = $1').get(article.writer_id);
+        if (writer?.voice_id) {
+          writerVoice = await db.prepare('SELECT voice_id, name, avatar_url FROM voices WHERE id = $1').get(writer.voice_id);
+        }
+      }
       if (writerVoice) {
         resolvedVoiceId = writerVoice.voice_id;
         resolvedVoiceName = writerVoice.name;

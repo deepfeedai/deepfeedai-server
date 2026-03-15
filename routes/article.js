@@ -12,10 +12,11 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
   const articles = await db.prepare(
-    `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
-            v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
+    `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
+            w.avatar_url AS writer_avatar_url,
+            (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
      FROM articles a
-     LEFT JOIN voices v ON v.id = a.writer_id
+     LEFT JOIN writers w ON w.id = a.writer_id
      WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
   ).all();
 
@@ -48,7 +49,8 @@ router.get('/', asyncHandler(async (req, res) => {
     writer_name:            match.writer_name            || null,
     writer_slug:            match.writer_slug            || null,
     writer_avatar_url:      match.writer_avatar_url      || null,
-    writer_beat:            match.writer_beat            || null,
+    writer_beat:            (match.writer_beats && match.writer_beats[0]) || null,
+    writer_beats:           match.writer_beats           || [],
     content_type:           match.content_type           || 'curated',
     full_content:           match.full_content           || null,
     source_article_ids:     match.source_article_ids     || null,

@@ -142,7 +142,7 @@ async function createNewArticleNotification(writerId, articleSlug, articleTitle)
     if (!followers.length) return;
 
     const writer = await db.prepare(
-      'SELECT name, slug, avatar_url FROM voices WHERE id = $1'
+      'SELECT name, slug, avatar_url FROM writers WHERE id = $1'
     ).get(writerId);
 
     const payload = JSON.stringify({

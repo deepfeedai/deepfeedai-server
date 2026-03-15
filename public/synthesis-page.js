@@ -16,9 +16,9 @@ onReady(async () => {
   // Load auto-writers
   try {
     const writers = await apiFetch('/writers');
-    const autoWriters = writers.filter(w => w.beat); // writers with beats are likely auto
+    const autoWriters = writers.filter(w => w.beats && w.beats.length && w.beats[0] !== null);
     writerSelect.innerHTML = autoWriters.length
-      ? autoWriters.map(w => `<option value="${w.id}">${w.name} (${w.beat || 'general'})</option>`).join('')
+      ? autoWriters.map(w => `<option value="${w.id}">${w.name} (${w.beats.join(', ') || 'general'})</option>`).join('')
       : '<option value="">No auto-writers found</option>';
   } catch (err) {
     writerSelect.innerHTML = '<option value="">Error loading writers</option>';

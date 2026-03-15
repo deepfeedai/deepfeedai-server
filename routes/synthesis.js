@@ -20,7 +20,7 @@ router.post('/run/:writerId', asyncHandler(async (req, res) => {
 // ?force=true bypasses cooldown and dedup checks
 router.post('/run-all', asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
-  const writers = await db.prepare('SELECT * FROM voices WHERE is_auto = true').all();
+  const writers = await db.prepare('SELECT * FROM writers WHERE is_auto = true').all();
   const results = [];
   for (const writer of writers) {
     const result = await runSynthesisForWriter(writer.id, { force });
@@ -32,7 +32,7 @@ router.post('/run-all', asyncHandler(async (req, res) => {
 // GET /api/synthesis/preview/:writerId — preview clusters without generating
 router.get('/preview/:writerId', asyncHandler(async (req, res) => {
   // Allow preview for any writer (not just is_auto) so admins can explore
-  const writer = await db.prepare('SELECT * FROM voices WHERE id = $1').get(req.params.writerId);
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1').get(req.params.writerId);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   const lookbackHours = writer.synthesis_lookback_hours || 168; // default 7 days
@@ -50,7 +50,7 @@ router.get('/preview/:writerId', asyncHandler(async (req, res) => {
   const clusters = clusterArticles(articles, minSize);
 
   res.json({
-    writer: { id: writer.id, name: writer.name, beat: writer.beat },
+    writer: { id: writer.id, name: writer.name },
     articleCount: articles.length,
     clusters: clusters.map(c => ({ topic: c.topic, articleCount: c.articles.length })),
   });

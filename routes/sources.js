@@ -16,10 +16,10 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   const body = validate(sourceCreate, req.body, res);
   if (!body) return;
 
-  const { name, url, priority, is_active, auto_publish, auto_publish_max } = body;
+  const { name, url, priority, is_active, auto_publish, auto_publish_max, default_category } = body;
   const source = await db.prepare(
-    'INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *'
-  ).get(name, url, priority, is_active ? 1 : 0, auto_publish ? 1 : 0, auto_publish_max);
+    'INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max, default_category) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *'
+  ).get(name, url, priority, is_active ? 1 : 0, auto_publish ? 1 : 0, auto_publish_max, default_category || null);
   res.status(201).json(source);
 }));
 
@@ -31,9 +31,9 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
   const body = validate(sourceUpdate, req.body, res);
   if (!body) return;
 
-  const { name, url, priority, is_active, auto_publish, auto_publish_max } = body;
+  const { name, url, priority, is_active, auto_publish, auto_publish_max, default_category } = body;
   const updated = await db.prepare(
-    'UPDATE sources SET name = $1, url = $2, priority = $3, is_active = $4, auto_publish = $5, auto_publish_max = $6 WHERE id = $7 RETURNING *'
+    'UPDATE sources SET name = $1, url = $2, priority = $3, is_active = $4, auto_publish = $5, auto_publish_max = $6, default_category = $7 WHERE id = $8 RETURNING *'
   ).get(
     name             ?? existing.name,
     url              ?? existing.url,
@@ -41,6 +41,7 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
     is_active        !== undefined ? (is_active ? 1 : 0) : existing.is_active,
     auto_publish     !== undefined ? (auto_publish ? 1 : 0) : existing.auto_publish,
     auto_publish_max ?? existing.auto_publish_max,
+    default_category !== undefined ? (default_category || null) : existing.default_category,
     req.params.id
   );
   res.json(updated);

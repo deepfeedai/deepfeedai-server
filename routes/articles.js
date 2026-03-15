@@ -6,6 +6,7 @@ const { auth }                       = require('../middleware/auth');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
+const { findBestWriter } = require('../lib/writer-assign');
 
 // GET /api/articles
 router.get('/', auth, asyncHandler(async (req, res) => {
@@ -155,6 +156,14 @@ router.post('/', auth, asyncHandler(async (req, res) => {
     is_published !== undefined ? (is_published ? 1 : 0) : 1,
     published_at || new Date().toISOString()
   );
+  // Auto-assign best writer if none set
+  if (!article.writer_id) {
+    findBestWriter({ id: article.id, title: article.title, summary: article.summary, category: article.category })
+      .then(writer => {
+        if (writer) db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, article.id);
+      }).catch(() => {});
+  }
+
   res.status(201).json(article);
 }));
 
@@ -366,7 +375,7 @@ router.put('/:id/assign-writer', auth, asyncHandler(async (req, res) => {
 
   const { writerId } = req.body;
   if (writerId !== null && writerId !== undefined) {
-    const writer = await db.prepare('SELECT id FROM voices WHERE id = $1').get(writerId);
+    const writer = await db.prepare('SELECT id FROM writers WHERE id = $1').get(writerId);
     if (!writer) return res.status(400).json({ error: 'Writer not found' });
   }
 

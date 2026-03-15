@@ -11,7 +11,6 @@ const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
 const { logUsage } = require('../lib/ai-usage');
-const { getEditorialScore } = require('../lib/quality-gate');
 const { onArticlePublished } = require('../lib/post-publish');
 
 const parser = new RSSParser();
@@ -42,7 +41,7 @@ async function fetchAllSources(autoPublish = false) {
         const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
         if (existing) { skipped++; continue; }
 
-        const category = await detectCategory(item);
+        const category = await detectCategory(item, { defaultCategory: source.default_category });
         const image    =
           item.enclosure?.url                              ||  // standard podcast/media enclosure
           item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
@@ -79,15 +78,8 @@ async function fetchAllSources(autoPublish = false) {
                 }
 
                 if (wantPublish) {
-                  const gate = await getEditorialScore(inserted_row);
-                  await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2').run(gate.score, inserted_row.id);
-                  if (gate.publish) {
-                    await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
-                    if (gate.feature_worthy) {
-                      await db.prepare('UPDATE articles SET is_featured = 1 WHERE id = $1').run(inserted_row.id);
-                    }
-                    onArticlePublished(inserted_row.id).catch(() => {});
-                  }
+                  await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
+                  onArticlePublished(inserted_row.id).catch(() => {});
                 }
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
@@ -106,40 +98,18 @@ async function fetchAllSources(autoPublish = false) {
     }
   }
 
-  // ── Synchronous OG enrichment for current batch ─────────────────────────
-  // Run inline (blocking) for up to 15 newly fetched articles that had no RSS
-  // image, so they get a real thumbnail before the response is returned.
-  // Concurrency 5, ~5s per article max → typically finishes in a few seconds.
-  if (needsImage.length > 0) {
-    const SYNC_LIMIT = 15;
-    const syncBatch  = needsImage.slice(0, SYNC_LIMIT);
-    const CONCURRENCY = 5;
-    for (let i = 0; i < syncBatch.length; i += CONCURRENCY) {
-      const chunk = syncBatch.slice(i, i + CONCURRENCY);
-      await Promise.all(chunk.map(async ({ id, source_url }) => {
-        try {
-          const img = await scrapeOgImage(source_url);
-          if (img) await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2').run(img, id);
-        } catch { /* ignore per-article scrape failures */ }
-      }));
-    }
-  }
-
-  // ── Background enrichment for remaining / older articles without images ──
+  // ── Background OG image enrichment (non-blocking) ──────────────────────
   setImmediate(async () => {
     try {
-      // Exclude IDs already handled synchronously above
-      const syncIds = needsImage.map(a => a.id);
       const noImage = await db.prepare(
         `SELECT id, source_url FROM articles
          WHERE (image_url IS NULL OR image_url = '')
            AND (is_archived = 0 OR is_archived IS NULL)
          ORDER BY id DESC LIMIT 30`
       ).all();
-      const remaining = noImage.filter(a => !syncIds.includes(a.id));
-      const CONCURRENCY = 3;
-      for (let i = 0; i < remaining.length; i += CONCURRENCY) {
-        const batch = remaining.slice(i, i + CONCURRENCY);
+      const CONCURRENCY = 5;
+      for (let i = 0; i < noImage.length; i += CONCURRENCY) {
+        const batch = noImage.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (a) => {
           try {
             const img = await scrapeOgImage(a.source_url);
@@ -280,17 +250,10 @@ async function fetchLiveSources(autoPublish = false) {
               if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
             }
 
-            // Auto-publish with quality gate
+            // Auto-publish directly for curated articles (quality gate is for synthesis only)
             if (autoPublish) {
-              const gate = await getEditorialScore(inserted_row);
-              await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2').run(gate.score, inserted_row.id);
-              if (gate.publish) {
-                await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
-                if (gate.feature_worthy) {
-                  await db.prepare('UPDATE articles SET is_featured = 1 WHERE id = $1').run(inserted_row.id);
-                }
-                onArticlePublished(inserted_row.id).catch(() => {});
-              }
+              await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
+              onArticlePublished(inserted_row.id).catch(() => {});
             }
           } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
         })();

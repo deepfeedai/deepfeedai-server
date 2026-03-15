@@ -70,10 +70,11 @@ async function fetchEngagement(slugs) {
 // ?feed=following — filter to articles by writers the current user follows (requires Bearer token)
 router.get('/', asyncHandler(async (req, res) => {
   const { category, limit: lim, featured, writer, feed } = req.query;
-  let query = `SELECT a.*, v.name AS writer_name, v.slug AS writer_slug,
-                      v.avatar_url AS writer_avatar_url, v.beat AS writer_beat
+  let query = `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
+                      w.avatar_url AS writer_avatar_url,
+                      (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
                FROM articles a
-               LEFT JOIN voices v ON v.id = a.writer_id
+               LEFT JOIN writers w ON w.id = a.writer_id
                WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
   const params = [];
 
@@ -95,7 +96,7 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   if (writer) {
     params.push(writer);
-    query += ` AND v.slug = $${params.length}`;
+    query += ` AND w.slug = $${params.length}`;
   }
 
   query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';

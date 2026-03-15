@@ -1,5 +1,6 @@
 let sources = [];
   let deleteSourceId = null;
+  let categoryNames = [];
 
   // ── Suggested feeds ────────────────────────────────────────────────
   const SUGGESTED_FEEDS = [
@@ -33,10 +34,20 @@ let sources = [];
     return `<span class="text-muted text-sm" title="${fmtDate(val)}">${relativeTime(val)}</span>`;
   }
 
+  async function loadCategories() {
+    try {
+      const cats = await apiFetch('/categories');
+      categoryNames = (cats || []).map(c => c.name);
+      const sel = document.getElementById('fSDefaultCategory');
+      sel.innerHTML = '<option value="">— Auto-detect —</option>' +
+        categoryNames.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+    } catch { /* ignore */ }
+  }
+
   function renderTable() {
     const tbody = document.getElementById('sourcesBody');
     if (sources.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7">
+      tbody.innerHTML = `<tr><td colspan="8">
         <div class="empty-state"><div class="empty-icon">📡</div><p>No sources configured — add one to get started</p></div>
       </td></tr>`;
       return;
@@ -65,6 +76,7 @@ let sources = [];
             : `<span class="text-muted text-sm">Draft only</span>`
           }
         </td>
+        <td>${s.default_category ? `<span class="badge">${escHtml(s.default_category)}</span>` : `<span class="text-muted text-sm">Auto</span>`}</td>
         <td>${fmtLastFetched(s.last_fetched)}</td>
         <td class="td-actions">
           <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEditSource(${s.id})">✏️</button>
@@ -93,6 +105,7 @@ let sources = [];
     document.getElementById('fSAutoPublish').checked   = false;
     document.getElementById('fSAutoPublishMax').value  = '5';
     document.getElementById('maxPublishGroup').style.display = 'none';
+    document.getElementById('fSDefaultCategory').value = '';
     openModal('sourceModal');
     document.getElementById('fSName').focus();
   }
@@ -109,6 +122,7 @@ let sources = [];
     document.getElementById('fSAutoPublish').checked        = !!s.auto_publish;
     document.getElementById('fSAutoPublishMax').value       = s.auto_publish_max || 5;
     document.getElementById('maxPublishGroup').style.display = s.auto_publish ? '' : 'none';
+    document.getElementById('fSDefaultCategory').value      = s.default_category || '';
     openModal('sourceModal');
     document.getElementById('fSName').focus();
   }
@@ -132,6 +146,7 @@ let sources = [];
       is_active        : document.getElementById('fSActive').checked,
       auto_publish     : document.getElementById('fSAutoPublish').checked,
       auto_publish_max : parseInt(document.getElementById('fSAutoPublishMax').value) || 5,
+      default_category : document.getElementById('fSDefaultCategory').value || null,
     };
 
     const saveBtn = document.getElementById('saveSourceBtn');
@@ -238,7 +253,7 @@ let sources = [];
       openModal('suggestedModal');
     });
 
-    await loadSources();
+    await Promise.all([loadSources(), loadCategories()]);
   });
 
   // Fetch all sources
