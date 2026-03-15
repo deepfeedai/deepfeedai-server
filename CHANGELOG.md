@@ -11,6 +11,27 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.14.0] — 2026-03-15
+
+### Added — Writer Restructuring & Article Enhancements
+- **Separate writers from voices (Phase 1)** — decoupled writer personas from voice profiles, new admin-writers route with dedicated CRUD
+- **Writer restructuring phases 2–4** — multi-beat support, style profiles, performance tracking for writer personas
+- **Auto-assign writer on article create** — writer assignment now triggers on article creation, not just publish
+- **Article preview modal** — inline article preview in the admin articles list without navigating away
+- **AI keyword generation for categories** — per-category "AI" button and bulk "AI Generate All" on Settings > Content; calls Gemini to generate 30–50 keyword suggestions
+
+### Changed
+- **Improved auto-categorization** — word-boundary regex matching, source-level default categories, Gemini AI fallback when keyword scoring confidence is low
+
+### Fixed
+- **AI keyword generation 502** — Gemini exceeded `maxOutputTokens` (1000) producing 100+ keywords, truncating JSON mid-array; increased limit to 2048, tightened prompt to cap at 50, added truncation-resilient JSON parsing
+- **Synthesis page filtering** — was filtering on wrong field name for auto-writers
+- **Articles table overflow** — fixed table layout overflow, curated auto-publish logic, and fetch endpoint hang (#133)
+- **Admin-writers route mount order** — moved route mount after auth middleware declaration
+- **Writers migration idempotency** — made migration resilient to partial runs with `IF NOT EXISTS` guards
+
+---
+
 ## [1.13.0] — 2026-03-14
 
 ### Added — Unified Category System
