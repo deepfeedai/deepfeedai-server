@@ -41,7 +41,7 @@ async function fetchAllSources(autoPublish = false) {
         const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
         if (existing) { skipped++; continue; }
 
-        const category = await detectCategory(item);
+        const category = await detectCategory(item, { defaultCategory: source.default_category });
         const image    =
           item.enclosure?.url                              ||  // standard podcast/media enclosure
           item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)

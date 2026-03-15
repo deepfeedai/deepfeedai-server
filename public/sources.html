@@ -36,12 +36,13 @@
               <th>Priority</th>
               <th>Active</th>
               <th>Auto-Publish</th>
+              <th>Category</th>
               <th>Last Fetched</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="sourcesBody">
-            <tr><td colspan="7" class="td-loading"><span class="spinner"></span></td></tr>
+            <tr><td colspan="8" class="td-loading"><span class="spinner"></span></td></tr>
           </tbody>
         </table>
       </div></div>
@@ -90,6 +91,13 @@
         <label class="form-label" for="fSAutoPublishMax">Max articles to auto-publish per fetch</label>
         <input class="form-control input-narrow" type="number" id="fSAutoPublishMax" min="1" max="50" value="5" />
         <small class="form-help">Newest articles up to this limit will be published automatically. The rest are saved as drafts.</small>
+      </div>
+      <div class="form-group mt-3">
+        <label class="form-label" for="fSDefaultCategory">Default Category</label>
+        <select class="form-control" id="fSDefaultCategory">
+          <option value="">— Auto-detect —</option>
+        </select>
+        <small class="form-help">Biases auto-categorization toward this category. Leave on auto-detect for keyword-only scoring.</small>
       </div>
     </div>
     <div class="modal-footer">
