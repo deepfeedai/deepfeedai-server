@@ -733,7 +733,7 @@ let articles = [];
     document.getElementById('fSourceUrl').value = '';
     document.getElementById('fImageUrl').value = '';
     document.getElementById('fPublished').checked = true;
-    document.getElementById('fFeatured').checked = false;
+    document.getElementById('fFeatured').value = '0';
     populateWriterSelect(null);
     openModal('articleModal');
     document.getElementById('fAutoUrl').focus();

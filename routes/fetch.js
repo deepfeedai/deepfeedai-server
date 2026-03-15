@@ -29,7 +29,9 @@ async function fetchAllSources(autoPublish = false) {
     try {
       const feed  = await parser.parseURL(source.url);
       const items = (feed.items || []).slice().sort((a, b) => new Date(b.pubDate || 0) - new Date(a.pubDate || 0));
-      const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+      // First fetch for a new source: use 30-day lookback to pull in backlog
+      const lookbackMs = source.last_fetched ? 48 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - lookbackMs;
 
       for (const item of items) {
         const url = item.link || item.guid;

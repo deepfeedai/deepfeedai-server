@@ -5,6 +5,26 @@ const { auth }              = require('../middleware/auth');
 const { asyncHandler }      = require('../lib/utils');
 const { sourceCreate, sourceUpdate, validate } = require('../lib/schemas');
 
+// POST /api/sources/preview-feed — validate RSS URL and return feed metadata
+const RSSParser = require('rss-parser');
+const feedParser = new RSSParser({ timeout: 8000 });
+
+router.post('/preview-feed', auth, asyncHandler(async (req, res) => {
+  const { url } = req.body || {};
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL is required' });
+
+  try {
+    const feed = await feedParser.parseURL(url);
+    res.json({
+      title: feed.title || '',
+      description: feed.description || '',
+      itemCount: (feed.items || []).length,
+    });
+  } catch (err) {
+    res.status(422).json({ error: 'Could not parse RSS feed', detail: err.message });
+  }
+}));
+
 // GET /api/sources
 router.get('/', auth, asyncHandler(async (req, res) => {
   const sources = await db.prepare('SELECT * FROM sources ORDER BY priority ASC, created_at DESC').all();

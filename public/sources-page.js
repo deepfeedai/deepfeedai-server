@@ -1,6 +1,7 @@
 let sources = [];
   let deleteSourceId = null;
   let categoryNames = [];
+  let _autoFilledName = '';
 
   // ── Suggested feeds ────────────────────────────────────────────────
   const SUGGESTED_FEEDS = [
@@ -106,8 +107,11 @@ let sources = [];
     document.getElementById('fSAutoPublishMax').value  = '5';
     document.getElementById('maxPublishGroup').style.display = 'none';
     document.getElementById('fSDefaultCategory').value = '';
+    document.getElementById('feedStatus').innerHTML = '';
+    _autoFilledName = '';
     openModal('sourceModal');
-    document.getElementById('fSName').focus();
+    if (prefill && prefill.url) document.getElementById('fSName').focus();
+    else document.getElementById('fSUrl').focus();
   }
 
   function openEditSource(id) {
@@ -123,6 +127,8 @@ let sources = [];
     document.getElementById('fSAutoPublishMax').value       = s.auto_publish_max || 5;
     document.getElementById('maxPublishGroup').style.display = s.auto_publish ? '' : 'none';
     document.getElementById('fSDefaultCategory').value      = s.default_category || '';
+    document.getElementById('feedStatus').innerHTML = '';
+    _autoFilledName = '';
     openModal('sourceModal');
     document.getElementById('fSName').focus();
   }
@@ -252,6 +258,38 @@ let sources = [];
       renderSuggestedFeeds();
       openModal('suggestedModal');
     });
+
+    // Auto-fetch feed title when URL is entered
+    let _feedPreviewDebounce;
+    const urlInput = document.getElementById('fSUrl');
+    const nameInput = document.getElementById('fSName');
+    const feedStatus = document.getElementById('feedStatus');
+
+    function previewFeed() {
+      clearTimeout(_feedPreviewDebounce);
+      const url = urlInput.value.trim();
+      if (!url || !url.startsWith('http')) { feedStatus.innerHTML = ''; return; }
+      _feedPreviewDebounce = setTimeout(async () => {
+        feedStatus.innerHTML = '<span style="color:var(--muted);">Checking feed…</span>';
+        try {
+          const data = await apiFetch('/sources/preview-feed', {
+            method: 'POST',
+            body: JSON.stringify({ url }),
+          });
+          feedStatus.innerHTML = `<span style="color:var(--success);">✓ Valid feed · ${data.itemCount} article${data.itemCount !== 1 ? 's' : ''}</span>`;
+          // Auto-populate name if empty or still has a previous auto-filled value
+          if (data.title && (!nameInput.value.trim() || nameInput.value === _autoFilledName)) {
+            nameInput.value = data.title;
+            _autoFilledName = data.title;
+          }
+        } catch (err) {
+          feedStatus.innerHTML = `<span style="color:var(--danger);">✗ ${escHtml(err.message || 'Not a valid RSS feed')}</span>`;
+        }
+      }, 600);
+    }
+
+    urlInput.addEventListener('input', previewFeed);
+    urlInput.addEventListener('paste', () => setTimeout(previewFeed, 50));
 
     await Promise.all([loadSources(), loadCategories()]);
   });
