@@ -266,6 +266,22 @@
   </div>
 </div>
 
+<!-- Article Preview Modal -->
+<div class="modal-overlay" id="articlePreviewModal">
+  <div class="modal modal-xl modal-dark" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title">Article Preview</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="articlePreviewBody" style="padding:0;max-height:80vh;overflow-y:auto;"></div>
+    <div class="modal-footer" style="gap:8px;">
+      <a id="previewLiveLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;">View on site</a>
+      <a id="previewSourceLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;">View source</a>
+      <button class="btn btn-outline" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
+
 <script src="/admin.js"></script>
 <script src="/articles-page.js"></script>
 </body>
