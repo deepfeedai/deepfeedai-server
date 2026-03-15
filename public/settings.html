@@ -363,7 +363,10 @@
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Categories</h3>
           <p class="form-help" style="margin-bottom:12px;">Manage categories and their badge colors. Order matters — first category is the default.</p>
           <div id="siteCategoriesList"></div>
-          <button class="btn btn-outline btn-sm" id="addCategoryBtn" type="button" style="margin-top:8px;">+ Add Category</button>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn btn-outline btn-sm" id="addCategoryBtn" type="button">+ Add Category</button>
+            <button class="btn btn-outline btn-sm" id="generateAllKeywordsBtn" type="button">AI Generate All</button>
+          </div>
 
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="saveCategoriesBtn">Save Categories</button>

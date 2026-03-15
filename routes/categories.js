@@ -95,4 +95,86 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   res.json(cats);
 }));
 
+// POST /api/categories/generate-keywords — AI keyword generation for a category
+router.post('/generate-keywords', requireAdmin, asyncHandler(async (req, res) => {
+  const { name, existingKeywords } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Category name is required' });
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'Gemini API key not configured' });
+
+  const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+
+  const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+  const existing = Array.isArray(existingKeywords) && existingKeywords.length
+    ? `\nThe category currently has these keywords: ${existingKeywords.join(', ')}\nGenerate additional keywords that complement these — avoid duplicates.`
+    : '';
+
+  const allCats = await getCategories();
+  const otherNames = allCats.filter(c => c.name.toLowerCase() !== name.toLowerCase()).map(c => c.name);
+  const otherContext = otherNames.length
+    ? `\nOther categories in the system: ${otherNames.join(', ')}. Generate keywords that are specific to "${name}" and would NOT match articles belonging to those other categories.`
+    : '';
+
+  const prompt = [
+    `You are helping build a keyword-based article categorization system for an AI news aggregator called Deep Feed AI.`,
+    `Generate 30-50 keywords and short phrases for the category "${name}". Do NOT exceed 50 keywords.`,
+    `These keywords will be matched using word-boundary regex against article titles and content to auto-categorize incoming news articles.`,
+    '',
+    'Rules:',
+    '- Include company names, product names, technical terms, and common phrases specific to this topic',
+    '- Use lowercase',
+    '- Include both specific terms (e.g. "openai") and descriptive phrases (e.g. "large language model")',
+    '- Avoid generic single words that could match unrelated articles (e.g. "security", "protect", "model")',
+    '- Multi-word phrases are fine and encouraged for precision',
+    '- Do NOT include keywords that would better fit other categories',
+    existing,
+    otherContext,
+    '',
+    'Respond with ONLY a JSON array of strings, no markdown, no explanation. Example: ["keyword1", "keyword two", "three word phrase"]',
+  ].filter(Boolean).join('\n');
+
+  const _start = Date.now();
+  const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!upstream.ok) {
+    const errBody = await upstream.text().catch(() => '');
+    console.error('[generate-keywords] Gemini error:', upstream.status, errBody);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-keywords', trigger: 'admin', durationMs: Date.now() - _start, success: false, error: `${upstream.status}` }).catch(() => {});
+    return res.status(502).json({ error: `Gemini API error: ${upstream.status}` });
+  }
+
+  const data = await upstream.json();
+  const _tokens = extractGeminiTokens(data);
+  logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-keywords', trigger: 'admin', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
+
+  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  let keywords;
+  try {
+    // Strip markdown fences if present
+    let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
+    // Fix truncated JSON: trim trailing comma/whitespace and close the array
+    if (!cleaned.endsWith(']')) {
+      cleaned = cleaned.replace(/,\s*$/, '') + ']';
+    }
+    keywords = JSON.parse(cleaned);
+    if (!Array.isArray(keywords)) throw new Error('Not an array');
+    keywords = keywords.filter(k => typeof k === 'string' && k.trim()).map(k => k.trim().toLowerCase());
+  } catch {
+    return res.status(502).json({ error: 'Failed to parse AI response', raw });
+  }
+
+  res.json({ keywords });
+}));
+
 module.exports = router;
