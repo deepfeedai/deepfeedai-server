@@ -11,6 +11,17 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.14.1] — 2026-03-15
+
+### Added — Article Re-Categorization
+- **Enhanced `POST /api/fetch/recategorize`** — supports `articleIds`, `category`, `days`, and `dryRun` filters; returns moves breakdown (`"Old → New": count`) and writer reassignment count; parameterized SQL, LIMIT 2000 safety cap
+- **Articles page: bulk recategorize** — "Recategorize" button in bulk toolbar operates on selected articles with dry-run preview modal showing proposed category moves before applying
+- **Articles page: global recategorize** — top-bar "Recategorize" button operates on all non-archived articles, scoped by active date filter (24h/7d/30d)
+- **Settings page: post-save prompt** — after saving categories, automatically previews how existing articles would be re-categorized with updated keywords; user can apply or skip
+- **Writer re-assignment** — articles that change category and have no writer are re-matched via `findBestWriter()` using the new category for beat scoring
+
+---
+
 ## [1.14.0] — 2026-03-15
 
 ### Added — Writer Restructuring & Article Enhancements
