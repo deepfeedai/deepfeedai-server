@@ -11,6 +11,16 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.15.1] — 2026-03-16
+
+### Added
+- **16 new dark theme presets** — expanded from 4 to 20 presets including Dark Rose, Dark Amber, Charcoal, Dark Red, Dark Orange, Dark Teal, Obsidian, Monokai, Dracula, Nord, Solarized Dark, Dark Slate, Dark Coral, Dark Gold, Dark Indigo
+
+### Fixed
+- **Categories sorted alphabetically** — `getCategories()` query now uses `ORDER BY name ASC` instead of `sort_order`; all consumers (admin, frontend, categorization) get alphabetical order without client-side sorting
+
+---
+
 ## [1.15.0] — 2026-03-15
 
 ### Added
