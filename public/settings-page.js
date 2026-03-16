@@ -24,10 +24,26 @@
 
 // ── Theme Presets ────────────────────────────────────────
 const THEME_PRESETS = [
-  { name: 'Dark Blue',    accent: '#4F8EF7', bg: '#0d1117', bgCard: '#161b22', border: '#21262d', text: '#e6edf3', muted: '#8b949e', accentDim: '#2d5fbe' },
-  { name: 'Dark Cyan',    accent: '#00d9ff', bg: '#0d0d0d', bgCard: '#161616', border: '#222222', text: '#f0f0f0', muted: '#888888', accentDim: '#0099b3' },
-  { name: 'Dark Purple',  accent: '#a78bfa', bg: '#0f0b1a', bgCard: '#1a1525', border: '#2d2640', text: '#e8e0f0', muted: '#9990a8', accentDim: '#7c5fc4' },
-  { name: 'Midnight Green',accent: '#34d399', bg: '#0a1214', bgCard: '#121e22', border: '#1e3030', text: '#e0f0ec', muted: '#7da89e', accentDim: '#1f9e6f' },
+  // Dark themes
+  { name: 'Dark Blue',       accent: '#4F8EF7', bg: '#0d1117', bgCard: '#161b22', border: '#21262d', text: '#e6edf3', muted: '#8b949e', accentDim: '#2d5fbe' },
+  { name: 'Dark Cyan',       accent: '#00d9ff', bg: '#0d0d0d', bgCard: '#161616', border: '#222222', text: '#f0f0f0', muted: '#888888', accentDim: '#0099b3' },
+  { name: 'Dark Purple',     accent: '#a78bfa', bg: '#0f0b1a', bgCard: '#1a1525', border: '#2d2640', text: '#e8e0f0', muted: '#9990a8', accentDim: '#7c5fc4' },
+  { name: 'Midnight Green',  accent: '#34d399', bg: '#0a1214', bgCard: '#121e22', border: '#1e3030', text: '#e0f0ec', muted: '#7da89e', accentDim: '#1f9e6f' },
+  { name: 'Dark Rose',       accent: '#f472b6', bg: '#110a10', bgCard: '#1c1520', border: '#2e2030', text: '#f0e4ec', muted: '#a090a0', accentDim: '#b8508a' },
+  { name: 'Dark Amber',      accent: '#fbbf24', bg: '#111009', bgCard: '#1c1a12', border: '#302a1a', text: '#f0ece0', muted: '#a09880', accentDim: '#b8880e' },
+  { name: 'Charcoal',        accent: '#60a5fa', bg: '#121212', bgCard: '#1e1e1e', border: '#2a2a2a', text: '#e0e0e0', muted: '#909090', accentDim: '#3b7ad8' },
+  { name: 'Dark Red',        accent: '#ef4444', bg: '#110d0d', bgCard: '#1c1616', border: '#2e2020', text: '#f0e6e6', muted: '#a09090', accentDim: '#b83030' },
+  { name: 'Dark Orange',     accent: '#f97316', bg: '#111009', bgCard: '#1c1810', border: '#302818', text: '#f0ece0', muted: '#a09878', accentDim: '#c45a0e' },
+  { name: 'Dark Teal',       accent: '#14b8a6', bg: '#0a1212', bgCard: '#121c1c', border: '#1e2e2e', text: '#e0f0ee', muted: '#7da8a0', accentDim: '#0e8a7e' },
+  { name: 'Obsidian',        accent: '#94a3b8', bg: '#09090b', bgCard: '#131316', border: '#1e1e24', text: '#d4d4d8', muted: '#71717a', accentDim: '#64748b' },
+  { name: 'Monokai',         accent: '#a6e22e', bg: '#272822', bgCard: '#2e2f28', border: '#3e3d32', text: '#f8f8f2', muted: '#75715e', accentDim: '#7ea01e' },
+  { name: 'Dracula',         accent: '#bd93f9', bg: '#282a36', bgCard: '#2e303e', border: '#44475a', text: '#f8f8f2', muted: '#6272a4', accentDim: '#9466d8' },
+  { name: 'Nord',            accent: '#88c0d0', bg: '#2e3440', bgCard: '#3b4252', border: '#434c5e', text: '#eceff4', muted: '#7b88a1', accentDim: '#5e96a8' },
+  { name: 'Solarized Dark',  accent: '#b58900', bg: '#002b36', bgCard: '#073642', border: '#0a4555', text: '#93a1a1', muted: '#657b83', accentDim: '#8a6800' },
+  { name: 'Dark Slate',      accent: '#6ee7b7', bg: '#0f172a', bgCard: '#1e293b', border: '#334155', text: '#e2e8f0', muted: '#94a3b8', accentDim: '#3cb88a' },
+  { name: 'Dark Coral',      accent: '#fb7185', bg: '#110b0d', bgCard: '#1c1518', border: '#2e2025', text: '#f0e6e8', muted: '#a09098', accentDim: '#c44860' },
+  { name: 'Dark Gold',       accent: '#eab308', bg: '#12110a', bgCard: '#1c1b12', border: '#302e1c', text: '#f0eed8', muted: '#a09e78', accentDim: '#b08a06' },
+  { name: 'Dark Indigo',     accent: '#818cf8', bg: '#0c0c1a', bgCard: '#161628', border: '#252540', text: '#e4e4f0', muted: '#9090a8', accentDim: '#5c64c4' },
 ];
 
 const COLOR_FIELDS = [
