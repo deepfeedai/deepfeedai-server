@@ -1,3 +1,19 @@
+// ── Sanitize HTML for logo preview (strip scripts and event handlers) ──
+function sanitizeLogoHtml(html) {
+  var div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('script,iframe,object,embed,link,style').forEach(function(el) { el.remove(); });
+  div.querySelectorAll('*').forEach(function(el) {
+    for (var i = el.attributes.length - 1; i >= 0; i--) {
+      var name = el.attributes[i].name.toLowerCase();
+      if (name.startsWith('on') || name === 'href' && el.getAttribute('href').trim().toLowerCase().startsWith('javascript:')) {
+        el.removeAttribute(el.attributes[i].name);
+      }
+    }
+  });
+  return div.innerHTML;
+}
+
 // ── Settings Tab Switching ────────────────────────────────
 (function initSettingsTabs() {
   const tabBar = document.getElementById('settingsTabs');
@@ -465,7 +481,7 @@ let apiKeyVisible = false;
   const logoEmojiInput = document.getElementById('siteLogoEmoji');
 
   if (logoHtmlInput && logoPreview) {
-    logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = logoHtmlInput.value; });
+    logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = sanitizeLogoHtml(logoHtmlInput.value); });
   }
 
   // Auto-sync: when Logo Emoji changes, replace the leading emoji in Logo HTML
@@ -476,7 +492,7 @@ let apiKeyVisible = false;
       const current = logoHtmlInput.value;
       const updated = current.replace(/^[\p{Emoji}\u200d\uFE0F\u20E3\u{1F3FB}-\u{1F3FF}]+/u, newEmoji);
       logoHtmlInput.value = updated !== current ? updated : newEmoji + current.replace(/^[^\s&]+/, '');
-      if (logoPreview) logoPreview.innerHTML = logoHtmlInput.value;
+      if (logoPreview) logoPreview.innerHTML = sanitizeLogoHtml(logoHtmlInput.value);
     });
   }
 
@@ -843,7 +859,7 @@ let apiKeyVisible = false;
 
     // Logo preview
     if (logoPreview && settings.site_logo_html) {
-      logoPreview.innerHTML = settings.site_logo_html;
+      logoPreview.innerHTML = sanitizeLogoHtml(settings.site_logo_html);
     }
   }
 

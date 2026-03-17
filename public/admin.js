@@ -2,6 +2,10 @@
 
 const API = '/api';
 
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 // ── Auth helpers ──────────────────────────────────────────
 function getToken() {
   return localStorage.getItem('deepfeedai_token');
@@ -210,9 +214,9 @@ function renderSidebar() {
           var perms = getUserPermissions();
           var permSummary = perms.includes('*') ? 'Full access' : perms.length + ' permissions';
           topbarUser.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">'
-            + '<span class="text-muted text-sm">' + name + '</span>'
-            + (role ? '<span class="badge badge-muted" style="font-size:10px;">' + role + '</span>' : '')
-            + '<span class="text-muted text-xs" title="' + (perms.includes('*') ? 'Full access (owner)' : perms.join(', ')) + '">(' + permSummary + ')</span>'
+            + '<span class="text-muted text-sm">' + escHtml(name) + '</span>'
+            + (role ? '<span class="badge badge-muted" style="font-size:10px;">' + escHtml(role) + '</span>' : '')
+            + '<span class="text-muted text-xs" title="' + escHtml(perms.includes('*') ? 'Full access (owner)' : perms.join(', ')) + '">(' + escHtml(permSummary) + ')</span>'
             + '</span>';
         }
       }
@@ -270,7 +274,7 @@ function showToast(msg, type = 'success') {
 
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<span class="toast-msg">${msg}</span><button class="toast-close" aria-label="Close">✕</button>`;
+  toast.innerHTML = `<span class="toast-msg">${escHtml(msg)}</span><button class="toast-close" aria-label="Close">✕</button>`;
 
   const dismiss = () => {
     toast.classList.add('toast-out');
