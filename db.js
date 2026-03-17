@@ -602,6 +602,8 @@ async function initDb() {
     )`,
     `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS results JSONB`,
     `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS result_count INTEGER DEFAULT 0`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS from_date TEXT`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS to_date TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

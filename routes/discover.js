@@ -13,28 +13,75 @@ const { scrapeOgImage }  = require('../lib/scrape');
 const { findBestWriter } = require('../lib/writer-assign');
 const { logAudit }       = require('../middleware/audit');
 
+// ── Date range helper ───────────────────────────────────────────────────────
+
+function resolveDateRange(period, fromParam, toParam) {
+  const periodHours = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 };
+  const freshnessMap = { '1h': 'pd', '24h': 'pd', '7d': 'pw', '30d': 'pm' };
+
+  // Standard periods
+  if (periodHours[period]) {
+    return {
+      fromDate: new Date(Date.now() - periodHours[period] * 3600000).toISOString().split('T')[0],
+      toDate: null,
+      braveFreshness: freshnessMap[period],
+    };
+  }
+  // Past year
+  if (period === 'py') {
+    return {
+      fromDate: new Date(Date.now() - 365 * 24 * 3600000).toISOString().split('T')[0],
+      toDate: null,
+      braveFreshness: 'py',
+    };
+  }
+  // Specific year (e.g. "2025")
+  if (/^\d{4}$/.test(period)) {
+    const year = parseInt(period);
+    const now = new Date();
+    const endDate = year === now.getFullYear()
+      ? now.toISOString().split('T')[0]
+      : `${year}-12-31`;
+    return {
+      fromDate: `${year}-01-01`,
+      toDate: endDate,
+      braveFreshness: `${year}-01-01to${endDate}`,
+    };
+  }
+  // Custom range
+  if (period === 'custom' && fromParam && toParam) {
+    return {
+      fromDate: fromParam,
+      toDate: toParam,
+      braveFreshness: `${fromParam}to${toParam}`,
+    };
+  }
+  // Default: 24h
+  return {
+    fromDate: new Date(Date.now() - 24 * 3600000).toISOString().split('T')[0],
+    toDate: null,
+    braveFreshness: 'pd',
+  };
+}
+
 // ── GET / — Search across sources ───────────────────────────────────────────
 
 router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
-  const { q, sources, period } = req.query;
+  const { q, sources, period, from, to } = req.query;
   if (!q || !q.trim()) return res.status(400).json({ error: 'Search query (q) is required' });
 
   const config = await getAppConfig(req.tenantId);
   const sourceList = (sources || 'brave,newsapi').split(',').map(s => s.trim().toLowerCase());
 
   // Determine date range
-  const periodMap = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 };
-  const hours = periodMap[period] || 24;
-  const fromDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+  const { fromDate, toDate, braveFreshness } = resolveDateRange(period, from, to);
 
   const results = [];
 
   // Query Brave Search API
   if (sourceList.includes('brave') && config.brave_api_key) {
     try {
-      const freshnessMap = { '1h': 'pd', '7d': 'pw', '30d': 'pm' };
-      const freshness = freshnessMap[period] || 'pd';
-      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=20&freshness=${freshness}`;
+      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=20&freshness=${encodeURIComponent(braveFreshness)}`;
       const braveRes = await fetch(braveUrl, {
         headers: { 'X-Subscription-Token': config.brave_api_key, 'Accept': 'application/json' },
         signal: AbortSignal.timeout(10000),
@@ -61,8 +108,8 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
   // Query NewsAPI
   if (sourceList.includes('newsapi') && config.news_api_key) {
     try {
-      const from = fromDate.toISOString().split('T')[0];
-      const newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${from}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
+      let newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${fromDate}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
+      if (toDate) newsUrl += `&to=${toDate}`;
       const newsRes = await fetch(newsUrl, { signal: AbortSignal.timeout(10000) });
       if (newsRes.ok) {
         const data = await newsRes.json();
@@ -86,12 +133,23 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
 
   // Deduplicate by URL
   const seen = new Set();
-  const unique = results.filter(r => {
+  const deduped = results.filter(r => {
     const key = r.url.replace(/\/$/, '').toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  // Post-fetch date filtering — remove results outside the requested range
+  const unique = (fromDate || toDate) ? deduped.filter(r => {
+    if (!r.publishedAt) return true; // keep items with no date info
+    const d = new Date(r.publishedAt);
+    if (isNaN(d.getTime())) return true; // keep unparseable dates (e.g. Brave "2h ago")
+    const iso = d.toISOString().split('T')[0];
+    if (fromDate && iso < fromDate) return false;
+    if (toDate && iso > toDate) return false;
+    return true;
+  }) : deduped;
 
   // Auto-detect category (keyword-only, no AI budget burn)
   for (const r of unique) {
@@ -228,18 +286,22 @@ router.get('/saved', auth, requirePermission('fetch.execute'), asyncHandler(asyn
 
 // POST /saved — save a search with current results
 router.post('/saved', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
-  const { name, query, sources, period, results } = req.body;
+  const { name, query, sources, period, from_date, to_date, results } = req.body;
   if (!name || !query) return res.status(400).json({ error: 'name and query are required' });
+
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (from_date && !dateRe.test(from_date)) return res.status(400).json({ error: 'Invalid from_date format' });
+  if (to_date && !dateRe.test(to_date)) return res.status(400).json({ error: 'Invalid to_date format' });
 
   const resultsJson = results && Array.isArray(results) ? JSON.stringify(results) : null;
   const resultCount = results && Array.isArray(results) ? results.length : 0;
 
   const row = await db.prepare(`
-    INSERT INTO saved_searches (tenant_id, name, query, sources, period, created_by, results, result_count, last_run_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-    ON CONFLICT (tenant_id, name) DO UPDATE SET query = EXCLUDED.query, sources = EXCLUDED.sources, period = EXCLUDED.period, results = EXCLUDED.results, result_count = EXCLUDED.result_count, last_run_at = NOW()
-    RETURNING id, name, query, sources, period, result_count, last_run_at, created_at
-  `).get(req.tenantId, name.trim(), query.trim(), sources || 'brave,newsapi', period || '24h', req.user.sub || null, resultsJson, resultCount);
+    INSERT INTO saved_searches (tenant_id, name, query, sources, period, from_date, to_date, created_by, results, result_count, last_run_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+    ON CONFLICT (tenant_id, name) DO UPDATE SET query = EXCLUDED.query, sources = EXCLUDED.sources, period = EXCLUDED.period, from_date = EXCLUDED.from_date, to_date = EXCLUDED.to_date, results = EXCLUDED.results, result_count = EXCLUDED.result_count, last_run_at = NOW()
+    RETURNING id, name, query, sources, period, from_date, to_date, result_count, last_run_at, created_at
+  `).get(req.tenantId, name.trim(), query.trim(), sources || 'brave,newsapi', period || '24h', from_date || null, to_date || null, req.user.sub || null, resultsJson, resultCount);
 
   res.status(201).json(row);
 }));
@@ -292,21 +354,15 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyn
   if (!search) return res.status(404).json({ error: 'Saved search not found' });
 
   // Execute search using the saved params — reuse the GET / logic
-  req.query = { q: search.query, sources: search.sources, period: search.period };
-
   const config = await getAppConfig(req.tenantId);
   const sourceList = (search.sources || 'brave,newsapi').split(',').map(s => s.trim().toLowerCase());
-  const periodMap = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 };
-  const hours = periodMap[search.period] || 24;
-  const fromDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+  const { fromDate, toDate, braveFreshness } = resolveDateRange(search.period, search.from_date, search.to_date);
 
   const results = [];
 
   if (sourceList.includes('brave') && config.brave_api_key) {
     try {
-      const freshnessMap = { '1h': 'pd', '7d': 'pw', '30d': 'pm' };
-      const freshness = freshnessMap[search.period] || 'pd';
-      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(search.query)}&count=20&freshness=${freshness}`;
+      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(search.query)}&count=20&freshness=${encodeURIComponent(braveFreshness)}`;
       const braveRes = await fetch(braveUrl, {
         headers: { 'X-Subscription-Token': config.brave_api_key, 'Accept': 'application/json' },
         signal: AbortSignal.timeout(10000),
@@ -317,13 +373,15 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyn
           results.push({ title: item.title, url: item.url, description: item.description || '', source: 'brave', sourceName: item.meta_url?.hostname || new URL(item.url).hostname, publishedAt: item.age || item.page_age || null, imageUrl: item.thumbnail?.src || null });
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error('[Discover] Brave refresh error:', err.message);
+    }
   }
 
   if (sourceList.includes('newsapi') && config.news_api_key) {
     try {
-      const from = fromDate.toISOString().split('T')[0];
-      const newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(search.query)}&from=${from}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
+      let newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(search.query)}&from=${fromDate}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
+      if (toDate) newsUrl += `&to=${toDate}`;
       const newsRes = await fetch(newsUrl, { signal: AbortSignal.timeout(10000) });
       if (newsRes.ok) {
         const data = await newsRes.json();
@@ -332,12 +390,25 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyn
           results.push({ title: item.title, url: item.url, description: item.description || '', source: 'newsapi', sourceName: item.source?.name || '', publishedAt: item.publishedAt || null, imageUrl: item.urlToImage || null });
         }
       }
-    } catch {}
+    } catch (err) {
+      console.error('[Discover] NewsAPI refresh error:', err.message);
+    }
   }
 
   // Deduplicate
   const seen = new Set();
-  const unique = results.filter(r => { const k = r.url.replace(/\/$/, '').toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  const deduped = results.filter(r => { const k = r.url.replace(/\/$/, '').toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+
+  // Post-fetch date filtering
+  const unique = (fromDate || toDate) ? deduped.filter(r => {
+    if (!r.publishedAt) return true;
+    const d = new Date(r.publishedAt);
+    if (isNaN(d.getTime())) return true;
+    const iso = d.toISOString().split('T')[0];
+    if (fromDate && iso < fromDate) return false;
+    if (toDate && iso > toDate) return false;
+    return true;
+  }) : deduped;
 
   // Auto-categorize
   for (const r of unique) {

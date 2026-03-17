@@ -17,6 +17,14 @@ async function doSearch() {
 
   var period = document.getElementById('searchPeriod').value;
 
+  // Validate custom range
+  if (period === 'custom') {
+    var dateFrom = document.getElementById('dateFrom').value;
+    var dateTo = document.getElementById('dateTo').value;
+    if (!dateFrom || !dateTo) { showToast('Select both from and to dates', 'error'); return; }
+    if (dateFrom > dateTo) { showToast('From date must be before to date', 'error'); return; }
+  }
+
   // Show loading
   document.getElementById('loadingState').style.display = '';
   document.getElementById('emptyState').style.display = 'none';
@@ -27,6 +35,10 @@ async function doSearch() {
 
   try {
     var params = new URLSearchParams({ q: query, sources: sources.join(','), period: period });
+    if (period === 'custom') {
+      params.set('from', document.getElementById('dateFrom').value);
+      params.set('to', document.getElementById('dateTo').value);
+    }
     var data = await apiFetch('/admin/discover?' + params.toString());
     searchResults = data.results || [];
     document.getElementById('loadingState').style.display = 'none';
@@ -221,9 +233,18 @@ async function saveCurrentSearch() {
   var period = document.getElementById('searchPeriod').value;
 
   try {
+    var saveBody = { name: name, query: query, sources: sources.join(','), period: period, results: searchResults };
+    if (period === 'custom') {
+      var df = document.getElementById('dateFrom').value;
+      var dt = document.getElementById('dateTo').value;
+      if (!df || !dt) { showToast('Select both from and to dates', 'error'); return; }
+      if (df > dt) { showToast('From date must be before to date', 'error'); return; }
+      saveBody.from_date = df;
+      saveBody.to_date = dt;
+    }
     await apiFetch('/admin/discover/saved', {
       method: 'POST',
-      body: JSON.stringify({ name: name, query: query, sources: sources.join(','), period: period, results: searchResults }),
+      body: JSON.stringify(saveBody),
     });
     showToast('Search saved with ' + searchResults.length + ' results');
     await loadSavedSearches();
@@ -249,6 +270,14 @@ async function loadSavedResults(id) {
     // Populate search form
     document.getElementById('searchQuery').value = data.query || '';
     document.getElementById('searchPeriod').value = data.period || '24h';
+    document.getElementById('searchPeriod').dispatchEvent(new Event('change'));
+    if (data.period === 'custom' && data.from_date && data.to_date) {
+      document.getElementById('dateFrom').value = data.from_date;
+      document.getElementById('dateTo').value = data.to_date;
+    } else {
+      document.getElementById('dateFrom').value = '';
+      document.getElementById('dateTo').value = '';
+    }
     document.getElementById('srcBrave').checked = (data.sources || '').includes('brave');
     document.getElementById('srcNewsApi').checked = (data.sources || '').includes('newsapi');
 
@@ -315,9 +344,32 @@ async function deleteSavedSearch(id, name) {
 
 document.getElementById('saveSearchBtn').addEventListener('click', saveCurrentSearch);
 
+// Toggle custom date range visibility
+document.getElementById('searchPeriod').addEventListener('change', function() {
+  document.getElementById('customDateRange').style.display = this.value === 'custom' ? '' : 'none';
+});
+
 onReady(function() {
   if (!requireAuth()) return;
   renderSidebar();
+
+  // Generate year options dynamically (current year down to 2020)
+  var select = document.getElementById('searchPeriod');
+  var customOpt = select.querySelector('option[value="custom"]');
+  var currentYear = new Date().getFullYear();
+  for (var y = currentYear; y >= 2020; y--) {
+    var opt = document.createElement('option');
+    opt.value = String(y);
+    opt.textContent = String(y);
+    select.insertBefore(opt, customOpt);
+  }
+
+  // Set default date picker constraints
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('dateTo').setAttribute('max', today);
+  document.getElementById('dateTo').value = today;
+  document.getElementById('dateFrom').value = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+
   document.getElementById('emptyState').style.display = '';
   loadSavedSearches();
 });

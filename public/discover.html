@@ -14,7 +14,7 @@
         <div class="topbar-title">Discover &amp; Import</div>
         <span id="topbarUser" class="topbar-user"></span>
       </header>
-      <div class="page-body">
+      <div class="page-body page-body-wide">
 
         <!-- Search Bar -->
         <div class="dash-panel mb-6">
@@ -29,7 +29,17 @@
                 <option value="24h">Last 24 hours</option>
                 <option value="7d">Last 7 days</option>
                 <option value="30d">Last 30 days</option>
+                <option value="py">Past year</option>
+                <!-- Year options populated dynamically -->
+                <option value="custom">Custom range...</option>
               </select>
+            </div>
+            <div class="form-group" id="customDateRange" style="margin:0;display:none;">
+              <label class="form-label">From / To</label>
+              <div style="display:flex;gap:6px;">
+                <input type="date" class="form-control" id="dateFrom" style="width:150px;" />
+                <input type="date" class="form-control" id="dateTo" style="width:150px;" />
+              </div>
             </div>
             <div class="form-group" style="margin:0;">
               <label class="form-label">Sources</label>
@@ -56,7 +66,7 @@
 
         <!-- Results Table -->
         <div class="table-wrap" id="resultsWrap" style="display:none;">
-          <div class="table-scroll" style="max-height:60vh;">
+          <div class="table-scroll">
             <table>
               <thead>
                 <tr>
