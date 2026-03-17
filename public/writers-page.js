@@ -521,6 +521,7 @@ async function doAiGenerate() {
     var result = await apiFetch('/admin/writers/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // uncoveredOnly: false — frontend already filters categories via checkbox UI
       body: JSON.stringify({ categoryIds: categoryIds, uncoveredOnly: false })
     });
 

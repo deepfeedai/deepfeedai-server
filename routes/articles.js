@@ -116,6 +116,45 @@ router.get('/export', auth, requirePermission('articles.read'), asyncHandler(asy
   return res.send(csv);
 }));
 
+// POST /api/articles/bulk-assign-writer — auto-assign best writer to multiple articles
+router.post('/bulk-assign-writer', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { articleIds } = req.body;
+  if (!Array.isArray(articleIds) || !articleIds.length) return res.status(400).json({ error: 'articleIds required' });
+
+  const MAX_BULK = 200;
+  const safeIds = articleIds.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n) && n > 0);
+  if (!safeIds.length) return res.status(400).json({ error: 'articleIds must be non-empty integers' });
+  if (safeIds.length > MAX_BULK) return res.status(400).json({ error: `Maximum ${MAX_BULK} articles per request` });
+
+  // Pre-fetch auto-assign writers once for the whole batch
+  const autoWriters = await db.prepare(`
+    SELECT w.*, array_agg(c.name) FILTER (WHERE c.name IS NOT NULL) AS beat_names
+    FROM writers w
+    LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
+    LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
+    WHERE w.is_auto = true AND w.tenant_id = $1
+    GROUP BY w.id
+  `).all(req.tenantId);
+
+  let assigned = 0, skipped = 0;
+  const results = [];
+
+  for (const id of safeIds) {
+    const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+    if (!article) { skipped++; continue; }
+
+    const writer = await findBestWriter(article, req.tenantId, autoWriters);
+    if (!writer) { skipped++; results.push({ id, writer: null }); continue; }
+
+    await db.prepare('UPDATE articles SET writer_id = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(writer.id, id, req.tenantId);
+    assigned++;
+    results.push({ id, writer: { id: writer.id, name: writer.name } });
+  }
+
+  logAudit(req, 'articles.bulk-assign-writer', 'articles', null, { assigned, skipped, count: safeIds.length });
+  res.json({ assigned, skipped, results });
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
