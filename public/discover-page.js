@@ -13,6 +13,7 @@ async function doSearch() {
   var sources = [];
   if (document.getElementById('srcBrave').checked) sources.push('brave');
   if (document.getElementById('srcNewsApi').checked) sources.push('newsapi');
+  if (document.getElementById('srcYouTube').checked) sources.push('youtube');
   if (sources.length === 0) { showToast('Select at least one source', 'error'); return; }
 
   var period = document.getElementById('searchPeriod').value;
@@ -42,6 +43,7 @@ async function doSearch() {
     var data = await apiFetch('/admin/discover?' + params.toString());
     searchResults = data.results || [];
     document.getElementById('loadingState').style.display = 'none';
+    if (data.youtubeQuotaExceeded) showToast('YouTube API quota exceeded — YouTube results may be missing', 'error');
 
     if (searchResults.length === 0) {
       document.getElementById('emptyState').style.display = '';
@@ -64,6 +66,7 @@ function renderResults() {
   tbody.innerHTML = searchResults.map(function(r, i) {
     var sourceBadge = r.source === 'brave'
       ? '<span class="badge badge-success">Brave</span>'
+      : r.source === 'youtube' ? '<span class="badge badge-danger">YouTube</span>'
       : '<span class="badge badge-accent">NewsAPI</span>';
     var statusBadge = r.alreadyImported
       ? '<span class="badge badge-muted">Imported</span>'
@@ -119,6 +122,9 @@ async function doImport() {
         description: r.description,
         imageUrl: r.imageUrl,
         category: r.detectedCategory,
+        embedUrl: r.embedUrl || null,
+        source: r.source,
+        sourceName: r.sourceName || null,
       };
     });
 
@@ -230,6 +236,7 @@ async function saveCurrentSearch() {
   var sources = [];
   if (document.getElementById('srcBrave').checked) sources.push('brave');
   if (document.getElementById('srcNewsApi').checked) sources.push('newsapi');
+  if (document.getElementById('srcYouTube').checked) sources.push('youtube');
   var period = document.getElementById('searchPeriod').value;
 
   try {
@@ -280,6 +287,7 @@ async function loadSavedResults(id) {
     }
     document.getElementById('srcBrave').checked = (data.sources || '').includes('brave');
     document.getElementById('srcNewsApi').checked = (data.sources || '').includes('newsapi');
+    document.getElementById('srcYouTube').checked = (data.sources || '').includes('youtube');
 
     searchResults = data.results || [];
     document.getElementById('loadingState').style.display = 'none';

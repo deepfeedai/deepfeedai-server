@@ -28,6 +28,7 @@ app.use(helmet({
       imgSrc:         ["'self'", 'data:', 'https:'],
       mediaSrc:       ["'self'", 'https:'],
       connectSrc:     ["'self'"],
+      frameSrc:       ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
       frameAncestors: ["'none'"],
       objectSrc:      ["'none'"],
       baseUri:        ["'self'"],

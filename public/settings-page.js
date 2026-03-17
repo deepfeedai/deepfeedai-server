@@ -758,8 +758,10 @@ let apiKeyVisible = false;
     const payload = {};
     const newsKey = document.getElementById('newsApiKey').value.trim();
     const braveKey = document.getElementById('braveApiKey').value.trim();
+    const ytKey = document.getElementById('youtubeApiKey').value.trim();
     if (newsKey) payload.news_api_key = newsKey;
     if (braveKey) payload.brave_api_key = braveKey;
+    if (ytKey) payload.youtube_api_key = ytKey;
     if (Object.keys(payload).length === 0) {
       showToast('Please fill in at least one field', 'error');
       return;
@@ -772,6 +774,10 @@ let apiKeyVisible = false;
     if (braveKey) {
       document.getElementById('braveApiKey').value = '';
       document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+    }
+    if (ytKey) {
+      document.getElementById('youtubeApiKey').value = '';
+      document.getElementById('youtubeApiKey').placeholder = '••••••••  (saved)';
     }
   });
 
@@ -946,6 +952,7 @@ let apiKeyVisible = false;
     var braveKey = settings.brave_api_key;
     if (newsKey) document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
     if (braveKey) document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+    if (settings.youtube_api_key) document.getElementById('youtubeApiKey').placeholder = '••••••••  (saved)';
   }
 
   // Save Google OAuth

@@ -55,6 +55,9 @@ router.get('/', asyncHandler(async (req, res) => {
     full_content:           match.full_content           || null,
     source_article_ids:     match.source_article_ids     || null,
     slug:                   match.slug                   || null,
+    embed_url:              match.embed_url              || null,
+    embed_type:             match.embed_type             || null,
+    source_type:            match.source_type            || null,
   });
 }));
 

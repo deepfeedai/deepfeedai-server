@@ -131,6 +131,47 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
     }
   }
 
+  // Query YouTube Data API v3
+  let youtubeQuotaExceeded = false;
+  if (sourceList.includes('youtube') && !config.youtube_api_key) {
+    console.warn('[Discover] YouTube source requested but no API key configured');
+  }
+  if (sourceList.includes('youtube') && config.youtube_api_key) {
+    try {
+      let ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(q)}&maxResults=20&key=${config.youtube_api_key}`;
+      if (fromDate) ytUrl += `&publishedAfter=${fromDate}T00:00:00Z`;
+      if (toDate) ytUrl += `&publishedBefore=${toDate}T23:59:59Z`;
+      const ytRes = await fetch(ytUrl, { signal: AbortSignal.timeout(10000) });
+      if (ytRes.ok) {
+        const data = await ytRes.json();
+        for (const item of (data.items || [])) {
+          const videoId = item.id?.videoId;
+          if (!videoId) continue;
+          results.push({
+            title: item.snippet.title,
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            description: item.snippet.description || '',
+            source: 'youtube',
+            sourceName: item.snippet.channelTitle || 'YouTube',
+            publishedAt: item.snippet.publishedAt,
+            imageUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || null,
+            embedUrl: `https://www.youtube.com/embed/${videoId}`,
+          });
+        }
+      } else {
+        const errData = await ytRes.json().catch(() => ({}));
+        if (ytRes.status === 403 && errData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+          youtubeQuotaExceeded = true;
+          console.warn('[Discover] YouTube API quota exceeded');
+        } else {
+          console.error('[Discover] YouTube API error:', ytRes.status, JSON.stringify(errData?.error?.message || errData));
+        }
+      }
+    } catch (err) {
+      console.error('[Discover] YouTube search error:', err.message);
+    }
+  }
+
   // Deduplicate by URL
   const seen = new Set();
   const deduped = results.filter(r => {
@@ -176,7 +217,9 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
     }
   }
 
-  res.json({ results: unique, total: unique.length, query: q });
+  const response = { results: unique, total: unique.length, query: q };
+  if (youtubeQuotaExceeded) response.youtubeQuotaExceeded = true;
+  res.json(response);
 }));
 
 // ── POST /import — Import selected articles ─────────────────────────────────
@@ -234,15 +277,32 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
       }
 
       // Insert article
-      // Extract source domain name
-      let sourceName = '';
-      try { sourceName = new URL(article.url).hostname.replace(/^www\./, ''); } catch {}
+      // Extract source name — use channel title for YouTube, domain for others
+      let sourceName = article.sourceName || '';
+      if (!sourceName || article.source !== 'youtube') {
+        try { sourceName = new URL(article.url).hostname.replace(/^www\./, ''); } catch {}
+      }
+
+      const sourceType = article.source === 'youtube' ? 'youtube' : 'manual';
+      const embedType = article.source === 'youtube' ? 'youtube' : null;
+
+      // Reconstruct embed_url server-side from video ID (zero-trust — ignore client embedUrl)
+      let embedUrl = null;
+      if (article.source === 'youtube') {
+        try {
+          const u = new URL(article.url);
+          const videoId = u.searchParams.get('v');
+          if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+            embedUrl = `https://www.youtube.com/embed/${videoId}`;
+          }
+        } catch {}
+      }
 
       const row = await db.prepare(`
-        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, source_type, tenant_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${importPublished ? 'NOW()' : 'NULL'}, 'manual', $9, NOW())
+        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, source_type, embed_url, embed_type, tenant_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${importPublished ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, NOW())
         RETURNING id
-      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, importPublished ? 1 : 0, req.tenantId);
+      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, importPublished ? 1 : 0, sourceType, embedUrl, embedType, req.tenantId);
 
       // Auto-assign writer if requested
       if (autoAssignWriter !== false && row) {
@@ -395,6 +455,32 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyn
     }
   }
 
+  let youtubeQuotaExceeded = false;
+  if (sourceList.includes('youtube') && config.youtube_api_key) {
+    try {
+      let ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(search.query)}&maxResults=20&key=${config.youtube_api_key}`;
+      if (fromDate) ytUrl += `&publishedAfter=${fromDate}T00:00:00Z`;
+      if (toDate) ytUrl += `&publishedBefore=${toDate}T23:59:59Z`;
+      const ytRes = await fetch(ytUrl, { signal: AbortSignal.timeout(10000) });
+      if (ytRes.ok) {
+        const data = await ytRes.json();
+        for (const item of (data.items || [])) {
+          const videoId = item.id?.videoId;
+          if (!videoId) continue;
+          results.push({ title: item.snippet.title, url: `https://www.youtube.com/watch?v=${videoId}`, description: item.snippet.description || '', source: 'youtube', sourceName: item.snippet.channelTitle || 'YouTube', publishedAt: item.snippet.publishedAt, imageUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || null, embedUrl: `https://www.youtube.com/embed/${videoId}` });
+        }
+      } else if (ytRes.status === 403) {
+        const errData = await ytRes.json().catch(() => ({}));
+        if (errData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+          youtubeQuotaExceeded = true;
+          console.warn('[Discover] YouTube API quota exceeded (refresh)');
+        }
+      }
+    } catch (err) {
+      console.error('[Discover] YouTube refresh error:', err.message);
+    }
+  }
+
   // Deduplicate
   const seen = new Set();
   const deduped = results.filter(r => { const k = r.url.replace(/\/$/, '').toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -425,7 +511,9 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyn
     'UPDATE saved_searches SET results = $1, result_count = $2, last_run_at = NOW() WHERE id = $3'
   ).run(JSON.stringify(unique), unique.length, search.id);
 
-  res.json({ results: unique, total: unique.length, query: search.query, cached: false });
+  const refreshResponse = { results: unique, total: unique.length, query: search.query, cached: false };
+  if (youtubeQuotaExceeded) refreshResponse.youtubeQuotaExceeded = true;
+  res.json(refreshResponse);
 }));
 
 module.exports = router;
