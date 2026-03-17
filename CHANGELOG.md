@@ -11,6 +11,38 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.0-beta.11] — 2026-03-17
+
+Scheduled tasks management, visual schedule builder, security hardening, and configurable live news.
+
+### Added
+- **Scheduled Tasks Management** — new Automation tab in Settings with 9 cron job cards, enable/disable toggles, manual "Run Now", and run history modal
+- **Visual Schedule Builder** — replace preset dropdowns with frequency/hour-range/day-of-week controls, live `cronstrue` descriptions, and next 3 run times preview
+- **Configurable live news query** — per-tenant search terms for the live-news cron (Settings > Integrations), with auto-publish toggle
+- **Cron registry** — refactored 9 hardcoded cron jobs into `lib/cron-registry.js` with per-run logging to `cron_runs` table
+- **Cron admin API** — `GET/PUT/POST /api/admin/cron` for listing, updating, triggering, and viewing history
+
+### Added — Security
+- **SSRF protection** — protocol allowlist + private IP DNS block on `/api/fetch-url`
+- **Cross-tenant cache fix** — `app-config.js` cache keyed by tenantId
+- **Storage path traversal** — resolved path validation in local adapter
+- **XSS hardening** — `escHtml()` in admin topbar, showToast, logo preview sanitizer
+- **Schedule frequency limits** — reject per-second expressions, enforce minimum intervals per job
+- **Per-job run cooldowns** — newsletter 10min, audio 5min, others 1min
+
+### Changed
+- Audit archive uses `requirePermission('audit.delete')` instead of inline role check
+- CORS tenant subdomain regex requires `https://` (was `https?://`)
+- Admin role includes `cron.read`, `cron.update`, `cron.execute` permissions
+
+### Fixed
+- `media_enabled` set to 1 for YouTube imports so embeds render
+- Discovery page no longer re-searches after importing (marks imported in-place)
+- `getAppConfig()` called with tenantId in live-news and newsletter handlers
+- Concurrent run guard prevents duplicate job execution
+
+---
+
 ## [2.0.0-beta.7] — 2026-03-17
 
 YouTube video discovery, import, and embed support.
