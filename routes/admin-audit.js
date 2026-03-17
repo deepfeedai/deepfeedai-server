@@ -75,19 +75,15 @@ router.get('/stats', auth, requirePermission('audit.read'), asyncHandler(async (
   });
 }));
 
-// DELETE /archive — clear old entries (owner only)
-router.delete('/archive', auth, asyncHandler(async (req, res) => {
-  if (req.user.role !== 'owner') {
-    return res.status(403).json({ error: 'Only owners can archive audit logs' });
-  }
-
+// DELETE /archive — clear old entries (requires audit.delete permission)
+router.delete('/archive', auth, requirePermission('audit.delete'), asyncHandler(async (req, res) => {
   const olderThanDays = parseInt(req.body?.olderThanDays);
   if (!olderThanDays || olderThanDays < 30) {
     return res.status(400).json({ error: 'olderThanDays is required (minimum 30)' });
   }
 
   const result = await db.getPool().query(
-    `DELETE FROM audit_log WHERE tenant_id = $1 AND created_at < NOW() - ($2 || ' days')::INTERVAL`,
+    `DELETE FROM audit_log WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
     [req.tenantId, olderThanDays]
   );
   const deleted = result.rowCount;

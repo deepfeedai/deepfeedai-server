@@ -98,7 +98,7 @@ app.use(async (req, res, next) => {
   if (allowedOrigins.length === 0) allowedOrigins = DEFAULT_LOCAL_ORIGINS;
 
   // Allow *.deepfeedai.com subdomains and validated custom domains for tenant access
-  const isTenantSubdomain = /^https?:\/\/[a-z0-9-]+\.deepfeedai\.com$/.test(origin);
+  const isTenantSubdomain = /^https:\/\/[a-z0-9-]+\.deepfeedai\.com$/.test(origin);
   let isCustomDomain = false;
   if (!isSameOrigin && !isPublic && !allowedOrigins.includes(origin) && !isTenantSubdomain) {
     // Check if origin matches a tenant's custom_domain
