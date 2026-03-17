@@ -5,7 +5,7 @@
 const router              = require('express').Router();
 const db                  = require('../db');
 const { asyncHandler }    = require('../lib/utils');
-const { auth }            = require('../middleware/auth');
+const { auth, bustRoleCache } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { logAudit }        = require('../middleware/audit');
 const { validate, roleCreate, roleUpdate } = require('../lib/schemas');
@@ -16,13 +16,46 @@ router.get('/', auth, requirePermission('roles.read'), asyncHandler(async (req, 
   const roles = await db.prepare(
     'SELECT * FROM roles WHERE tenant_id = $1 ORDER BY is_system DESC, name'
   ).all(tenantId);
+
+  // Add user counts per role
+  for (const role of roles) {
+    const countRow = await db.prepare(
+      'SELECT COUNT(*) AS cnt FROM users WHERE tenant_id = $1 AND role = $2 AND is_active = 1'
+    ).get(tenantId, role.name);
+    role.user_count = parseInt(countRow?.cnt || 0);
+  }
+
   res.json(roles);
 }));
 
+// GET /templates — pre-built role templates for one-click creation
+router.get('/templates', auth, requirePermission('roles.read'), (_req, res) => {
+  res.json([
+    {
+      name: 'moderator',
+      description: 'Comment moderation and content review',
+      permissions: ['articles.read', 'comments.read', 'comments.moderate', 'comments.delete', 'analytics.read'],
+    },
+    {
+      name: 'analyst',
+      description: 'Read-only access to analytics, articles, and AI usage',
+      permissions: ['articles.read', 'sources.read', 'writers.read', 'categories.read', 'analytics.read', 'audit.read'],
+    },
+    {
+      name: 'content-manager',
+      description: 'Full content management without system access',
+      permissions: ['articles.*', 'sources.*', 'writers.*', 'categories.*', 'media.*', 'voices.*', 'comments.read', 'comments.moderate', 'fetch.execute', 'synthesis.execute', 'analytics.read'],
+    },
+    {
+      name: 'publisher',
+      description: 'Create and publish content, manage newsletter',
+      permissions: ['articles.read', 'articles.create', 'articles.update', 'articles.publish', 'media.read', 'media.create', 'newsletter.read', 'newsletter.send', 'analytics.read'],
+    },
+  ]);
+});
+
 // POST / — create custom role (owner only)
 router.post('/', auth, requirePermission('roles.create'), asyncHandler(async (req, res) => {
-  if (req.user.role !== 'owner') return res.status(403).json({ error: 'Only owners can create roles' });
-
   const body = validate(roleCreate, req.body, res);
   if (!body) return;
 
@@ -38,8 +71,6 @@ router.post('/', auth, requirePermission('roles.create'), asyncHandler(async (re
 
 // PUT /:id — update role
 router.put('/:id', auth, requirePermission('roles.update'), asyncHandler(async (req, res) => {
-  if (req.user.role !== 'owner') return res.status(403).json({ error: 'Only owners can update roles' });
-
   const body = validate(roleUpdate, req.body, res);
   if (!body) return;
 
@@ -59,6 +90,7 @@ router.put('/:id', auth, requirePermission('roles.update'), asyncHandler(async (
     tenantId
   );
 
+  bustRoleCache();
   await logAudit(req, 'roles.update', 'roles', parseInt(req.params.id), body);
 
   res.json(updated);
@@ -66,8 +98,6 @@ router.put('/:id', auth, requirePermission('roles.update'), asyncHandler(async (
 
 // DELETE /:id — delete role
 router.delete('/:id', auth, requirePermission('roles.delete'), asyncHandler(async (req, res) => {
-  if (req.user.role !== 'owner') return res.status(403).json({ error: 'Only owners can delete roles' });
-
   const tenantId = req.tenantId || req.user.tenantId || 1;
   const existing = await db.prepare(
     'SELECT * FROM roles WHERE id = $1 AND tenant_id = $2'
@@ -87,6 +117,7 @@ router.delete('/:id', auth, requirePermission('roles.delete'), asyncHandler(asyn
     'DELETE FROM roles WHERE id = $1 AND tenant_id = $2 AND is_system = false'
   ).run(req.params.id, tenantId);
 
+  bustRoleCache();
   await logAudit(req, 'roles.delete', 'roles', parseInt(req.params.id), { name: existing.name });
 
   res.json({ message: 'Role deleted' });

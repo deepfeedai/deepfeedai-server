@@ -50,7 +50,7 @@ async function loadRoles() {
 function renderRoles() {
   var tbody = document.getElementById('rolesBody');
   if (!roles.length) {
-    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">No roles found</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No roles found</div></td></tr>';
     return;
   }
   tbody.innerHTML = roles.map(function(r) {
@@ -60,6 +60,7 @@ function renderRoles() {
       + '<td class="td-title">' + esc(r.name) + '</td>'
       + '<td class="text-muted">' + esc(r.description || '\u2014') + '</td>'
       + '<td class="text-center"><span class="badge badge-muted">' + permLabel + '</span></td>'
+      + '<td class="text-center"><span class="badge badge-muted">' + (r.user_count || 0) + '</span></td>'
       + '<td class="text-center">' + (r.is_system ? '<span class="badge badge-accent">System</span>' : '<span class="badge badge-muted">Custom</span>') + '</td>'
       + '<td class="td-actions">'
       + '<button class="btn btn-ghost btn-sm" onclick="viewRole(' + r.id + ')" title="View">\uD83D\uDC41</button>'
@@ -235,6 +236,41 @@ async function deleteRole(id, name) {
   }
 }
 
+// ── Templates ────────────────────────────────────────────────
+
+async function loadTemplates() {
+  try {
+    var templates = await apiFetch('/admin/roles/templates');
+    var container = document.getElementById('templateButtons');
+    var wrap = document.getElementById('roleTemplates');
+    if (!templates.length) return;
+    var existingNames = roles.map(function(r) { return r.name; });
+    var available = templates.filter(function(t) { return !existingNames.includes(t.name); });
+    if (!available.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    container.innerHTML = available.map(function(t) {
+      return '<button class="btn btn-outline btn-sm" onclick="createFromTemplate(\'' + esc(t.name) + '\')" title="' + esc(t.description) + '">+ ' + esc(t.name) + '</button>';
+    }).join('');
+  } catch {}
+}
+
+async function createFromTemplate(name) {
+  try {
+    var templates = await apiFetch('/admin/roles/templates');
+    var t = templates.find(function(x) { return x.name === name; });
+    if (!t) return;
+    await apiFetch('/admin/roles', {
+      method: 'POST',
+      body: JSON.stringify(t),
+    });
+    showAlert('Role "' + name + '" created');
+    await loadRoles();
+    loadTemplates();
+  } catch (err) {
+    showAlert('Failed: ' + err.message, 'error');
+  }
+}
+
 // ── Event Listeners ──────────────────────────────────────────
 
 document.getElementById('addRoleBtn').addEventListener('click', openAddRole);
@@ -246,6 +282,7 @@ async function init() {
   renderSidebar();
   initModals();
   await loadRoles();
+  loadTemplates();
 }
 
 onReady(function() {

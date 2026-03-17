@@ -123,7 +123,7 @@ router.put('/:id', auth, requirePermission('users.update'), asyncHandler(async (
 
   await logAudit(req, 'users.update', 'users', parseInt(req.params.id), body);
 
-  res.json(updated);
+  res.json({ ...updated, reloginRequired: body.role && body.role !== existing.role });
 }));
 
 // DELETE /:id/permanent — hard delete user (must be before /:id to avoid param matching)

@@ -207,9 +207,12 @@ function renderSidebar() {
         var name = payload.displayName || payload.username || payload.email || '';
         var role = payload.role || '';
         if (name) {
+          var perms = getUserPermissions();
+          var permSummary = perms.includes('*') ? 'Full access' : perms.length + ' permissions';
           topbarUser.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">'
             + '<span class="text-muted text-sm">' + name + '</span>'
             + (role ? '<span class="badge badge-muted" style="font-size:10px;">' + role + '</span>' : '')
+            + '<span class="text-muted text-xs" title="' + (perms.includes('*') ? 'Full access (owner)' : perms.join(', ')) + '">(' + permSummary + ')</span>'
             + '</span>';
         }
       }

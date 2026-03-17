@@ -66,6 +66,11 @@
           <button class="btn btn-primary" id="addRoleBtn">+ Add Role</button>
         </div>
 
+        <div id="roleTemplates" style="display:none;margin-bottom:20px;">
+          <label class="form-label">Quick Add from Template</label>
+          <div id="templateButtons" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        </div>
+
         <!-- Roles table -->
         <div class="table-wrap">
           <div class="table-scroll">
@@ -75,12 +80,13 @@
                   <th>Role</th>
                   <th>Description</th>
                   <th class="th-center-sm">Permissions</th>
+                  <th class="th-center-sm">Users</th>
                   <th class="th-center-sm">Type</th>
                   <th class="th-center-sm">Actions</th>
                 </tr>
               </thead>
               <tbody id="rolesBody">
-                <tr><td colspan="5"><div class="empty-state">Loading...</div></td></tr>
+                <tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr>
               </tbody>
             </table>
           </div>

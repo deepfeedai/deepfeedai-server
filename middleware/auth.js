@@ -118,4 +118,6 @@ async function auth(req, res, next) {
 
 async function getJwtSecret() { return (await getSecrets()).jwtSecret; }
 
-module.exports = { auth, getJwtSecret };
+function bustRoleCache() { _roleCache.clear(); }
+
+module.exports = { auth, getJwtSecret, bustRoleCache };

@@ -56,6 +56,19 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   // Determine type
   const type = (tenantId === 1 && user.role === 'owner') ? 'platform-admin' : 'tenant-admin';
 
+  // Look up role permissions
+  let permissions = ['*']; // default for owner
+  if (user.role !== 'owner' || tenantId !== 1) {
+    try {
+      const roleRow = await db.prepare('SELECT permissions FROM roles WHERE tenant_id = $1 AND name = $2').get(tenantId, user.role);
+      if (roleRow) {
+        permissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
+      } else {
+        permissions = [];
+      }
+    } catch { permissions = []; }
+  }
+
   // Sign JWT
   const jwtSecret = await getJwtSecret();
   const token = jwt.sign(
@@ -68,6 +81,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
       role:       user.role,
       type,
       authMethod: 'local',
+      permissions,
     },
     jwtSecret,
     { expiresIn: '24h' }

@@ -56,6 +56,19 @@ router.post('/switch', requireUser, asyncHandler(async (req, res) => {
   ).get(req.user.email || '');
   const isPlatformAdmin = platformUser && platformUser.role === 'owner';
 
+  // Look up role permissions
+  let switchPermissions = ['*'];
+  if (!isPlatformAdmin) {
+    try {
+      const roleRow = await db.prepare('SELECT permissions FROM roles WHERE tenant_id = $1 AND name = $2').get(admin.id, admin.role);
+      if (roleRow) {
+        switchPermissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
+      } else {
+        switchPermissions = [];
+      }
+    } catch { switchPermissions = []; }
+  }
+
   // Get full user info from public_users
   const user = await db.prepare('SELECT email, display_name FROM public_users WHERE id = $1').get(req.user.sub);
 
@@ -69,6 +82,7 @@ router.post('/switch', requireUser, asyncHandler(async (req, res) => {
       tenantSlug: admin.slug,
       role: admin.role,
       type: isPlatformAdmin ? 'platform-admin' : 'tenant-admin',
+      permissions: switchPermissions,
     },
     await getJwtSecret(),
     { expiresIn: '24h' }
@@ -189,6 +203,7 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
       tenantSlug: tenant.slug,
       role: 'owner',
       type: 'tenant-admin',
+      permissions: ['*'],
     },
     await getJwtSecret(),
     { expiresIn: '24h' }
@@ -254,6 +269,19 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
   ).get(req.user.email || '');
   const isPlatformAdmin = admin.tenant_id === 1 && loginPlatformUser && loginPlatformUser.role === 'owner';
 
+  // Look up role permissions
+  let permissions = ['*'];
+  if (!isPlatformAdmin) {
+    try {
+      const roleRow = await db.prepare('SELECT permissions FROM roles WHERE tenant_id = $1 AND name = $2').get(admin.tenant_id, admin.role);
+      if (roleRow) {
+        permissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
+      } else {
+        permissions = [];
+      }
+    } catch { permissions = []; }
+  }
+
   const token = jwt.sign(
     {
       sub: req.user.sub,
@@ -264,6 +292,7 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
       tenantSlug: admin.slug,
       role: admin.role,
       type: isPlatformAdmin ? 'platform-admin' : 'tenant-admin',
+      permissions,
     },
     await getJwtSecret(),
     { expiresIn: '24h' }

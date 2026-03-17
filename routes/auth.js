@@ -166,9 +166,23 @@ router.post('/code', codeLimiter, asyncHandler(async (req, res) => {
   }
 
   const type = (entry.role === 'owner') ? 'platform-admin' : 'tenant-admin';
+
+  // Look up role permissions
+  let permissions = ['*']; // default for owner
+  if (entry.role !== 'owner') {
+    try {
+      const roleRow = await db.prepare('SELECT permissions FROM roles WHERE tenant_id = 1 AND name = $1').get(entry.role);
+      if (roleRow) {
+        permissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
+      } else {
+        permissions = [];
+      }
+    } catch { permissions = []; }
+  }
+
   const jwtSecret = await getJwtSecret();
   const token = jwt.sign(
-    { sub: entry.userId, email: entry.email, displayName: entry.displayName, provider: 'google', type, tenantId: 1, role: entry.role, authMethod: 'oauth' },
+    { sub: entry.userId, email: entry.email, displayName: entry.displayName, provider: 'google', type, tenantId: 1, role: entry.role, authMethod: 'oauth', permissions },
     jwtSecret,
     { expiresIn: '24h' }
   );
