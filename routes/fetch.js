@@ -135,12 +135,12 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
 
 // ── Live news fetch (NewsAPI + Brave Search) ──────────────────────────────────
 
-const AI_QUERY    = '("artificial intelligence" OR "machine learning" OR "large language model" OR OpenAI OR Anthropic OR "deep learning" OR LLM OR ChatGPT OR "generative AI" OR "neural network")';
-const BRAVE_QUERY = 'artificial intelligence generative AI LLM OpenAI Anthropic machine learning deep learning';
+const DEFAULT_NEWSAPI_QUERY = '("artificial intelligence" OR "machine learning" OR "large language model" OR OpenAI OR Anthropic OR "deep learning" OR LLM OR ChatGPT OR "generative AI" OR "neural network")';
+const DEFAULT_BRAVE_QUERY  = 'artificial intelligence generative AI LLM OpenAI Anthropic machine learning deep learning';
 const LIVE_PAGE_SIZE = 20;
 
-async function fetchNewsAPIArticles(apiKey) {
-  const q   = encodeURIComponent(AI_QUERY);
+async function fetchNewsAPIArticles(apiKey, query) {
+  const q   = encodeURIComponent(query || DEFAULT_NEWSAPI_QUERY);
   const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=${LIVE_PAGE_SIZE}&apiKey=${apiKey}`;
   const _start = Date.now();
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -163,8 +163,8 @@ async function fetchNewsAPIArticles(apiKey) {
     }));
 }
 
-async function fetchBraveArticles(apiKey) {
-  const q   = encodeURIComponent(BRAVE_QUERY);
+async function fetchBraveArticles(apiKey, query) {
+  const q   = encodeURIComponent(query || DEFAULT_BRAVE_QUERY);
   const url = `https://api.search.brave.com/res/v1/news/search?q=${q}&count=${LIVE_PAGE_SIZE}&search_lang=en&freshness=pd`;
   const _start = Date.now();
   const res = await fetch(url, {
@@ -207,9 +207,18 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
     return { inserted: 0, skipped: 0, errors: [{ source: 'live', error: 'No API keys configured' }] };
   }
 
+  // Read per-tenant search query from settings (falls back to AI defaults)
+  let liveNewsQuery = null;
+  try {
+    const querySetting = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'live_news_query'"
+    ).get(tenantId);
+    liveNewsQuery = querySetting?.value || null;
+  } catch { /* use defaults */ }
+
   const [newsApiResult, braveResult] = await Promise.allSettled([
-    newsApiKey ? fetchNewsAPIArticles(newsApiKey) : Promise.resolve([]),
-    braveKey   ? fetchBraveArticles(braveKey)     : Promise.resolve([]),
+    newsApiKey ? fetchNewsAPIArticles(newsApiKey, liveNewsQuery) : Promise.resolve([]),
+    braveKey   ? fetchBraveArticles(braveKey, liveNewsQuery)     : Promise.resolve([]),
   ]);
 
   const errors = [];

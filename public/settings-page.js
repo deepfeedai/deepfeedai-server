@@ -797,6 +797,15 @@ let apiKeyVisible = false;
     }
   });
 
+  // ── Live News Settings save ──────────────────────────────────────
+  panelSave('saveLiveNewsBtn', 'liveNewsSaveStatus', 'Live News Settings', async () => {
+    var payload = {};
+    var query = document.getElementById('liveNewsQuery').value.trim();
+    payload.live_news_query = query || '';
+    payload.auto_publish_live = document.getElementById('autoPublishLive').checked ? '1' : '0';
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  });
+
   // ── Perspective API save ────────────────────────────────────────
   panelSave('savePerspectiveBtn', 'perspectiveStatus', 'Perspective Settings', async () => {
     const payload = {
@@ -969,6 +978,10 @@ let apiKeyVisible = false;
     if (newsKey) document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
     if (braveKey) document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
     if (settings.youtube_api_key) document.getElementById('youtubeApiKey').placeholder = '••••••••  (saved)';
+
+    // Live News settings
+    if (settings.live_news_query) document.getElementById('liveNewsQuery').value = settings.live_news_query;
+    if (settings.auto_publish_live === '1') document.getElementById('autoPublishLive').checked = true;
   }
 
   // Save Google OAuth
