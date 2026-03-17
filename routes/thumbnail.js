@@ -41,7 +41,7 @@ async function setCached(key, payload, tenantId) {
   await getPool().query(
     `INSERT INTO thumbnail_cache (tenant_id, cache_key, payload, created_at)
      VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (cache_key) DO UPDATE SET payload = $3, created_at = NOW()`,
+     ON CONFLICT (tenant_id, cache_key) DO UPDATE SET payload = $3, created_at = NOW()`,
     [tenantId, key, payload]
   );
   // Prune oldest beyond 500 rows

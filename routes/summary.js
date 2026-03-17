@@ -42,7 +42,7 @@ async function setCached(key, payload, tenantId) {
   await pool.query(
     `INSERT INTO summary_cache (tenant_id, cache_key, payload, created_at)
      VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (cache_key) DO UPDATE SET payload = EXCLUDED.payload, created_at = NOW()`,
+     ON CONFLICT (tenant_id, cache_key) DO UPDATE SET payload = EXCLUDED.payload, created_at = NOW()`,
     [tenantId, key, JSON.stringify(payload)]
   );
   // Prune stale entries and enforce hard row cap — best effort, non-blocking
