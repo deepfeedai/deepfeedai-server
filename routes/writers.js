@@ -34,7 +34,7 @@ router.get('/', asyncHandler(async (req, res) => {
            COUNT(DISTINCT wf.id)::int AS follower_count,
            COALESCE(json_agg(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL), '[]') AS beats
     FROM writers w
-    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1
+    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1 AND a.is_published = 1
     LEFT JOIN writer_follows wf ON wf.writer_id = w.id AND wf.tenant_id = $1
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
@@ -69,7 +69,7 @@ router.get('/following', asyncHandler(async (req, res) => {
            COALESCE(json_agg(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL), '[]') AS beats
     FROM writer_follows wf
     JOIN writers w ON w.id = wf.writer_id AND w.tenant_id = $2
-    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $2
+    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $2 AND a.is_published = 1
     LEFT JOIN writer_follows wf2 ON wf2.writer_id = w.id AND wf2.tenant_id = $2
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $2
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $2
@@ -94,7 +94,7 @@ router.get('/:slug', asyncHandler(async (req, res) => {
            COUNT(DISTINCT wf.id)::int AS follower_count,
            COALESCE(json_agg(DISTINCT c.name) FILTER (WHERE c.name IS NOT NULL), '[]') AS beats
     FROM writers w
-    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $2
+    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $2 AND a.is_published = 1
     LEFT JOIN writer_follows wf ON wf.writer_id = w.id AND wf.tenant_id = $2
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $2
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $2
