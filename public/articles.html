@@ -70,6 +70,12 @@
           <button class="filter-pill" data-date-filter="7d">7d</button>
           <button class="filter-pill" data-date-filter="30d">30d</button>
         </div>
+        <div class="filter-group">
+          <span class="filter-label">Writer</span>
+          <button class="filter-pill active" data-writer-filter="all">All</button>
+          <button class="filter-pill" data-writer-filter="unassigned">Unassigned</button>
+          <button class="filter-pill" data-writer-filter="assigned">Assigned</button>
+        </div>
         <span class="filter-count" id="filterCount"></span>
       </div>
 
@@ -80,6 +86,7 @@
         <button class="btn btn-sm btn-outline" id="bulkUnpublishBtn">📄 Unpublish</button>
         <button class="btn btn-sm btn-outline" id="bulkImagesBtn">🎨 Generate Images</button>
         <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn">🏷️ Recategorize</button>
+        <button class="btn btn-sm btn-outline" id="bulkAssignWriterBtn">✍️ Auto-Assign Writers</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>

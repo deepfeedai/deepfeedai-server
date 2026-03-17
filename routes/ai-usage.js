@@ -8,17 +8,19 @@ const https   = require('https');
 const router  = express.Router();
 const db      = require('../db');
 const { getPool } = require('../db');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { getTodaySpend, getMonthlySpend } = require('../lib/ai-usage');
 const { decryptSetting } = require('../lib/crypto');
 
 // GET /api/ai-usage/summary?range=7d|30d|90d
-router.get('/summary', asyncHandler(async (req, res) => {
+router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const range = req.query.range || '30d';
   const days = parseInt(range) || 30;
   const interval = `${days} days`;
 
+  const tenantId = req.tenantId;
   const [totals, byProvider, byOperation, byDay, recentErrors, budgetSettings] = await Promise.all([
     pool.query(`
       SELECT
@@ -28,52 +30,52 @@ router.get('/summary', asyncHandler(async (req, res) => {
         CASE WHEN COUNT(*) > 0
           THEN ROUND(COUNT(*) FILTER (WHERE success = true)::NUMERIC / COUNT(*) * 100, 1)
           ELSE 100 END AS success_rate
-      FROM ai_usage WHERE created_at > NOW() - $1::INTERVAL
-    `, [interval]),
+      FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
+    `, [tenantId, interval]),
 
     pool.query(`
       SELECT provider,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
         COUNT(*)::INTEGER AS calls
-      FROM ai_usage WHERE created_at > NOW() - $1::INTERVAL
+      FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
       GROUP BY provider ORDER BY cost DESC
-    `, [interval]),
+    `, [tenantId, interval]),
 
     pool.query(`
       SELECT operation,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
         COUNT(*)::INTEGER AS calls
-      FROM ai_usage WHERE created_at > NOW() - $1::INTERVAL
+      FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
       GROUP BY operation ORDER BY cost DESC
-    `, [interval]),
+    `, [tenantId, interval]),
 
     pool.query(`
       SELECT DATE(created_at) AS day,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
         COUNT(*)::INTEGER AS calls
-      FROM ai_usage WHERE created_at > NOW() - $1::INTERVAL
+      FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
       GROUP BY DATE(created_at) ORDER BY day
-    `, [interval]),
+    `, [tenantId, interval]),
 
     pool.query(`
       SELECT operation, error_message AS error, created_at
       FROM ai_usage
-      WHERE success = false AND created_at > NOW() - $1::INTERVAL
+      WHERE tenant_id = $1 AND success = false AND created_at > NOW() - $2::INTERVAL
       ORDER BY created_at DESC LIMIT 20
-    `, [interval]),
+    `, [tenantId, interval]),
 
     pool.query(`
       SELECT key, value FROM settings
-      WHERE key IN ('ai_daily_budget', 'ai_monthly_budget', 'ai_budget_warn_pct')
-    `),
+      WHERE tenant_id = $1 AND key IN ('ai_daily_budget', 'ai_monthly_budget', 'ai_budget_warn_pct')
+    `, [tenantId]),
   ]);
 
   // Parse budget settings
   const settings = {};
   for (const row of budgetSettings.rows) settings[row.key] = row.value;
   const monthlyBudget = parseFloat(settings.ai_monthly_budget) || 50;
-  const monthlySpend = await getMonthlySpend();
-  const todaySpend = await getTodaySpend();
+  const monthlySpend = await getMonthlySpend(tenantId);
+  const todaySpend = await getTodaySpend(tenantId);
 
   // Project monthly spend based on daily average
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
@@ -103,7 +105,7 @@ router.get('/summary', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/ai-usage/by-article?slug=<slug>
-router.get('/by-article', asyncHandler(async (req, res) => {
+router.get('/by-article', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const { slug } = req.query;
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
@@ -112,38 +114,38 @@ router.get('/by-article', asyncHandler(async (req, res) => {
     SELECT provider, model, operation, trigger,
       input_tokens, output_tokens, characters, image_count, email_count,
       estimated_cost, duration_ms, success, error_message, created_at
-    FROM ai_usage WHERE article_slug = $1
+    FROM ai_usage WHERE tenant_id = $1 AND article_slug = $2
     ORDER BY created_at DESC
-  `, [slug]);
+  `, [req.tenantId, slug]);
 
   const total = await pool.query(`
     SELECT COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS total_cost,
       COUNT(*)::INTEGER AS total_calls
-    FROM ai_usage WHERE article_slug = $1
-  `, [slug]);
+    FROM ai_usage WHERE tenant_id = $1 AND article_slug = $2
+  `, [req.tenantId, slug]);
 
   res.json({ slug, ...total.rows[0], calls: rows.rows });
 }));
 
 // GET /api/ai-usage/recent?limit=50
-router.get('/recent', asyncHandler(async (req, res) => {
+router.get('/recent', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const pool = getPool();
   const rows = await pool.query(`
     SELECT id, provider, model, operation, article_slug, writer_id, trigger,
       input_tokens, output_tokens, characters, image_count, email_count,
       estimated_cost, duration_ms, success, error_message, created_at
-    FROM ai_usage ORDER BY created_at DESC LIMIT $1
-  `, [limit]);
+    FROM ai_usage WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT $2
+  `, [req.tenantId, limit]);
   res.json(rows.rows);
 }));
 
 // GET /api/ai-usage/elevenlabs — proxy ElevenLabs subscription usage
-router.get('/elevenlabs', asyncHandler(async (req, res) => {
+router.get('/elevenlabs', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   // Resolve API key: DB setting (encrypted) → env var
   let apiKey = process.env.ELEVENLABS_API_KEY;
   try {
-    const row = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
+    const row = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
     if (row?.value) apiKey = decryptSetting(row.value);
   } catch { /* fall back to env */ }
 

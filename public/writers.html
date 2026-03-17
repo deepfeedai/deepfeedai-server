@@ -45,6 +45,7 @@
       <div id="writersSection">
         <div class="section-header">
           <div class="section-title">Writer Personas</div>
+          <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
           <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
         </div>
 
@@ -124,9 +125,43 @@
         <input type="text" class="form-control" id="fWriterSlug" placeholder="Auto-generated from name" />
       </div>
 
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">Gender</label>
+          <select class="form-control" id="fWriterGender">
+            <option value="">— Not set —</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="non-binary">Non-binary</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Ethnicity</label>
+          <select class="form-control" id="fWriterEthnicity">
+            <option value="">— Not set —</option>
+            <option value="African American">African American</option>
+            <option value="African">African</option>
+            <option value="Asian">Asian</option>
+            <option value="East Asian">East Asian</option>
+            <option value="South Asian">South Asian</option>
+            <option value="Hispanic/Latino">Hispanic/Latino</option>
+            <option value="Middle Eastern">Middle Eastern</option>
+            <option value="Native American">Native American</option>
+            <option value="Pacific Islander">Pacific Islander</option>
+            <option value="Caucasian">Caucasian</option>
+            <option value="Mixed/Multiracial">Mixed/Multiracial</option>
+          </select>
+        </div>
+      </div>
+      <div class="text-muted text-xs" style="margin-bottom:12px;">Used for accurate AI avatar generation</div>
+
       <div class="form-group">
         <label class="form-label">Avatar Image</label>
-        <input type="file" class="form-control" id="fWriterAvatar" accept="image/*" />
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="file" class="form-control" id="fWriterAvatar" accept="image/*" style="flex:1;" />
+          <button type="button" class="btn btn-outline btn-sm" id="generateAvatarBtn" style="white-space:nowrap;" title="Generate with AI">AI Generate</button>
+        </div>
+        <div id="avatarPromptPreview" class="text-muted text-xs" style="margin-top:6px;display:none;padding:8px;background:var(--bg-surface);border-radius:6px;font-family:monospace;"></div>
         <div id="writerAvatarPreviewWrap" class="mt-2" style="display:none;">
           <img id="writerAvatarPreview" src="" alt="Avatar preview" class="avatar-preview-img" />
         </div>
@@ -244,6 +279,19 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-danger" id="confirmDeleteWriterBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Generate Writers Modal -->
+<div class="modal-overlay" id="aiGenerateModal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title" id="aiGenModalTitle">AI Generate Writers</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body" id="aiGenContent">
+      <!-- Content injected by JS -->
     </div>
   </div>
 </div>

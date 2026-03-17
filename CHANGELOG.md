@@ -11,6 +11,201 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.0] — 2026-03-17
+
+Production release of v2.0 — multi-tenancy, RBAC, AI writer generation, and niche independence.
+
+### Added — Core
+- **Multi-tenancy** — `tenant_id` on all tables, tenant-scoped queries/caches, per-tenant settings and API keys
+- **Local auth + RBAC** — username/password authentication, role-based permissions with wildcard support, user management admin UI
+- **Setup wizard** — guided onboarding with 11 niche templates, 69 diverse AI writers with Marvel/DC character names
+- **Audit logging** — audit trail for all admin create/update/delete actions
+- **Docker support** — Dockerfile + docker-compose.yml for containerized deployment
+
+### Added — AI Writers
+- **AI writer generation** — generate complete writer personas from tenant categories via Gemini (name, bio, tone, style, system prompt, keywords, gender, ethnicity)
+- **AI avatars** — Imagen-powered writer portrait generation with gender and ethnicity descriptors
+- **Writer diversity** — gender/ethnicity fields on writers table, ~50/50 gender balance across all niche templates
+- **Per-writer AI summaries** — writer persona (tone, style_guide, system_prompt) used in Gemini TLDR generation with "stay in character" instructions
+- **Real-time avatar polling** — avatars appear in writers table as they generate (no page refresh)
+
+### Added — Discovery & Content
+- **YouTube discovery & embed** — YouTube Data API v3 search, import as articles, inline embed playback
+- **Discovery page** — Brave Search + NewsAPI + YouTube with year-based and custom date range filtering
+- **Unassigned articles filter** — Writer filter pills (All/Unassigned/Assigned) on articles page
+- **Bulk auto-assign writers** — batch endpoint using `findBestWriter()` scoring with pre-fetched writers for performance
+
+### Added — Operations
+- **Scheduled tasks management** — cron registry with per-run logging, admin API, visual schedule builder with live preview
+- **Configurable live news query** — per-tenant search terms for the live-news cron
+
+### Added — Niche Independence
+- **Trends page** — dynamic Gemini prompts using tenant categories, "Top Mentions" instead of "Top Companies"
+- **Trends tenant isolation** — `tenant_id` on trends_cache and trends_history tables
+
+### Added — Security
+- **SSRF protection** — protocol allowlist + private IP DNS block on `/api/fetch-url`
+- **Cross-tenant cache fix** — `app-config.js` cache keyed by tenantId
+- **Storage path traversal** — resolved path validation in local adapter
+- **XSS hardening** — `escHtml()` sanitization, iframe sandbox attributes
+- **RBAC bypass fixes** — permission checks on all admin endpoints
+
+### Fixed
+- Article update 400 error when URL fields are empty strings (preprocess to null)
+- Writer article count includes only published articles
+- `findBestWriter()` tiebreak logic avoids unnecessary COUNT queries
+- Bulk assign validates input with parseInt, 200-article cap, and audit logging
+- `ON CONFLICT` clause for trends_history uses composite `(tenant_id, snapshot_date)`
+
+---
+
+## [2.0.0-beta.11] — 2026-03-17
+
+Scheduled tasks management, visual schedule builder, security hardening, and configurable live news.
+
+### Added
+- **Scheduled Tasks Management** — new Automation tab in Settings with 9 cron job cards, enable/disable toggles, manual "Run Now", and run history modal
+- **Visual Schedule Builder** — replace preset dropdowns with frequency/hour-range/day-of-week controls, live `cronstrue` descriptions, and next 3 run times preview
+- **Configurable live news query** — per-tenant search terms for the live-news cron (Settings > Integrations), with auto-publish toggle
+- **Cron registry** — refactored 9 hardcoded cron jobs into `lib/cron-registry.js` with per-run logging to `cron_runs` table
+- **Cron admin API** — `GET/PUT/POST /api/admin/cron` for listing, updating, triggering, and viewing history
+
+### Added — Security
+- **SSRF protection** — protocol allowlist + private IP DNS block on `/api/fetch-url`
+- **Cross-tenant cache fix** — `app-config.js` cache keyed by tenantId
+- **Storage path traversal** — resolved path validation in local adapter
+- **XSS hardening** — `escHtml()` in admin topbar, showToast, logo preview sanitizer
+- **Schedule frequency limits** — reject per-second expressions, enforce minimum intervals per job
+- **Per-job run cooldowns** — newsletter 10min, audio 5min, others 1min
+
+### Changed
+- Audit archive uses `requirePermission('audit.delete')` instead of inline role check
+- CORS tenant subdomain regex requires `https://` (was `https?://`)
+- Admin role includes `cron.read`, `cron.update`, `cron.execute` permissions
+
+### Fixed
+- `media_enabled` set to 1 for YouTube imports so embeds render
+- Discovery page no longer re-searches after importing (marks imported in-place)
+- `getAppConfig()` called with tenantId in live-news and newsletter handlers
+- Concurrent run guard prevents duplicate job execution
+
+---
+
+## [2.0.0-beta.7] — 2026-03-17
+
+YouTube video discovery, import, and embed support.
+
+### Added
+- **YouTube Discovery** — search YouTube videos via Data API v3 on the Discover page (alongside Brave/NewsAPI)
+- **YouTube video import** — import videos as articles with embedded playback; `embed_url` reconstructed server-side from video ID (zero-trust)
+- **YouTube API key** — configurable in Settings > Integrations > Live News Sources (encrypted at rest)
+- **Discovery date filters** — year-based and custom date range filtering on the Discover page (#150)
+- **Discovery full-width layout** — results table matches articles page width
+
+### Added — Database
+- `embed_url TEXT` and `embed_type TEXT` columns on articles table
+- `from_date TEXT` and `to_date TEXT` columns on saved_searches table
+
+### Changed
+- CSP `frame-src` allows `youtube.com` and `youtube-nocookie.com`
+- Public `/api/article` response now includes `embed_url`, `embed_type`, `source_type`
+- YouTube checkbox defaults to unchecked (requires API key configuration)
+
+### Fixed
+- `media_enabled` now set to 1 when importing YouTube videos (#152)
+- Post-fetch date filtering removes out-of-range results from API responses
+- Brave Search freshness parameter uses date range format for year/custom periods
+
+---
+
+## [2.0.0-beta.2] — 2026-03-17
+
+Post-beta patches deployed to staging.
+
+### Added
+- **Wizard writers** — character-inspired first names (Victor, Wanda, Reed, etc.) with tailored bios, keyword lists, and niche-specific system prompts
+- **4 new niches** — Travel, Pro Wrestling, Investing, Entertainment (with 6 writers each)
+- **Wizard branding** — sets all branding fields on launch (short name, copyright, logo HTML, footer tagline, newsletter subject, email from name)
+
+### Changed
+- Wizard niches sorted alphabetically (Custom always last)
+- Image Generation settings panel renamed to "Google Gemini" to reflect full AI scope
+
+### Fixed
+- Summary and thumbnail cache `ON CONFLICT` clauses matched to tenant-scoped PKs
+
+---
+
+## [2.0.0-beta.1] — 2026-03-17
+
+Major release: multi-tenancy, local authentication, RBAC, admin UI overhaul, and self-hosted tooling.
+
+### Added — Multi-Tenancy
+- Tenant isolation via `tenant_id` on all 20+ tables
+- Plan limit enforcement (`max_sources`, `max_writers`, `max_articles_month`, `audio_enabled`)
+- Unified storage layer with 3 pluggable backends (S3/R2, local filesystem, PostgreSQL BYTEA)
+- Per-tenant aggregate rate limiting (starter 600/min, pro 1200/min, business unlimited)
+- CORS validation for custom domains against tenant's `custom_domain` column
+- Tenant provisioning with default categories, settings, and roles seeding
+- `DEPLOYMENT_MODE=single` for self-hosted single-tenant deployments
+
+### Added — Local Auth & RBAC
+- `POST /api/auth/login` — local username/password authentication (bcrypt, rate-limited)
+- `GET /api/auth/methods` — discover available login methods (Google/GitHub/local)
+- 4 default roles: owner, admin, editor, viewer with granular resource.action permissions
+- Custom role creation with permission picker
+- `requirePermission()` middleware enforced on all 13 admin route files
+- User CRUD: list, create, edit, deactivate, permanent delete, password reset
+- Role CRUD: list, create, update, delete (system role protection)
+
+### Added — OAuth & Secret Management
+- OAuth credentials configurable via Settings > Authentication tab
+- `ADMIN_EMAILS` env var removed — admin access via users table email matching
+- JWT secrets auto-generated on first boot, stored encrypted in settings table
+- Secret rotation support with previous-secret fallback (24h grace)
+- All API keys (Gemini, ElevenLabs, Resend, NewsAPI, Brave, R2) overridable via Settings > Integrations
+- `BASE_URL` and `MAIN_SITE_URL` configurable via Settings > General
+
+### Added — Admin UI
+- **Login page**: local auth form with OAuth method auto-detection
+- **Users page**: CRUD table with add/edit/reset-password/delete modals
+- **Roles page**: role management with interactive permissions grid (14 resource groups)
+- **Audit Log page**: filterable event viewer with live tail (10s) and owner-only archive
+- **Discover page**: search Brave/NewsAPI, preview results, selective import as draft/published
+- **Saved searches**: store results, one-click load, refresh button
+- Sidebar logo updates from site config (emoji + short name)
+- Permission-aware controls: buttons hidden/disabled based on user role
+- Settings > Integrations: panels for R2 storage, Email (Resend), Live News Sources
+
+### Added — Self-Hosted
+- `.env.example` with documented sections
+- `scripts/setup.sh` — interactive setup with secret generation
+- `Dockerfile` + `docker-compose.yml` — PostgreSQL 16 + app container
+- Onboarding wizard (cherry-picked)
+
+### Fixed
+- 9 `getSiteConfig()` calls missing tenantId (cross-tenant data leak)
+- Global pricing cache in `ai-usage.js` → tenant-scoped Map
+- `articles.writer_id` FK corrected from `voices(id)` to `writers(id)`
+- `ON CONFLICT (key)` → `ON CONFLICT (tenant_id, key)` across 35 queries
+- Settings API filtered to never return JWT/cron secrets
+- Rate limiter IPv6 validation error
+- Admin user seeded as `owner` (was `admin`) on fresh databases
+- Audit log captures user info and normalizes IPv6 to IPv4
+
+### Security
+- Timing-safe cron secret comparison (prevents timing attacks)
+- `middleware/tenant.js` validates cron secret value (was presence-only)
+- Settings API blocks writes to secret manager keys
+- Permissions fallback fixed (non-platform-admin no longer gets `['*']`)
+- Failed login attempts logged to audit log
+- SQL injection audit: all queries use parameterized `$N` (confirmed clean)
+
+### Tests
+- 146+ tests (unit + integration) covering tenant isolation, plan limits, auth flows, storage, permissions, local login
+
+---
+
 ## [1.15.1] — 2026-03-16
 
 ### Added

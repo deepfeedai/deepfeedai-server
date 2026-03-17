@@ -1,3 +1,19 @@
+// ── Sanitize HTML for logo preview (strip scripts and event handlers) ──
+function sanitizeLogoHtml(html) {
+  var div = document.createElement('div');
+  div.innerHTML = html;
+  div.querySelectorAll('script,iframe,object,embed,link,style').forEach(function(el) { el.remove(); });
+  div.querySelectorAll('*').forEach(function(el) {
+    for (var i = el.attributes.length - 1; i >= 0; i--) {
+      var name = el.attributes[i].name.toLowerCase();
+      if (name.startsWith('on') || name === 'href' && el.getAttribute('href').trim().toLowerCase().startsWith('javascript:')) {
+        el.removeAttribute(el.attributes[i].name);
+      }
+    }
+  });
+  return div.innerHTML;
+}
+
 // ── Settings Tab Switching ────────────────────────────────
 (function initSettingsTabs() {
   const tabBar = document.getElementById('settingsTabs');
@@ -21,6 +37,18 @@
     switchTab(saved);
   }
 })();
+
+// ── Toggle Secret Visibility (used by Auth tab) ─────────
+function toggleSecretVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = 'Hide';
+  } else {
+    input.type = 'password';
+    btn.textContent = 'Show';
+  }
+}
 
 // ── Theme Presets ────────────────────────────────────────
 const THEME_PRESETS = [
@@ -442,6 +470,9 @@ let apiKeyVisible = false;
     { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+    { id: 'baseUrl',              key: 'base_url' },
+    { id: 'mainSiteUrl',          key: 'main_site_url' },
+    { id: 'allowedOrigins',       key: 'allowed_origins' },
   ];
 
   // Logo HTML live preview
@@ -450,7 +481,7 @@ let apiKeyVisible = false;
   const logoEmojiInput = document.getElementById('siteLogoEmoji');
 
   if (logoHtmlInput && logoPreview) {
-    logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = logoHtmlInput.value; });
+    logoHtmlInput.addEventListener('input', () => { logoPreview.innerHTML = sanitizeLogoHtml(logoHtmlInput.value); });
   }
 
   // Auto-sync: when Logo Emoji changes, replace the leading emoji in Logo HTML
@@ -461,7 +492,7 @@ let apiKeyVisible = false;
       const current = logoHtmlInput.value;
       const updated = current.replace(/^[\p{Emoji}\u200d\uFE0F\u20E3\u{1F3FB}-\u{1F3FF}]+/u, newEmoji);
       logoHtmlInput.value = updated !== current ? updated : newEmoji + current.replace(/^[^\s&]+/, '');
-      if (logoPreview) logoPreview.innerHTML = logoHtmlInput.value;
+      if (logoPreview) logoPreview.innerHTML = sanitizeLogoHtml(logoHtmlInput.value);
     });
   }
 
@@ -689,6 +720,92 @@ let apiKeyVisible = false;
     { id: 'siteAdsenseId',  key: 'site_adsense_id' },
   ]));
 
+  // ── Cloudflare R2 Storage save ──────────────────────────────────
+  panelSave('saveR2Btn', 'r2SaveStatus', 'R2 Settings', async () => {
+    const payload = {};
+    const fields = [
+      { id: 'r2AccountId',      key: 'r2_account_id' },
+      { id: 'r2BucketName',     key: 'r2_bucket_name' },
+      { id: 'r2PublicUrl',      key: 'r2_public_url' },
+      { id: 'r2AccessKeyId',    key: 'r2_access_key_id' },
+      { id: 'r2SecretAccessKey', key: 'r2_secret_access_key' },
+    ];
+    for (const f of fields) {
+      const val = document.getElementById(f.id).value.trim();
+      if (val) payload[f.key] = val;
+    }
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    // Clear secret fields after save
+    document.getElementById('r2AccessKeyId').value = '';
+    document.getElementById('r2SecretAccessKey').value = '';
+    document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
+    document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
+    // Update status
+    var status = document.getElementById('r2Status');
+    if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+  });
+
+  // ── Email (Resend) save ──────────────────────────────────────────
+  panelSave('saveResendBtn', 'resendSaveStatus', 'Email Settings', async () => {
+    const payload = {};
+    const apiKey = document.getElementById('resendApiKey').value.trim();
+    const audienceId = document.getElementById('resendAudienceId').value.trim();
+    if (apiKey) payload.resend_api_key = apiKey;
+    if (audienceId) payload.resend_audience_id = audienceId;
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (apiKey) {
+      document.getElementById('resendApiKey').value = '';
+      document.getElementById('resendApiKey').placeholder = '••••••••  (saved)';
+    }
+    var status = document.getElementById('resendStatus');
+    if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+  });
+
+  // ── News Source Keys save ──────────────────────────────────────
+  panelSave('saveNewsKeysBtn', 'newsKeysSaveStatus', 'News Source Keys', async () => {
+    const payload = {};
+    const newsKey = document.getElementById('newsApiKey').value.trim();
+    const braveKey = document.getElementById('braveApiKey').value.trim();
+    const ytKey = document.getElementById('youtubeApiKey').value.trim();
+    if (newsKey) payload.news_api_key = newsKey;
+    if (braveKey) payload.brave_api_key = braveKey;
+    if (ytKey) payload.youtube_api_key = ytKey;
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (newsKey) {
+      document.getElementById('newsApiKey').value = '';
+      document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
+    }
+    if (braveKey) {
+      document.getElementById('braveApiKey').value = '';
+      document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+    }
+    if (ytKey) {
+      document.getElementById('youtubeApiKey').value = '';
+      document.getElementById('youtubeApiKey').placeholder = '••••••••  (saved)';
+    }
+  });
+
+  // ── Live News Settings save ──────────────────────────────────────
+  panelSave('saveLiveNewsBtn', 'liveNewsSaveStatus', 'Live News Settings', async () => {
+    var payload = {};
+    var query = document.getElementById('liveNewsQuery').value.trim();
+    payload.live_news_query = query || '';
+    payload.auto_publish_live = document.getElementById('autoPublishLive').checked ? '1' : '0';
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  });
+
   // ── Perspective API save ────────────────────────────────────────
   panelSave('savePerspectiveBtn', 'perspectiveStatus', 'Perspective Settings', async () => {
     const payload = {
@@ -751,7 +868,7 @@ let apiKeyVisible = false;
 
     // Logo preview
     if (logoPreview && settings.site_logo_html) {
-      logoPreview.innerHTML = settings.site_logo_html;
+      logoPreview.innerHTML = sanitizeLogoHtml(settings.site_logo_html);
     }
   }
 
@@ -771,6 +888,9 @@ let apiKeyVisible = false;
   panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
     { id: 'siteDomain',        key: 'site_domain' },
     { id: 'siteUrl',           key: 'site_url' },
+    { id: 'baseUrl',           key: 'base_url' },
+    { id: 'mainSiteUrl',       key: 'main_site_url' },
+    { id: 'allowedOrigins',    key: 'allowed_origins' },
     { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
   ]));
 
@@ -782,6 +902,126 @@ let apiKeyVisible = false;
       if (text) payload[f.key] = text.value;
     });
     await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  });
+
+  // ── Authentication Tab ────────────────────────────────────
+  function loadR2Tab(settings) {
+    var accountId = settings.r2_account_id;
+    var bucket = settings.r2_bucket_name;
+    var publicUrl = settings.r2_public_url;
+    var accessKey = settings.r2_access_key_id;
+    var secretKey = settings.r2_secret_access_key;
+    var status = document.getElementById('r2Status');
+
+    if (accountId || bucket) {
+      if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+      if (accountId) document.getElementById('r2AccountId').value = accountId;
+      if (bucket) document.getElementById('r2BucketName').value = bucket;
+      if (publicUrl) document.getElementById('r2PublicUrl').value = publicUrl;
+      if (accessKey) document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
+      if (secretKey) document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
+    }
+  }
+
+  function loadAuthTab(settings) {
+    // Google status
+    const googleId = settings.oauth_google_client_id;
+    const googleSecret = settings.oauth_google_client_secret;
+    const googleStatus = document.getElementById('googleOAuthStatus');
+    if (googleStatus) {
+      if (googleId) {
+        googleStatus.textContent = 'Configured';
+        googleStatus.className = 'badge badge-success';
+        document.getElementById('oauthGoogleClientId').value = googleId;
+        if (googleSecret) {
+          document.getElementById('oauthGoogleClientSecret').placeholder = '••••••••  (saved)';
+        }
+      } else {
+        googleStatus.textContent = 'Not configured';
+        googleStatus.className = 'badge badge-muted';
+      }
+    }
+
+    // GitHub status
+    const githubId = settings.oauth_github_client_id;
+    const githubSecret = settings.oauth_github_client_secret;
+    const githubStatus = document.getElementById('githubOAuthStatus');
+    if (githubStatus) {
+      if (githubId) {
+        githubStatus.textContent = 'Configured';
+        githubStatus.className = 'badge badge-success';
+        document.getElementById('oauthGithubClientId').value = githubId;
+        if (githubSecret) {
+          document.getElementById('oauthGithubClientSecret').placeholder = '••••••••  (saved)';
+        }
+      } else {
+        githubStatus.textContent = 'Not configured';
+        githubStatus.className = 'badge badge-muted';
+      }
+    }
+  }
+
+  function loadResendTab(settings) {
+    var apiKey = settings.resend_api_key;
+    var audienceId = settings.resend_audience_id;
+    var status = document.getElementById('resendStatus');
+    if (apiKey || audienceId) {
+      if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+      if (apiKey) document.getElementById('resendApiKey').placeholder = '••••••••  (saved)';
+      if (audienceId) document.getElementById('resendAudienceId').value = audienceId;
+    }
+  }
+
+  function loadNewsKeysTab(settings) {
+    var newsKey = settings.news_api_key;
+    var braveKey = settings.brave_api_key;
+    if (newsKey) document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
+    if (braveKey) document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+    if (settings.youtube_api_key) document.getElementById('youtubeApiKey').placeholder = '••••••••  (saved)';
+
+    // Live News settings
+    if (settings.live_news_query) document.getElementById('liveNewsQuery').value = settings.live_news_query;
+    if (settings.auto_publish_live === '1') document.getElementById('autoPublishLive').checked = true;
+  }
+
+  // Save Google OAuth
+  document.getElementById('saveGoogleOAuth')?.addEventListener('click', async () => {
+    const clientId = document.getElementById('oauthGoogleClientId').value.trim();
+    const clientSecret = document.getElementById('oauthGoogleClientSecret').value.trim();
+    const body = {};
+    if (clientId) body.oauth_google_client_id = clientId;
+    if (clientSecret) body.oauth_google_client_secret = clientSecret;
+    if (Object.keys(body).length === 0) {
+      showToast('Please enter at least one field', 'error');
+      return;
+    }
+    try {
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(body) });
+      showToast('Google OAuth saved');
+      await loadSettings();
+    } catch (err) {
+      showToast('Save failed: ' + err.message, 'error');
+    }
+  });
+
+  // Save GitHub OAuth
+  document.getElementById('saveGithubOAuth')?.addEventListener('click', async () => {
+    const clientId = document.getElementById('oauthGithubClientId').value.trim();
+    const clientSecret = document.getElementById('oauthGithubClientSecret').value.trim();
+    const body = {};
+    if (clientId) body.oauth_github_client_id = clientId;
+    if (clientSecret) body.oauth_github_client_secret = clientSecret;
+    if (Object.keys(body).length === 0) {
+      showToast('Please enter at least one field', 'error');
+      return;
+    }
+    try {
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(body) });
+      showToast('GitHub OAuth saved');
+      await loadSettings();
+    } catch (err) {
+      showToast('Save failed: ' + err.message, 'error');
+    }
   });
 
   // ── Extend loadSettings to include all setting sections ───────────
@@ -802,12 +1042,533 @@ let apiKeyVisible = false;
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
+      loadAuthTab(settings);
+      loadR2Tab(settings);
+      loadResendTab(settings);
+      loadNewsKeysTab(settings);
       await loadSiteSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }
   };
 
+  // ── Automation Tab: Scheduled Tasks Management ──────────
+
+  // Load automation tab on click
+  (function() {
+    var tabBar = document.getElementById('settingsTabs');
+    if (!tabBar) return;
+    tabBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('.tab-btn');
+      if (btn && btn.dataset.tab === 'automation') loadAutomationTab();
+    });
+    // Also load if restored from session
+    if (sessionStorage.getItem('dfa_settings_tab') === 'automation') {
+      setTimeout(loadAutomationTab, 0);
+    }
+  })();
+
+  async function loadAutomationTab() {
+    var container = document.getElementById('cronJobsList');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state"><span class="spinner"></span> Loading...</div>';
+
+    try {
+      var _data = await apiFetch('/admin/cron');
+      var jobs = _data.jobs || [];
+      if (!jobs.length) {
+        container.innerHTML = '<div class="empty-state">No scheduled tasks found</div>';
+        return;
+      }
+
+      // Group by category
+      var groups = {};
+      jobs.forEach(function(j) {
+        var cat = j.category || 'Other';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(j);
+      });
+
+      var categoryOrder = ['Content', 'Media', 'Notifications', 'Maintenance'];
+      var html = '';
+
+      categoryOrder.forEach(function(cat) {
+        if (!groups[cat]) return;
+        html += '<div style="margin-top:20px;">';
+        html += '<h4 class="text-muted text-sm" style="margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">' + escHtml(cat) + '</h4>';
+
+        groups[cat].forEach(function(job) {
+          var enabled = job.enabled !== false;
+          var schedule = job.currentSchedule || job.defaultSchedule;
+          var lastRun = job.lastRun;
+          var statusBadge = '';
+          if (lastRun) {
+            var statusClass = lastRun.status === 'success' ? 'badge-success' : lastRun.status === 'error' ? 'badge-danger' : 'badge-muted';
+            statusBadge = '<span class="badge ' + statusClass + '">' + escHtml(lastRun.status) + '</span>';
+          }
+          var lastRunTime = lastRun ? formatAge(lastRun.started_at) : 'Never';
+          var lastSummary = '';
+          if (lastRun && lastRun.summary) {
+            var s = lastRun.summary;
+            if (s.error) lastSummary = '<span class="text-danger text-xs">' + escHtml(s.error) + '</span>';
+            else {
+              var parts = [];
+              Object.keys(s).forEach(function(k) { parts.push(k + ': ' + s[k]); });
+              if (parts.length) lastSummary = '<span class="text-muted text-xs">' + escHtml(parts.join(', ')) + '</span>';
+            }
+          }
+
+          html += '<div class="dash-panel" style="margin-bottom:12px;padding:16px;" data-job="' + escHtml(job.name) + '">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">';
+
+          // Left: name + description
+          html += '<div style="flex:1;min-width:200px;">';
+          html += '<div style="font-weight:600;">' + escHtml(job.description) + '</div>';
+          html += '<div class="text-muted text-xs" style="margin-top:2px;">Job: <code>' + escHtml(job.name) + '</code></div>';
+          html += '</div>';
+
+          // Middle: last run info
+          html += '<div style="display:flex;gap:16px;align-items:center;">';
+          html += '<div>';
+          html += '<div class="text-muted text-xs">Last run</div>';
+          html += '<div class="text-sm">' + escHtml(lastRunTime) + ' ' + statusBadge + '</div>';
+          if (lastSummary) html += '<div style="margin-top:2px;">' + lastSummary + '</div>';
+          html += '</div>';
+          html += '</div>';
+
+          // Right: controls
+          html += '<div style="display:flex;gap:8px;align-items:center;">';
+          html += '<button class="btn btn-outline btn-sm" onclick="viewCronHistory(\'' + escHtml(job.name) + '\')" title="View history">History</button>';
+          html += '<button class="btn btn-outline btn-sm" onclick="runCronJob(\'' + escHtml(job.name) + '\', this)" title="Run now">Run Now</button>';
+          html += '<label class="form-check" style="margin:0;" title="' + (enabled ? 'Enabled' : 'Disabled') + '">';
+          html += '<input type="checkbox" data-job-toggle="' + escHtml(job.name) + '"' + (enabled ? ' checked' : '') + ' /> On';
+          html += '</label>';
+          html += '</div>';
+
+          html += '</div>';
+
+          // Cron builder
+          html += '<div class="cron-builder" data-cron-builder="' + escHtml(job.name) + '" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">';
+
+          // Row 1: Frequency
+          html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+          html += '<span class="text-sm">Run every</span>';
+          html += '<select class="form-control form-control-sm" data-cron-interval="' + escHtml(job.name) + '">';
+          [1,2,5,10,15,20,30].forEach(function(v) {
+            html += '<option value="' + v + '">' + v + '</option>';
+          });
+          html += '</select>';
+          html += '<select class="form-control form-control-sm" data-cron-unit="' + escHtml(job.name) + '">';
+          html += '<option value="minutes">minutes</option>';
+          html += '<option value="hours">hours</option>';
+          html += '</select>';
+          html += '</div>';
+
+          // Row 2: Hour range
+          html += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">';
+          html += '<label class="form-check" style="margin:0;">';
+          html += '<input type="checkbox" data-cron-hourlimit="' + escHtml(job.name) + '" /> Only during';
+          html += '</label>';
+          html += '<select class="form-control form-control-sm" data-cron-hourstart="' + escHtml(job.name) + '" disabled>' + hourOptions() + '</select>';
+          html += '<span class="text-sm">to</span>';
+          html += '<select class="form-control form-control-sm" data-cron-hourend="' + escHtml(job.name) + '" disabled>' + hourOptions() + '</select>';
+          html += '</div>';
+
+          // Row 3: Day of week
+          html += '<div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;">';
+          html += '<span class="text-sm">Days:</span>';
+          var dayLabels = [
+            { value: '1', label: 'Mon' }, { value: '2', label: 'Tue' },
+            { value: '3', label: 'Wed' }, { value: '4', label: 'Thu' },
+            { value: '5', label: 'Fri' }, { value: '6', label: 'Sat' },
+            { value: '0', label: 'Sun' }
+          ];
+          dayLabels.forEach(function(d) {
+            html += '<label class="form-check form-check-sm"><input type="checkbox" data-cron-day="' + escHtml(job.name) + '" value="' + d.value + '" checked /> ' + d.label + '</label>';
+          });
+          html += '</div>';
+
+          // Row 4: Preview
+          html += '<div style="margin-top:8px;" data-cron-preview="' + escHtml(job.name) + '">';
+          html += '<div class="text-muted text-xs" data-cron-description="' + escHtml(job.name) + '"></div>';
+          html += '<div class="text-muted text-xs" data-cron-nextruns="' + escHtml(job.name) + '" style="margin-top:4px;"></div>';
+          html += '<div class="text-xs" data-cron-saved="' + escHtml(job.name) + '" style="margin-top:4px;color:var(--success);opacity:0;transition:opacity 0.3s;"></div>';
+          html += '</div>';
+
+          html += '</div>'; // end cron-builder
+
+          html += '</div>'; // end job card
+        });
+
+        html += '</div>';
+      });
+
+      container.innerHTML = html;
+
+      // Wire up toggle handlers
+      container.querySelectorAll('[data-job-toggle]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          updateCronJob(cb.dataset.jobToggle, { enabled: cb.checked });
+        });
+      });
+
+      // Wire up hour-limit checkbox to enable/disable hour selects
+      container.querySelectorAll('[data-cron-hourlimit]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          var jobName = cb.dataset.cronHourlimit;
+          var startSel = document.querySelector('[data-cron-hourstart="' + jobName + '"]');
+          var endSel = document.querySelector('[data-cron-hourend="' + jobName + '"]');
+          startSel.disabled = !cb.checked;
+          endSel.disabled = !cb.checked;
+          debouncedPreviewAndSave(jobName);
+        });
+      });
+
+      // Wire up all builder controls for preview + auto-save
+      container.querySelectorAll('[data-cron-interval],[data-cron-unit],[data-cron-hourstart],[data-cron-hourend],[data-cron-day]').forEach(function(el) {
+        el.addEventListener('change', function() {
+          var jobName = el.dataset.cronInterval || el.dataset.cronUnit || el.dataset.cronHourstart || el.dataset.cronHourend || el.dataset.cronDay;
+          debouncedPreviewAndSave(jobName);
+        });
+      });
+
+      // Parse existing schedules into builder controls
+      jobs.forEach(function(job) {
+        var schedule = job.currentSchedule || job.defaultSchedule;
+        parseCronToBuilder(schedule, job.name);
+        updateCronPreview(job.name);
+      });
+
+    } catch (err) {
+      container.innerHTML = '<div class="empty-state">Failed to load: ' + escHtml(err.message) + '</div>';
+    }
+  }
+
+  function getScheduleOptions(jobName, defaultSchedule) {
+    var presets = {
+      'rss-fetch':       [{ value: '*/10 * * * *', label: 'Every 10 min' }, { value: '*/15 * * * *', label: 'Every 15 min' }, { value: '*/30 * * * *', label: 'Every 30 min' }, { value: '0 * * * *', label: 'Every hour' }],
+      'live-news':       [{ value: '*/30 * * * *', label: 'Every 30 min' }, { value: '0 * * * *', label: 'Every hour' }, { value: '0 */2 * * *', label: 'Every 2 hours' }, { value: '0 */4 * * *', label: 'Every 4 hours' }],
+      'synthesis':       [{ value: '0 * * * *', label: 'Hourly check' }],
+      'auto-audio':      [{ value: '0 6 * * *', label: '6 AM UTC' }, { value: '0 8 * * *', label: '8 AM UTC' }, { value: '0 10 * * *', label: '10 AM UTC' }, { value: '0 12 * * *', label: '12 PM UTC' }],
+      'newsletter':      [{ value: '0 14 * * 1', label: 'Monday 2 PM UTC' }, { value: '0 10 * * 1', label: 'Monday 10 AM UTC' }, { value: '0 14 * * 5', label: 'Friday 2 PM UTC' }, { value: '0 10 * * 5', label: 'Friday 10 AM UTC' }],
+      'auto-archive':    [{ value: '0 1 * * *', label: '1 AM UTC' }, { value: '0 2 * * *', label: '2 AM UTC' }, { value: '0 3 * * *', label: '3 AM UTC' }, { value: '0 4 * * *', label: '4 AM UTC' }],
+      'purge-archived':  [{ value: '0 * * * *', label: 'Every hour' }, { value: '0 */2 * * *', label: 'Every 2 hours' }, { value: '0 */6 * * *', label: 'Every 6 hours' }],
+      'auth-cleanup':    [{ value: '*/5 * * * *', label: 'Every 5 min' }, { value: '*/10 * * * *', label: 'Every 10 min' }, { value: '*/30 * * * *', label: 'Every 30 min' }],
+      'budget-alert':    [{ value: '0 8 * * *', label: '8 AM UTC' }, { value: '0 9 * * *', label: '9 AM UTC' }, { value: '0 10 * * *', label: '10 AM UTC' }, { value: '0 12 * * *', label: '12 PM UTC' }],
+    };
+
+    var options = presets[jobName] || [];
+    var hasDefault = options.some(function(o) { return o.value === defaultSchedule; });
+    if (!hasDefault && defaultSchedule) {
+      options.unshift({ value: defaultSchedule, label: defaultSchedule + ' (default)' });
+    }
+    return options;
+  }
+
+  // ── Cron Builder Helpers ────────────────────────────────
+
+  function hourOptions() {
+    var html = '';
+    for (var h = 0; h < 24; h++) {
+      var label = h === 0 ? '12 AM' : h < 12 ? h + ' AM' : h === 12 ? '12 PM' : (h - 12) + ' PM';
+      html += '<option value="' + h + '">' + label + '</option>';
+    }
+    return html;
+  }
+
+  function buildCronExpression(jobName) {
+    var interval = document.querySelector('[data-cron-interval="' + jobName + '"]').value;
+    var unit = document.querySelector('[data-cron-unit="' + jobName + '"]').value;
+    var hourLimited = document.querySelector('[data-cron-hourlimit="' + jobName + '"]').checked;
+    var hourStart = document.querySelector('[data-cron-hourstart="' + jobName + '"]').value;
+    var hourEnd = document.querySelector('[data-cron-hourend="' + jobName + '"]').value;
+
+    var dayCheckboxes = document.querySelectorAll('[data-cron-day="' + jobName + '"]');
+    var days = [];
+    dayCheckboxes.forEach(function(cb) { if (cb.checked) days.push(cb.value); });
+
+    var minuteField, hourField;
+
+    if (unit === 'minutes') {
+      minuteField = interval === '1' ? '*' : '*/' + interval;
+      if (hourLimited) {
+        hourField = (hourStart === hourEnd) ? String(hourStart) : hourStart + '-' + hourEnd;
+      } else {
+        hourField = '*';
+      }
+    } else {
+      // hours
+      minuteField = '0';
+      if (hourLimited) {
+        if (hourStart === hourEnd) {
+          hourField = String(hourStart);
+        } else if (interval === '1') {
+          hourField = hourStart + '-' + hourEnd;
+        } else {
+          hourField = hourStart + '-' + hourEnd + '/' + interval;
+        }
+      } else {
+        hourField = interval === '1' ? '*' : '*/' + interval;
+      }
+    }
+
+    var dayField = days.length === 0 || days.length === 7 ? '*' : days.join(',');
+
+    return minuteField + ' ' + hourField + ' * * ' + dayField;
+  }
+
+  function parseCronToBuilder(expr, jobName) {
+    var parts = expr.trim().split(/\s+/);
+    if (parts.length < 5) return;
+
+    var minField = parts[0];
+    var hourField = parts[1];
+    var dayField = parts[4];
+
+    var intervalSel = document.querySelector('[data-cron-interval="' + jobName + '"]');
+    var unitSel = document.querySelector('[data-cron-unit="' + jobName + '"]');
+    var hourLimitCb = document.querySelector('[data-cron-hourlimit="' + jobName + '"]');
+    var hourStartSel = document.querySelector('[data-cron-hourstart="' + jobName + '"]');
+    var hourEndSel = document.querySelector('[data-cron-hourend="' + jobName + '"]');
+
+    if (!intervalSel) return;
+
+    // Parse minute field
+    var minStep = minField.match(/^\*\/(\d+)$/);
+    if (minField === '*') {
+      // every minute
+      unitSel.value = 'minutes';
+      intervalSel.value = '1';
+    } else if (minStep) {
+      unitSel.value = 'minutes';
+      intervalSel.value = minStep[1];
+    } else if (minField === '0') {
+      // hourly pattern
+      unitSel.value = 'hours';
+      var hourStep = hourField.match(/^\*\/(\d+)$/);
+      var hourRange = hourField.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
+      if (hourField === '*') {
+        intervalSel.value = '1';
+      } else if (hourStep) {
+        intervalSel.value = hourStep[1];
+      } else if (hourRange) {
+        hourLimitCb.checked = true;
+        hourStartSel.disabled = false;
+        hourEndSel.disabled = false;
+        hourStartSel.value = hourRange[1];
+        hourEndSel.value = hourRange[2];
+        intervalSel.value = hourRange[3] || '1';
+      } else {
+        // Specific hour like "14" — treat as every 1 hour limited to that hour
+        var specificHour = parseInt(hourField, 10);
+        if (!isNaN(specificHour)) {
+          intervalSel.value = '1';
+          hourLimitCb.checked = true;
+          hourStartSel.disabled = false;
+          hourEndSel.disabled = false;
+          hourStartSel.value = specificHour;
+          hourEndSel.value = specificHour;
+        }
+      }
+    } else {
+      // Specific minute — best effort: treat as minutes
+      unitSel.value = 'minutes';
+      intervalSel.value = '1';
+    }
+
+    // Parse hour field for minute-based patterns
+    if (unitSel.value === 'minutes') {
+      var hRange = hourField.match(/^(\d+)-(\d+)$/);
+      if (hRange) {
+        hourLimitCb.checked = true;
+        hourStartSel.disabled = false;
+        hourEndSel.disabled = false;
+        hourStartSel.value = hRange[1];
+        hourEndSel.value = hRange[2];
+      } else if (hourField !== '*') {
+        var hVal = parseInt(hourField, 10);
+        if (!isNaN(hVal)) {
+          hourLimitCb.checked = true;
+          hourStartSel.disabled = false;
+          hourEndSel.disabled = false;
+          hourStartSel.value = hVal;
+          hourEndSel.value = hVal;
+        }
+      }
+    }
+
+    // Parse day field
+    var dayCheckboxes = document.querySelectorAll('[data-cron-day="' + jobName + '"]');
+    if (dayField !== '*') {
+      var activeDays = dayField.split(',');
+      dayCheckboxes.forEach(function(cb) {
+        cb.checked = activeDays.indexOf(cb.value) !== -1;
+      });
+    } else {
+      dayCheckboxes.forEach(function(cb) { cb.checked = true; });
+    }
+
+    // Snap interval to nearest valid option
+    var validIntervals = ['1','2','5','10','15','20','30'];
+    if (validIntervals.indexOf(intervalSel.value) === -1) {
+      // Find closest
+      var target = parseInt(intervalSel.value, 10);
+      var closest = '1';
+      var minDiff = Infinity;
+      validIntervals.forEach(function(v) {
+        var diff = Math.abs(parseInt(v, 10) - target);
+        if (diff < minDiff) { minDiff = diff; closest = v; }
+      });
+      intervalSel.value = closest;
+    }
+  }
+
+  var _previewTimers = {};
+  var _saveTimers = {};
+
+  function updateCronPreview(jobName) {
+    var expr = buildCronExpression(jobName);
+    var descEl = document.querySelector('[data-cron-description="' + jobName + '"]');
+    var runsEl = document.querySelector('[data-cron-nextruns="' + jobName + '"]');
+    if (!descEl) return;
+
+    descEl.textContent = 'Expression: ' + expr;
+    runsEl.textContent = 'Loading preview...';
+
+    apiFetch('/admin/cron/preview?schedule=' + encodeURIComponent(expr))
+      .then(function(data) {
+        descEl.textContent = data.description || expr;
+        if (data.nextRuns && data.nextRuns.length) {
+          var runStrs = data.nextRuns.map(function(r) {
+            return new Date(r).toLocaleString();
+          });
+          runsEl.textContent = 'Next runs: ' + runStrs.join('  |  ');
+        } else {
+          runsEl.textContent = '';
+        }
+      })
+      .catch(function(err) {
+        descEl.textContent = 'Expression: ' + expr;
+        runsEl.textContent = 'Preview unavailable';
+      });
+  }
+
+  function debouncedPreviewAndSave(jobName) {
+    // Debounce preview (300ms)
+    clearTimeout(_previewTimers[jobName]);
+    _previewTimers[jobName] = setTimeout(function() {
+      updateCronPreview(jobName);
+    }, 300);
+
+    // Debounce auto-save (1000ms)
+    clearTimeout(_saveTimers[jobName]);
+    _saveTimers[jobName] = setTimeout(function() {
+      var expr = buildCronExpression(jobName);
+      var savedEl = document.querySelector('[data-cron-saved="' + jobName + '"]');
+      updateCronJob(jobName, { schedule: expr }).then(function() {
+        if (savedEl) {
+          savedEl.textContent = 'Saved';
+          savedEl.style.opacity = '1';
+          setTimeout(function() { savedEl.style.opacity = '0'; }, 1500);
+        }
+      });
+    }, 1000);
+  }
+
+  function formatAge(dateStr) {
+    try {
+      var d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      var now = new Date();
+      var diff = Math.floor((now - d) / 1000);
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    } catch (e) { return dateStr; }
+  }
+
+  async function updateCronJob(name, updates) {
+    try {
+      await apiFetch('/admin/cron/' + name, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      showToast((updates.schedule ? 'Schedule' : (updates.enabled === false ? 'Disabled' : 'Enabled')) + ' — ' + name);
+    } catch (err) {
+      showToast('Failed: ' + err.message, 'error');
+      loadAutomationTab();
+    }
+  }
+
+  async function runCronJob(name, btn) {
+    if (!confirm('Run "' + name + '" now?')) return;
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    try {
+      var result = await apiFetch('/admin/cron/' + name + '/run', { method: 'POST' });
+      showToast('Job completed');
+      loadAutomationTab();
+    } catch (err) {
+      showToast('Failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  async function viewCronHistory(name) {
+    try {
+      var _hdata = await apiFetch('/admin/cron/' + name + '/history');
+      var runs = _hdata.runs || [];
+      if (!runs.length) { showToast('No run history yet'); return; }
+
+      var html = '<div style="max-height:400px;overflow-y:auto;">';
+      html += '<table><thead><tr><th>Started</th><th>Duration</th><th>Status</th><th>Summary</th></tr></thead><tbody>';
+      runs.forEach(function(r) {
+        var duration = r.finished_at ? Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000) + 's' : '—';
+        var statusBadge = r.status === 'success' ? '<span class="badge badge-success">success</span>' : r.status === 'error' ? '<span class="badge badge-danger">error</span>' : '<span class="badge badge-muted">' + escHtml(r.status) + '</span>';
+        var summary = '';
+        if (r.summary) {
+          if (r.summary.error) summary = escHtml(r.summary.error);
+          else {
+            var parts = [];
+            Object.keys(r.summary).forEach(function(k) { parts.push(k + ': ' + r.summary[k]); });
+            summary = escHtml(parts.join(', '));
+          }
+        }
+        html += '<tr><td class="text-sm">' + escHtml(new Date(r.started_at).toLocaleString()) + '</td><td class="text-sm">' + duration + '</td><td>' + statusBadge + '</td><td class="text-muted text-xs">' + summary + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+
+      var modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.style.display = 'flex';
+      modal.innerHTML = '<div class="modal modal-xl" style="max-width:700px;">'
+        + '<div class="modal-header"><h3>Run History — ' + escHtml(name) + '</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>'
+        + '<div class="modal-body">' + html + '</div>'
+        + '</div>';
+      document.body.appendChild(modal);
+    } catch (err) {
+      showToast('Failed to load history: ' + err.message, 'error');
+    }
+  }
+
+  // Make functions available globally for onclick handlers
+  window.runCronJob = runCronJob;
+  window.viewCronHistory = viewCronHistory;
+
   renderSidebar();
   initModals();
+
+  if (!hasPermission('settings.update')) {
+    document.querySelectorAll('.btn-primary').forEach(function(btn) {
+      if (btn.textContent.trim().toLowerCase().startsWith('save')) {
+        btn.disabled = true;
+        btn.title = 'You do not have permission to update settings';
+      }
+    });
+  }
+
   loadSettings();

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Discover — Deep Feed AI</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+  <div class="admin-layout">
+    <div class="main-content">
+      <header class="topbar">
+        <button class="hamburger" id="hamburger">☰</button>
+        <div class="topbar-title">Discover &amp; Import</div>
+        <span id="topbarUser" class="topbar-user"></span>
+      </header>
+      <div class="page-body page-body-wide">
+
+        <!-- Search Bar -->
+        <div class="dash-panel mb-6">
+          <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;">
+            <div class="form-group" style="margin:0;flex:1;min-width:250px;">
+              <label class="form-label">Search Query</label>
+              <input type="text" class="form-control" id="searchQuery" placeholder="e.g. AI regulation, GPT-5, robotics" />
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Time Period</label>
+              <select class="form-control" id="searchPeriod">
+                <option value="24h">Last 24 hours</option>
+                <option value="7d">Last 7 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="py">Past year</option>
+                <!-- Year options populated dynamically -->
+                <option value="custom">Custom range...</option>
+              </select>
+            </div>
+            <div class="form-group" id="customDateRange" style="margin:0;display:none;">
+              <label class="form-label">From / To</label>
+              <div style="display:flex;gap:6px;">
+                <input type="date" class="form-control" id="dateFrom" style="width:150px;" />
+                <input type="date" class="form-control" id="dateTo" style="width:150px;" />
+              </div>
+            </div>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label">Sources</label>
+              <div style="display:flex;gap:12px;padding-top:4px;">
+                <label class="form-check"><input type="checkbox" id="srcBrave" checked /> Brave</label>
+                <label class="form-check"><input type="checkbox" id="srcNewsApi" checked /> NewsAPI</label>
+                <label class="form-check"><input type="checkbox" id="srcYouTube" /> YouTube</label>
+              </div>
+            </div>
+            <button class="btn btn-primary" id="searchBtn" style="margin-bottom:2px;">Search</button>
+            <button class="btn btn-outline btn-sm" id="saveSearchBtn" style="margin-bottom:2px;" title="Save this search">Save</button>
+          </div>
+
+          <!-- Saved Searches -->
+          <div id="savedSearches" style="margin-top:12px;display:none;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;" id="savedSearchList"></div>
+          </div>
+        </div>
+
+        <!-- Results Count -->
+        <div id="resultsInfo" style="display:none;margin-bottom:16px;">
+          <span class="text-muted" id="resultsCount"></span>
+          <button class="btn btn-ghost btn-sm" id="selectAllBtn" style="margin-left:12px;">Select All</button>
+        </div>
+
+        <!-- Results Table -->
+        <div class="table-wrap" id="resultsWrap" style="display:none;">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:40px;"><input type="checkbox" id="checkAll" /></th>
+                  <th style="width:80px;">Source</th>
+                  <th>Article</th>
+                  <th style="width:120px;">Category</th>
+                  <th style="width:140px;">Published</th>
+                  <th style="width:80px;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Empty / Loading States -->
+        <div id="emptyState" class="empty-state" style="display:none;">
+          Search for news stories to discover and import
+        </div>
+        <div id="loadingState" class="empty-state" style="display:none;">
+          <span class="spinner"></span> Searching...
+        </div>
+
+        <!-- Import Bar (sticky bottom when items selected) -->
+        <div id="importBar" style="display:none;position:sticky;bottom:0;background:var(--bg-card);border-top:1px solid var(--border);padding:16px;margin-top:16px;border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+              <strong id="selectedCount">0</strong> <span class="text-muted">articles selected</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;">
+              <label class="form-check"><input type="radio" name="importStatus" value="draft" checked /> Draft</label>
+              <label class="form-check"><input type="radio" name="importStatus" value="published" /> Published</label>
+              <label class="form-check"><input type="checkbox" id="autoWriter" checked /> Auto-assign writers</label>
+              <label class="form-check"><input type="checkbox" id="autoCategorize" checked /> Auto-categorize</label>
+              <button class="btn btn-primary" id="importBtn">Import Selected</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <script src="/admin.js"></script>
+  <script src="/discover-page.js"></script>
+</body>
+</html>

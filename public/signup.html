@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI — Create Your News Site</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card" style="max-width:420px;">
+    <div class="login-logo">&#129302; Deep Feed<span>AI</span></div>
+    <div class="login-sub">Launch your AI news site in 2 minutes</div>
+
+    <div class="login-error" id="signupError"></div>
+
+    <!-- Step 1: OAuth sign-in -->
+    <div id="stepAuth">
+      <p style="color:var(--muted);font-size:var(--text-sm);margin-bottom:var(--space-4);text-align:center;">
+        Sign in to get started
+      </p>
+      <button class="btn btn-primary" id="googleBtn" style="width:100%;justify-content:center;gap:10px;padding:11px;font-size:14px;margin-bottom:var(--space-3);">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M17.64 9.2045c0-.6382-.0573-1.2518-.1636-1.8409H9v3.4814h4.8436c-.2086 1.125-.8427 2.0782-1.7959 2.7164v2.2581h2.9087c1.7018-1.5668 2.6836-3.874 2.6836-6.615z" fill="#000"/>
+          <path d="M9 18c2.43 0 4.4673-.806 5.9564-2.1805l-2.9087-2.2581c-.8055.54-1.8354.859-3.0477.859-2.344 0-4.328-1.584-5.036-3.7104H.957v2.3318C2.4382 15.9832 5.4818 18 9 18z" fill="#000"/>
+          <path d="M3.964 10.71C3.7836 10.17 3.6818 9.5945 3.6818 9s.1018-1.17.2822-1.71V4.9582H.957A8.9965 8.9965 0 0 0 0 9c0 1.4523.3477 2.8268.957 4.0418L3.964 10.71z" fill="#000"/>
+          <path d="M9 3.5795c1.3214 0 2.5077.4541 3.4405 1.346l2.5813-2.5814C13.4632.8918 11.426 0 9 0 5.4818 0 2.4382 2.0168.957 4.9582L3.964 7.29C4.672 5.1636 6.656 3.5795 9 3.5795z" fill="#000"/>
+        </svg>
+        Continue with Google
+      </button>
+      <button class="btn" id="githubBtn" style="width:100%;justify-content:center;gap:10px;padding:11px;font-size:14px;background:var(--bg-card);border:1px solid var(--border);">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M9 0C4.0275 0 0 4.13 0 9.228c0 4.078 2.5785 7.535 6.1545 8.758.45.083.6135-.197.6135-.436 0-.215-.0075-.934-.012-1.696-2.5035.558-3.033-1.09-3.033-1.09-.4095-1.068-1.0005-1.352-1.0005-1.352-.8175-.575.0615-.563.0615-.563.9045.065 1.38.953 1.38.953.8025 1.413 2.106 1.005 2.619.768.081-.597.3135-1.005.5715-1.236-1.9995-.232-4.1025-1.028-4.1025-4.577 0-1.012.3495-1.838.924-2.486-.093-.232-.4005-1.177.087-2.453 0 0 .7545-.248 2.472.949a8.4 8.4 0 0 1 2.253-.312 8.4 8.4 0 0 1 2.253.312c1.7145-1.197 2.4675-.949 2.4675-.949.489 1.276.1815 2.221.0885 2.453.5775.648.9225 1.474.9225 2.486 0 3.559-2.1075 4.342-4.1145 4.569.324.288.612.849.612 1.713 0 1.236-.012 2.232-.012 2.535 0 .241.162.524.6195.435C15.4245 16.76 18 13.303 18 9.228 18 4.13 13.9725 0 9 0z"/>
+        </svg>
+        Continue with GitHub
+      </button>
+    </div>
+
+    <!-- Step 2: Create tenant (shown after auth) -->
+    <div id="stepTenant" style="display:none;">
+      <div id="userGreeting" style="text-align:center;margin-bottom:var(--space-4);color:var(--muted);font-size:var(--text-sm);"></div>
+      <div class="form-group" style="margin-bottom:var(--space-4);">
+        <label class="form-label">Site Name</label>
+        <input type="text" class="form-input" id="siteName" placeholder="My AI News" maxlength="100" />
+      </div>
+      <div class="form-group" style="margin-bottom:var(--space-3);">
+        <label class="form-label">Subdomain</label>
+        <div style="display:flex;align-items:center;gap:0;">
+          <input type="text" class="form-input" id="siteSlug" placeholder="my-ai-news" maxlength="50"
+            style="border-radius:6px 0 0 6px;border-right:none;" />
+          <span style="background:var(--bg-card);border:1px solid var(--border);padding:8px 12px;border-radius:0 6px 6px 0;color:var(--muted);font-size:var(--text-sm);white-space:nowrap;">.deepfeedai.com</span>
+        </div>
+        <div id="slugStatus" style="font-size:var(--text-xs);margin-top:4px;min-height:18px;"></div>
+      </div>
+      <button class="btn btn-primary" id="createBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;" disabled>
+        Create Site
+      </button>
+    </div>
+
+    <div style="text-align:center;margin-top:var(--space-4);font-size:var(--text-xs);color:var(--muted);">
+      Already have a site? <a href="/login.html" style="color:var(--accent);">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/signup-page.js"></script>
+</body>
+</html>

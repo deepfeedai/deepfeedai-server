@@ -3,15 +3,19 @@ const router                         = express.Router();
 const db                             = require('../db');
 const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
+const { requirePermission }          = require('../middleware/permissions');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
 const { findBestWriter } = require('../lib/writer-assign');
+const { checkPlanLimit }    = require('../lib/plan-limits');
+const { logAudit } = require('../middleware/audit');
+const { learnFromCorrection } = require('../lib/categorize');
 
 // GET /api/articles
-router.get('/', auth, asyncHandler(async (req, res) => {
-  let query = 'SELECT * FROM articles WHERE 1=1';
-  const params = [];
+router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  let query = 'SELECT * FROM articles WHERE tenant_id = $1';
+  const params = [req.tenantId];
   if (req.query.published !== undefined) {
     params.push(parseInt(req.query.published));
     query += ` AND is_published = $${params.length}`;
@@ -32,21 +36,21 @@ router.get('/', auth, asyncHandler(async (req, res) => {
 //   since=<ISO date> filter by published_at >= date
 // DELETE /api/articles/purge-all — hard delete all articles (testing/reset)
 // ?type=curated|original|all (default: all)
-router.delete('/purge-all', auth, asyncHandler(async (req, res) => {
+router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
   const { type = 'all' } = req.query;
   let sql;
   if (type === 'curated') {
-    sql = `DELETE FROM articles WHERE content_type != 'original' OR content_type IS NULL RETURNING id`;
+    sql = `DELETE FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL) RETURNING id`;
   } else if (type === 'original') {
-    sql = `DELETE FROM articles WHERE content_type = 'original' RETURNING id`;
+    sql = `DELETE FROM articles WHERE tenant_id = $1 AND content_type = 'original' RETURNING id`;
   } else {
-    sql = `DELETE FROM articles RETURNING id`;
+    sql = `DELETE FROM articles WHERE tenant_id = $1 RETURNING id`;
   }
-  const deleted = await db.prepare(sql).all();
+  const deleted = await db.prepare(sql).all(req.tenantId);
   res.json({ deleted: deleted.length, type });
 }));
 
-router.get('/export', auth, asyncHandler(async (req, res) => {
+router.get('/export', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const format   = (req.query.format || 'json').toLowerCase();
   const category = req.query.category || null;
   const since    = req.query.since    || null;
@@ -56,8 +60,8 @@ router.get('/export', auth, asyncHandler(async (req, res) => {
   }
 
   // By default export ALL articles; optional filters narrow the set
-  const conditions = ['1=1'];
-  const params = [];
+  const conditions = ['tenant_id = $1'];
+  const params = [req.tenantId];
 
   if (category) {
     params.push(category);
@@ -112,17 +116,61 @@ router.get('/export', auth, asyncHandler(async (req, res) => {
   return res.send(csv);
 }));
 
+// POST /api/articles/bulk-assign-writer — auto-assign best writer to multiple articles
+router.post('/bulk-assign-writer', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { articleIds } = req.body;
+  if (!Array.isArray(articleIds) || !articleIds.length) return res.status(400).json({ error: 'articleIds required' });
+
+  const MAX_BULK = 200;
+  const safeIds = articleIds.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n) && n > 0);
+  if (!safeIds.length) return res.status(400).json({ error: 'articleIds must be non-empty integers' });
+  if (safeIds.length > MAX_BULK) return res.status(400).json({ error: `Maximum ${MAX_BULK} articles per request` });
+
+  // Pre-fetch auto-assign writers once for the whole batch
+  const autoWriters = await db.prepare(`
+    SELECT w.*, array_agg(c.name) FILTER (WHERE c.name IS NOT NULL) AS beat_names
+    FROM writers w
+    LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
+    LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
+    WHERE w.is_auto = true AND w.tenant_id = $1
+    GROUP BY w.id
+  `).all(req.tenantId);
+
+  let assigned = 0, skipped = 0;
+  const results = [];
+
+  for (const id of safeIds) {
+    const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+    if (!article) { skipped++; continue; }
+
+    const writer = await findBestWriter(article, req.tenantId, autoWriters);
+    if (!writer) { skipped++; results.push({ id, writer: null }); continue; }
+
+    await db.prepare('UPDATE articles SET writer_id = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(writer.id, id, req.tenantId);
+    assigned++;
+    results.push({ id, writer: { id: writer.id, name: writer.name } });
+  }
+
+  logAudit(req, 'articles.bulk-assign-writer', 'articles', null, { assigned, skipped, count: safeIds.length });
+  res.json({ assigned, skipped, results });
+}));
+
 // GET /api/articles/:id
-router.get('/:id', auth, asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
+router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   res.json(article);
 }));
 
 // POST /api/articles
-router.post('/', auth, asyncHandler(async (req, res) => {
+router.post('/', auth, requirePermission('articles.create'), asyncHandler(async (req, res) => {
   const body = validate(articleCreate, req.body, res);
   if (!body) return;
+
+  const limit = await checkPlanLimit(req.tenantId, 'articles_month');
+  if (!limit.allowed) {
+    return res.status(403).json({ error: 'Plan limit reached', resource: 'articles_month', current: limit.current, max: limit.max });
+  }
 
   const { title, summary, content, category, source, source_url,
           image_url, author, is_featured, featured_priority: fp, is_published, published_at } = body;
@@ -132,15 +180,15 @@ router.post('/', auth, asyncHandler(async (req, res) => {
   if (is_featured && newPriority) {
     // Evict whoever holds this slot
     await db.prepare(
-      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1'
-    ).run(newPriority);
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND tenant_id = $2'
+    ).run(newPriority, req.tenantId);
   }
 
   const article = await db.prepare(`
     INSERT INTO articles
       (title, summary, content, category, source, source_url, image_url, author,
-       is_featured, featured_priority, is_published, published_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       is_featured, featured_priority, is_published, published_at, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING *
   `).get(
     title,
@@ -154,22 +202,24 @@ router.post('/', auth, asyncHandler(async (req, res) => {
     is_featured  ? 1 : 0,
     newPriority,
     is_published !== undefined ? (is_published ? 1 : 0) : 1,
-    published_at || new Date().toISOString()
+    published_at || new Date().toISOString(),
+    req.tenantId
   );
   // Auto-assign best writer if none set
   if (!article.writer_id) {
-    findBestWriter({ id: article.id, title: article.title, summary: article.summary, category: article.category })
+    findBestWriter({ id: article.id, title: article.title, summary: article.summary, category: article.category }, req.tenantId)
       .then(writer => {
-        if (writer) db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, article.id);
+        if (writer) db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, article.id, req.tenantId);
       }).catch(() => {});
   }
 
+  logAudit(req, 'article.create', 'article', article.id, { title: article.title });
   res.status(201).json(article);
 }));
 
 // PUT /api/articles/:id
-router.put('/:id', auth, asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
+router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const existing = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
 
   const body = validate(articleUpdate, req.body, res);
@@ -185,8 +235,8 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
     // If assigning a priority slot, evict whoever currently holds it
     if (newPriority) {
       await db.prepare(
-        'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2'
-      ).run(newPriority, req.params.id);
+        'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2 AND tenant_id = $3'
+      ).run(newPriority, req.params.id, req.tenantId);
     }
   }
 
@@ -195,7 +245,7 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
       title = $1, summary = $2, content = $3, category = $4, source = $5,
       source_url = $6, image_url = $7, author = $8, is_featured = $9,
       featured_priority = $10, is_published = $11, published_at = $12, updated_at = NOW()
-    WHERE id = $13
+    WHERE id = $13 AND tenant_id = $14
     RETURNING *
   `).get(
     title        !== undefined ? title        : existing.title,
@@ -210,49 +260,58 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
     newPriority,
     is_published !== undefined ? (is_published ? 1 : 0) : existing.is_published,
     published_at !== undefined ? published_at : existing.published_at,
-    req.params.id
+    req.params.id,
+    req.tenantId
   );
+  // Learn from manual category corrections
+  if (category !== undefined && category !== existing.category && updated?.title) {
+    learnFromCorrection(updated.title, category, req.tenantId).catch(() => {});
+  }
+
+  logAudit(req, 'article.update', 'article', parseInt(req.params.id), { title: updated?.title });
   res.json(updated);
 }));
 
 // DELETE /api/articles/:id — soft archive
-router.delete('/:id', auth, asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1').get(req.params.id);
+router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
   await db.prepare(`
     UPDATE articles
     SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
         archived_at = NOW(), updated_at = NOW()
-    WHERE id = $1
-  `).run(req.params.id);
+    WHERE id = $1 AND tenant_id = $2
+  `).run(req.params.id, req.tenantId);
+  logAudit(req, 'article.archive', 'article', parseInt(req.params.id));
   res.json({ message: 'Article archived' });
 }));
 
 // DELETE /api/articles/:id/purge — hard delete
-router.delete('/:id/purge', auth, asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1').get(req.params.id);
+router.delete('/:id/purge', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
-  await db.prepare('DELETE FROM articles WHERE id = $1').run(req.params.id);
+  await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
+  logAudit(req, 'article.purge', 'article', parseInt(req.params.id));
   res.json({ message: 'Article permanently deleted' });
 }));
 
 // PUT /api/articles/:id/restore
-router.put('/:id/restore', auth, asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1').get(req.params.id);
+router.put('/:id/restore', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
   const updated = await db.prepare(`
     UPDATE articles
     SET is_archived = 0, archived_at = NULL, updated_at = NOW()
-    WHERE id = $1
+    WHERE id = $1 AND tenant_id = $2
     RETURNING *
-  `).get(req.params.id);
+  `).get(req.params.id, req.tenantId);
   res.json(updated);
 }));
 
 // PUT /api/articles/:id/feature
 // Body: { priority: 1|2|3 } to feature at a slot, or omit/null to unfeature
-router.put('/:id/feature', auth, asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
+router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const MAX_FEATURED = 3;
@@ -261,8 +320,8 @@ router.put('/:id/feature', auth, asyncHandler(async (req, res) => {
   // Unfeature: no priority supplied, or priority === 0/null
   if (!priority) {
     await db.prepare(
-      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE id = $1'
-    ).run(req.params.id);
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+    ).run(req.params.id, req.tenantId);
     return res.json({ id: article.id, is_featured: 0, featured_priority: null });
   }
 
@@ -273,35 +332,35 @@ router.put('/:id/feature', auth, asyncHandler(async (req, res) => {
 
   // Count currently featured (excluding this article)
   const { count } = await db.prepare(
-    'SELECT COUNT(*) AS count FROM articles WHERE is_featured = 1 AND id != $1'
-  ).get(req.params.id);
+    'SELECT COUNT(*) AS count FROM articles WHERE is_featured = 1 AND id != $1 AND tenant_id = $2'
+  ).get(req.params.id, req.tenantId);
 
   if (count >= MAX_FEATURED) {
     // Bump the article currently holding this slot (if any) to unfeature
     await db.prepare(
-      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2'
-    ).run(slot, req.params.id);
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2 AND tenant_id = $3'
+    ).run(slot, req.params.id, req.tenantId);
   }
 
   await db.prepare(
-    'UPDATE articles SET is_featured = 1, featured_priority = $1, updated_at = NOW() WHERE id = $2'
-  ).run(slot, req.params.id);
+    'UPDATE articles SET is_featured = 1, featured_priority = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
+  ).run(slot, req.params.id, req.tenantId);
 
   res.json({ id: article.id, is_featured: 1, featured_priority: slot });
 }));
 
 // PUT /api/articles/:id/publish
-router.put('/:id/publish', auth, asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1').get(req.params.id);
+router.put('/:id/publish', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   const newVal = article.is_published ? 0 : 1;
-  await db.prepare('UPDATE articles SET is_published = $1, updated_at = NOW() WHERE id = $2').run(newVal, req.params.id);
-  if (newVal === 1) onArticlePublished(article.id).catch(() => {});
+  await db.prepare('UPDATE articles SET is_published = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newVal, req.params.id, req.tenantId);
+  if (newVal === 1) onArticlePublished(article.id, req.tenantId).catch(() => {});
   res.json({ id: article.id, is_published: newVal });
 }));
 
 // POST /api/articles/purge-old — archive articles older than N days
-router.post('/purge-old', auth, asyncHandler(async (req, res) => {
+router.post('/purge-old', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
   const {
     days           = 30,
     dryRun         = true,
@@ -317,10 +376,11 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
   let query = `
     SELECT id, title, category, is_featured, audio_status, audio_url, created_at
     FROM articles
-    WHERE is_archived = 0
-      AND (created_at < $1 OR (published_at IS NOT NULL AND published_at < $1))
+    WHERE tenant_id = $1
+      AND is_archived = 0
+      AND (created_at < $2 OR (published_at IS NOT NULL AND published_at < $2))
   `;
-  const rows = await db.prepare(query).all(cutoff);
+  const rows = await db.prepare(query).all(req.tenantId, cutoff);
 
   const eligible  = [];
   const protected_ = [];
@@ -352,8 +412,8 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
       UPDATE articles
       SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
           archived_at = NOW(), updated_at = NOW()
-      WHERE id = $1
-    `).run(row.id);
+      WHERE id = $1 AND tenant_id = $2
+    `).run(row.id, req.tenantId);
     purgedCount++;
   }
 
@@ -369,19 +429,19 @@ router.post('/purge-old', auth, asyncHandler(async (req, res) => {
 
 
 // PUT /api/articles/:id/assign-writer
-router.put('/:id/assign-writer', auth, asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT id FROM articles WHERE id = $1').get(req.params.id);
+router.put('/:id/assign-writer', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const { writerId } = req.body;
   if (writerId !== null && writerId !== undefined) {
-    const writer = await db.prepare('SELECT id FROM writers WHERE id = $1').get(writerId);
+    const writer = await db.prepare('SELECT id FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
     if (!writer) return res.status(400).json({ error: 'Writer not found' });
   }
 
   const updated = await db.prepare(
-    'UPDATE articles SET writer_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *'
-  ).get(writerId ?? null, req.params.id);
+    'UPDATE articles SET writer_id = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3 RETURNING *'
+  ).get(writerId ?? null, req.params.id, req.tenantId);
   res.json(updated);
 }));
 

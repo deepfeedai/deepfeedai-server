@@ -23,6 +23,12 @@ onReady(async () => {
         apiFetch('/comments/admin/queue').catch(() => ({ queue: [] })),
       ]);
 
+      // Show wizard banner if setup hasn't been completed
+      if (!settings.wizard_completed) {
+        const banner = document.getElementById('wizardBanner');
+        if (banner) banner.style.display = 'block';
+      }
+
       const now       = Date.now();
       const DAY_MS    = 86400000;
       const WEEK_MS   = 7 * DAY_MS;

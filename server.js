@@ -5,9 +5,16 @@ const rateLimit = require('express-rate-limit');
 const path      = require('path');
 const db        = require('./db');
 const { toSlug } = require('./lib/utils');
+const { getSecrets } = require('./lib/secrets');
+const { getAppConfig } = require('./lib/app-config');
 
 const app  = express();
 const PORT = process.env.PORT || 4000;
+
+// ── Deployment Mode ──────────────────────────────────────────────
+const SINGLE_TENANT = process.env.DEPLOYMENT_MODE === 'single';
+
+app.set('trust proxy', 1);
 
 // ── Security Headers ───────────────────────────────────────────────
 app.use(helmet({
@@ -21,6 +28,7 @@ app.use(helmet({
       imgSrc:         ["'self'", 'data:', 'https:'],
       mediaSrc:       ["'self'", 'https:'],
       connectSrc:     ["'self'"],
+      frameSrc:       ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
       frameAncestors: ["'none'"],
       objectSrc:      ["'none'"],
       baseUri:        ["'self'"],
@@ -36,7 +44,9 @@ const summaryLimiter = rateLimit({
   max:            30,
   standardHeaders: true,
   legacyHeaders:   false,
+  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
   message:        { error: 'Too many summary requests. Please try again later.' },
+  validate:       false,
 });
 
 const publicApiLimiter = rateLimit({
@@ -44,7 +54,9 @@ const publicApiLimiter = rateLimit({
   max:            120,
   standardHeaders: true,
   legacyHeaders:   false,
+  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
+  validate:       false,
 });
 
 // ── CORS ───────────────────────────────────────────────────────────
@@ -57,16 +69,9 @@ const publicApiLimiter = rateLimit({
 // fetching its own API) are always allowed.
 const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers'];
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
+const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
-if (ALLOWED_ORIGINS.length === 0) {
-  ALLOWED_ORIGINS.push('http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000');
-}
-
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const origin = req.headers.origin;
 
   // No origin header — curl, server-to-server, same-origin in some browsers
@@ -80,9 +85,36 @@ app.use((req, res, next) => {
   const serverOrigin = `${proto}://${req.headers.host}`;
   const isSameOrigin = origin === serverOrigin;
 
-  if (!isSameOrigin && !isPublic && !ALLOWED_ORIGINS.includes(origin)) {
-    console.error(`[CORS] Blocked: ${origin}`);
-    return res.status(403).json({ error: 'CORS: origin not allowed' });
+  // Resolve allowed origins from settings → env var → defaults
+  let allowedOrigins;
+  try {
+    const { getAppConfig } = require('./lib/app-config');
+    const config = await getAppConfig(req.tenantId || 1);
+    const raw = config.allowed_origins || '';
+    allowedOrigins = raw.split(',').map(o => o.trim()).filter(Boolean);
+  } catch {
+    allowedOrigins = [];
+  }
+  if (allowedOrigins.length === 0) allowedOrigins = DEFAULT_LOCAL_ORIGINS;
+
+  // Allow *.deepfeedai.com subdomains and validated custom domains for tenant access
+  const isTenantSubdomain = /^https:\/\/[a-z0-9-]+\.deepfeedai\.com$/.test(origin);
+  let isCustomDomain = false;
+  if (!isSameOrigin && !isPublic && !allowedOrigins.includes(origin) && !isTenantSubdomain) {
+    // Check if origin matches a tenant's custom_domain
+    try {
+      const originHost = new URL(origin).hostname;
+      const tenant = await db.prepare(
+        "SELECT id FROM tenants WHERE custom_domain = $1 AND status = 'active'"
+      ).get(originHost);
+      if (tenant) {
+        isCustomDomain = true;
+      }
+    } catch { /* invalid URL */ }
+    if (!isCustomDomain) {
+      console.error(`[CORS] Blocked: ${origin}`);
+      return res.status(403).json({ error: 'CORS: origin not allowed' });
+    }
   }
 
   // Allow the request — public routes get wildcard, others get reflected origin
@@ -104,9 +136,62 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Static files ────────────────────────────────────────────────────
+// Allow cross-origin loading of media files (audio, images) from frontend
+app.use('/media', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Tenant Context ──────────────────────────────────────────────────
+const { tenantContext } = require('./middleware/tenant');
+if (SINGLE_TENANT) {
+  app.use('/api', (req, _res, next) => { req.tenantId = 1; next(); });
+} else {
+  app.use('/api', tenantContext);
+}
+
+// ── Per-tenant aggregate rate limiting ──────────────────────────────
+const tenantRateBuckets = new Map(); // tenantId → { count, windowStart }
+const PLAN_RATE_LIMITS = { starter: 600, pro: 1200 }; // requests per minute
+
+app.use('/api', async (req, res, next) => {
+  const tid = req.tenantId;
+  if (!tid) return next();
+
+  // Look up tenant plan
+  let plan = 'starter';
+  try {
+    const row = await db.prepare('SELECT plan FROM tenants WHERE id = $1').get(tid);
+    if (row) plan = row.plan;
+  } catch { /* fallback to starter */ }
+
+  const limit = PLAN_RATE_LIMITS[plan];
+  if (!limit) return next(); // business = unlimited
+
+  const now = Date.now();
+  let bucket = tenantRateBuckets.get(tid);
+  if (!bucket || now - bucket.windowStart > 60000) {
+    bucket = { count: 0, windowStart: now };
+    tenantRateBuckets.set(tid, bucket);
+  }
+
+  bucket.count++;
+  if (bucket.count > limit) {
+    return res.status(429).json({ error: 'Tenant rate limit exceeded. Please try again later.' });
+  }
+  next();
+});
+
+// ── Database storage file serving (after tenant middleware) ─────────
+const { serveRoute: storageServeRoute } = require('./lib/storage');
+app.use('/api/media/file', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, storageServeRoute);
+
 // ── API Routes ──────────────────────────────────────────────────────
+app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  require('./routes/articles'));
 app.use('/api/sources',   require('./routes/sources'));
@@ -122,6 +207,9 @@ app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
+if (!SINGLE_TENANT) {
+  app.use('/api/tenants', require('./routes/tenants'));    // tenant signup + slug check
+}
 app.use('/api/comments',   require('./routes/comments'));    // public read, user write, admin mod
 app.use('/api/subscribe',    require('./routes/subscribe'));    // public — newsletter signup
 app.use('/api/unsubscribe', require('./routes/unsubscribe')); // public — newsletter unsubscribe
@@ -134,13 +222,21 @@ app.use('/api/article-reactions', require('./routes/article-reactions'));    // 
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
 const { auth } = require('./middleware/auth');
+app.use('/api/admin/users',   require('./routes/admin-users'));
+app.use('/api/admin/roles',   require('./routes/admin-roles'));
+app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
+app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/synthesis', auth, require('./routes/synthesis'));
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
+app.use('/api/admin/cron', require('./routes/admin-cron'));
+
+const { getActiveTenantIds } = require('./lib/tenant-utils');
+const { registerJob, startAll } = require('./lib/cron-registry');
 
 // ── SPA fallback ────────────────────────────────────────────────────
 app.get('*', (req, res) => {
@@ -162,97 +258,158 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: isDev ? err.message : 'Internal server error' });
 });
 
-// ── Cron: send weekly newsletter every Monday at 14:00 UTC ─────────
-// Mirrors the previous Vercel Cron schedule: "0 14 * * 1"
-cron.schedule('0 14 * * 1', async () => {
-  const resendKey  = process.env.RESEND_API_KEY;
-  const audienceId = process.env.RESEND_AUDIENCE_ID;
-  if (!resendKey || !audienceId) return; // skip if not configured
-  console.log('[Cron] Sending weekly newsletter...');
-  try {
+// ── Cron Job Registration ───────────────────────────────────────────
+// All 9 cron jobs are registered via the cron registry for centralized
+// management, logging, and admin API control.
+
+registerJob({
+  name: 'rss-fetch',
+  description: 'RSS auto-fetch',
+  category: 'Content',
+  defaultSchedule: '*/30 * * * *',
+  handler: async (tenantId) => {
+    console.log(`[Cron] Auto-fetching RSS sources (tenant ${tenantId})...`);
+    const result = await fetchAllSources(false, tenantId);
+    if (result.inserted > 0) console.log(`[Cron] RSS fetch (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
+    return { inserted: result.inserted, skipped: result.skipped };
+  },
+});
+
+registerJob({
+  name: 'live-news',
+  description: 'Live news fetch',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const appCfg = await getAppConfig(tenantId);
+    if (!appCfg.news_api_key && !appCfg.brave_api_key) return { skipped: 'No API keys configured' };
+    console.log(`[Cron] Auto-fetching live news sources (tenant ${tenantId})...`);
+    const autoPublishSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_publish_live'").get(tenantId);
+    const autoPublish = autoPublishSetting?.value === '1';
+    const result = await fetchLiveSources(autoPublish, tenantId);
+    if (result.inserted > 0) console.log(`[Cron] Live news (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
+    if (result.errors.length) console.warn(`[Cron] Live news errors (tenant ${tenantId}):`, result.errors);
+    return { inserted: result.inserted, skipped: result.skipped, errors: result.errors.length };
+  },
+});
+
+registerJob({
+  name: 'synthesis',
+  description: 'Synthesis scheduler',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const { runSynthesisForWriter } = require('./lib/synthesis');
+    const hour = new Date().getUTCHours();
+    const dow  = new Date().getUTCDay();
+
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE tenant_id = $1 AND is_auto = true').all(tenantId);
+    const results = [];
+
+    for (const w of writers) {
+      const schedule = w.synthesis_schedule || 'daily';
+      let shouldRun = false;
+      if (schedule === 'daily')            shouldRun = (hour === 6);
+      else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
+      else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1);
+
+      if (!shouldRun) continue;
+
+      console.log(`[Cron] Running ${schedule} synthesis for ${w.name} (tenant ${tenantId})...`);
+      const result = await runSynthesisForWriter(w.id, { tenantId });
+      if (result.generated > 0) {
+        console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
+      } else if (result.skipped) {
+        console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
+      }
+      results.push({ writer: w.name, ...result });
+    }
+    return { writers: results.length, results };
+  },
+});
+
+registerJob({
+  name: 'auto-audio',
+  description: 'Auto-audio generation',
+  category: 'Media',
+  defaultSchedule: '0 8 * * *',
+  handler: async (tenantId) => {
+    const enabledSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_enabled'").get(tenantId);
+    if (enabledSetting?.value !== '1') return { skipped: 'Auto-audio not enabled' };
+
+    const maxSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_daily_max'").get(tenantId);
+    const dailyMax = parseInt(maxSetting?.value) || 3;
+
+    const candidates = await db.prepare(`
+      SELECT id, title FROM articles
+      WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
+        AND (audio_status IS NULL OR audio_status = '')
+        AND created_at > NOW() - INTERVAL '3 days'
+      ORDER BY
+        is_featured DESC,
+        editorial_score DESC NULLS LAST,
+        CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT $2
+    `).all(tenantId, dailyMax);
+
+    if (!candidates.length) return { skipped: 'No candidates', candidates: 0 };
+
+    const { generateAudioForArticle } = require('./lib/media-helpers');
+    let generated = 0;
+    for (const article of candidates) {
+      const result = await generateAudioForArticle(article.id, tenantId);
+      if (result) {
+        generated++;
+        console.log(`[Cron] Auto-audio (tenant ${tenantId}): "${article.title}"`);
+      }
+    }
+    if (generated) console.log(`[Cron] Auto-audio (tenant ${tenantId}): generated ${generated}/${candidates.length}`);
+    return { generated, candidates: candidates.length };
+  },
+});
+
+registerJob({
+  name: 'newsletter',
+  description: 'Weekly newsletter',
+  category: 'Notifications',
+  defaultSchedule: '0 14 * * 1',
+  handler: async (tenantId) => {
+    const appCfg     = await getAppConfig(tenantId);
+    const resendKey  = appCfg.resend_api_key;
+    const audienceId = appCfg.resend_audience_id;
+    if (!resendKey || !audienceId) return { skipped: 'Resend not configured' };
+    console.log(`[Cron] Sending weekly newsletter (tenant ${tenantId})...`);
+    const { cronSecret } = await getSecrets();
     const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
       method:  'POST',
       headers: {
         'Content-Type':   'application/json',
-        'x-cron-secret':  process.env.CRON_SECRET || '',
+        'x-cron-secret':  cronSecret || '',
+        'X-Tenant-Id':    String(tenantId),
       },
       body: JSON.stringify({}),
     });
     const data = await res.json();
     if (data.success) {
-      console.log(`[Cron] Newsletter sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
+      console.log(`[Cron] Newsletter (tenant ${tenantId}) sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
+      return { broadcastId: data.broadcastId, articleCount: data.articleCount };
     } else {
-      console.error('[Cron] Newsletter failed:', data.error);
+      console.error(`[Cron] Newsletter (tenant ${tenantId}) failed:`, data.error);
+      throw new Error(data.error || 'Newsletter send failed');
     }
-  } catch (e) {
-    console.error('[Cron] Newsletter error:', e.message);
-  }
+  },
 });
 
-// ── Cron: live news auto-fetch every 60 min (if API keys configured) ─
-cron.schedule('0 * * * *', async () => {
-  if (!process.env.NEWS_API_KEY && !process.env.BRAVE_API_KEY) return;
-  console.log('[Cron] Auto-fetching live news sources...');
-  try {
-    const autoPublishSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_publish_live'").get();
-    const autoPublish = autoPublishSetting?.value === '1';
-    const result = await fetchLiveSources(autoPublish);
-    console.log(`[Cron] Live news done — ${result.inserted} new, ${result.skipped} skipped (auto-publish: ${autoPublish})`);
-    if (result.errors.length) console.warn('[Cron] Live news errors:', result.errors);
-  } catch (e) {
-    console.error('[Cron] Live news error:', e.message);
-  }
-});
-
-// ── Cron: RSS auto-fetch every 30 min ──────────────────────────────
-cron.schedule('*/30 * * * *', async () => {
-  console.log('[Cron] Auto-fetching RSS sources...');
-  try {
-    const result = await fetchAllSources(false);
-    console.log(`[Cron] Done — ${result.inserted} new, ${result.skipped} skipped`);
-  } catch (e) {
-    console.error('[Cron] Fetch error:', e.message);
-  }
-});
-
-// ── Cron: purge expired/used auth codes every 10 min ──────────────
-cron.schedule('*/10 * * * *', async () => {
-  try {
-    await db.prepare(`
-      DELETE FROM auth_codes
-      WHERE used = 1 OR expires_at <= NOW()
-    `).run();
-  } catch (e) {
-    console.error('[Cron] Auth code cleanup error:', e.message);
-  }
-});
-
-// ── Cron: purge archived articles past grace period ────────────────
-cron.schedule('0 * * * *', async () => {
-  try {
-    const graceSetting = await db.prepare(`SELECT value FROM settings WHERE key = 'purge_grace_hours'`).get();
-    const graceHours = Math.max(parseInt(graceSetting?.value ?? '24', 10) || 24, 1);
-    const result = await db.getPool().query(
-      `DELETE FROM articles
-       WHERE is_archived = 1
-         AND archived_at IS NOT NULL
-         AND archived_at <= NOW() - ($1 || ' hours')::INTERVAL`,
-      [graceHours]
-    );
-    if (result.rowCount > 0) {
-      console.log(`[Cron] Purged ${result.rowCount} archived article(s) older than ${graceHours}h`);
-    }
-  } catch (e) {
-    console.error('[Cron] Purge error:', e.message);
-  }
-});
-
-// ── Cron: auto-purge old articles (runs nightly at 2 AM) ───────────
-cron.schedule('0 2 * * *', async () => {
-  try {
-    const rows = await db.prepare('SELECT key, value FROM settings WHERE key LIKE $1').all('purge_%');
+registerJob({
+  name: 'auto-archive',
+  description: 'Auto-archive articles',
+  category: 'Maintenance',
+  defaultSchedule: '0 2 * * *',
+  handler: async (tenantId) => {
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1 AND key LIKE $2').all(tenantId, 'purge_%');
     const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
-    if (s.purge_enabled !== '1') return;
+    if (s.purge_enabled !== '1') return { skipped: 'Auto-archive not enabled' };
 
     const days            = Math.max(parseInt(s.purge_days) || 30, 7);
     const protectFeatured = s.purge_protect_featured !== '0';
@@ -261,19 +418,18 @@ cron.schedule('0 2 * * *', async () => {
     const engagedDays     = Math.max(parseInt(s.purge_protect_engaged_days) || 7, 1);
     const cutoff          = new Date(Date.now() - days * 86400000).toISOString();
 
-    // Build set of engaged article slugs (comments OR reactions within the lookback window)
     let engagedSlugs = new Set();
     if (protectEngaged) {
       const engagedCutoff = new Date(Date.now() - engagedDays * 86400000).toISOString();
       const commentSlugs = await db.prepare(`
         SELECT DISTINCT article_slug FROM comments
-        WHERE created_at > $1 AND is_deleted = 0
-      `).all(engagedCutoff);
+        WHERE tenant_id = $1 AND created_at > $2 AND is_deleted = 0
+      `).all(tenantId, engagedCutoff);
       const reactionSlugs = await db.prepare(`
         SELECT DISTINCT c.article_slug FROM comment_reactions r
         JOIN comments c ON c.id = r.comment_id
-        WHERE r.created_at > $1 AND c.is_deleted = 0
-      `).all(engagedCutoff);
+        WHERE c.tenant_id = $1 AND r.created_at > $2 AND c.is_deleted = 0
+      `).all(tenantId, engagedCutoff);
       for (const row of commentSlugs)  engagedSlugs.add(row.article_slug);
       for (const row of reactionSlugs) engagedSlugs.add(row.article_slug);
     }
@@ -281,9 +437,9 @@ cron.schedule('0 2 * * *', async () => {
     const candidates = await db.prepare(`
       SELECT id, title, is_featured, audio_status, audio_url
       FROM articles
-      WHERE is_archived = 0
-        AND (created_at < $1 OR (published_at IS NOT NULL AND published_at < $1))
-    `).all(cutoff);
+      WHERE tenant_id = $1 AND is_archived = 0
+        AND (created_at < $2 OR (published_at IS NOT NULL AND published_at < $2))
+    `).all(tenantId, cutoff);
 
     let purged = 0;
     for (const row of candidates) {
@@ -292,117 +448,82 @@ cron.schedule('0 2 * * *', async () => {
       if (protectEngaged && engagedSlugs.has(toSlug(row.title))) continue;
       await db.prepare(`
         UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
-          archived_at = NOW(), updated_at = NOW() WHERE id = $1
-      `).run(row.id);
+          archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2
+      `).run(row.id, tenantId);
       purged++;
     }
-    if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days`);
-  } catch (e) {
-    console.error('[AutoPurge] Error:', e.message);
-  }
+    if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days (tenant ${tenantId})`);
+    return { purged, candidates: candidates.length, days };
+  },
 });
 
-// ── Cron: synthesis scheduler — runs hourly, honors each writer's synthesis_schedule ──
-cron.schedule('0 * * * *', async () => {
-  try {
-    const { runSynthesisForWriter } = require('./lib/synthesis');
-    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE is_auto = true').all();
-    const hour = new Date().getUTCHours();
-    const dow  = new Date().getUTCDay(); // 0 = Sunday, 1 = Monday
-
-    for (const w of writers) {
-      const schedule = w.synthesis_schedule || 'daily';
-
-      // Determine if this writer should run at this hour
-      let shouldRun = false;
-      if (schedule === 'daily')       shouldRun = (hour === 6);
-      else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
-      else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1); // Monday 6 AM
-      // 'manual' — never auto-run
-
-      if (!shouldRun) continue;
-
-      console.log(`[Cron] Running ${schedule} synthesis for ${w.name}...`);
-      const result = await runSynthesisForWriter(w.id);
-      if (result.generated > 0) {
-        console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
-      } else if (result.skipped) {
-        console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
-      }
+registerJob({
+  name: 'purge-archived',
+  description: 'Purge archived articles',
+  category: 'Maintenance',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const graceSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'purge_grace_hours'").get(tenantId);
+    const graceHours = Math.max(parseInt(graceSetting?.value ?? '24', 10) || 24, 1);
+    const result = await db.getPool().query(
+      `DELETE FROM articles
+       WHERE tenant_id = $1
+         AND is_archived = 1
+         AND archived_at IS NOT NULL
+         AND archived_at <= NOW() - ($2 || ' hours')::INTERVAL`,
+      [tenantId, graceHours]
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Cron] Purged ${result.rowCount} archived article(s) (tenant ${tenantId}, grace ${graceHours}h)`);
     }
-  } catch (e) {
-    console.error('[Cron] Synthesis error:', e.message);
-  }
+    return { purged: result.rowCount, graceHours };
+  },
 });
 
-// ── Cron: daily budget alert check (9 AM UTC) ───────────────────────
-cron.schedule('0 9 * * *', async () => {
-  try {
-    const { checkBudgetAlerts } = require('./lib/budget');
-    const alert = await checkBudgetAlerts();
-    if (!alert.warn) return;
+registerJob({
+  name: 'auth-cleanup',
+  description: 'Auth code cleanup',
+  category: 'Maintenance',
+  defaultSchedule: '*/10 * * * *',
+  handler: async (_tenantId) => {
+    await db.prepare(`
+      DELETE FROM auth_codes
+      WHERE used = 1 OR expires_at <= NOW()
+    `).run();
+    return { cleaned: true };
+  },
+});
 
-    // Only send once per day per level — check if we already sent today
+registerJob({
+  name: 'budget-alert',
+  description: 'Budget alert check',
+  category: 'Notifications',
+  defaultSchedule: '0 9 * * *',
+  handler: async (tenantId) => {
+    const { checkBudgetAlerts } = require('./lib/budget');
+    const alert = await checkBudgetAlerts(tenantId);
+    if (!alert.warn) return { warn: false };
+
     const today = new Date().toISOString().slice(0, 10);
     const alreadySent = await db.prepare(
       `SELECT id FROM ai_usage
-       WHERE operation = 'email' AND trigger = 'cron'
+       WHERE tenant_id = $1 AND operation = 'email' AND trigger = 'cron'
          AND error_message IS NULL
-         AND created_at >= $1::DATE
+         AND created_at >= $2::DATE
        LIMIT 1`
-    ).get(today);
-    if (alreadySent) return;
+    ).get(tenantId, today);
+    if (alreadySent) return { warn: true, alreadySent: true };
 
     const { sendBudgetAlert } = require('./lib/notify');
-    await sendBudgetAlert(alert);
-    console.log(`[Cron] Budget alert sent: ${alert.level} (${alert.pctUsed}%)`);
-  } catch (e) {
-    console.error('[Cron] Budget alert error:', e.message);
-  }
-});
-
-// ── Cron: auto-audio generation (daily at 8 AM UTC) ─────────────────
-cron.schedule('0 8 * * *', async () => {
-  try {
-    const enabledSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_audio_enabled'").get();
-    if (enabledSetting?.value !== '1') return;
-
-    const maxSetting = await db.prepare("SELECT value FROM settings WHERE key = 'auto_audio_daily_max'").get();
-    const dailyMax = parseInt(maxSetting?.value) || 3;
-
-    // Find top articles without audio: featured, high editorial score, or original content
-    const candidates = await db.prepare(`
-      SELECT id, title FROM articles
-      WHERE is_published = 1 AND is_archived = 0
-        AND (audio_status IS NULL OR audio_status = '')
-        AND created_at > NOW() - INTERVAL '3 days'
-      ORDER BY
-        is_featured DESC,
-        editorial_score DESC NULLS LAST,
-        CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
-        created_at DESC
-      LIMIT $1
-    `).all(dailyMax);
-
-    if (!candidates.length) return;
-
-    const { generateAudioForArticle } = require('./lib/media-helpers');
-    let generated = 0;
-    for (const article of candidates) {
-      const result = await generateAudioForArticle(article.id);
-      if (result) {
-        generated++;
-        console.log(`[Cron] Auto-audio: "${article.title}" (${result.charCount} chars)`);
-      }
-    }
-    if (generated) console.log(`[Cron] Auto-audio: generated ${generated}/${candidates.length}`);
-  } catch (e) {
-    console.error('[Cron] Auto-audio error:', e.message);
-  }
+    await sendBudgetAlert(alert, tenantId);
+    console.log(`[Cron] Budget alert sent (tenant ${tenantId}): ${alert.level} (${alert.pctUsed}%)`);
+    return { warn: true, level: alert.level, pctUsed: alert.pctUsed, sent: true };
+  },
 });
 
 // ── Start ───────────────────────────────────────────────────────────
-db.init().then(() => {
+db.init().then(async () => {
+  await startAll();
   app.listen(PORT, () => {
     console.log(`🤖 DeepFeedAI Admin running at http://localhost:${PORT}`);
   });

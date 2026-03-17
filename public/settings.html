@@ -23,6 +23,8 @@
         <button class="tab-btn" data-tab="integrations">Integrations</button>
         <button class="tab-btn" data-tab="content">Content</button>
         <button class="tab-btn" data-tab="moderation">Moderation</button>
+        <button class="tab-btn" data-tab="auth">Authentication</button>
+        <button class="tab-btn" data-tab="automation">Automation</button>
       </div>
 
       <!-- ═══ General Tab ═══ -->
@@ -127,6 +129,25 @@
               <label class="form-label" for="siteUrl">Site URL</label>
               <input type="text" class="form-control" id="siteUrl" placeholder="https://deepfeedai.com" />
             </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="baseUrl">Admin Server URL</label>
+              <input type="text" class="form-control" id="baseUrl" placeholder="https://olympus.deepfeedai.com" />
+              <p class="form-help">This server's public URL (used for OAuth redirect URIs)</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="mainSiteUrl">Main Site URL</label>
+              <input type="text" class="form-control" id="mainSiteUrl" placeholder="https://deepfeedai.com" />
+              <p class="form-help">Frontend URL (used in emails and OAuth redirects)</p>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="allowedOrigins">Allowed Origins (CORS)</label>
+            <input type="text" class="form-control" id="allowedOrigins" placeholder="https://deepfeedai.com, https://mysite.com" />
+            <p class="form-help">Comma-separated list of origins allowed to make cross-origin requests to admin endpoints. Defaults to localhost for development. Tenant subdomains (*.deepfeedai.com) and custom domains are always allowed.</p>
           </div>
 
           <div class="form-group">
@@ -254,26 +275,14 @@
           </div>
         </div>
 
-        <!-- Image Generation card -->
+        <!-- Gemini AI card -->
         <div class="settings-card">
           <div class="settings-card-header">
-            <div class="settings-card-icon">🎨</div>
+            <div class="settings-card-icon">✨</div>
             <div>
-              <div class="settings-card-title">Image Generation</div>
-              <div class="settings-card-subtitle">Google Imagen / Gemini for AI article thumbnails</div>
+              <div class="settings-card-title">Google Gemini</div>
+              <div class="settings-card-subtitle">AI summaries, categorization, synthesis, and image generation</div>
             </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Model</label>
-            <select class="form-control input-wide" id="imagenModel">
-              <option value="imagen-4.0-generate-001">imagen-4.0-generate-001 (Standard)</option>
-              <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001 (Ultra)</option>
-              <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001 (Fast)</option>
-            </select>
-            <p class="form-help">
-              Ultra produces the highest quality images. Fast is cheaper and quicker. Gemini models support more creative prompts.
-            </p>
           </div>
 
           <div class="form-group">
@@ -284,11 +293,24 @@
               <button class="btn btn-outline btn-sm" id="toggleImagenKeyBtn" type="button" title="Show/hide">👁️</button>
             </div>
             <p class="form-help">
-              Overrides the <code>GEMINI_API_KEY</code> environment variable for image generation. Leave blank to use the environment variable.
+              Used for TLDR summaries, article categorization, writer synthesis, visual concepts, and image generation. Overrides the <code>GEMINI_API_KEY</code> environment variable.
             </p>
             <div id="imagenKeyStatus" class="settings-status"></div>
-            <button class="btn btn-primary" id="saveImagenBtn">Save Image Settings</button>
           </div>
+
+          <div class="form-group">
+            <label class="form-label">Image Generation Model</label>
+            <select class="form-control input-wide" id="imagenModel">
+              <option value="imagen-4.0-generate-001">imagen-4.0-generate-001 (Standard)</option>
+              <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001 (Ultra)</option>
+              <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001 (Fast)</option>
+            </select>
+            <p class="form-help">
+              Select the Imagen model for AI thumbnail generation. Ultra produces the highest quality. Fast is cheaper and quicker.
+            </p>
+          </div>
+
+          <button class="btn btn-primary" id="saveImagenBtn">Save Gemini Settings</button>
         </div>
 
         <!-- Analytics IDs -->
@@ -351,6 +373,153 @@
             <button class="btn btn-primary" id="savePerspectiveBtn">Save Perspective Settings</button>
           </div>
           <div id="perspectiveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Cloudflare R2 Storage -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">☁️</div>
+            <div>
+              <div class="settings-card-title">Cloudflare R2 Storage</div>
+              <div class="settings-card-subtitle">S3-compatible object storage for media files</div>
+            </div>
+            <span id="r2Status" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Account ID</label>
+              <input type="text" class="form-control input-mono" id="r2AccountId" placeholder="e.g. a1b2c3d4e5f6" />
+              <p class="form-help">Found in Cloudflare dashboard &gt; R2 &gt; Overview</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Bucket Name</label>
+              <input type="text" class="form-control" id="r2BucketName" placeholder="e.g. deepfeedai-media" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Public URL</label>
+            <input type="text" class="form-control" id="r2PublicUrl" placeholder="https://media.yourdomain.com" />
+            <p class="form-help">Custom domain or R2.dev URL for serving files publicly</p>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Access Key ID</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="r2AccessKeyId" placeholder="API token access key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2AccessKeyId', this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Secret Access Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="r2SecretAccessKey" placeholder="API token secret" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2SecretAccessKey', this)">👁️</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="form-help">
+            Overrides <code>R2_*</code> / <code>S3_*</code> environment variables. Leave blank to use env vars. Requires server restart to take effect.
+          </p>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveR2Btn">Save R2 Settings</button>
+          </div>
+          <div id="r2SaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Email (Resend) -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x1F4E7;</div>
+            <div>
+              <div class="settings-card-title">Email (Resend)</div>
+              <div class="settings-card-subtitle">Newsletter and notification emails</div>
+            </div>
+            <span id="resendStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control input-mono" id="resendApiKey" placeholder="re_..." autocomplete="off" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('resendApiKey', this)">Show</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Audience ID</label>
+            <input type="text" class="form-control input-mono" id="resendAudienceId" placeholder="Newsletter subscriber list ID" />
+          </div>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary btn-sm" id="saveResendBtn">Save Email Settings</button>
+          </div>
+          <div id="resendSaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Live News Sources -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x1F4F0;</div>
+            <div>
+              <div class="settings-card-title">Live News Sources</div>
+              <div class="settings-card-subtitle">NewsAPI, Brave Search, and YouTube for real-time news</div>
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">NewsAPI Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="newsApiKey" placeholder="API key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('newsApiKey', this)">Show</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Brave Search Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="braveApiKey" placeholder="API key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('braveApiKey', this)">Show</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">YouTube Data API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control input-mono" id="youtubeApiKey" placeholder="API key" autocomplete="off" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('youtubeApiKey', this)">Show</button>
+            </div>
+          </div>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary btn-sm" id="saveNewsKeysBtn">Save News Source Keys</button>
+          </div>
+          <div id="newsKeysSaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Live News Search Query -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x1F50D;</div>
+            <div>
+              <div class="settings-card-title">Live News Search Query</div>
+              <div class="settings-card-subtitle">What topics the live-news cron searches for. Leave blank for the default AI/ML query.</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Search Query</label>
+            <input type="text" class="form-control" id="liveNewsQuery" placeholder='e.g. Bitcoin OR Ethereum OR "crypto market"' />
+            <div class="text-muted text-xs" style="margin-top:4px;">Supports AND/OR operators and quoted phrases. Used by both NewsAPI and Brave Search cron jobs.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input type="checkbox" id="autoPublishLive" /> Auto-publish live news articles
+            </label>
+            <div class="text-muted text-xs" style="margin-top:2px;">When enabled, fetched articles are published immediately instead of saved as drafts.</div>
+          </div>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary btn-sm" id="saveLiveNewsBtn">Save Live News Settings</button>
+          </div>
+          <div id="liveNewsSaveStatus" class="settings-status"></div>
         </div>
 
       </div><!-- /integrations tab -->
@@ -567,6 +736,68 @@
         </div>
 
       </div><!-- /moderation tab -->
+
+      <!-- ═══ Authentication Tab ═══ -->
+      <div class="tab-panel" data-tab="auth">
+        <!-- Info callout -->
+        <div class="settings-info" style="background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: var(--text-sm); color: var(--text);">
+          OAuth credentials configured here override environment variables. Leave blank to use environment variable fallback.
+        </div>
+
+        <!-- Google OAuth -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <h3>Google OAuth</h3>
+            <span id="googleOAuthStatus" class="badge badge-muted">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-control" id="oauthGoogleClientId" placeholder="xxxx.apps.googleusercontent.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" class="form-control" id="oauthGoogleClientSecret" placeholder="GOCSPX-..." style="flex:1" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGoogleClientSecret', this)">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="saveGoogleOAuth">Save Google OAuth</button>
+        </div>
+
+        <!-- GitHub OAuth -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <h3>GitHub OAuth</h3>
+            <span id="githubOAuthStatus" class="badge badge-muted">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-control" id="oauthGithubClientId" placeholder="Ov23li..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" class="form-control" id="oauthGithubClientSecret" placeholder="Secret" style="flex:1" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGithubClientSecret', this)">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="saveGithubOAuth">Save GitHub OAuth</button>
+        </div>
+      </div><!-- /auth tab -->
+
+      <!-- ═══ Automation Tab ═══ -->
+      <div class="tab-panel" data-tab="automation">
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">⏰</div>
+            <div>
+              <div class="settings-card-title">Scheduled Tasks</div>
+              <div class="settings-card-subtitle">Manage automated jobs — enable/disable, adjust schedules, view run history</div>
+            </div>
+          </div>
+          <div id="cronJobsList"></div>
+        </div>
+      </div><!-- /automation tab -->
 
     </div><!-- /page-body -->
   </div><!-- /main-content -->

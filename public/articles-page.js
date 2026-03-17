@@ -9,6 +9,7 @@ let articles = [];
   let searchQuery = '';
   let audioFilter = 'all';
   let dateFilter  = 'all';
+  let writerFilter = 'all';
   let activeTab   = 'all';
   let artPage     = 1;
   let artPageSize = 25;
@@ -103,7 +104,14 @@ let articles = [];
       });
     }
 
-    // 5. Sort
+    // 5. Writer filter
+    if (writerFilter === 'unassigned') {
+      filtered = filtered.filter(a => !a.writer_id);
+    } else if (writerFilter === 'assigned') {
+      filtered = filtered.filter(a => !!a.writer_id);
+    }
+
+    // 6. Sort
     filtered.sort((a, b) => {
       let va = a[sortCol], vb = b[sortCol];
       if (va == null) va = ''; if (vb == null) vb = '';
@@ -944,10 +952,43 @@ let articles = [];
     await loadArticles();
   }
 
+  async function bulkAutoAssignWriters() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const unassigned = ids.filter(id => {
+      const a = allArticles.find(x => x.id === id);
+      return a && !a.writer_id;
+    });
+    if (!unassigned.length) {
+      showAlert('All selected articles already have writers assigned', 'error');
+      return;
+    }
+    try {
+      const result = await apiFetch('/articles/bulk-assign-writer', {
+        method: 'POST',
+        body: JSON.stringify({ articleIds: unassigned })
+      });
+      selectedIds.clear();
+      showAlert(`${result.assigned} article(s) assigned to writers` + (result.skipped ? `, ${result.skipped} skipped` : ''));
+      await loadArticles();
+    } catch (err) {
+      showAlert('Auto-assign failed: ' + err.message, 'error');
+    }
+  }
+
   onReady(async () => {
     if (!requireAuth()) return;
     renderSidebar();
     initModals();
+
+    if (!hasPermission('articles.create')) {
+      const addBtn = document.getElementById('addArticleBtn');
+      if (addBtn) addBtn.style.display = 'none';
+    }
+    if (!hasPermission('articles.delete')) {
+      const delBtn = document.getElementById('bulkDeleteBtn');
+      if (delBtn) delBtn.style.display = 'none';
+    }
 
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
@@ -1045,6 +1086,7 @@ let articles = [];
     document.getElementById('bulkImagesBtn').addEventListener('click', bulkGenerateImages);
     document.getElementById('bulkRecategorizeBtn').addEventListener('click', bulkRecategorize);
     document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
+    document.getElementById('bulkAssignWriterBtn').addEventListener('click', bulkAutoAssignWriters);
     document.getElementById('recategorizeAllBtn').addEventListener('click', recategorizeAll);
     document.getElementById('confirmRecategorizeBtn').addEventListener('click', confirmRecategorize);
     document.getElementById('bulkClearBtn').addEventListener('click', () => {
@@ -1102,6 +1144,16 @@ let articles = [];
         document.querySelectorAll('[data-date-filter]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         dateFilter = btn.dataset.dateFilter;
+        applyFilters();
+      });
+    });
+
+    // Writer filter pills
+    document.querySelectorAll('[data-writer-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-writer-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        writerFilter = btn.dataset.writerFilter;
         applyFilters();
       });
     });

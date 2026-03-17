@@ -7,29 +7,44 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const db               = require('../db');
 const { auth: requireAdmin } = require('../middleware/auth');
+const { requirePermission }  = require('../middleware/permissions');
 const { asyncHandler }       = require('../lib/utils');
 const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
+
+// Keys that are managed by lib/secrets.js and must never be returned to the frontend
+const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
 const { extFromMime, upload: r2Upload } = require('../lib/r2');
+const { logAudit } = require('../middleware/audit');
 const path = require('path');
 
 const BRANDING_DIR = path.join(__dirname, '..', 'public', 'media', 'branding');
 
 // GET /api/settings — return all settings as key/value object (decrypt sensitive values)
-router.get('/', requireAdmin, asyncHandler(async (req, res) => {
-  const rows = await db.prepare('SELECT key, value FROM settings').all();
+// JWT and cron secrets are excluded — they are managed via lib/secrets.js and must
+// never be returned to the frontend (prevents credential extraction via admin session).
+router.get('/', requireAdmin, requirePermission('settings.read'), asyncHandler(async (req, res) => {
+  const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1').all(req.tenantId);
   const result = {};
   for (const row of rows) {
+    if (SECRET_MANAGER_KEYS.has(row.key)) continue; // never expose JWT/cron secrets
     result[row.key] = SENSITIVE_KEYS.has(row.key) ? decryptSetting(row.value) : row.value;
   }
   res.json(result);
 }));
 
 // PUT /api/settings — upsert key/value pairs (encrypt sensitive values)
-router.put('/', requireAdmin, asyncHandler(async (req, res) => {
+router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const body = validate(settingsUpdate, req.body, res);
   if (!body) return;
+
+  // Block writes to JWT/cron secrets — these are managed exclusively by lib/secrets.js
+  for (const key of Object.keys(body)) {
+    if (SECRET_MANAGER_KEYS.has(key)) {
+      return res.status(400).json({ error: `Setting '${key}' cannot be updated via this endpoint` });
+    }
+  }
 
   const pool = getPool();
   let hasSiteKey = false;
@@ -38,18 +53,25 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
     if (key.startsWith('site_')) hasSiteKey = true;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
     await pool.query(
-      `INSERT INTO settings (key, value, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [key, stored]
+      `INSERT INTO settings (tenant_id, key, value, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [req.tenantId, key, stored]
     );
   }
 
   if (hasSiteKey) bustSiteConfigCache();
 
-  const rows = await db.prepare('SELECT key, value FROM settings').all();
+  // Audit log each changed key
+  for (const key of Object.keys(body)) {
+    logAudit(req, 'settings.update', 'settings', null, { key, changed: true });
+  }
+
+
+  const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1').all(req.tenantId);
   const result = {};
   for (const row of rows) {
+    if (SECRET_MANAGER_KEYS.has(row.key)) continue; // never expose JWT/cron secrets
     result[row.key] = SENSITIVE_KEYS.has(row.key) ? decryptSetting(row.value) : row.value;
   }
   res.json(result);
@@ -63,7 +85,7 @@ const BRANDING_TYPES = {
   ogimage: { filename: 'site-og',      settingKey: 'site_og_image' },
 };
 
-router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/logo', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const { dataUrl, type } = req.body;
   if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
 
@@ -86,10 +108,10 @@ router.post('/logo', requireAdmin, asyncHandler(async (req, res) => {
 
   const pool = getPool();
   await pool.query(
-    `INSERT INTO settings (key, value, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [bt.settingKey, url]
+    `INSERT INTO settings (tenant_id, key, value, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [req.tenantId, bt.settingKey, url]
   );
 
   bustSiteConfigCache();

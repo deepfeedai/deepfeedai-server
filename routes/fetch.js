@@ -7,16 +7,23 @@ const RSSParser          = require('rss-parser');
 const db                 = require('../db');
 const { scrapeOgImage }  = require('../lib/scrape');
 const { auth }           = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
 const { logUsage } = require('../lib/ai-usage');
 const { onArticlePublished } = require('../lib/post-publish');
+const { getAppConfig } = require('../lib/app-config');
 
-const parser = new RSSParser();
+const parser = new RSSParser({
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (compatible; DeepFeedAI/1.0; +https://deepfeedai.com)',
+    'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+  },
+});
 
-async function fetchAllSources(autoPublish = false) {
-  const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1').all();
+async function fetchAllSources(autoPublish = false, tenantId = 1) {
+  const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1 AND tenant_id = $1').all(tenantId);
   let inserted = 0, skipped = 0;
   const errors = [];
   const needsImage = []; // { id, source_url } — newly inserted articles without an RSS image
@@ -40,10 +47,10 @@ async function fetchAllSources(autoPublish = false) {
         const pubMs = item.pubDate ? new Date(item.pubDate).getTime() : 0;
         if (pubMs && pubMs < cutoff) { skipped++; continue; }
 
-        const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
+        const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
         if (existing) { skipped++; continue; }
 
-        const category = await detectCategory(item, { defaultCategory: source.default_category });
+        const category = await detectCategory(item, { defaultCategory: source.default_category, tenantId });
         const image    =
           item.enclosure?.url                              ||  // standard podcast/media enclosure
           item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
@@ -60,28 +67,28 @@ async function fetchAllSources(autoPublish = false) {
 
         // Insert as unpublished; quality gate decides whether to publish
         await db.prepare(
-          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8)`
-        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, pubDate);
+          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, tenant_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, $9)`
+        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, pubDate, tenantId);
         inserted++;
 
         // Fire-and-forget: writer assignment + quality gate auto-publish
         try {
-          const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1').get(url);
+          const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
           if (inserted_row) {
             const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary, category, source: source.name };
             (async () => {
               try {
-                const writer = await findBestWriter(artObj);
+                const writer = await findBestWriter(artObj, tenantId);
                 if (writer) {
-                  await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, artObj.id);
-                  const tldr = await generateWriterTldr(artObj, writer);
-                  if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
+                  await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
+                  const tldr = await generateWriterTldr(artObj, writer, tenantId);
+                  if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2 AND tenant_id = $3').run(tldr, artObj.id, tenantId);
                 }
 
                 if (wantPublish) {
-                  await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
-                  onArticlePublished(inserted_row.id).catch(() => {});
+                  await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1 AND tenant_id = $2').run(inserted_row.id, tenantId);
+                  onArticlePublished(inserted_row.id, tenantId).catch(() => {});
                 }
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
@@ -90,11 +97,11 @@ async function fetchAllSources(autoPublish = false) {
 
         // Track articles without an RSS image for synchronous OG enrichment below
         if (!image) {
-          const row = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(url);
+          const row = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
           if (row) needsImage.push({ id: row.id, source_url: url });
         }
       }
-      await db.prepare('UPDATE sources SET last_fetched = $1 WHERE id = $2').run(new Date().toISOString(), source.id);
+      await db.prepare('UPDATE sources SET last_fetched = $1 WHERE id = $2 AND tenant_id = $3').run(new Date().toISOString(), source.id, tenantId);
     } catch (err) {
       errors.push({ source: source.name, error: err.message });
     }
@@ -107,15 +114,16 @@ async function fetchAllSources(autoPublish = false) {
         `SELECT id, source_url FROM articles
          WHERE (image_url IS NULL OR image_url = '')
            AND (is_archived = 0 OR is_archived IS NULL)
+           AND tenant_id = $1
          ORDER BY id DESC LIMIT 30`
-      ).all();
+      ).all(tenantId);
       const CONCURRENCY = 5;
       for (let i = 0; i < noImage.length; i += CONCURRENCY) {
         const batch = noImage.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (a) => {
           try {
-            const img = await scrapeOgImage(a.source_url);
-            if (img) await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2').run(img, a.id);
+            const img = await scrapeOgImage(a.source_url, tenantId);
+            if (img) await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(img, a.id, tenantId);
           } catch { /* ignore per-article failures */ }
         }));
       }
@@ -127,12 +135,12 @@ async function fetchAllSources(autoPublish = false) {
 
 // ── Live news fetch (NewsAPI + Brave Search) ──────────────────────────────────
 
-const AI_QUERY    = '("artificial intelligence" OR "machine learning" OR "large language model" OR OpenAI OR Anthropic OR "deep learning" OR LLM OR ChatGPT OR "generative AI" OR "neural network")';
-const BRAVE_QUERY = 'artificial intelligence generative AI LLM OpenAI Anthropic machine learning deep learning';
+const DEFAULT_NEWSAPI_QUERY = '("artificial intelligence" OR "machine learning" OR "large language model" OR OpenAI OR Anthropic OR "deep learning" OR LLM OR ChatGPT OR "generative AI" OR "neural network")';
+const DEFAULT_BRAVE_QUERY  = 'artificial intelligence generative AI LLM OpenAI Anthropic machine learning deep learning';
 const LIVE_PAGE_SIZE = 20;
 
-async function fetchNewsAPIArticles(apiKey) {
-  const q   = encodeURIComponent(AI_QUERY);
+async function fetchNewsAPIArticles(apiKey, query) {
+  const q   = encodeURIComponent(query || DEFAULT_NEWSAPI_QUERY);
   const url = `https://newsapi.org/v2/everything?q=${q}&language=en&sortBy=publishedAt&pageSize=${LIVE_PAGE_SIZE}&apiKey=${apiKey}`;
   const _start = Date.now();
   const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
@@ -155,8 +163,8 @@ async function fetchNewsAPIArticles(apiKey) {
     }));
 }
 
-async function fetchBraveArticles(apiKey) {
-  const q   = encodeURIComponent(BRAVE_QUERY);
+async function fetchBraveArticles(apiKey, query) {
+  const q   = encodeURIComponent(query || DEFAULT_BRAVE_QUERY);
   const url = `https://api.search.brave.com/res/v1/news/search?q=${q}&count=${LIVE_PAGE_SIZE}&search_lang=en&freshness=pd`;
   const _start = Date.now();
   const res = await fetch(url, {
@@ -190,17 +198,27 @@ function resolveAge(age) {
   return new Date(Date.now() - parseInt(m[1]) * ms).toISOString();
 }
 
-async function fetchLiveSources(autoPublish = false) {
-  const newsApiKey = process.env.NEWS_API_KEY;
-  const braveKey   = process.env.BRAVE_API_KEY;
+async function fetchLiveSources(autoPublish = false, tenantId = 1) {
+  const appCfg     = await getAppConfig(tenantId);
+  const newsApiKey = appCfg.news_api_key;
+  const braveKey   = appCfg.brave_api_key;
 
   if (!newsApiKey && !braveKey) {
     return { inserted: 0, skipped: 0, errors: [{ source: 'live', error: 'No API keys configured' }] };
   }
 
+  // Read per-tenant search query from settings (falls back to AI defaults)
+  let liveNewsQuery = null;
+  try {
+    const querySetting = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'live_news_query'"
+    ).get(tenantId);
+    liveNewsQuery = querySetting?.value || null;
+  } catch { /* use defaults */ }
+
   const [newsApiResult, braveResult] = await Promise.allSettled([
-    newsApiKey ? fetchNewsAPIArticles(newsApiKey) : Promise.resolve([]),
-    braveKey   ? fetchBraveArticles(braveKey)     : Promise.resolve([]),
+    newsApiKey ? fetchNewsAPIArticles(newsApiKey, liveNewsQuery) : Promise.resolve([]),
+    braveKey   ? fetchBraveArticles(braveKey, liveNewsQuery)     : Promise.resolve([]),
   ]);
 
   const errors = [];
@@ -224,38 +242,38 @@ async function fetchLiveSources(autoPublish = false) {
 
   for (const item of deduped) {
     // Skip if already in DB
-    const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1').get(item.url);
+    const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(item.url, tenantId);
     if (existing) { skipped++; continue; }
 
     // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
-    const category = await detectCategory({ title: item.title, contentSnippet: item.summary });
+    const category = await detectCategory({ title: item.title, contentSnippet: item.summary }, { tenantId });
 
     // Insert as unpublished first; quality gate decides whether to publish
     await db.prepare(
-      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8)`
-    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType);
+      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, $9)`
+    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType, tenantId);
     inserted++;
 
     // Fire-and-forget: writer assignment + quality gate auto-publish
     try {
-      const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1').get(item.url);
+      const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1 AND tenant_id = $2').get(item.url, tenantId);
       if (inserted_row) {
         const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary: item.summary, category, source: item.source };
         (async () => {
           try {
             // Writer assignment
-            const writer = await findBestWriter(artObj);
+            const writer = await findBestWriter(artObj, tenantId);
             if (writer) {
-              await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, artObj.id);
-              const tldr = await generateWriterTldr(artObj, writer);
-              if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2').run(tldr, artObj.id);
+              await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
+              const tldr = await generateWriterTldr(artObj, writer, tenantId);
+              if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2 AND tenant_id = $3').run(tldr, artObj.id, tenantId);
             }
 
             // Auto-publish directly for curated articles (quality gate is for synthesis only)
             if (autoPublish) {
-              await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1').run(inserted_row.id);
-              onArticlePublished(inserted_row.id).catch(() => {});
+              await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1 AND tenant_id = $2').run(inserted_row.id, tenantId);
+              onArticlePublished(inserted_row.id, tenantId).catch(() => {});
             }
           } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
         })();
@@ -267,20 +285,20 @@ async function fetchLiveSources(autoPublish = false) {
 }
 
 // POST /api/fetch
-router.post('/', auth, asyncHandler(async (req, res) => {
-  const result = await fetchAllSources(req.body.autoPublish === true);
+router.post('/', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+  const result = await fetchAllSources(req.body.autoPublish === true, req.tenantId);
   res.json({ status: 'ok', ...result });
 }));
 
 // POST /api/fetch/recategorize
 // Body: { articleIds?, category?, days?, dryRun? }
-router.post('/recategorize', auth, asyncHandler(async (req, res) => {
+router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
   const { articleIds, category, days, dryRun } = req.body || {};
 
   // Build dynamic WHERE clause
-  const conditions = ['(is_archived = 0 OR is_archived IS NULL)'];
-  const params = [];
-  let idx = 1;
+  const conditions = ['(is_archived = 0 OR is_archived IS NULL)', `tenant_id = $1`];
+  const params = [req.tenantId];
+  let idx = 2;
 
   if (Array.isArray(articleIds) && articleIds.length) {
     conditions.push(`id = ANY($${idx}::int[])`);
@@ -305,7 +323,7 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
   const toUpdate = [];
 
   for (const a of articles) {
-    const newCat = await detectCategory({ title: a.title, contentSnippet: a.summary });
+    const newCat = await detectCategory({ title: a.title, contentSnippet: a.summary }, { tenantId: req.tenantId });
     if (newCat !== a.category) {
       const key = `${a.category} → ${newCat}`;
       moves[key] = (moves[key] || 0) + 1;
@@ -317,13 +335,13 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
 
   if (!dryRun && toUpdate.length) {
     for (const item of toUpdate) {
-      await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2').run(item.newCat, item.id);
+      await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(item.newCat, item.id, req.tenantId);
       // Re-run writer assignment for articles without a writer
       if (!item.hasWriter) {
         try {
-          const writer = await findBestWriter({ id: item.id, title: item.title, summary: item.summary, category: item.newCat });
+          const writer = await findBestWriter({ id: item.id, title: item.title, summary: item.summary, category: item.newCat }, req.tenantId);
           if (writer) {
-            await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2').run(writer.id, item.id);
+            await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, item.id, req.tenantId);
             writerReassignments++;
           }
         } catch { /* best effort */ }
@@ -341,16 +359,16 @@ router.post('/recategorize', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/fetch/decode-titles — one-time cleanup of HTML entities in existing titles
-router.post('/decode-titles', auth, asyncHandler(async (req, res) => {
+router.post('/decode-titles', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
   const articles = await db.prepare(
-    `SELECT id, title FROM articles WHERE title LIKE '%&#%' OR title LIKE '%&amp;%' OR title LIKE '%&quot;%' OR title LIKE '%&apos;%'`
-  ).all();
+    `SELECT id, title FROM articles WHERE tenant_id = $1 AND (title LIKE '%&#%' OR title LIKE '%&amp;%' OR title LIKE '%&quot;%' OR title LIKE '%&apos;%')`
+  ).all(req.tenantId);
 
   let updated = 0;
   for (const a of articles) {
     const decoded = decodeEntities(a.title);
     if (decoded !== a.title) {
-      await db.prepare('UPDATE articles SET title = $1, updated_at = NOW() WHERE id = $2').run(decoded, a.id);
+      await db.prepare('UPDATE articles SET title = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(decoded, a.id, req.tenantId);
       updated++;
     }
   }
@@ -358,8 +376,8 @@ router.post('/decode-titles', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/fetch/live — fetch from NewsAPI + Brave Search
-router.post('/live', auth, asyncHandler(async (req, res) => {
-  const result = await fetchLiveSources(req.body.autoPublish === true);
+router.post('/live', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+  const result = await fetchLiveSources(req.body.autoPublish === true, req.tenantId);
   res.json({ status: 'ok', ...result });
 }));
 

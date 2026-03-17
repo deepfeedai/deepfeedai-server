@@ -7,9 +7,13 @@ const express               = require('express');
 const router                = express.Router();
 const https                 = require('https');
 const http                  = require('http');
+const dns                   = require('dns').promises;
 const { auth }              = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { getSiteConfig }     = require('../lib/site-config');
+
+const PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|fc|fd)/;
 
 /** Fetch raw HTML from a URL, following up to 3 redirects */
 function fetchHtml(url, redirects = 0, userAgent) {
@@ -81,7 +85,7 @@ function hostToSource(hostname) {
 }
 
 // GET /api/fetch-url?url=https://...
-router.get('/', auth, asyncHandler(async (req, res) => {
+router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
   const { url } = req.query;
   if (!url) return res.status(400).json({ error: 'url param required' });
 
@@ -92,7 +96,20 @@ router.get('/', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
-  const site = await getSiteConfig();
+  // SSRF protection: only allow http/https, block private/internal IPs
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    return res.status(400).json({ error: 'Only http and https URLs are allowed' });
+  }
+  try {
+    const resolved = await dns.lookup(parsedUrl.hostname);
+    if (PRIVATE_IP_RE.test(resolved.address)) {
+      return res.status(400).json({ error: 'Private/internal URLs are not allowed' });
+    }
+  } catch {
+    return res.status(400).json({ error: 'Unable to resolve hostname' });
+  }
+
+  const site = await getSiteConfig(req.tenantId);
   const botUA = `Mozilla/5.0 (compatible; ${site.short_name || 'DeepFeedAI'}-Bot/1.0)`;
   const html = await fetchHtml(url, 0, botUA);
 

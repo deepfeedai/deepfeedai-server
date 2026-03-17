@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audit Log — Deep Feed AI</title>
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <div class="topbar-title">Audit Log</div>
+    </header>
+
+    <div class="page-body">
+      <div class="filter-bar" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:20px;">
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Event Type</label>
+          <select class="form-control" id="filterAction" style="min-width:140px;">
+            <option value="">All Events</option>
+            <option value="auth.">Auth</option>
+            <option value="articles.">Articles</option>
+            <option value="sources.">Sources</option>
+            <option value="writers.">Writers</option>
+            <option value="users.">Users</option>
+            <option value="roles.">Roles</option>
+            <option value="settings.">Settings</option>
+            <option value="audit.">System</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">From</label>
+          <input type="date" class="form-control" id="filterFrom" />
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">To</label>
+          <input type="date" class="form-control" id="filterTo" />
+        </div>
+        <div class="form-group" style="margin:0;flex:1;min-width:150px;">
+          <label class="form-label">Search</label>
+          <input type="text" class="form-control" id="filterSearch" placeholder="Search details..." />
+        </div>
+        <button class="btn btn-ghost btn-sm" id="clearFiltersBtn" style="margin-bottom:2px;">Clear</button>
+      </div>
+
+      <div id="auditStats" class="text-muted text-sm" style="margin-bottom:12px;"></div>
+
+      <div class="table-wrap">
+        <div class="table-scroll" style="max-height:70vh;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:160px;">Time</th>
+                <th style="width:120px;">User</th>
+                <th style="width:180px;">Action</th>
+                <th style="width:120px;">Resource</th>
+                <th>Details</th>
+                <th style="width:120px;">IP</th>
+              </tr>
+            </thead>
+            <tbody id="auditBody">
+              <tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <div id="paginationContainer"></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" id="liveTailBtn">Live Tail: Off</button>
+          <button class="btn btn-danger btn-sm" id="archiveBtn" style="display:none;">Archive Old Entries</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/audit-page.js"></script>
+</body>
+</html>

@@ -5,6 +5,7 @@
  * but all methods return Promises — callers must await them.
  */
 const { Pool }        = require('pg');
+const crypto          = require('crypto');
 const bcrypt          = require('bcryptjs');
 const { serializeRow } = require('./lib/utils');
 
@@ -318,24 +319,24 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_newsletter_sends_sent_at ON newsletter_sends (sent_at DESC)`,
     // Lifecycle settings: seed defaults if not already present
-    `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged_days', '7')  ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged_days', '7')  ON CONFLICT (tenant_id, key) DO NOTHING`,
     // Site customization defaults (white-label)
-    `INSERT INTO settings (key, value) VALUES ('site_name', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_short_name', 'DeepFeedAI') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_tagline', 'Your daily signal in the AI noise') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_description', 'Curated AI news powered by machine learning and human curation.') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_logo_emoji', '🤖') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_logo_html', '🤖&nbsp;Deep Feed<span class="accent">AI</span>') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_domain', 'deepfeedai.com') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_url', 'https://deepfeedai.com') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_og_image', '/og-preview.png') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_twitter_handle', '@deepfeedai') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_copyright', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_footer_tagline', 'Built with ❤️ for the AI-curious') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_ga_id', 'G-WEJ64FE38R') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_adsense_id', 'ca-pub-5739407654850583') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_name', 'Deep Feed AI') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_short_name', 'DeepFeedAI') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_tagline', 'Your daily signal in the AI noise') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_description', 'Curated AI news powered by machine learning and human curation.') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_logo_emoji', '🤖') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_logo_html', '🤖&nbsp;Deep Feed<span class="accent">AI</span>') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_domain', 'deepfeedai.com') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_url', 'https://deepfeedai.com') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_og_image', '/og-preview.png') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_twitter_handle', '@deepfeedai') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_copyright', 'Deep Feed AI') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_footer_tagline', 'Built with ❤️ for the AI-curious') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_ga_id', 'G-WEJ64FE38R') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_adsense_id', 'ca-pub-5739407654850583') ON CONFLICT (tenant_id, key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('site_categories', '${JSON.stringify([
       {"name":"LLMs","color":"#7c3aed","keywords":["gpt-3","gpt-4","gpt4o","gpt-5","o1-preview","o1-mini","o3","o3-mini","o4-mini","claude","sonnet","opus","haiku","gemini","gemini pro","gemini ultra","llama","mistral","mixtral","falcon","phi","qwen","deepseek","grok","command r","llm","llms","large language model","language model","foundation model","base model","multimodal model","vision language","text generation","context window","system prompt","prompt engineering","few-shot","zero-shot","chain of thought","retrieval augmented","rag","tokenizer","transformer","attention mechanism","token limit","inference","openai","anthropic","cohere","ai21","mistral ai","together ai","perplexity","xai","inflection","groq"]},
       {"name":"Image AI","color":"#0ea5e9","keywords":["midjourney","dall-e","stable diffusion","stability ai","ideogram","firefly","leonardo","flux","sora","runway","kling","pika","gen-2","gen-3","veo","lumiere","cogvideo","imagen","text to image","text to video","image generation","video generation","image synthesis","diffusion model","latent diffusion","generative image","ai art","ai generated image","text to speech","speech synthesis","voice cloning","tts","audio generation","music generation","suno","udio","synthetic media","ai video","ai image","visual generation","inpainting","outpainting","img2img"]},
@@ -345,16 +346,16 @@ async function initDb() {
       {"name":"Policy","color":"#f97316","keywords":["eu ai act","ai act","executive order","ai regulation","ai bill","ai law","ai legislation","ai lawsuit","sued over ai","ai litigation","court ruling","ai settlement","ftc","doj","congress","senate","parliament","ai regulation","ai legislation","ai policy","ai compliance","gdpr","ccpa","biometric","ai copyright","intellectual property","fair use","training data lawsuit","ai ethics","algorithmic bias","ai fairness","ai transparency","misinformation","disinformation","deepfake legislation","ai governance","ai oversight","ai moratorium","ai accountability","data privacy"]},
       {"name":"CyberSecurity","color":"#ef4444","keywords":["cyberattack","cyber attack","ransomware","malware","phishing","zero day","zero-day","exploit","vulnerability","cve","ai security","llm security","prompt injection","jailbreak","adversarial attack","model theft","model extraction","hacker","hacking","data breach","intrusion","threat actor","apt","nation state","cybersecurity","infosec","soc","siem","threat intelligence","penetration testing","red team security","ai powered attack","ai generated phishing","deepfake fraud","voice clone fraud","security vulnerability","security flaw","cybercrime","botnet","supply chain attack","credential stuffing"]},
       {"name":"Industry","color":"#94a3b8","keywords":["ai in healthcare","ai in education","ai in finance","ai in entertainment","ai in gaming","ai in manufacturing","ai in retail","ai in agriculture","ai in legal","ai in automotive","self-driving","autonomous vehicle","robotics","robot","humanoid","ai adoption","digital transformation","ai strategy","ai workforce","ai jobs","ai replace","ai impact","ai powered","artificial intelligence","generative ai","machine learning","deep learning","neural network","computer vision","natural language processing","nlp","ai chip","ai hardware","gpu","tpu","nvidia","amd","intel ai","qualcomm ai","edge ai","on-device ai","ai infrastructure","cloud ai","ai market","ai industry","ai trend","ai forecast","ai report"]}
-    ])}') ON CONFLICT (key) DO NOTHING`,
+    ])}') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // AI budget settings
-    `INSERT INTO settings (key, value) VALUES ('ai_daily_budget', '5.00') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('ai_monthly_budget', '50.00') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('ai_budget_warn_pct', '80') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_accent_color', '#4F8EF7') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_bg_color', '#0d1117') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_ai_persona', 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_newsletter_subject', '🤖 Deep Feed AI — Your Weekly AI Digest') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('site_email_from_name', 'Deep Feed AI') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('ai_daily_budget', '5.00') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('ai_monthly_budget', '50.00') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('ai_budget_warn_pct', '80') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_accent_color', '#4F8EF7') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_bg_color', '#0d1117') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_ai_persona', 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_newsletter_subject', '🤖 Deep Feed AI — Your Weekly AI Digest') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('site_email_from_name', 'Deep Feed AI') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // Writer persona columns on voices
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS bio TEXT`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS beat TEXT`,
@@ -396,16 +397,19 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS full_content TEXT`,
+    // YouTube/video embed support
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_url TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_type TEXT`,
     // Editorial scoring for quality gate
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_score INTEGER`,
     // Quality gate settings
-    `INSERT INTO settings (key, value) VALUES ('daily_publish_target', '20') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('auto_editorial_scoring', '1') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('daily_publish_target', '20') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_editorial_scoring', '1') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // Phase 3: Full autonomy settings
-    `INSERT INTO settings (key, value) VALUES ('auto_publish_live', '0') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('auto_publish_quality_gate', '1') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('auto_audio_enabled', '0') ON CONFLICT (key) DO NOTHING`,
-    `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_live', '0') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_publish_quality_gate', '1') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_enabled', '0') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // TLDR column for writer analysis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
     // Phase 4: Writer follows
@@ -427,15 +431,212 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_writer_beats_writer   ON writer_beats(writer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_writer_beats_category ON writer_beats(category_id)`,
+    // ── Multi-tenancy: tenant_id columns on all tenanted tables ──
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE sources ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE categories ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE settings ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE comments ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE comment_reactions ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE comment_reports ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE article_favorites ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE article_reactions ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE writer_follows ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE writer_beats ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE newsletter_sends ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE summary_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE thumbnail_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE trends_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE trends_history ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS trends_history_tenant_date ON trends_history(tenant_id, snapshot_date)`,
+    // Indexes for tenant_id on high-volume tables
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant ON articles(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sources_tenant ON sources(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_categories_tenant ON categories(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_writers_tenant ON writers(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_comments_tenant ON comments(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_settings_tenant ON settings(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_events_tenant ON analytics_events(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_tenant ON ai_usage(tenant_id)`,
+    // Update unique constraints to include tenant_id
+    // categories: (name) → (tenant_id, name) — drop old, add new
+    `ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_name_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS categories_tenant_name ON categories(tenant_id, name)`,
+    // settings: (key) → (tenant_id, key)
+    `ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey`,
+    `ALTER TABLE settings ADD CONSTRAINT settings_pkey PRIMARY KEY (tenant_id, key)`,
+    // sources: (url) → (tenant_id, url)
+    `ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_url_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS sources_tenant_url ON sources(tenant_id, url)`,
+    // Multi-tenancy platform tables
+    `CREATE TABLE IF NOT EXISTS tenants (
+      id                     SERIAL PRIMARY KEY,
+      slug                   TEXT NOT NULL UNIQUE,
+      display_name           TEXT NOT NULL,
+      owner_user_id          INTEGER REFERENCES public_users(id) ON DELETE SET NULL,
+      custom_domain          TEXT,
+      plan                   TEXT NOT NULL DEFAULT 'starter',
+      status                 TEXT NOT NULL DEFAULT 'active',
+      stripe_customer_id     TEXT,
+      stripe_subscription_id TEXT,
+      created_at             TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS plan_limits (
+      plan                   TEXT PRIMARY KEY,
+      max_sources            INTEGER,
+      max_writers            INTEGER,
+      max_articles_month     INTEGER,
+      max_ai_cost_month      NUMERIC(10,2),
+      audio_enabled          BOOLEAN DEFAULT false,
+      custom_domain_enabled  BOOLEAN DEFAULT false
+    )`,
+    `CREATE TABLE IF NOT EXISTS tenant_admins (
+      id         SERIAL PRIMARY KEY,
+      tenant_id  INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      email      TEXT NOT NULL,
+      role       TEXT NOT NULL DEFAULT 'owner',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, user_id)
+    )`,
+    `INSERT INTO plan_limits (plan, max_sources, max_writers, max_articles_month, max_ai_cost_month, audio_enabled, custom_domain_enabled) VALUES
+      ('starter', 20, 6, 500, 5.00, false, false),
+      ('pro', 50, 20, 2000, 20.00, true, true),
+      ('business', NULL, NULL, NULL, 50.00, true, true)
+     ON CONFLICT (plan) DO NOTHING`,
+    // Seed the original site as tenant_id=1 so existing data (DEFAULT 1) maps correctly
+    `INSERT INTO tenants (id, slug, display_name, plan, status)
+     VALUES (1, 'deepfeedai', 'Deep Feed AI', 'business', 'active')
+     ON CONFLICT (id) DO NOTHING`,
+    // Fix cache table PKs: cache_key alone → (tenant_id, cache_key) compound PK
+    `ALTER TABLE summary_cache DROP CONSTRAINT IF EXISTS summary_cache_pkey`,
+    `DO $$ BEGIN
+       ALTER TABLE summary_cache ADD CONSTRAINT summary_cache_pkey PRIMARY KEY (tenant_id, cache_key);
+     EXCEPTION WHEN others THEN NULL;
+     END $$`,
+    `ALTER TABLE thumbnail_cache DROP CONSTRAINT IF EXISTS thumbnail_cache_pkey`,
+    `DO $$ BEGIN
+       ALTER TABLE thumbnail_cache ADD CONSTRAINT thumbnail_cache_pkey PRIMARY KEY (tenant_id, cache_key);
+     EXCEPTION WHEN others THEN NULL;
+     END $$`,
+    // File storage table for database storage backend
+    `CREATE TABLE IF NOT EXISTS file_storage (
+      id         SERIAL PRIMARY KEY,
+      tenant_id  INTEGER NOT NULL DEFAULT 1,
+      key        TEXT NOT NULL,
+      mime_type  TEXT NOT NULL,
+      data       BYTEA NOT NULL,
+      size       INTEGER NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_file_storage_tenant ON file_storage(tenant_id)`,
     // Phase 3: Writer style profile columns
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS tone TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS expertise_level TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_guide TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS few_shot_examples JSONB DEFAULT '[]'`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS gender TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS ethnicity TEXT`,
+    // ── Local auth & permissions migrations ──────────────────────────
+    // 1a. Evolve users table
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active INTEGER DEFAULT 1`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS users_tenant_username ON users(tenant_id, username)`,
+    // 1b. Create roles table
+    `CREATE TABLE IF NOT EXISTS roles (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      name        TEXT NOT NULL,
+      description TEXT,
+      permissions JSONB NOT NULL DEFAULT '[]',
+      is_system   BOOLEAN DEFAULT false,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, name)
+    )`,
+    // Seed default roles
+    `INSERT INTO roles (tenant_id, name, description, permissions, is_system) VALUES
+      (1, 'owner', 'Full platform access', '["*"]', true),
+      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","voices.*","settings.*","analytics.*","comments.*","newsletter.*","users.*","audit.read","fetch.execute","synthesis.execute","cron.read","cron.update","cron.execute"]', true),
+      (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
+      (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","voices.read","media.read"]', true)
+     ON CONFLICT (tenant_id, name) DO NOTHING`,
+    // 1c. Add local_user_id column to tenant_admins
+    `ALTER TABLE tenant_admins ADD COLUMN IF NOT EXISTS local_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS tenant_admins_tenant_local ON tenant_admins(tenant_id, local_user_id) WHERE local_user_id IS NOT NULL`,
+    // Phase 4: max_tenants column on plan_limits
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS max_tenants INTEGER`,
+    `UPDATE plan_limits SET max_tenants = 1 WHERE plan = 'starter' AND max_tenants IS NULL`,
+    `UPDATE plan_limits SET max_tenants = 3 WHERE plan = 'pro' AND max_tenants IS NULL`,
+    // Audit log table (referenced by middleware/audit.js)
+    `CREATE TABLE IF NOT EXISTS audit_log (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      user_id     INTEGER,
+      user_email  TEXT,
+      action      TEXT NOT NULL,
+      resource    TEXT,
+      resource_id INTEGER,
+      details     JSONB,
+      ip_address  TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, created_at DESC)`,
+    // Saved searches for Discover
+    `CREATE TABLE IF NOT EXISTS saved_searches (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      name        TEXT NOT NULL,
+      query       TEXT NOT NULL,
+      sources     TEXT NOT NULL DEFAULT 'brave,newsapi',
+      period      TEXT NOT NULL DEFAULT '24h',
+      created_by  INTEGER,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      last_run_at TIMESTAMPTZ,
+      UNIQUE(tenant_id, name)
+    )`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS results JSONB`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS result_count INTEGER DEFAULT 0`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS from_date TEXT`,
+    `ALTER TABLE saved_searches ADD COLUMN IF NOT EXISTS to_date TEXT`,
+    // Cron runs tracking table
+    `CREATE TABLE IF NOT EXISTS cron_runs (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      job_name    TEXT NOT NULL,
+      started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      finished_at TIMESTAMPTZ,
+      status      TEXT NOT NULL DEFAULT 'running',
+      summary     JSONB,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs (tenant_id, job_name, started_at DESC)`,
+    // Backfill: add cron.update and cron.execute to existing admin roles
+    `UPDATE roles SET permissions = permissions || '["cron.update","cron.execute"]'::jsonb WHERE name = 'admin' AND is_system = true AND NOT (permissions @> '["cron.update"]'::jsonb)`,
+    // Clean up orphaned cron_runs rows from server crashes
+    `UPDATE cron_runs SET status = 'crashed', finished_at = NOW() WHERE status = 'running'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
   }
+
+  // Backfill: set admin user role to 'owner' if not already set
+  try {
+    await p.query(`UPDATE users SET role = 'owner', display_name = 'Admin' WHERE username = 'admin' AND display_name IS NULL`);
+  } catch { /* non-fatal */ }
 
   // Seed categories table from legacy site_categories JSON setting (one-time migration)
   try {
@@ -488,7 +689,7 @@ async function initDb() {
             [cats.find(c => c.name === 'Industry')?.keywords || []]
           );
         } catch { /* skip */ }
-        await prepare("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING").run('_migrated_cat_keywords_v2', '1');
+        await prepare("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (tenant_id, key) DO NOTHING").run('_migrated_cat_keywords_v2', '1');
         console.log('✅ Refreshed category keywords (v2)');
       }
     }
@@ -547,11 +748,20 @@ async function initDb() {
         for (const row of wfFks.rows) {
           await p.query(`ALTER TABLE writer_follows DROP CONSTRAINT "${row.conname}"`);
         }
+        // Drop any old articles.writer_id FK pointing to wrong table (voices)
+        const artWrFks = await p.query(`
+          SELECT con.conname FROM pg_constraint con
+          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
+          WHERE con.conrelid = 'articles'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
+        `);
+        for (const row of artWrFks.rows) {
+          await p.query(`ALTER TABLE articles DROP CONSTRAINT "${row.conname}"`);
+        }
         try { await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL'); } catch { /* already exists */ }
         try { await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE'); } catch { /* already exists */ }
         console.log('  FK constraints re-pointed to writers table');
       }
-      await p.query("INSERT INTO settings (key, value) VALUES ('writers_migration_done', '1') ON CONFLICT (key) DO NOTHING");
+      await p.query("INSERT INTO settings (key, value) VALUES ('writers_migration_done', '1') ON CONFLICT (tenant_id, key) DO NOTHING");
       console.log('✅ Writers migration complete');
     }
   } catch (err) { console.error('[DB] writers migration error:', err.message); }
@@ -571,7 +781,7 @@ async function initDb() {
           } catch { /* skip */ }
         }
       }
-      await p.query("INSERT INTO settings (key, value) VALUES ('writer_beats_migration_done', '1') ON CONFLICT (key) DO NOTHING");
+      await p.query("INSERT INTO settings (key, value) VALUES ('writer_beats_migration_done', '1') ON CONFLICT (tenant_id, key) DO NOTHING");
       if (seeded > 0) console.log(`✅ Seeded ${seeded} writer_beats from legacy beat column`);
     }
   } catch (err) { console.error('[DB] writer_beats seed error:', err.message); }
@@ -589,8 +799,25 @@ async function initDb() {
   const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');
   if (!existingAdmin) {
     const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
-    await prepare('INSERT INTO users (username, password_hash) VALUES ($1, $2)').run('admin', hash);
+    await prepare('INSERT INTO users (username, password_hash, role, display_name) VALUES ($1, $2, $3, $4)').run('admin', hash, 'owner', 'Admin');
     console.log('✅ Seeded admin user');
+  }
+
+  // Migrate ADMIN_EMAILS to users table (one-time)
+  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  for (const email of adminEmails) {
+    const existing = await prepare('SELECT id FROM users WHERE LOWER(email) = $1 AND tenant_id = 1').get(email);
+    if (!existing) {
+      const username = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 50);
+      const displayName = username.charAt(0).toUpperCase() + username.slice(1);
+      const randomHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+      try {
+        await prepare(
+          'INSERT INTO users (username, password_hash, email, display_name, role, tenant_id) VALUES ($1, $2, $3, $4, $5, 1)'
+        ).run(username, randomHash, email, displayName, 'owner');
+        console.log(`  ✅ Migrated ADMIN_EMAIL to users: ${email}`);
+      } catch { /* duplicate username, skip */ }
+    }
   }
 
   // Seed default voice character

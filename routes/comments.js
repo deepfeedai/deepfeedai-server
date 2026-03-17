@@ -36,6 +36,7 @@ const jwt       = require('jsonwebtoken');
 const db        = require('../db');
 const requireUser  = require('../middleware/user-jwt');
 const { auth: requireAdmin } = require('../middleware/auth');
+const { requirePermission }  = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { checkSpam }            = require('../lib/spam');
 const { sendReplyNotification } = require('../lib/notify');
@@ -118,9 +119,10 @@ router.get('/', asyncHandler(async (req, res) => {
     FROM comments c
     LEFT JOIN public_users u ON u.id = c.user_id
     WHERE c.article_slug = $1
+      AND c.tenant_id = $2
       AND (c.is_approved = 1 OR c.is_approved IS NULL)
     ORDER BY c.created_at ASC
-  `).all(slug);
+  `).all(slug, req.tenantId);
 
   // Batch-fetch reaction counts for all comments in one query
   const ids = rows.map(r => r.id);
@@ -133,8 +135,9 @@ router.get('/', asyncHandler(async (req, res) => {
       SELECT comment_id, emoji, COUNT(*) AS cnt
       FROM comment_reactions
       WHERE comment_id IN (${placeholders})
+        AND tenant_id = $${ids.length + 1}
       GROUP BY comment_id, emoji
-    `).all(...ids);
+    `).all(...ids, req.tenantId);
 
     for (const r of rxRows) {
       if (!reactionMap[r.comment_id]) reactionMap[r.comment_id] = {};
@@ -146,8 +149,8 @@ router.get('/', asyncHandler(async (req, res) => {
     if (viewerId) {
       const myRows = await db.prepare(`
         SELECT comment_id, emoji FROM comment_reactions
-        WHERE comment_id IN (${placeholders}) AND user_id = $${ids.length + 1}
-      `).all(...ids, viewerId);
+        WHERE comment_id IN (${placeholders}) AND user_id = $${ids.length + 1} AND tenant_id = $${ids.length + 2}
+      `).all(...ids, viewerId, req.tenantId);
       for (const r of myRows) myReactions[r.comment_id] = r.emoji;
     }
   }
@@ -178,11 +181,12 @@ router.get('/leaderboard', asyncHandler(async (req, res) => {
     FROM public_users u
     JOIN comments c ON c.user_id = u.id
     WHERE c.is_deleted = 0
+      AND c.tenant_id = $1
       AND u.is_banned  = 0
     GROUP BY u.id, u.display_name, u.avatar_url, u.provider
     ORDER BY comment_count DESC
-    LIMIT $1
-  `).all(limit);
+    LIMIT $2
+  `).all(req.tenantId, limit);
 
   res.json({
     leaderboard: rows.map((r, i) => ({
@@ -210,8 +214,8 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   // set from the frontend which is authoritative.
   if (parentId) {
     const parent = await db.prepare(
-      'SELECT id, parent_id FROM comments WHERE id = $1 AND is_deleted = 0'
-    ).get(parentId);
+      'SELECT id, parent_id FROM comments WHERE id = $1 AND tenant_id = $2 AND is_deleted = 0'
+    ).get(parentId, req.tenantId);
     if (!parent) {
       return res.status(400).json({ error: 'Invalid parent comment' });
     }
@@ -224,8 +228,8 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   // ── Spam detection ───────────────────────────────────────────────
   const spamSettings = await db.prepare(`
     SELECT key, value FROM settings
-    WHERE key IN ('spam_blocklist','spam_perspective_enabled','spam_perspective_key','spam_block_threshold','spam_queue_threshold')
-  `).all();
+    WHERE tenant_id = $1 AND key IN ('spam_blocklist','spam_perspective_enabled','spam_perspective_key','spam_block_threshold','spam_queue_threshold')
+  `).all(req.tenantId);
   const spamMap    = Object.fromEntries(spamSettings.map(r => [
     r.key,
     r.key === 'spam_perspective_key' ? decryptSetting(r.value) : r.value,
@@ -240,8 +244,8 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   // ── Moderation queue check ────────────────────────────────────────
   // Load settings; default to queue disabled so existing deploys are unaffected
   const modSettings = await db.prepare(
-    `SELECT key, value FROM settings WHERE key IN ('mod_queue_enabled', 'mod_queue_threshold')`
-  ).all();
+    `SELECT key, value FROM settings WHERE tenant_id = $1 AND key IN ('mod_queue_enabled', 'mod_queue_threshold')`
+  ).all(req.tenantId);
   const modMap      = Object.fromEntries(modSettings.map(r => [r.key, r.value]));
   const queueOn     = modMap.mod_queue_enabled === '1';
   const threshold   = parseInt(modMap.mod_queue_threshold || '1', 10);
@@ -253,17 +257,17 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
   } else if (queueOn) {
     // Count how many approved comments this user already has
     const approvedRow = await db.prepare(
-      `SELECT COUNT(*) AS cnt FROM comments WHERE user_id = $1 AND is_approved = 1 AND is_deleted = 0`
-    ).get(req.user.sub);
+      `SELECT COUNT(*) AS cnt FROM comments WHERE user_id = $1 AND tenant_id = $2 AND is_approved = 1 AND is_deleted = 0`
+    ).get(req.user.sub, req.tenantId);
     const approvedCount = parseInt(approvedRow?.cnt ?? 0, 10);
     isApproved = approvedCount >= threshold ? 1 : 0;
   }
 
   const row = await db.prepare(`
-    INSERT INTO comments (article_slug, user_id, body, parent_id, is_approved, spam_score, spam_reason)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO comments (article_slug, user_id, body, parent_id, is_approved, spam_score, spam_reason, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
-  `).get(slug, req.user.sub, clean, parentId || null, isApproved, spamResult.score ?? null, spamResult.reason ?? null);
+  `).get(slug, req.user.sub, clean, parentId || null, isApproved, spamResult.score ?? null, spamResult.reason ?? null, req.tenantId);
 
   // Attach user info for immediate render
   const user = await db.prepare(
@@ -291,8 +295,8 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
                  u.notify_replies, u.notify_token
           FROM comments c
           JOIN public_users u ON u.id = c.user_id
-          WHERE c.id = $1 AND c.is_deleted = 0
-        `).get(parentId);
+          WHERE c.id = $1 AND c.tenant_id = $2 AND c.is_deleted = 0
+        `).get(parentId, req.tenantId);
 
         if (!parent) { console.warn('[Notify] Parent comment not found:', parentId); return; }
 
@@ -308,8 +312,8 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
         // Best-effort article title lookup
         const slugWord = (slug || '').split('-').slice(0, 5).join(' ');
         const article  = await db.prepare(
-          `SELECT title FROM articles WHERE LOWER(title) LIKE $1 AND is_published = 1 LIMIT 1`
-        ).get(`%${slugWord}%`);
+          `SELECT title FROM articles WHERE LOWER(title) LIKE $1 AND tenant_id = $2 AND is_published = 1 LIMIT 1`
+        ).get(`%${slugWord}%`, req.tenantId);
 
         // In-app notification — always created (regardless of email opt-out)
         await createReplyNotification(parent.user_id, {
@@ -318,7 +322,7 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
           articleTitle: article?.title || slug,
           replyBody:    clean.slice(0, 200),
           replyerName:  replierName,
-        });
+        }, req.tenantId);
 
         // Email notification — only if user has email and is opted in
         if (!parent.email) { console.warn('[Notify] Parent user has no email, skipping email'); return; }
@@ -347,7 +351,7 @@ router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) =>
           replyBody:    clean,
           commentId:    parent.id,   // was parent.user_id — BUG FIX
           unsubToken,
-        });
+        }, req.tenantId);
 
         console.log(`[Notify] Reply notification sent to ${parent.email}`);
       } catch (err) {
@@ -368,8 +372,8 @@ router.put('/:id', requireUser, asyncHandler(async (req, res) => {
   if (!clean) return res.status(400).json({ error: 'Comment body is required' });
 
   const existing = await db.prepare(
-    'SELECT * FROM comments WHERE id = $1 AND is_deleted = 0'
-  ).get(id);
+    'SELECT * FROM comments WHERE id = $1 AND tenant_id = $2 AND is_deleted = 0'
+  ).get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Comment not found' });
   if (existing.user_id !== req.user.sub) return res.status(403).json({ error: 'Forbidden' });
 
@@ -381,8 +385,8 @@ router.put('/:id', requireUser, asyncHandler(async (req, res) => {
 
   const updated = await db.prepare(`
     UPDATE comments SET body = $1, updated_at = NOW()
-    WHERE id = $2 RETURNING *
-  `).get(clean, id);
+    WHERE id = $2 AND tenant_id = $3 RETURNING *
+  `).get(clean, id, req.tenantId);
 
   const user = await db.prepare(
     'SELECT display_name, avatar_url, provider FROM public_users WHERE id = $1'
@@ -396,14 +400,14 @@ router.delete('/:id', requireUser, asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
 
   const existing = await db.prepare(
-    'SELECT * FROM comments WHERE id = $1 AND is_deleted = 0'
-  ).get(id);
+    'SELECT * FROM comments WHERE id = $1 AND tenant_id = $2 AND is_deleted = 0'
+  ).get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Comment not found' });
   if (existing.user_id !== req.user.sub) return res.status(403).json({ error: 'Forbidden' });
 
   await db.prepare(
-    'UPDATE comments SET is_deleted = 1, body = NULL, updated_at = NOW() WHERE id = $1'
-  ).run(id);
+    'UPDATE comments SET is_deleted = 1, body = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+  ).run(id, req.tenantId);
 
   res.json({ ok: true });
 }));
@@ -414,20 +418,20 @@ router.post('/:id/report', requireUser, asyncHandler(async (req, res) => {
   const reason = (req.body.reason || '').slice(0, 200) || null;
 
   const existing = await db.prepare(
-    'SELECT id FROM comments WHERE id = $1 AND is_deleted = 0'
-  ).get(id);
+    'SELECT id FROM comments WHERE id = $1 AND tenant_id = $2 AND is_deleted = 0'
+  ).get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Comment not found' });
 
   // Can't report your own comment
-  const comment = await db.prepare('SELECT user_id FROM comments WHERE id = $1').get(id);
+  const comment = await db.prepare('SELECT user_id FROM comments WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (comment.user_id === req.user.sub) {
     return res.status(400).json({ error: "You can't report your own comment" });
   }
 
   try {
     await db.prepare(
-      'INSERT INTO comment_reports (comment_id, user_id, reason) VALUES ($1, $2, $3)'
-    ).run(id, req.user.sub, reason);
+      'INSERT INTO comment_reports (comment_id, user_id, reason, tenant_id) VALUES ($1, $2, $3, $4)'
+    ).run(id, req.user.sub, reason, req.tenantId);
     res.json({ ok: true });
   } catch (err) {
     if (err.code === '23505') { // unique_violation — already reported
@@ -451,38 +455,38 @@ router.post('/:id/react', requireUser, asyncHandler(async (req, res) => {
   }
 
   const comment = await db.prepare(
-    'SELECT id, user_id FROM comments WHERE id = $1 AND is_deleted = 0'
-  ).get(id);
+    'SELECT id, user_id FROM comments WHERE id = $1 AND tenant_id = $2 AND is_deleted = 0'
+  ).get(id, req.tenantId);
   if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
   // Fetch any existing reaction from this user
   const existing = await db.prepare(
-    'SELECT emoji FROM comment_reactions WHERE comment_id = $1 AND user_id = $2'
-  ).get(id, req.user.sub);
+    'SELECT emoji FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND tenant_id = $3'
+  ).get(id, req.user.sub, req.tenantId);
 
   if (!emoji || (existing && existing.emoji === emoji)) {
     // Remove reaction (toggle off or explicit remove)
     await db.prepare(
-      'DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2'
-    ).run(id, req.user.sub);
+      'DELETE FROM comment_reactions WHERE comment_id = $1 AND user_id = $2 AND tenant_id = $3'
+    ).run(id, req.user.sub, req.tenantId);
   } else if (existing) {
     // Swap to different emoji
     await db.prepare(
-      'UPDATE comment_reactions SET emoji = $1 WHERE comment_id = $2 AND user_id = $3'
-    ).run(emoji, id, req.user.sub);
+      'UPDATE comment_reactions SET emoji = $1 WHERE comment_id = $2 AND user_id = $3 AND tenant_id = $4'
+    ).run(emoji, id, req.user.sub, req.tenantId);
   } else {
     // New reaction
     await db.prepare(
-      'INSERT INTO comment_reactions (comment_id, user_id, emoji) VALUES ($1, $2, $3)'
-    ).run(id, req.user.sub, emoji);
+      'INSERT INTO comment_reactions (comment_id, user_id, emoji, tenant_id) VALUES ($1, $2, $3, $4)'
+    ).run(id, req.user.sub, emoji, req.tenantId);
   }
 
   // Return fresh counts for this comment
   const counts = await db.prepare(`
     SELECT emoji, COUNT(*) AS cnt
-    FROM comment_reactions WHERE comment_id = $1
+    FROM comment_reactions WHERE comment_id = $1 AND tenant_id = $2
     GROUP BY emoji
-  `).all(id);
+  `).all(id, req.tenantId);
 
   const reactions = {};
   for (const r of counts) reactions[r.emoji] = parseInt(r.cnt, 10);
@@ -495,19 +499,19 @@ router.post('/:id/react', requireUser, asyncHandler(async (req, res) => {
 }));
 
 /* ── Admin: GET /api/comments/admin/queue ────────────────────────── */
-router.get('/admin/queue', requireAdmin, asyncHandler(async (req, res) => {
+router.get('/admin/queue', requireAdmin, requirePermission('comments.read'), asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT
       c.id, c.article_slug, c.parent_id, c.body, c.is_deleted, c.is_approved,
       c.spam_score, c.spam_reason,
       c.created_at, c.updated_at, c.user_id,
       u.display_name, u.avatar_url, u.provider,
-      (SELECT COUNT(*) FROM comments ac WHERE ac.user_id = c.user_id AND ac.is_approved = 1 AND ac.is_deleted = 0) AS prior_approved
+      (SELECT COUNT(*) FROM comments ac WHERE ac.user_id = c.user_id AND ac.tenant_id = $1 AND ac.is_approved = 1 AND ac.is_deleted = 0) AS prior_approved
     FROM comments c
     LEFT JOIN public_users u ON u.id = c.user_id
-    WHERE c.is_approved = 0 AND c.is_deleted = 0
+    WHERE c.is_approved = 0 AND c.is_deleted = 0 AND c.tenant_id = $1
     ORDER BY c.spam_score DESC NULLS LAST, c.created_at ASC
-  `).all();
+  `).all(req.tenantId);
 
   res.json({
     queue: rows.map(r => ({
@@ -518,44 +522,44 @@ router.get('/admin/queue', requireAdmin, asyncHandler(async (req, res) => {
 }));
 
 /* ── Admin: POST /api/comments/admin/:id/approve ─────────────────── */
-router.post('/admin/:id/approve', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/admin/:id/approve', requireAdmin, requirePermission('comments.moderate'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   await db.prepare(
-    'UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id = $1'
-  ).run(id);
+    'UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+  ).run(id, req.tenantId);
   res.json({ ok: true });
 }));
 
 /* ── Admin: POST /api/comments/admin/:id/reject ──────────────────── */
-router.post('/admin/:id/reject', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/admin/:id/reject', requireAdmin, requirePermission('comments.moderate'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   // Hard-delete — rejected spam shouldn't leave a tombstone
-  await db.prepare('DELETE FROM comments WHERE id = $1').run(id);
+  await db.prepare('DELETE FROM comments WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
   res.json({ ok: true });
 }));
 
 /* ── Admin: GET /api/comments/admin ──────────────────────────────── */
-router.get('/admin', requireAdmin, asyncHandler(async (req, res) => {
+router.get('/admin', requireAdmin, requirePermission('comments.read'), asyncHandler(async (req, res) => {
   const { slug, reported } = req.query;
 
+  const params = [req.tenantId];
   let sql = `
     SELECT
       c.id, c.article_slug, c.parent_id, c.body, c.is_deleted,
       c.created_at, c.updated_at, c.user_id,
       u.display_name, u.avatar_url, u.provider,
-      (SELECT COUNT(*) FROM comment_reports r WHERE r.comment_id = c.id) AS report_count
+      (SELECT COUNT(*) FROM comment_reports r WHERE r.comment_id = c.id AND r.tenant_id = $1) AS report_count
     FROM comments c
     LEFT JOIN public_users u ON u.id = c.user_id
+    WHERE c.tenant_id = $1
   `;
-  const params = [];
 
   if (slug) {
     params.push(slug);
-    sql += ` WHERE c.article_slug = $${params.length}`;
+    sql += ` AND c.article_slug = $${params.length}`;
   }
   if (reported === '1') {
-    sql += params.length ? ' AND' : ' WHERE';
-    sql += ` (SELECT COUNT(*) FROM comment_reports r WHERE r.comment_id = c.id) > 0`;
+    sql += ` AND (SELECT COUNT(*) FROM comment_reports r WHERE r.comment_id = c.id AND r.tenant_id = $1) > 0`;
   }
 
   sql += ' ORDER BY c.created_at DESC';
@@ -566,13 +570,13 @@ router.get('/admin', requireAdmin, asyncHandler(async (req, res) => {
 
 /* ── Admin: POST /api/comments/admin/:id/restore ────────────────────── */
 // Un-hides a comment — works as long as the row still exists.
-router.post('/admin/:id/restore', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/admin/:id/restore', requireAdmin, requirePermission('comments.moderate'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const row = await db.prepare('SELECT id FROM comments WHERE id = $1').get(id);
+  const row = await db.prepare('SELECT id FROM comments WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!row) return res.status(404).json({ error: 'Comment not found' });
   await db.prepare(
-    'UPDATE comments SET is_deleted = 0, updated_at = NOW() WHERE id = $1'
-  ).run(id);
+    'UPDATE comments SET is_deleted = 0, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+  ).run(id, req.tenantId);
   res.json({ ok: true });
 }));
 
@@ -580,26 +584,26 @@ router.post('/admin/:id/restore', requireAdmin, asyncHandler(async (req, res) =>
 // Soft-hides a comment — sets is_deleted=1 but PRESERVES the body so the
 // comment can be fully restored later via /restore. Reports are cleared.
 // Use DELETE /admin/:id for permanent removal.
-router.post('/admin/:id/hide', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/admin/:id/hide', requireAdmin, requirePermission('comments.moderate'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   await db.prepare(
-    'UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id = $1'
-  ).run(id);
+    'UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+  ).run(id, req.tenantId);
   // Clear reports after hiding — no further action needed on those
-  await db.prepare('DELETE FROM comment_reports WHERE comment_id = $1').run(id);
+  await db.prepare('DELETE FROM comment_reports WHERE comment_id = $1 AND tenant_id = $2').run(id, req.tenantId);
   res.json({ ok: true });
 }));
 
 /* ── Admin: DELETE /api/comments/admin/:id ────────────────────────── */
-router.delete('/admin/:id', requireAdmin, asyncHandler(async (req, res) => {
+router.delete('/admin/:id', requireAdmin, requirePermission('comments.delete'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  await db.prepare('DELETE FROM comments WHERE id = $1').run(id);
+  await db.prepare('DELETE FROM comments WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
   res.json({ ok: true });
 }));
 
 /* ── Admin: POST /api/comments/admin/bulk ─────────────────────────── */
 // body: { ids: number[], action: 'approve' | 'hide' | 'delete' }
-router.post('/admin/bulk', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/admin/bulk', requireAdmin, requirePermission('comments.moderate'), asyncHandler(async (req, res) => {
   const { ids, action } = req.body;
 
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -611,22 +615,23 @@ router.post('/admin/bulk', requireAdmin, asyncHandler(async (req, res) => {
 
   const validIds = ids.map(id => parseInt(id, 10)).filter(n => Number.isFinite(n));
   const placeholders = validIds.map((_, i) => `$${i + 1}`).join(', ');
+  const tenantParam = `$${validIds.length + 1}`;
 
   if (action === 'approve') {
     await db.prepare(
-      `UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id IN (${placeholders})`
-    ).run(...validIds);
+      `UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id IN (${placeholders}) AND tenant_id = ${tenantParam}`
+    ).run(...validIds, req.tenantId);
   } else if (action === 'hide') {
     await db.prepare(
-      `UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id IN (${placeholders})`
-    ).run(...validIds);
+      `UPDATE comments SET is_deleted = 1, updated_at = NOW() WHERE id IN (${placeholders}) AND tenant_id = ${tenantParam}`
+    ).run(...validIds, req.tenantId);
     await db.prepare(
-      `DELETE FROM comment_reports WHERE comment_id IN (${placeholders})`
-    ).run(...validIds);
+      `DELETE FROM comment_reports WHERE comment_id IN (${placeholders}) AND tenant_id = ${tenantParam}`
+    ).run(...validIds, req.tenantId);
   } else if (action === 'delete') {
     await db.prepare(
-      `DELETE FROM comments WHERE id IN (${placeholders})`
-    ).run(...validIds);
+      `DELETE FROM comments WHERE id IN (${placeholders}) AND tenant_id = ${tenantParam}`
+    ).run(...validIds, req.tenantId);
   }
 
   res.json({ ok: true, affected: validIds.length });

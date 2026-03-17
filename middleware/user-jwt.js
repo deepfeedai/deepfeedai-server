@@ -11,21 +11,18 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const { getSecrets } = require('../lib/secrets');
 
-const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
-
-module.exports = function requireUser(req, res, next) {
+module.exports = async function requireUser(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  if (!USER_JWT_SECRET) {
-    return res.status(503).json({ error: 'User auth not configured' });
-  }
+  const { userJwtSecret } = await getSecrets();
 
   try {
-    req.user = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    req.user = jwt.verify(auth.slice(7), userJwtSecret);
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
