@@ -268,26 +268,14 @@
           </div>
         </div>
 
-        <!-- Image Generation card -->
+        <!-- Gemini AI card -->
         <div class="settings-card">
           <div class="settings-card-header">
-            <div class="settings-card-icon">🎨</div>
+            <div class="settings-card-icon">✨</div>
             <div>
-              <div class="settings-card-title">Image Generation</div>
-              <div class="settings-card-subtitle">Google Imagen / Gemini for AI article thumbnails</div>
+              <div class="settings-card-title">Google Gemini</div>
+              <div class="settings-card-subtitle">AI summaries, categorization, synthesis, and image generation</div>
             </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Model</label>
-            <select class="form-control input-wide" id="imagenModel">
-              <option value="imagen-4.0-generate-001">imagen-4.0-generate-001 (Standard)</option>
-              <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001 (Ultra)</option>
-              <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001 (Fast)</option>
-            </select>
-            <p class="form-help">
-              Ultra produces the highest quality images. Fast is cheaper and quicker. Gemini models support more creative prompts.
-            </p>
           </div>
 
           <div class="form-group">
@@ -298,11 +286,24 @@
               <button class="btn btn-outline btn-sm" id="toggleImagenKeyBtn" type="button" title="Show/hide">👁️</button>
             </div>
             <p class="form-help">
-              Overrides the <code>GEMINI_API_KEY</code> environment variable for image generation. Leave blank to use the environment variable.
+              Used for TLDR summaries, article categorization, writer synthesis, visual concepts, and image generation. Overrides the <code>GEMINI_API_KEY</code> environment variable.
             </p>
             <div id="imagenKeyStatus" class="settings-status"></div>
-            <button class="btn btn-primary" id="saveImagenBtn">Save Image Settings</button>
           </div>
+
+          <div class="form-group">
+            <label class="form-label">Image Generation Model</label>
+            <select class="form-control input-wide" id="imagenModel">
+              <option value="imagen-4.0-generate-001">imagen-4.0-generate-001 (Standard)</option>
+              <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001 (Ultra)</option>
+              <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001 (Fast)</option>
+            </select>
+            <p class="form-help">
+              Select the Imagen model for AI thumbnail generation. Ultra produces the highest quality. Fast is cheaper and quicker.
+            </p>
+          </div>
+
+          <button class="btn btn-primary" id="saveImagenBtn">Save Gemini Settings</button>
         </div>
 
         <!-- Analytics IDs -->
