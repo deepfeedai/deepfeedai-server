@@ -100,15 +100,23 @@ router.get('/', asyncHandler(async (req, res) => {
     persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
   }
 
+  const isWriterStyled = !!writerId && persona !== undefined;
   const prompt = [
     persona,
-    'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
+    '',
+    isWriterStyled
+      ? 'Write your analysis in your own voice and style as described above. Respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:'
+      : 'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
     '{',
     '  "overview": "2 clear sentences summarizing what happened and who is involved.",',
     '  "keyPoints": ["specific fact or detail", "specific number, date, or technical detail", "notable reaction, implication, or next step"],',
-    '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
+    isWriterStyled
+      ? '  "whyItMatters": "One sentence on why this matters, written in your distinctive voice."'
+      : '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
     '}',
-    'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
+    isWriterStyled
+      ? 'Rules: Stay in character. Use your tone and style throughout. No generic language. keyPoints must be 3 concise bullet strings.'
+      : 'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
     '',
     `Title: ${title}`,
     description ? `Context: ${description}` : '',
@@ -182,15 +190,23 @@ async function prewarmSummary(title, description, tenantId, writerId) {
       persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
     }
 
+    const isWriterStyled = !!writerId && persona !== undefined;
     const prompt = [
       persona,
-      'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
+      '',
+      isWriterStyled
+        ? 'Write your analysis in your own voice and style as described above. Respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:'
+        : 'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
       '{',
       '  "overview": "2 clear sentences summarizing what happened and who is involved.",',
       '  "keyPoints": ["specific fact or detail", "specific number, date, or technical detail", "notable reaction, implication, or next step"],',
-      '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
+      isWriterStyled
+        ? '  "whyItMatters": "One sentence on why this matters, written in your distinctive voice."'
+        : '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
       '}',
-      'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
+      isWriterStyled
+        ? 'Rules: Stay in character. Use your tone and style throughout. No generic language. keyPoints must be 3 concise bullet strings.'
+        : 'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
       '',
       `Title: ${title}`,
       description ? `Context: ${description.slice(0, 800)}` : '',
