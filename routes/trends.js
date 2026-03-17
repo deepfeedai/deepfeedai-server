@@ -18,6 +18,7 @@ const { getPool }      = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
 const { getGeminiKey } = require('../lib/gemini-config');
+const { getCategories } = require('../lib/categories');
 
 const CACHE_TTL_HOURS = 2;
 
@@ -63,7 +64,7 @@ function extractKeywords(articles) {
 
 // ── Company extraction (parallel batched Gemini) ──────────────────────────────
 
-async function extractCompaniesParallel(articles, tenantId) {
+async function extractCompaniesParallel(articles, tenantId, categoryNames) {
   const apiKey = await getGeminiKey(tenantId);
   if (!apiKey) return {};
 
@@ -73,11 +74,15 @@ async function extractCompaniesParallel(articles, tenantId) {
     batches.push(articles.slice(i, i + BATCH));
   }
 
+  const topicCtx = categoryNames && categoryNames.length
+    ? categoryNames.join(', ')
+    : 'news';
+
   const batchResults = await Promise.all(batches.map(async (batch) => {
     const texts = batch
       .map((a, i) => `${i + 1}. ${a.title}. ${(a.summary || '').slice(0, 200)}`)
       .join('\n');
-    const prompt = `Extract ONLY AI/tech company names from these article excerpts. Return a comma-separated list (e.g., OpenAI, Anthropic, Google). No explanations. If none, return "NONE".\n\n${texts}`;
+    const prompt = `Extract ONLY company and organization names from these article excerpts about ${topicCtx}. Return a comma-separated list. No explanations. If none, return "NONE".\n\n${texts}`;
 
     try {
       const _start = Date.now();
@@ -252,9 +257,12 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   // Analysis
+  const cats = await getCategories(tenantId);
+  const categoryNames = cats.map(c => c.name);
+
   const [keywords, companyMap] = await Promise.all([
     Promise.resolve(extractKeywords(articles)),
-    extractCompaniesParallel(articles, tenantId),
+    extractCompaniesParallel(articles, tenantId, categoryNames),
   ]);
 
   const topCompanies = Object.entries(companyMap)
