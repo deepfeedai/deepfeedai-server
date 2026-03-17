@@ -561,9 +561,9 @@ async function initDb() {
     // Seed default roles
     `INSERT INTO roles (tenant_id, name, description, permissions, is_system) VALUES
       (1, 'owner', 'Full platform access', '["*"]', true),
-      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","voices.*","settings.read","analytics.*","comments.*","newsletter.*","users.read","audit.read"]', true),
-      (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read"]', true),
-      (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read"]', true)
+      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","voices.*","settings.*","analytics.*","comments.*","newsletter.*","users.*","audit.read","fetch.execute","synthesis.execute"]', true),
+      (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
+      (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","voices.read","media.read"]', true)
      ON CONFLICT (tenant_id, name) DO NOTHING`,
     // 1c. Add local_user_id column to tenant_admins
     `ALTER TABLE tenant_admins ADD COLUMN IF NOT EXISTS local_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`,

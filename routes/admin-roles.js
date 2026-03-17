@@ -49,7 +49,7 @@ router.get('/templates', auth, requirePermission('roles.read'), (_req, res) => {
     {
       name: 'publisher',
       description: 'Create and publish content, manage newsletter',
-      permissions: ['articles.read', 'articles.create', 'articles.update', 'articles.publish', 'media.read', 'media.create', 'newsletter.read', 'newsletter.send', 'analytics.read'],
+      permissions: ['articles.read', 'articles.create', 'articles.update', 'media.read', 'media.create', 'newsletter.read', 'newsletter.send', 'analytics.read'],
     },
   ]);
 });
