@@ -1915,7 +1915,18 @@ async function executeLaunch() {
   try {
     // 1. Save branding + settings
     setLaunchStep('branding', 'active');
-    const brandPayload = { site_name: siteName, site_tagline: tagline };
+    // Derive short name from site name (remove spaces, limit to ~20 chars)
+    const shortName = siteName.replace(/\s+/g, '').slice(0, 20);
+    const brandPayload = {
+      site_name: siteName,
+      site_short_name: shortName,
+      site_tagline: tagline,
+      site_copyright: siteName,
+      site_logo_html: (emoji ? emoji + '&nbsp;' : '') + siteName.replace(/(\S+)$/, '<span class="accent">$1</span>'),
+      site_footer_tagline: 'Built with \u2764\uFE0F by ' + siteName,
+      site_newsletter_subject: (emoji ? emoji + ' ' : '') + siteName + ' \u2014 Your Weekly Digest',
+      site_email_from_name: siteName,
+    };
     if (description) brandPayload.site_description = description;
     if (emoji) brandPayload.site_logo_emoji = emoji;
     if (aiPersona) brandPayload.site_ai_persona = aiPersona;
