@@ -139,11 +139,13 @@ function openAdd() {
   document.getElementById('fWriterExpertise').value = '';
   document.getElementById('fWriterStyleGuide').value = '';
   document.getElementById('fewShotContainer').innerHTML = '';
+  document.getElementById('fWriterGender').value = '';
   document.getElementById('fWriterIsAuto').checked = false;
   document.getElementById('fWriterSchedule').value = 'daily';
   document.getElementById('fWriterLookback').value = '168';
   document.getElementById('fWriterMinCluster').value = '3';
   document.getElementById('writerAvatarPreviewWrap').style.display = 'none';
+  document.getElementById('avatarPromptPreview').style.display = 'none';
   document.getElementById('fWriterAvatar').value = '';
   pendingAvatarDataUrl = null;
   populateBeatsCheckboxes([]);
@@ -165,6 +167,7 @@ function openEdit(id) {
   document.getElementById('fWriterTone').value = w.tone || '';
   document.getElementById('fWriterExpertise').value = w.expertise_level || '';
   document.getElementById('fWriterStyleGuide').value = w.style_guide || '';
+  document.getElementById('fWriterGender').value = w.gender || '';
   document.getElementById('fWriterIsAuto').checked = !!w.is_auto;
   document.getElementById('fWriterSchedule').value = w.synthesis_schedule || 'daily';
   document.getElementById('fWriterLookback').value = w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168;
@@ -235,6 +238,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var voiceVal = document.getElementById('fWriterVoice').value;
   var voice_id = voiceVal ? parseInt(voiceVal) : null;
   var beats = getSelectedBeats();
+  var gender = document.getElementById('fWriterGender').value || null;
 
   if (!name) { showAlert('Name is required', 'error'); return; }
 
@@ -254,6 +258,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     synthesis_lookback_hours: synthesis_lookback_hours,
     min_cluster_size: min_cluster_size,
     voice_id: voice_id,
+    gender: gender,
   };
 
   try {
@@ -329,6 +334,12 @@ document.getElementById('generateAvatarBtn').addEventListener('click', async fun
       document.getElementById('writerAvatarPreviewWrap').style.display = '';
       showAlert('Avatar generated');
       await loadWriters();
+    }
+    // Show the prompt that was used
+    if (result._avatarPrompt) {
+      var promptEl = document.getElementById('avatarPromptPreview');
+      promptEl.textContent = 'Prompt: ' + result._avatarPrompt;
+      promptEl.style.display = '';
     }
   } catch (err) {
     showAlert('Avatar generation failed: ' + err.message, 'error');

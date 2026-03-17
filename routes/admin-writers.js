@@ -75,7 +75,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-          tone, expertise_level, style_guide, few_shot_examples } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -87,8 +87,8 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
   const writer = await db.prepare(`
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-      tone, expertise_level, style_guide, few_shot_examples, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      tone, expertise_level, style_guide, few_shot_examples, gender, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -98,6 +98,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     voice_id || null,
     tone || null, expertise_level || null, style_guide || null,
     JSON.stringify(few_shot_examples || []),
+    gender || null,
     req.tenantId
   );
 
@@ -119,7 +120,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-          tone, expertise_level, style_guide, few_shot_examples } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender } = body;
 
   if (voice_id) {
     const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
@@ -133,8 +134,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     UPDATE writers SET name = $1, slug = $2, bio = $3, beat = $4, keywords = $5,
       system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
       synthesis_lookback_hours = $9, min_cluster_size = $10, voice_id = $11,
-      tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15
-    WHERE id = $16 AND tenant_id = $17
+      tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15,
+      gender = $16
+    WHERE id = $17 AND tenant_id = $18
     RETURNING *
   `).get(
     name,
@@ -152,6 +154,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     expertise_level !== undefined ? (expertise_level || null) : existing.expertise_level,
     style_guide !== undefined ? (style_guide || null) : existing.style_guide,
     few_shot_examples !== undefined ? JSON.stringify(few_shot_examples) : existingFse,
+    gender !== undefined ? (gender || null) : existing.gender,
     id,
     req.tenantId
   );
@@ -207,7 +210,8 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   const beatNames = beats.map(b => b.name).join(', ') || 'news';
   const toneDesc = writer.tone ? `, with a ${writer.tone.toLowerCase()} demeanor` : '';
 
-  const prompt = `Professional headshot portrait of a journalist who covers ${beatNames}${toneDesc}. `
+  const genderDesc = writer.gender ? `${writer.gender} ` : '';
+  const prompt = `Professional headshot portrait of a ${genderDesc}journalist who covers ${beatNames}${toneDesc}. `
     + `Clean background, studio lighting, photorealistic, high quality, sharp focus. `
     + `No text, no logos, no watermarks. Square 1:1 aspect ratio.`;
 
@@ -255,7 +259,7 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'avatar-generate', trigger: 'manual', imageCount: 1, tenantId: req.tenantId }).catch(() => {});
 
   const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
-  res.json(updated);
+  res.json({ ...updated, _avatarPrompt: prompt });
 }));
 
 // GET /api/admin/writers/performance — per-writer performance metrics
