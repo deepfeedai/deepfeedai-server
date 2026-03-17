@@ -126,7 +126,10 @@
 
       <div class="form-group">
         <label class="form-label">Avatar Image</label>
-        <input type="file" class="form-control" id="fWriterAvatar" accept="image/*" />
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="file" class="form-control" id="fWriterAvatar" accept="image/*" style="flex:1;" />
+          <button type="button" class="btn btn-outline btn-sm" id="generateAvatarBtn" style="white-space:nowrap;" title="Generate with AI">AI Generate</button>
+        </div>
         <div id="writerAvatarPreviewWrap" class="mt-2" style="display:none;">
           <img id="writerAvatarPreview" src="" alt="Avatar preview" class="avatar-preview-img" />
         </div>

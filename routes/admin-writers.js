@@ -192,6 +192,72 @@ router.post('/:id/avatar', requirePermission('writers.update'), asyncHandler(asy
   res.json(updated);
 }));
 
+// POST /api/admin/writers/:id/generate-avatar — AI-generate avatar with Imagen
+router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  const { getGeminiKey } = require('../lib/gemini-config');
+  const apiKey = await getGeminiKey(req.tenantId);
+  if (!apiKey) return res.status(500).json({ error: 'Gemini/Imagen API key not configured' });
+
+  // Build a portrait prompt from the writer's persona
+  const beats = await getBeats(id, req.tenantId);
+  const beatNames = beats.map(b => b.name).join(', ') || 'news';
+  const toneDesc = writer.tone ? `, with a ${writer.tone.toLowerCase()} demeanor` : '';
+
+  const prompt = `Professional headshot portrait of a journalist who covers ${beatNames}${toneDesc}. `
+    + `Clean background, studio lighting, photorealistic, high quality, sharp focus. `
+    + `No text, no logos, no watermarks. Square 1:1 aspect ratio.`;
+
+  console.log(`[AvatarGen] Writer ${id} (${writer.name}): ${prompt}`);
+
+  const IMAGEN_URL = 'https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict';
+  let resolvedUrl = IMAGEN_URL;
+  try {
+    const modelSetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model' AND tenant_id = $1").get(req.tenantId);
+    if (modelSetting?.value) resolvedUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
+  } catch {}
+
+  const imagenBody = resolvedUrl.includes(':predict')
+    ? { instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: '1:1', safetyFilterLevel: 'block_few' } }
+    : { contents: [{ parts: [{ text: prompt }] }], generationConfig: { imageGenerationConfig: { numberOfImages: 1, aspectRatio: '1:1' } } };
+
+  const imagenRes = await fetch(`${resolvedUrl}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(imagenBody),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!imagenRes.ok) {
+    const err = await imagenRes.text().catch(() => '');
+    console.error(`[AvatarGen] Imagen error: ${imagenRes.status}`, err.slice(0, 300));
+    return res.status(502).json({ error: `Imagen API error: ${imagenRes.status}` });
+  }
+
+  const data = await imagenRes.json();
+  const b64 = data?.predictions?.[0]?.bytesBase64Encoded
+           || data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data
+           || data?.generatedImages?.[0]?.image?.imageBytes
+           || data?.images?.[0]?.bytesBase64Encoded;
+
+  if (!b64) {
+    console.error('[AvatarGen] No image in response:', JSON.stringify(data).slice(0, 500));
+    return res.status(502).json({ error: 'No image returned from Imagen' });
+  }
+
+  const avatarUrl = await storeAvatar(Buffer.from(b64, 'base64'), 'image/png', id);
+  await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
+
+  const { logUsage } = require('../lib/ai-usage');
+  logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'avatar-generate', trigger: 'manual', imageCount: 1, tenantId: req.tenantId }).catch(() => {});
+
+  const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  res.json(updated);
+}));
+
 // GET /api/admin/writers/performance — per-writer performance metrics
 router.get('/performance', requirePermission('writers.read'), asyncHandler(async (req, res) => {
   const range = req.query.range || '30d';

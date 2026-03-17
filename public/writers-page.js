@@ -312,6 +312,32 @@ document.getElementById('confirmDeleteWriterBtn').addEventListener('click', asyn
 document.getElementById('addWriterBtn').addEventListener('click', openAdd);
 document.getElementById('addFewShotBtn').addEventListener('click', function() { addFewShotRow('', ''); });
 
+// ── Generate Avatar with AI ──────────────────────────────────────
+document.getElementById('generateAvatarBtn').addEventListener('click', async function() {
+  var writerId = document.getElementById('writerForm').dataset.editId;
+  if (!writerId) {
+    showAlert('Save the writer first, then generate an avatar', 'error');
+    return;
+  }
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  try {
+    var result = await apiFetch('/admin/writers/' + writerId + '/generate-avatar', { method: 'POST' });
+    if (result.avatar_url) {
+      document.getElementById('writerAvatarPreview').src = result.avatar_url;
+      document.getElementById('writerAvatarPreviewWrap').style.display = '';
+      showAlert('Avatar generated');
+      await loadWriters();
+    }
+  } catch (err) {
+    showAlert('Avatar generation failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'AI Generate';
+  }
+});
+
 // ── Performance Dashboard ────────────────────────────────────────
 
 async function loadPerformance(range) {

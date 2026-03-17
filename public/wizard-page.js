@@ -2234,6 +2234,16 @@ async function executeLaunch() {
     }
     setLaunchStep('writer', 'done');
 
+    // 5b. Generate AI avatars for writers without one (fire-and-forget)
+    try {
+      const allWriters = await apiFetch('/admin/writers').catch(() => []);
+      for (const w of allWriters) {
+        if (!w.avatar_url) {
+          apiFetch('/admin/writers/' + w.id + '/generate-avatar', { method: 'POST' }).catch(() => {});
+        }
+      }
+    } catch { /* non-fatal */ }
+
     // 6. Fetch articles
     setLaunchStep('fetch', 'active');
     await apiFetch('/fetch', { method: 'POST', body: JSON.stringify({}) });
