@@ -16,14 +16,17 @@ const { getSiteConfig } = require('../lib/site-config');
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
 const { canSpend } = require('../lib/budget');
 const { getGeminiKey } = require('../lib/gemini-config');
+const db               = require('../db');
+const { buildWriterPrompt } = require('../lib/writer-assign');
 
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const CACHE_TTL_DAYS = 7;
 const CACHE_MAX_ROWS = 1000; // hard cap — prune oldest beyond this
 
-function cacheKey(title) {
-  return title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
+function cacheKey(title, writerId) {
+  const base = title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
+  return writerId ? `w${writerId}_${base}` : base;
 }
 
 async function getCached(key, tenantId) {
@@ -68,10 +71,11 @@ router.get('/', asyncHandler(async (req, res) => {
   const apiKey = await getGeminiKey(req.tenantId);
   if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured.' });
 
-  const { title = '', description = '' } = req.query;
+  const { title = '', description = '', writer_id } = req.query;
   if (!title) return res.status(400).json({ error: 'title param required.' });
 
-  const key = cacheKey(title);
+  const writerId = writer_id ? parseInt(writer_id) : null;
+  const key = cacheKey(title, writerId);
 
   const cached = await getCached(key, req.tenantId);
   if (cached) {
@@ -79,8 +83,22 @@ router.get('/', asyncHandler(async (req, res) => {
     return res.json({ summary: cached });
   }
 
-  const site = await getSiteConfig(req.tenantId);
-  const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+  // Build persona: use writer's style if writer_id provided, otherwise site-level
+  let persona;
+  if (writerId) {
+    try {
+      const writer = await db.prepare(
+        'SELECT * FROM writers WHERE id = $1 AND tenant_id = $2'
+      ).get(writerId, req.tenantId);
+      if (writer) {
+        persona = await buildWriterPrompt(writer);
+      }
+    } catch { /* fall back to site persona */ }
+  }
+  if (!persona) {
+    const site = await getSiteConfig(req.tenantId);
+    persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+  }
 
   const prompt = [
     persona,
@@ -138,12 +156,12 @@ router.get('/', asyncHandler(async (req, res) => {
  * Used by synthesis pipeline to ensure the first page visitor never waits.
  * Returns the structured summary or null on failure.
  */
-async function prewarmSummary(title, description, tenantId) {
+async function prewarmSummary(title, description, tenantId, writerId) {
   try {
     const apiKey = await getGeminiKey(tenantId);
     if (!apiKey || !title) return null;
 
-    const key = cacheKey(title);
+    const key = cacheKey(title, writerId);
     const existing = await getCached(key, tenantId);
     if (existing) return existing; // already cached
 
@@ -151,8 +169,18 @@ async function prewarmSummary(title, description, tenantId) {
     const budgetCheck = await canSpend('summary', tenantId);
     if (!budgetCheck.allowed) return null;
 
-    const site = await getSiteConfig(tenantId);
-    const persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+    // Build persona: use writer's style if writerId provided
+    let persona;
+    if (writerId) {
+      try {
+        const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, tenantId);
+        if (writer) persona = await buildWriterPrompt(writer);
+      } catch { /* fall back */ }
+    }
+    if (!persona) {
+      const site = await getSiteConfig(tenantId);
+      persona = site.ai_persona || 'You are a tech news analyst for Deep Feed AI, an AI news aggregator.';
+    }
 
     const prompt = [
       persona,
