@@ -206,6 +206,40 @@ Major release: multi-tenancy, local authentication, RBAC, admin UI overhaul, and
 
 ---
 
+## [1.15.1] — 2026-03-16
+
+### Added
+- **16 new dark theme presets** — expanded from 4 to 20 presets including Dark Rose, Dark Amber, Charcoal, Dark Red, Dark Orange, Dark Teal, Obsidian, Monokai, Dracula, Nord, Solarized Dark, Dark Slate, Dark Coral, Dark Gold, Dark Indigo
+
+### Fixed
+- **Categories sorted alphabetically** — `getCategories()` query now uses `ORDER BY name ASC` instead of `sort_order`; all consumers (admin, frontend, categorization) get alphabetical order without client-side sorting
+
+---
+
+## [1.15.0] — 2026-03-15
+
+### Added
+- **Auto-grab feed title** — new `POST /api/sources/preview-feed` endpoint validates RSS URLs and returns feed metadata; source name auto-populates when pasting a URL in the Add Source modal, with live validation status
+- **30-day lookback for new sources** — first fetch of a newly added source uses a 30-day cutoff instead of 48 hours, pulling in a reasonable article backlog; subsequent fetches use the normal 48-hour window
+
+### Fixed
+- **Manual article add broken** — Zod v4 renamed `error.errors` to `error.issues`, causing `validate()` to crash with 500 on any validation failure instead of returning a proper 400; added `featured_priority` to `articleCreate` schema; fixed `fFeatured` select reset in Add Article modal
+- **Fetch-url hang on large pages** — `res.destroy()` on pages exceeding 200KB cap never resolved the Promise, hanging the request indefinitely; now resolves with collected HTML (sufficient for OG meta extraction)
+- **HTML entity encoding in auto-fill** — title, summary, author fields from `GET /api/fetch-url` now decoded via `decodeEntities()` (e.g. `&#039;` → `'`)
+
+---
+
+## [1.14.1] — 2026-03-15
+
+### Added — Article Re-Categorization
+- **Enhanced `POST /api/fetch/recategorize`** — supports `articleIds`, `category`, `days`, and `dryRun` filters; returns moves breakdown (`"Old → New": count`) and writer reassignment count; parameterized SQL, LIMIT 2000 safety cap
+- **Articles page: bulk recategorize** — "Recategorize" button in bulk toolbar operates on selected articles with dry-run preview modal showing proposed category moves before applying
+- **Articles page: global recategorize** — top-bar "Recategorize" button operates on all non-archived articles, scoped by active date filter (24h/7d/30d)
+- **Settings page: post-save prompt** — after saving categories, automatically previews how existing articles would be re-categorized with updated keywords; user can apply or skip
+- **Writer re-assignment** — articles that change category and have no writer are re-matched via `findBestWriter()` using the new category for beat scoring
+
+---
+
 ## [1.14.0] — 2026-03-15
 
 ### Added — Writer Restructuring & Article Enhancements
