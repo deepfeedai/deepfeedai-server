@@ -456,6 +456,7 @@ let apiKeyVisible = false;
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
     { id: 'baseUrl',              key: 'base_url' },
     { id: 'mainSiteUrl',          key: 'main_site_url' },
+    { id: 'allowedOrigins',       key: 'allowed_origins' },
   ];
 
   // Logo HTML live preview
@@ -858,6 +859,7 @@ let apiKeyVisible = false;
     { id: 'siteUrl',           key: 'site_url' },
     { id: 'baseUrl',           key: 'base_url' },
     { id: 'mainSiteUrl',       key: 'main_site_url' },
+    { id: 'allowedOrigins',    key: 'allowed_origins' },
     { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
   ]));
 

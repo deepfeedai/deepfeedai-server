@@ -68,14 +68,7 @@ const publicApiLimiter = rateLimit({
 // fetching its own API) are always allowed.
 const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers'];
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
-
-if (ALLOWED_ORIGINS.length === 0) {
-  ALLOWED_ORIGINS.push('http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000');
-}
+const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
 app.use(async (req, res, next) => {
   const origin = req.headers.origin;
@@ -91,10 +84,22 @@ app.use(async (req, res, next) => {
   const serverOrigin = `${proto}://${req.headers.host}`;
   const isSameOrigin = origin === serverOrigin;
 
+  // Resolve allowed origins from settings → env var → defaults
+  let allowedOrigins;
+  try {
+    const { getAppConfig } = require('./lib/app-config');
+    const config = await getAppConfig(req.tenantId || 1);
+    const raw = config.allowed_origins || '';
+    allowedOrigins = raw.split(',').map(o => o.trim()).filter(Boolean);
+  } catch {
+    allowedOrigins = [];
+  }
+  if (allowedOrigins.length === 0) allowedOrigins = DEFAULT_LOCAL_ORIGINS;
+
   // Allow *.deepfeedai.com subdomains and validated custom domains for tenant access
   const isTenantSubdomain = /^https?:\/\/[a-z0-9-]+\.deepfeedai\.com$/.test(origin);
   let isCustomDomain = false;
-  if (!isSameOrigin && !isPublic && !ALLOWED_ORIGINS.includes(origin) && !isTenantSubdomain) {
+  if (!isSameOrigin && !isPublic && !allowedOrigins.includes(origin) && !isTenantSubdomain) {
     // Check if origin matches a tenant's custom_domain
     try {
       const originHost = new URL(origin).hostname;
@@ -130,6 +135,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Static files ────────────────────────────────────────────────────
+// Allow cross-origin loading of media files (audio, images) from frontend
+app.use('/media', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
@@ -174,7 +184,10 @@ app.use('/api', async (req, res, next) => {
 
 // ── Database storage file serving (after tenant middleware) ─────────
 const { serveRoute: storageServeRoute } = require('./lib/storage');
-app.use('/api/media/file', storageServeRoute);
+app.use('/api/media/file', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, storageServeRoute);
 
 // ── API Routes ──────────────────────────────────────────────────────
 app.use('/api/auth',      require('./routes/local-auth'));

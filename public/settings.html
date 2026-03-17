@@ -144,6 +144,12 @@
           </div>
 
           <div class="form-group">
+            <label class="form-label" for="allowedOrigins">Allowed Origins (CORS)</label>
+            <input type="text" class="form-control" id="allowedOrigins" placeholder="https://deepfeedai.com, https://mysite.com" />
+            <p class="form-help">Comma-separated list of origins allowed to make cross-origin requests to admin endpoints. Defaults to localhost for development. Tenant subdomains (*.deepfeedai.com) and custom domains are always allowed.</p>
+          </div>
+
+          <div class="form-group">
             <label class="form-label" for="siteTwitterHandle">Twitter Handle</label>
             <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" style="max-width:300px;" />
           </div>
