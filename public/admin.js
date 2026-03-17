@@ -196,6 +196,25 @@ function renderSidebar() {
       logoEl.appendChild(document.createTextNode(shortName));
     }
   }).catch(function() { /* keep default */ });
+
+  // Show current user in topbar
+  var topbarUser = document.getElementById('topbarUser');
+  if (topbarUser) {
+    try {
+      var token = localStorage.getItem('deepfeedai_token');
+      if (token) {
+        var payload = JSON.parse(atob(token.split('.')[1]));
+        var name = payload.displayName || payload.username || payload.email || '';
+        var role = payload.role || '';
+        if (name) {
+          topbarUser.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">'
+            + '<span class="text-muted text-sm">' + name + '</span>'
+            + (role ? '<span class="badge badge-muted" style="font-size:10px;">' + role + '</span>' : '')
+            + '</span>';
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
 }
 
 function initSidebar() {
