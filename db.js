@@ -452,6 +452,9 @@ async function initDb() {
     `ALTER TABLE newsletter_sends ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE summary_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE thumbnail_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE trends_cache ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE trends_history ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS trends_history_tenant_date ON trends_history(tenant_id, snapshot_date)`,
     // Indexes for tenant_id on high-volume tables
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant ON articles(tenant_id)`,
     `CREATE INDEX IF NOT EXISTS idx_sources_tenant ON sources(tenant_id)`,

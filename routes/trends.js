@@ -82,7 +82,7 @@ async function extractCompaniesParallel(articles, tenantId, categoryNames) {
     const texts = batch
       .map((a, i) => `${i + 1}. ${a.title}. ${(a.summary || '').slice(0, 200)}`)
       .join('\n');
-    const prompt = `Extract ONLY company and organization names from these article excerpts about ${topicCtx}. Return a comma-separated list. No explanations. If none, return "NONE".\n\n${texts}`;
+    const prompt = `Extract the most notable proper nouns (people, companies, brands, organizations, products, events) from these article excerpts about ${topicCtx}. Return a comma-separated list of names. No explanations. If none, return "NONE".\n\n${texts}`;
 
     try {
       const _start = Date.now();
@@ -223,7 +223,7 @@ async function saveSnapshot(snapshot, tenantId) {
   await getPool().query(
     `INSERT INTO trends_history (tenant_id, snapshot_date, payload, created_at)
      VALUES ($1, CURRENT_DATE, $2, NOW())
-     ON CONFLICT (snapshot_date) DO UPDATE SET payload = $2, created_at = NOW()`,
+     ON CONFLICT (tenant_id, snapshot_date) DO UPDATE SET payload = $2, created_at = NOW()`,
     [tenantId, snapshot]
   );
 }
