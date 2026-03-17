@@ -24,41 +24,45 @@ const { getSiteConfig } = require('../lib/site-config');
 const router = express.Router();
 
 /* ── Config ──────────────────────────────────────────────────────── */
-const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GITHUB_CLIENT_ID     = process.env.GITHUB_CLIENT_ID;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const { getOAuthConfig } = require('../lib/oauth-config');
+const { getAppConfig }   = require('../lib/app-config');
 
-// USER_JWT_SECRET is separate from admin JWT_SECRET — keeps auth surfaces isolated
-const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
-if (!USER_JWT_SECRET) {
-  console.warn('[user-auth] WARNING: USER_JWT_SECRET not set. User auth will not work.');
-}
-
-// BASE_URL = this server's public URL (Railway URL in production)
-const BASE_URL      = (process.env.BASE_URL || 'http://localhost:4000').replace(/\/$/, '');
-// MAIN_SITE_URL = deepfeedai.com (where we redirect after OAuth)
-const MAIN_SITE_URL = (process.env.MAIN_SITE_URL || 'http://localhost:3001').replace(/\/$/, '');
+const { getSecrets } = require('../lib/secrets');
 
 /* ── OAuth state store (in-memory, 10-min TTL) ───────────────────── */
 const oauthStates = new Map();
 
-function generateState() {
-  const state = crypto.randomBytes(32).toString('hex');
-  oauthStates.set(state, Date.now());
+// Allowed return_to values for OAuth redirects (prevents open redirect)
+const ALLOWED_RETURN_TO = new Set(['signup', 'login']);
+
+function generateState(meta) {
+  const stateId = crypto.randomBytes(32).toString('hex');
+  oauthStates.set(stateId, { ts: Date.now(), ...(meta || {}) });
   // Prune stale states
   const cutoff = Date.now() - 10 * 60 * 1000;
   for (const [k, v] of oauthStates) {
-    if (v < cutoff) oauthStates.delete(k);
+    if (v.ts < cutoff) oauthStates.delete(k);
   }
-  return state;
+  return stateId;
 }
 
 function validateState(state) {
-  const ts = oauthStates.get(state);
-  if (!ts) return false;
+  const entry = oauthStates.get(state);
+  if (!entry) return null;
   oauthStates.delete(state); // one-time use
-  return Date.now() - ts < 10 * 60 * 1000;
+  if (Date.now() - entry.ts > 10 * 60 * 1000) return null;
+  return entry;
+}
+
+/** Resolve redirect URL after OAuth, based on state metadata */
+function getRedirectUrl(stateMeta, authCode, baseUrl, mainSiteUrl) {
+  if (stateMeta.return_to === 'signup') {
+    return `${baseUrl}/signup.html?code=${authCode}`;
+  }
+  if (stateMeta.return_to === 'login') {
+    return `${baseUrl}/login.html?code=${authCode}`;
+  }
+  return `${mainSiteUrl}/auth/callback?code=${authCode}`;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -114,7 +118,8 @@ async function createAuthCode(userId) {
 }
 
 /** Sign a 7-day JWT for the public user */
-function issueJwt(user) {
+async function issueJwt(user) {
+  const { userJwtSecret } = await getSecrets();
   return jwt.sign(
     {
       sub:         user.id,
@@ -123,24 +128,28 @@ function issueJwt(user) {
       avatarUrl:   user.avatar_url,
       provider:    user.provider,
     },
-    USER_JWT_SECRET,
+    userJwtSecret,
     { expiresIn: '7d' }
   );
 }
 
 /** Redirect to main site with an error code */
-function authError(res, code) {
-  return res.redirect(`${MAIN_SITE_URL}/?auth_error=${encodeURIComponent(code)}`);
+function authError(res, code, mainSiteUrl) {
+  return res.redirect(`${mainSiteUrl}/?auth_error=${encodeURIComponent(code)}`);
 }
 
 /* ── Google OAuth ────────────────────────────────────────────────── */
 
-router.get('/google', (req, res) => {
-  if (!GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'Google OAuth not configured' });
-  const state = generateState();
+router.get('/google', async (req, res) => {
+  const oauth = await getOAuthConfig();
+  if (!oauth.googleClientId) return res.status(503).json({ error: 'Google OAuth not configured' });
+  const appCfg = await getAppConfig(req.tenantId);
+  const baseUrl = (appCfg.base_url || 'http://localhost:4000').replace(/\/$/, '');
+  const returnTo = ALLOWED_RETURN_TO.has(req.query.return_to) ? req.query.return_to : undefined;
+  const state = generateState({ return_to: returnTo });
   const url   = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  url.searchParams.set('client_id',     GOOGLE_CLIENT_ID);
-  url.searchParams.set('redirect_uri',  `${BASE_URL}/api/user-auth/google/callback`);
+  url.searchParams.set('client_id',     oauth.googleClientId);
+  url.searchParams.set('redirect_uri',  `${baseUrl}/api/user-auth/google/callback`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope',         'openid email profile');
   url.searchParams.set('state',         state);
@@ -150,20 +159,25 @@ router.get('/google', (req, res) => {
 });
 
 router.get('/google/callback', async (req, res) => {
+  const appCfg = await getAppConfig(req.tenantId);
+  const baseUrl = (appCfg.base_url || 'http://localhost:4000').replace(/\/$/, '');
+  const mainSiteUrl = (appCfg.main_site_url || 'http://localhost:3001').replace(/\/$/, '');
   const { code, state, error } = req.query;
-  if (error)                   return authError(res, error);
-  if (!validateState(state))   return authError(res, 'invalid_state');
+  if (error)                   return authError(res, error, mainSiteUrl);
+  const stateMeta = validateState(state);
+  if (!stateMeta)              return authError(res, 'invalid_state', mainSiteUrl);
 
   try {
+    const oauth = await getOAuthConfig();
     // Exchange code → access token
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body:    new URLSearchParams({
         code,
-        client_id:     GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri:  `${BASE_URL}/api/user-auth/google/callback`,
+        client_id:     oauth.googleClientId,
+        client_secret: oauth.googleClientSecret,
+        redirect_uri:  `${baseUrl}/api/user-auth/google/callback`,
         grant_type:    'authorization_code',
       }),
     });
@@ -179,35 +193,44 @@ router.get('/google/callback', async (req, res) => {
     const user = await findOrCreateUser(
       'google', info.id, info.email, info.name, info.picture
     );
-    if (user.is_banned) return authError(res, 'banned');
+    if (user.is_banned) return authError(res, 'banned', mainSiteUrl);
 
     const authCode = await createAuthCode(user.id);
-    res.redirect(`${MAIN_SITE_URL}/auth/callback?code=${authCode}`);
+    res.redirect(getRedirectUrl(stateMeta, authCode, baseUrl, mainSiteUrl));
   } catch (err) {
     console.error('[OAuth/Google]', err.message);
-    authError(res, 'server_error');
+    authError(res, 'server_error', mainSiteUrl);
   }
 });
 
 /* ── GitHub OAuth ────────────────────────────────────────────────── */
 
-router.get('/github', (req, res) => {
-  if (!GITHUB_CLIENT_ID) return res.status(503).json({ error: 'GitHub OAuth not configured' });
-  const state = generateState();
+router.get('/github', async (req, res) => {
+  const oauth = await getOAuthConfig();
+  if (!oauth.githubClientId) return res.status(503).json({ error: 'GitHub OAuth not configured' });
+  const appCfg = await getAppConfig(req.tenantId);
+  const baseUrl = (appCfg.base_url || 'http://localhost:4000').replace(/\/$/, '');
+  const returnTo = ALLOWED_RETURN_TO.has(req.query.return_to) ? req.query.return_to : undefined;
+  const state = generateState({ return_to: returnTo });
   const url   = new URL('https://github.com/login/oauth/authorize');
-  url.searchParams.set('client_id',    GITHUB_CLIENT_ID);
-  url.searchParams.set('redirect_uri', `${BASE_URL}/api/user-auth/github/callback`);
+  url.searchParams.set('client_id',    oauth.githubClientId);
+  url.searchParams.set('redirect_uri', `${baseUrl}/api/user-auth/github/callback`);
   url.searchParams.set('scope',        'user:email');
   url.searchParams.set('state',        state);
   res.redirect(url.toString());
 });
 
 router.get('/github/callback', async (req, res) => {
+  const appCfg = await getAppConfig(req.tenantId);
+  const baseUrl = (appCfg.base_url || 'http://localhost:4000').replace(/\/$/, '');
+  const mainSiteUrl = (appCfg.main_site_url || 'http://localhost:3001').replace(/\/$/, '');
   const { code, state, error } = req.query;
-  if (error)                  return authError(res, error);
-  if (!validateState(state))  return authError(res, 'invalid_state');
+  if (error)                  return authError(res, error, mainSiteUrl);
+  const stateMeta = validateState(state);
+  if (!stateMeta)             return authError(res, 'invalid_state', mainSiteUrl);
 
   try {
+    const oauth = await getOAuthConfig();
     // Exchange code → access token
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method:  'POST',
@@ -216,17 +239,17 @@ router.get('/github/callback', async (req, res) => {
         'Accept':       'application/json',
       },
       body: new URLSearchParams({
-        client_id:     GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
+        client_id:     oauth.githubClientId,
+        client_secret: oauth.githubClientSecret,
         code,
-        redirect_uri:  `${BASE_URL}/api/user-auth/github/callback`,
+        redirect_uri:  `${baseUrl}/api/user-auth/github/callback`,
       }),
     });
     const tokens = await tokenRes.json();
     if (!tokens.access_token) throw new Error('No access_token from GitHub');
 
     // Fetch user profile
-    const ghSite = await getSiteConfig();
+    const ghSite = await getSiteConfig(req.tenantId);
     const ghUserAgent = `${ghSite.short_name || 'DeepFeedAI'}/1.0`;
     const infoRes = await fetch('https://api.github.com/user', {
       headers: {
@@ -255,13 +278,13 @@ router.get('/github/callback', async (req, res) => {
     const user = await findOrCreateUser(
       'github', String(info.id), email, info.name || info.login, info.avatar_url
     );
-    if (user.is_banned) return authError(res, 'banned');
+    if (user.is_banned) return authError(res, 'banned', mainSiteUrl);
 
     const authCode = await createAuthCode(user.id);
-    res.redirect(`${MAIN_SITE_URL}/auth/callback?code=${authCode}`);
+    res.redirect(getRedirectUrl(stateMeta, authCode, baseUrl, mainSiteUrl));
   } catch (err) {
     console.error('[OAuth/GitHub]', err.message);
-    authError(res, 'server_error');
+    authError(res, 'server_error', mainSiteUrl);
   }
 });
 
@@ -285,7 +308,7 @@ router.post('/token', async (req, res) => {
     const user = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(row.user_id);
     if (!user || user.is_banned) return res.status(403).json({ error: 'Forbidden' });
 
-    const token = issueJwt(user);
+    const token = await issueJwt(user);
     res.json({
       token,
       user: {
@@ -309,7 +332,8 @@ router.get('/me', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
 
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     const user    = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(payload.sub);
     if (!user || user.is_banned) return res.status(403).json({ error: 'Forbidden' });
 
@@ -330,7 +354,8 @@ router.get('/preferences', async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     const user    = await db.prepare('SELECT notify_replies FROM public_users WHERE id = $1').get(payload.sub);
     if (!user) return res.status(404).json({ error: 'Not found' });
     res.json({ notifyReplies: !!user.notify_replies });
@@ -344,7 +369,8 @@ router.put('/preferences', async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     const { notifyReplies } = req.body;
     await db.prepare(
       'UPDATE public_users SET notify_replies = $1, updated_at = NOW() WHERE id = $2'
@@ -372,9 +398,10 @@ router.get('/unsubscribe', async (req, res) => {
     'UPDATE public_users SET notify_replies = 0, updated_at = NOW() WHERE id = $1'
   ).run(user.id);
 
-  const site     = await getSiteConfig();
+  const site     = await getSiteConfig(req.tenantId);
+  const appCfg   = await getAppConfig(req.tenantId);
   const siteName = site.name || 'Deep Feed AI';
-  const siteUrl  = site.url || process.env.MAIN_SITE_URL || 'https://deepfeedai.com';
+  const siteUrl  = site.url || appCfg.main_site_url || 'https://deepfeedai.com';
 
   // Friendly HTML response
   res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -396,7 +423,8 @@ router.get('/activity', async (req, res) => {
   if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
 
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     const userId  = payload.sub;
 
     const page  = Math.max(1, parseInt(req.query.page  || '1',  10));

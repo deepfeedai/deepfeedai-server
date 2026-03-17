@@ -12,6 +12,7 @@ const express = require('express');
 const router  = express.Router();
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
+const { getAppConfig } = require('../lib/app-config');
 
 function escHtml(str) {
   return String(str || '')
@@ -29,11 +30,12 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
+  const appCfg = await getAppConfig(req.tenantId);
+  const resendKey = appCfg.resend_api_key;
   if (!resendKey) return res.status(500).json({ error: 'Missing Resend config' });
 
   try {
-    const site     = await getSiteConfig();
+    const site     = await getSiteConfig(req.tenantId);
     const siteName = site.name || 'Deep Feed AI';
     const domain   = site.domain || 'deepfeedai.com';
 
@@ -63,11 +65,11 @@ router.post('/', async (req, res) => {
     if (!emailRes.ok) {
       const err = await emailRes.text();
       console.error('[contact] Resend error:', err);
-      logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start, success: false, error: err }).catch(() => {});
+      logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start, success: false, error: err, tenantId: req.tenantId }).catch(() => {});
       return res.status(500).json({ error: 'Failed to send message' });
     }
 
-    logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start }).catch(() => {});
+    logUsage({ provider: 'resend', operation: 'contact-email', trigger: 'manual', emailCount: 1, durationMs: Date.now() - _start, tenantId: req.tenantId }).catch(() => {});
     return res.status(200).json({ success: true });
 
   } catch (err) {

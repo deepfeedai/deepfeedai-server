@@ -19,15 +19,16 @@ const db      = require('../db');
 
 const router = express.Router();
 
-const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
+const { getSecrets } = require('../lib/secrets');
 
 /* ── Auth helper ─────────────────────────────────────────────────── */
 
-function getUserId(req) {
+async function getUserId(req) {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return null;
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     return payload.sub;
   } catch {
     return null;
@@ -38,7 +39,7 @@ function getUserId(req) {
 // Returns the most recent notifications for the signed-in user,
 // along with an unread count (notifications where read_at IS NULL).
 router.get('/', async (req, res) => {
-  const userId = getUserId(req);
+  const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || '20', 10)));
@@ -47,15 +48,15 @@ router.get('/', async (req, res) => {
     const notifications = await db.prepare(`
       SELECT id, type, payload, read_at, created_at
       FROM notifications
-      WHERE user_id = $1
+      WHERE user_id = $1 AND tenant_id = $2
       ORDER BY created_at DESC
-      LIMIT $2
-    `).all(userId, limit);
+      LIMIT $3
+    `).all(userId, req.tenantId, limit);
 
     const unreadRow = await db.prepare(`
       SELECT COUNT(*) AS cnt FROM notifications
-      WHERE user_id = $1 AND read_at IS NULL
-    `).get(userId);
+      WHERE user_id = $1 AND tenant_id = $2 AND read_at IS NULL
+    `).get(userId, req.tenantId);
 
     res.json({
       notifications: notifications.map(n => ({
@@ -76,14 +77,14 @@ router.get('/', async (req, res) => {
 /* ── PUT /api/notifications/read ─────────────────────────────────── */
 // Mark ALL unread notifications for the current user as read.
 router.put('/read', async (req, res) => {
-  const userId = getUserId(req);
+  const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     await db.prepare(`
       UPDATE notifications SET read_at = NOW()
-      WHERE user_id = $1 AND read_at IS NULL
-    `).run(userId);
+      WHERE user_id = $1 AND tenant_id = $2 AND read_at IS NULL
+    `).run(userId, req.tenantId);
     res.json({ ok: true });
   } catch (err) {
     console.error('[notifications/read-all]', err.message);
@@ -94,7 +95,7 @@ router.put('/read', async (req, res) => {
 /* ── PUT /api/notifications/:id/read ─────────────────────────────── */
 // Mark a single notification as read. Only marks if owned by current user.
 router.put('/:id/read', async (req, res) => {
-  const userId = getUserId(req);
+  const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const id = parseInt(req.params.id, 10);
@@ -103,8 +104,8 @@ router.put('/:id/read', async (req, res) => {
   try {
     await db.prepare(`
       UPDATE notifications SET read_at = NOW()
-      WHERE id = $1 AND user_id = $2 AND read_at IS NULL
-    `).run(id, userId);
+      WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND read_at IS NULL
+    `).run(id, userId, req.tenantId);
     res.json({ ok: true });
   } catch (err) {
     console.error('[notifications/read-one]', err.message);
@@ -117,11 +118,11 @@ router.put('/:id/read', async (req, res) => {
  * Called from routes/comments.js when a reply is posted.
  * payload: { commentId, articleSlug, articleTitle, replyBody, replyerName }
  */
-async function createReplyNotification(userId, payload) {
+async function createReplyNotification(userId, payload, tenantId) {
   try {
     await db.prepare(`
-      INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'reply', $2)
-    `).run(userId, JSON.stringify(payload));
+      INSERT INTO notifications (user_id, type, payload, tenant_id) VALUES ($1, 'reply', $2, $3)
+    `).run(userId, JSON.stringify(payload), tenantId);
   } catch (err) {
     // Non-fatal — notifications are best-effort
     console.warn('[notifications/create]', err.message);
@@ -133,17 +134,17 @@ async function createReplyNotification(userId, payload) {
  * Called after a writer publishes a new original article.
  * Notifies all users who follow this writer.
  */
-async function createNewArticleNotification(writerId, articleSlug, articleTitle) {
+async function createNewArticleNotification(writerId, articleSlug, articleTitle, tenantId) {
   try {
     const followers = await db.prepare(
-      'SELECT user_id FROM writer_follows WHERE writer_id = $1'
-    ).all(writerId);
+      'SELECT user_id FROM writer_follows WHERE writer_id = $1 AND tenant_id = $2'
+    ).all(writerId, tenantId);
 
     if (!followers.length) return;
 
     const writer = await db.prepare(
-      'SELECT name, slug, avatar_url FROM writers WHERE id = $1'
-    ).get(writerId);
+      'SELECT name, slug, avatar_url FROM writers WHERE id = $1 AND tenant_id = $2'
+    ).get(writerId, tenantId);
 
     const payload = JSON.stringify({
       articleSlug,
@@ -155,8 +156,8 @@ async function createNewArticleNotification(writerId, articleSlug, articleTitle)
 
     for (const { user_id } of followers) {
       await db.prepare(
-        `INSERT INTO notifications (user_id, type, payload) VALUES ($1, 'new_article', $2)`
-      ).run(user_id, payload);
+        `INSERT INTO notifications (user_id, type, payload, tenant_id) VALUES ($1, 'new_article', $2, $3)`
+      ).run(user_id, payload, tenantId);
     }
   } catch (err) {
     console.warn('[notifications/new-article]', err.message);

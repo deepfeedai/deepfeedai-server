@@ -92,7 +92,7 @@ router.get('/', auth, asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Invalid URL' });
   }
 
-  const site = await getSiteConfig();
+  const site = await getSiteConfig(req.tenantId);
   const botUA = `Mozilla/5.0 (compatible; ${site.short_name || 'DeepFeedAI'}-Bot/1.0)`;
   const html = await fetchHtml(url, 0, botUA);
 

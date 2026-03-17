@@ -23,6 +23,7 @@
         <button class="tab-btn" data-tab="integrations">Integrations</button>
         <button class="tab-btn" data-tab="content">Content</button>
         <button class="tab-btn" data-tab="moderation">Moderation</button>
+        <button class="tab-btn" data-tab="auth">Authentication</button>
       </div>
 
       <!-- ═══ General Tab ═══ -->
@@ -126,6 +127,19 @@
             <div class="form-group">
               <label class="form-label" for="siteUrl">Site URL</label>
               <input type="text" class="form-control" id="siteUrl" placeholder="https://deepfeedai.com" />
+            </div>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="baseUrl">Admin Server URL</label>
+              <input type="text" class="form-control" id="baseUrl" placeholder="https://olympus.deepfeedai.com" />
+              <p class="form-help">This server's public URL (used for OAuth redirect URIs)</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="mainSiteUrl">Main Site URL</label>
+              <input type="text" class="form-control" id="mainSiteUrl" placeholder="https://deepfeedai.com" />
+              <p class="form-help">Frontend URL (used in emails and OAuth redirects)</p>
             </div>
           </div>
 
@@ -353,6 +367,120 @@
           <div id="perspectiveStatus" class="settings-status"></div>
         </div>
 
+        <!-- Cloudflare R2 Storage -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">☁️</div>
+            <div>
+              <div class="settings-card-title">Cloudflare R2 Storage</div>
+              <div class="settings-card-subtitle">S3-compatible object storage for media files</div>
+            </div>
+            <span id="r2Status" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Account ID</label>
+              <input type="text" class="form-control input-mono" id="r2AccountId" placeholder="e.g. a1b2c3d4e5f6" />
+              <p class="form-help">Found in Cloudflare dashboard &gt; R2 &gt; Overview</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Bucket Name</label>
+              <input type="text" class="form-control" id="r2BucketName" placeholder="e.g. deepfeedai-media" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Public URL</label>
+            <input type="text" class="form-control" id="r2PublicUrl" placeholder="https://media.yourdomain.com" />
+            <p class="form-help">Custom domain or R2.dev URL for serving files publicly</p>
+          </div>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">Access Key ID</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="r2AccessKeyId" placeholder="API token access key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2AccessKeyId', this)">👁️</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Secret Access Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="r2SecretAccessKey" placeholder="API token secret" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2SecretAccessKey', this)">👁️</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="form-help">
+            Overrides <code>R2_*</code> / <code>S3_*</code> environment variables. Leave blank to use env vars. Requires server restart to take effect.
+          </p>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveR2Btn">Save R2 Settings</button>
+          </div>
+          <div id="r2SaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Email (Resend) -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x1F4E7;</div>
+            <div>
+              <div class="settings-card-title">Email (Resend)</div>
+              <div class="settings-card-subtitle">Newsletter and notification emails</div>
+            </div>
+            <span id="resendStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control input-mono" id="resendApiKey" placeholder="re_..." autocomplete="off" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('resendApiKey', this)">Show</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Audience ID</label>
+            <input type="text" class="form-control input-mono" id="resendAudienceId" placeholder="Newsletter subscriber list ID" />
+          </div>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary btn-sm" id="saveResendBtn">Save Email Settings</button>
+          </div>
+          <div id="resendSaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Live News Sources -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x1F4F0;</div>
+            <div>
+              <div class="settings-card-title">Live News Sources</div>
+              <div class="settings-card-subtitle">NewsAPI and Brave Search for real-time news</div>
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label">NewsAPI Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="newsApiKey" placeholder="API key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('newsApiKey', this)">Show</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Brave Search Key</label>
+              <div class="input-action-row">
+                <input type="password" class="form-control input-mono" id="braveApiKey" placeholder="API key" autocomplete="off" />
+                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('braveApiKey', this)">Show</button>
+              </div>
+            </div>
+          </div>
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary btn-sm" id="saveNewsKeysBtn">Save News Source Keys</button>
+          </div>
+          <div id="newsKeysSaveStatus" class="settings-status"></div>
+        </div>
+
       </div><!-- /integrations tab -->
 
       <!-- ═══ Content Tab ═══ -->
@@ -567,6 +695,54 @@
         </div>
 
       </div><!-- /moderation tab -->
+
+      <!-- ═══ Authentication Tab ═══ -->
+      <div class="tab-panel" data-tab="auth">
+        <!-- Info callout -->
+        <div class="settings-info" style="background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: var(--text-sm); color: var(--text);">
+          OAuth credentials configured here override environment variables. Leave blank to use environment variable fallback.
+        </div>
+
+        <!-- Google OAuth -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <h3>Google OAuth</h3>
+            <span id="googleOAuthStatus" class="badge badge-muted">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-control" id="oauthGoogleClientId" placeholder="xxxx.apps.googleusercontent.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" class="form-control" id="oauthGoogleClientSecret" placeholder="GOCSPX-..." style="flex:1" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGoogleClientSecret', this)">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="saveGoogleOAuth">Save Google OAuth</button>
+        </div>
+
+        <!-- GitHub OAuth -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <h3>GitHub OAuth</h3>
+            <span id="githubOAuthStatus" class="badge badge-muted">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-control" id="oauthGithubClientId" placeholder="Ov23li..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" class="form-control" id="oauthGithubClientSecret" placeholder="Secret" style="flex:1" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGithubClientSecret', this)">Show</button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="saveGithubOAuth">Save GitHub OAuth</button>
+        </div>
+      </div><!-- /auth tab -->
 
     </div><!-- /page-body -->
   </div><!-- /main-content -->

@@ -18,23 +18,41 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { serializeRow, asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
+const { getAppConfig } = require('../lib/app-config');
 
 const TOP_N = 8; // articles to include per newsletter
 
+const { timingSafeEqual } = require('crypto');
+const { getSecrets } = require('../lib/secrets');
+
+function safeCompare(a, b) {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 // Auth: admin JWT OR cron secret
-function cronOrAdmin(req, res, next) {
-  const cronSecret = process.env.CRON_SECRET;
-  const provided   = req.headers['x-cron-secret'] || req.body?.secret;
-  if (cronSecret && provided === cronSecret) return next();
+async function cronOrAdmin(req, res, next) {
+  const { cronSecret } = await getSecrets();
+  const provided = req.headers['x-cron-secret'] || req.body?.secret;
+  if (cronSecret && safeCompare(provided, cronSecret)) {
+    // Cron jobs get full permissions
+    req.user = { permissions: ['*'], type: 'cron' };
+    return next();
+  }
   return auth(req, res, next);
 }
 
-router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
+router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHandler(async (req, res) => {
   const preview    = req.query.preview === 'true' || req.query.preview === '1';
-  const resendKey  = process.env.RESEND_API_KEY;
-  const audienceId = process.env.RESEND_AUDIENCE_ID;
+  const appCfg     = await getAppConfig(req.tenantId);
+  const resendKey  = appCfg.resend_api_key;
+  const audienceId = appCfg.resend_audience_id;
 
   // Only require Resend config when actually sending (not for preview)
   if (!preview && (!resendKey || !audienceId)) {
@@ -44,9 +62,10 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   // Fetch published articles directly from DB
   const dbResult = await getPool().query(
     `SELECT * FROM articles
-     WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
+     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
      ORDER BY published_at DESC
-     LIMIT 50`
+     LIMIT 50`,
+    [req.tenantId]
   );
   const raw = dbResult.rows.map(serializeRow);
 
@@ -68,7 +87,7 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
     return res.status(500).json({ error: 'No published articles found' });
   }
 
-  const site    = await getSiteConfig();
+  const site    = await getSiteConfig(req.tenantId);
   const subject = (req.body?.subject && String(req.body.subject).trim())
     || site.newsletter_subject
     || '🤖 Deep Feed AI — Your Weekly AI Digest';
@@ -97,7 +116,7 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   if (!createRes.ok) {
     const err = await createRes.text();
     console.error('[newsletter] create broadcast failed:', err);
-    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err }).catch(() => {});
+    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err, tenantId: req.tenantId }).catch(() => {});
     return res.status(500).json({ error: 'Failed to create broadcast', detail: err });
   }
 
@@ -113,17 +132,17 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
   if (!sendRes.ok) {
     const err = await sendRes.text();
     console.error('[newsletter] send broadcast failed:', err);
-    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err }).catch(() => {});
+    logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', durationMs: Date.now() - _nlStart, success: false, error: err, tenantId: req.tenantId }).catch(() => {});
     return res.status(500).json({ error: 'Failed to send broadcast', detail: err });
   }
 
-  logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', emailCount: articles.length, durationMs: Date.now() - _nlStart }).catch(() => {});
+  logUsage({ provider: 'resend', operation: 'newsletter', trigger: 'manual', emailCount: articles.length, durationMs: Date.now() - _nlStart, tenantId: req.tenantId }).catch(() => {});
 
   // Log to DB
   try {
     await getPool().query(
-      `INSERT INTO newsletter_sends (subject, article_count, broadcast_id, status) VALUES ($1, $2, $3, 'sent')`,
-      [subject, articles.length, broadcastId]
+      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status) VALUES ($1, $2, $3, $4, 'sent')`,
+      [req.tenantId, subject, articles.length, broadcastId]
     );
   } catch (e) {
     console.error('[newsletter] failed to log send:', e.message);
@@ -134,12 +153,14 @@ router.post('/send', cronOrAdmin, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/newsletter/history — last 20 sends
-router.get('/history', auth, asyncHandler(async (req, res) => {
+router.get('/history', auth, requirePermission('newsletter.read'), asyncHandler(async (req, res) => {
   const result = await getPool().query(
     `SELECT id, sent_at, subject, article_count, broadcast_id, status
      FROM newsletter_sends
+     WHERE tenant_id = $1
      ORDER BY sent_at DESC
-     LIMIT 20`
+     LIMIT 20`,
+    [req.tenantId]
   );
   return res.json(result.rows);
 }));

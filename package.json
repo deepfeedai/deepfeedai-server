@@ -4,7 +4,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "test": "node --test tests/"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1004.0",

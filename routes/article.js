@@ -17,16 +17,16 @@ router.get('/', asyncHandler(async (req, res) => {
             (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
      FROM articles a
      LEFT JOIN writers w ON w.id = a.writer_id
-     WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
-  ).all();
+     WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
+  ).all(req.tenantId);
 
   const match = articles.find(a => toSlug(a.title) === slug);
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
   // Fetch comment count for this article
   const countRow = await db.prepare(
-    'SELECT COUNT(*) AS cnt FROM comments WHERE article_slug = $1 AND is_deleted = 0'
-  ).get(slug);
+    'SELECT COUNT(*) AS cnt FROM comments WHERE article_slug = $1 AND is_deleted = 0 AND tenant_id = $2'
+  ).get(slug, req.tenantId);
   const commentCount = parseInt(countRow?.cnt ?? 0, 10);
 
   res.json({

@@ -17,13 +17,14 @@ const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 
-const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
+const { getSecrets } = require('../lib/secrets');
 
-function getUserId(req) {
+async function getUserId(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return null;
   try {
-    return jwt.verify(authHeader.slice(7), USER_JWT_SECRET).sub;
+    const { userJwtSecret } = await getSecrets();
+    return jwt.verify(authHeader.slice(7), userJwtSecret).sub;
   } catch { return null; }
 }
 
@@ -35,26 +36,28 @@ function hotScore(commentCount, reactionCount, publishedAt) {
 }
 
 /** Batch-fetch comment counts and reaction counts for an array of slugs */
-async function fetchEngagement(slugs) {
+async function fetchEngagement(slugs, tenantId) {
   if (!slugs.length) return { countMap: {}, reactionMap: {} };
 
   const placeholders = slugs.map((_, i) => `$${i + 1}`).join(', ');
+  const tenantParam = `$${slugs.length + 1}`;
+  const allParams = [...slugs, tenantId];
 
   const [commentResult, reactionResult] = await Promise.all([
     getPool().query(
       `SELECT article_slug, COUNT(*) AS cnt
        FROM comments
-       WHERE article_slug IN (${placeholders}) AND is_deleted = 0
+       WHERE article_slug IN (${placeholders}) AND is_deleted = 0 AND tenant_id = ${tenantParam}
        GROUP BY article_slug`,
-      slugs
+      allParams
     ),
     getPool().query(
       `SELECT c.article_slug, COUNT(r.id) AS cnt
        FROM comment_reactions r
        JOIN comments c ON c.id = r.comment_id
-       WHERE c.article_slug IN (${placeholders}) AND c.is_deleted = 0
+       WHERE c.article_slug IN (${placeholders}) AND c.is_deleted = 0 AND c.tenant_id = ${tenantParam}
        GROUP BY c.article_slug`,
-      slugs
+      allParams
     ),
   ]);
 
@@ -75,12 +78,12 @@ router.get('/', asyncHandler(async (req, res) => {
                       (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
                FROM articles a
                LEFT JOIN writers w ON w.id = a.writer_id
-               WHERE a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
-  const params = [];
+               WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
+  const params = [req.tenantId];
 
   // "Following" feed: only articles by writers the user follows
   if (feed === 'following') {
-    const userId = getUserId(req);
+    const userId = await getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized — sign in to use the following feed' });
     params.push(userId);
     query += ` AND a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${params.length})`;
@@ -111,7 +114,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // Batch-fetch comment + reaction counts
   const slugs = items.map(a => toSlug(a.title));
-  const { countMap, reactionMap } = await fetchEngagement(slugs);
+  const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
 
   const enriched = items.map(a => {
     const slug     = toSlug(a.title);
@@ -137,12 +140,13 @@ router.get('/hot', asyncHandler(async (req, res) => {
   // Fetch all published articles (no limit — we need to score & sort first)
   const result = await getPool().query(
     `SELECT * FROM articles
-     WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)`
+     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)`,
+    [req.tenantId]
   );
   const items = result.rows.map(serializeRow);
   const slugs = items.map(a => toSlug(a.title));
 
-  const { countMap, reactionMap } = await fetchEngagement(slugs);
+  const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
 
   const scored = items
     .map(a => {
@@ -163,7 +167,8 @@ router.get('/hot', asyncHandler(async (req, res) => {
 router.get('/updated-at', asyncHandler(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const result = await getPool().query(
-    'SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles'
+    'SELECT MAX(COALESCE(updated_at, created_at, published_at)) AS ts FROM articles WHERE tenant_id = $1',
+    [req.tenantId]
   );
   res.json({ updatedAt: result.rows[0]?.ts || null });
 }));

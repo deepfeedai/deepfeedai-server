@@ -14,16 +14,17 @@ const db      = require('../db');
 
 const router = express.Router();
 
-const USER_JWT_SECRET = process.env.USER_JWT_SECRET;
+const { getSecrets } = require('../lib/secrets');
 const ALLOWED_EMOJIS  = new Set(['👍', '❤️']);
 
 /* ── Auth helper ─────────────────────────────────────────────────── */
 
-function getUserId(req) {
+async function getUserId(req) {
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) return null;
   try {
-    const payload = jwt.verify(auth.slice(7), USER_JWT_SECRET);
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
     return payload.sub;
   } catch {
     return null;
@@ -37,7 +38,7 @@ function getUserId(req) {
 //   • Different emoji → UPDATE to new emoji (swap)
 // Returns updated counts + viewer's current reaction (null if removed).
 router.post('/', async (req, res) => {
-  const userId = getUserId(req);
+  const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const { slug, emoji } = req.body;
@@ -47,28 +48,28 @@ router.post('/', async (req, res) => {
 
   try {
     const existing = await db.prepare(
-      'SELECT id, emoji FROM article_reactions WHERE user_id = $1 AND article_slug = $2'
-    ).get(userId, cleanSlug);
+      'SELECT id, emoji FROM article_reactions WHERE user_id = $1 AND article_slug = $2 AND tenant_id = $3'
+    ).get(userId, cleanSlug, req.tenantId);
 
     if (!existing) {
       // Add new reaction
       await db.prepare(
-        'INSERT INTO article_reactions (user_id, article_slug, emoji) VALUES ($1, $2, $3)'
-      ).run(userId, cleanSlug, emoji);
+        'INSERT INTO article_reactions (user_id, article_slug, emoji, tenant_id) VALUES ($1, $2, $3, $4)'
+      ).run(userId, cleanSlug, emoji, req.tenantId);
     } else if (existing.emoji === emoji) {
       // Same emoji — remove (toggle off)
       await db.prepare(
-        'DELETE FROM article_reactions WHERE user_id = $1 AND article_slug = $2'
-      ).run(userId, cleanSlug);
+        'DELETE FROM article_reactions WHERE user_id = $1 AND article_slug = $2 AND tenant_id = $3'
+      ).run(userId, cleanSlug, req.tenantId);
     } else {
       // Different emoji — swap
       await db.prepare(
-        'UPDATE article_reactions SET emoji = $1 WHERE user_id = $2 AND article_slug = $3'
-      ).run(emoji, userId, cleanSlug);
+        'UPDATE article_reactions SET emoji = $1 WHERE user_id = $2 AND article_slug = $3 AND tenant_id = $4'
+      ).run(emoji, userId, cleanSlug, req.tenantId);
     }
 
     // Return fresh counts for this slug
-    const counts = await _getCounts([cleanSlug], userId);
+    const counts = await _getCounts([cleanSlug], userId, req.tenantId);
     res.json({ ok: true, ...counts[cleanSlug] });
   } catch (err) {
     console.error('[article-reactions/toggle]', err.message);
@@ -87,13 +88,13 @@ router.get('/', async (req, res) => {
   if (rawSlugs.length > 100) return res.status(400).json({ error: 'Too many slugs (max 100)' });
 
   // Viewer id: from JWT (if provided) or viewer_id query param
-  let viewerId = getUserId(req);
+  let viewerId = await getUserId(req);
   if (!viewerId && req.query.viewer_id) {
     viewerId = parseInt(req.query.viewer_id, 10) || null;
   }
 
   try {
-    const counts = await _getCounts(rawSlugs, viewerId);
+    const counts = await _getCounts(rawSlugs, viewerId, req.tenantId);
     res.json({ reactions: counts });
   } catch (err) {
     console.error('[article-reactions/batch]', err.message);
@@ -102,24 +103,25 @@ router.get('/', async (req, res) => {
 });
 
 /* ── Helper: fetch counts for an array of slugs ─────────────────── */
-async function _getCounts(slugs, viewerId) {
+async function _getCounts(slugs, viewerId, tenantId) {
   const ph = slugs.map((_, i) => `$${i + 1}`).join(', ');
+  const tenantParam = `$${slugs.length + 1}`;
 
   // Aggregate counts per slug per emoji
   const rows = await db.prepare(`
     SELECT article_slug, emoji, COUNT(*) AS cnt
     FROM article_reactions
-    WHERE article_slug IN (${ph})
+    WHERE article_slug IN (${ph}) AND tenant_id = ${tenantParam}
     GROUP BY article_slug, emoji
-  `).all(...slugs);
+  `).all(...slugs, tenantId);
 
   // Viewer's own reactions
   let myMap = {};
   if (viewerId) {
     const myRows = await db.prepare(`
       SELECT article_slug, emoji FROM article_reactions
-      WHERE article_slug IN (${ph}) AND user_id = $${slugs.length + 1}
-    `).all(...slugs, viewerId);
+      WHERE article_slug IN (${ph}) AND tenant_id = ${tenantParam} AND user_id = $${slugs.length + 2}
+    `).all(...slugs, tenantId, viewerId);
     for (const r of myRows) myMap[r.article_slug] = r.emoji;
   }
 

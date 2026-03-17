@@ -22,6 +22,18 @@
   }
 })();
 
+// ── Toggle Secret Visibility (used by Auth tab) ─────────
+function toggleSecretVisibility(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = 'Hide';
+  } else {
+    input.type = 'password';
+    btn.textContent = 'Show';
+  }
+}
+
 // ── Theme Presets ────────────────────────────────────────
 const THEME_PRESETS = [
   // Dark themes
@@ -442,6 +454,8 @@ let apiKeyVisible = false;
     { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+    { id: 'baseUrl',              key: 'base_url' },
+    { id: 'mainSiteUrl',          key: 'main_site_url' },
   ];
 
   // Logo HTML live preview
@@ -689,6 +703,77 @@ let apiKeyVisible = false;
     { id: 'siteAdsenseId',  key: 'site_adsense_id' },
   ]));
 
+  // ── Cloudflare R2 Storage save ──────────────────────────────────
+  panelSave('saveR2Btn', 'r2SaveStatus', 'R2 Settings', async () => {
+    const payload = {};
+    const fields = [
+      { id: 'r2AccountId',      key: 'r2_account_id' },
+      { id: 'r2BucketName',     key: 'r2_bucket_name' },
+      { id: 'r2PublicUrl',      key: 'r2_public_url' },
+      { id: 'r2AccessKeyId',    key: 'r2_access_key_id' },
+      { id: 'r2SecretAccessKey', key: 'r2_secret_access_key' },
+    ];
+    for (const f of fields) {
+      const val = document.getElementById(f.id).value.trim();
+      if (val) payload[f.key] = val;
+    }
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    // Clear secret fields after save
+    document.getElementById('r2AccessKeyId').value = '';
+    document.getElementById('r2SecretAccessKey').value = '';
+    document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
+    document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
+    // Update status
+    var status = document.getElementById('r2Status');
+    if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+  });
+
+  // ── Email (Resend) save ──────────────────────────────────────────
+  panelSave('saveResendBtn', 'resendSaveStatus', 'Email Settings', async () => {
+    const payload = {};
+    const apiKey = document.getElementById('resendApiKey').value.trim();
+    const audienceId = document.getElementById('resendAudienceId').value.trim();
+    if (apiKey) payload.resend_api_key = apiKey;
+    if (audienceId) payload.resend_audience_id = audienceId;
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (apiKey) {
+      document.getElementById('resendApiKey').value = '';
+      document.getElementById('resendApiKey').placeholder = '••••••••  (saved)';
+    }
+    var status = document.getElementById('resendStatus');
+    if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+  });
+
+  // ── News Source Keys save ──────────────────────────────────────
+  panelSave('saveNewsKeysBtn', 'newsKeysSaveStatus', 'News Source Keys', async () => {
+    const payload = {};
+    const newsKey = document.getElementById('newsApiKey').value.trim();
+    const braveKey = document.getElementById('braveApiKey').value.trim();
+    if (newsKey) payload.news_api_key = newsKey;
+    if (braveKey) payload.brave_api_key = braveKey;
+    if (Object.keys(payload).length === 0) {
+      showToast('Please fill in at least one field', 'error');
+      return;
+    }
+    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    if (newsKey) {
+      document.getElementById('newsApiKey').value = '';
+      document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
+    }
+    if (braveKey) {
+      document.getElementById('braveApiKey').value = '';
+      document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+    }
+  });
+
   // ── Perspective API save ────────────────────────────────────────
   panelSave('savePerspectiveBtn', 'perspectiveStatus', 'Perspective Settings', async () => {
     const payload = {
@@ -771,6 +856,8 @@ let apiKeyVisible = false;
   panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
     { id: 'siteDomain',        key: 'site_domain' },
     { id: 'siteUrl',           key: 'site_url' },
+    { id: 'baseUrl',           key: 'base_url' },
+    { id: 'mainSiteUrl',       key: 'main_site_url' },
     { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
   ]));
 
@@ -782,6 +869,121 @@ let apiKeyVisible = false;
       if (text) payload[f.key] = text.value;
     });
     await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+  });
+
+  // ── Authentication Tab ────────────────────────────────────
+  function loadR2Tab(settings) {
+    var accountId = settings.r2_account_id;
+    var bucket = settings.r2_bucket_name;
+    var publicUrl = settings.r2_public_url;
+    var accessKey = settings.r2_access_key_id;
+    var secretKey = settings.r2_secret_access_key;
+    var status = document.getElementById('r2Status');
+
+    if (accountId || bucket) {
+      if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+      if (accountId) document.getElementById('r2AccountId').value = accountId;
+      if (bucket) document.getElementById('r2BucketName').value = bucket;
+      if (publicUrl) document.getElementById('r2PublicUrl').value = publicUrl;
+      if (accessKey) document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
+      if (secretKey) document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
+    }
+  }
+
+  function loadAuthTab(settings) {
+    // Google status
+    const googleId = settings.oauth_google_client_id;
+    const googleSecret = settings.oauth_google_client_secret;
+    const googleStatus = document.getElementById('googleOAuthStatus');
+    if (googleStatus) {
+      if (googleId) {
+        googleStatus.textContent = 'Configured';
+        googleStatus.className = 'badge badge-success';
+        document.getElementById('oauthGoogleClientId').value = googleId;
+        if (googleSecret) {
+          document.getElementById('oauthGoogleClientSecret').placeholder = '••••••••  (saved)';
+        }
+      } else {
+        googleStatus.textContent = 'Not configured';
+        googleStatus.className = 'badge badge-muted';
+      }
+    }
+
+    // GitHub status
+    const githubId = settings.oauth_github_client_id;
+    const githubSecret = settings.oauth_github_client_secret;
+    const githubStatus = document.getElementById('githubOAuthStatus');
+    if (githubStatus) {
+      if (githubId) {
+        githubStatus.textContent = 'Configured';
+        githubStatus.className = 'badge badge-success';
+        document.getElementById('oauthGithubClientId').value = githubId;
+        if (githubSecret) {
+          document.getElementById('oauthGithubClientSecret').placeholder = '••••••••  (saved)';
+        }
+      } else {
+        githubStatus.textContent = 'Not configured';
+        githubStatus.className = 'badge badge-muted';
+      }
+    }
+  }
+
+  function loadResendTab(settings) {
+    var apiKey = settings.resend_api_key;
+    var audienceId = settings.resend_audience_id;
+    var status = document.getElementById('resendStatus');
+    if (apiKey || audienceId) {
+      if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
+      if (apiKey) document.getElementById('resendApiKey').placeholder = '••••••••  (saved)';
+      if (audienceId) document.getElementById('resendAudienceId').value = audienceId;
+    }
+  }
+
+  function loadNewsKeysTab(settings) {
+    var newsKey = settings.news_api_key;
+    var braveKey = settings.brave_api_key;
+    if (newsKey) document.getElementById('newsApiKey').placeholder = '••••••••  (saved)';
+    if (braveKey) document.getElementById('braveApiKey').placeholder = '••••••••  (saved)';
+  }
+
+  // Save Google OAuth
+  document.getElementById('saveGoogleOAuth')?.addEventListener('click', async () => {
+    const clientId = document.getElementById('oauthGoogleClientId').value.trim();
+    const clientSecret = document.getElementById('oauthGoogleClientSecret').value.trim();
+    const body = {};
+    if (clientId) body.oauth_google_client_id = clientId;
+    if (clientSecret) body.oauth_google_client_secret = clientSecret;
+    if (Object.keys(body).length === 0) {
+      showToast('Please enter at least one field', 'error');
+      return;
+    }
+    try {
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(body) });
+      showToast('Google OAuth saved');
+      await loadSettings();
+    } catch (err) {
+      showToast('Save failed: ' + err.message, 'error');
+    }
+  });
+
+  // Save GitHub OAuth
+  document.getElementById('saveGithubOAuth')?.addEventListener('click', async () => {
+    const clientId = document.getElementById('oauthGithubClientId').value.trim();
+    const clientSecret = document.getElementById('oauthGithubClientSecret').value.trim();
+    const body = {};
+    if (clientId) body.oauth_github_client_id = clientId;
+    if (clientSecret) body.oauth_github_client_secret = clientSecret;
+    if (Object.keys(body).length === 0) {
+      showToast('Please enter at least one field', 'error');
+      return;
+    }
+    try {
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(body) });
+      showToast('GitHub OAuth saved');
+      await loadSettings();
+    } catch (err) {
+      showToast('Save failed: ' + err.message, 'error');
+    }
   });
 
   // ── Extend loadSettings to include all setting sections ───────────
@@ -802,6 +1004,10 @@ let apiKeyVisible = false;
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
+      loadAuthTab(settings);
+      loadR2Tab(settings);
+      loadResendTab(settings);
+      loadNewsKeysTab(settings);
       await loadSiteSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
@@ -810,4 +1016,14 @@ let apiKeyVisible = false;
 
   renderSidebar();
   initModals();
+
+  if (!hasPermission('settings.update')) {
+    document.querySelectorAll('.btn-primary').forEach(function(btn) {
+      if (btn.textContent.trim().toLowerCase().startsWith('save')) {
+        btn.disabled = true;
+        btn.title = 'You do not have permission to update settings';
+      }
+    });
+  }
+
   loadSettings();

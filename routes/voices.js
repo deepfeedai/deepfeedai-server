@@ -10,6 +10,7 @@ const fs                    = require('fs');
 const path                  = require('path');
 const db                    = require('../db');
 const { auth }              = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler }      = require('../lib/utils');
 const { voiceCreate, voiceUpdate, validate } = require('../lib/schemas');
 const { decryptSetting }    = require('../lib/crypto');
@@ -60,30 +61,30 @@ function generatePreview(text, voiceId, apiKey) {
 
 // GET /api/voices — public
 router.get('/', asyncHandler(async (req, res) => {
-  const voices = await db.prepare('SELECT * FROM voices ORDER BY is_default DESC, created_at ASC').all();
+  const voices = await db.prepare('SELECT * FROM voices WHERE tenant_id = $1 ORDER BY is_default DESC, created_at ASC').all(req.tenantId);
   res.json(voices);
 }));
 
 // POST /api/voices
-router.post('/', auth, asyncHandler(async (req, res) => {
+router.post('/', auth, requirePermission('voices.create'), asyncHandler(async (req, res) => {
   const body = validate(voiceCreate, req.body, res);
   if (!body) return;
 
   const { name, voice_id, description, is_default } = body;
 
-  if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
+  if (is_default) await db.prepare('UPDATE voices SET is_default = 0 WHERE tenant_id = $1').run(req.tenantId);
   const voice = await db.prepare(`
-    INSERT INTO voices (name, voice_id, description, is_default)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO voices (tenant_id, name, voice_id, description, is_default)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
-  `).get(name, voice_id, description || '', is_default ? 1 : 0);
+  `).get(req.tenantId, name, voice_id, description || '', is_default ? 1 : 0);
   res.json(voice);
 }));
 
 // PUT /api/voices/:id
-router.put('/:id', auth, asyncHandler(async (req, res) => {
+router.put('/:id', auth, requirePermission('voices.update'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const existing = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  const existing = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Voice not found' });
 
   const body = validate(voiceUpdate, req.body, res);
@@ -91,57 +92,57 @@ router.put('/:id', auth, asyncHandler(async (req, res) => {
 
   const { name, voice_id, description, is_default } = body;
 
-  if (is_default) await db.prepare('UPDATE voices SET is_default = 0').run();
+  if (is_default) await db.prepare('UPDATE voices SET is_default = 0 WHERE tenant_id = $1').run(req.tenantId);
   const voice = await db.prepare(`
     UPDATE voices SET name = $1, voice_id = $2, description = $3, is_default = $4
-    WHERE id = $5
+    WHERE id = $5 AND tenant_id = $6
     RETURNING *
-  `).get(name, voice_id, description || '', is_default ? 1 : 0, id);
+  `).get(name, voice_id, description || '', is_default ? 1 : 0, id, req.tenantId);
   res.json(voice);
 }));
 
 // DELETE /api/voices/:id
-router.delete('/:id', auth, asyncHandler(async (req, res) => {
+router.delete('/:id', auth, requirePermission('voices.delete'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
-  const count = await db.prepare('SELECT COUNT(*) as cnt FROM voices').get();
+  const count = await db.prepare('SELECT COUNT(*) as cnt FROM voices WHERE tenant_id = $1').get(req.tenantId);
   if (parseInt(count.cnt) <= 1) return res.status(400).json({ error: 'Cannot delete the only voice' });
 
-  await db.prepare('DELETE FROM voices WHERE id = $1').run(id);
+  await db.prepare('DELETE FROM voices WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
   if (voice.is_default) {
-    await db.prepare('UPDATE voices SET is_default = 1 WHERE id = (SELECT id FROM voices ORDER BY created_at ASC LIMIT 1)').run();
+    await db.prepare('UPDATE voices SET is_default = 1 WHERE id = (SELECT id FROM voices WHERE tenant_id = $1 ORDER BY created_at ASC LIMIT 1)').run(req.tenantId);
   }
   res.json({ message: 'Voice deleted' });
 }));
 
 // POST /api/voices/:id/avatar
-router.post('/:id/avatar', auth, asyncHandler(async (req, res) => {
+router.post('/:id/avatar', auth, requirePermission('voices.update'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { dataUrl } = req.body;
   if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
 
-  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
 
   const avatarUrl = await storeAvatar(Buffer.from(match[2], 'base64'), match[1], id);
-  await db.prepare('UPDATE voices SET avatar_url = $1 WHERE id = $2').run(avatarUrl, id);
-  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  await db.prepare('UPDATE voices SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
+  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json(updated);
 }));
 
 // POST /api/voices/preview
-router.post('/preview', auth, asyncHandler(async (req, res) => {
+router.post('/preview', auth, requirePermission('voices.read'), asyncHandler(async (req, res) => {
   const { voice_id, api_key } = req.body;
   if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
 
   let apiKey = api_key;
   if (!apiKey) {
-    const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key'").get();
+    const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
     apiKey = (setting && setting.value) ? decryptSetting(setting.value) : (process.env.ELEVENLABS_API_KEY || '');
   }
 
@@ -152,14 +153,14 @@ router.post('/preview', auth, asyncHandler(async (req, res) => {
 }));
 
 // PUT /api/voices/:id/default
-router.put('/:id/default', auth, asyncHandler(async (req, res) => {
+router.put('/:id/default', auth, requirePermission('voices.update'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  const voice = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!voice) return res.status(404).json({ error: 'Voice not found' });
 
-  await db.prepare('UPDATE voices SET is_default = 0').run();
-  await db.prepare('UPDATE voices SET is_default = 1 WHERE id = $1').run(id);
-  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1').get(id);
+  await db.prepare('UPDATE voices SET is_default = 0 WHERE tenant_id = $1').run(req.tenantId);
+  await db.prepare('UPDATE voices SET is_default = 1 WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
+  const updated = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json(updated);
 }));
 

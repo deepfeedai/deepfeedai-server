@@ -11,6 +11,76 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.0-beta.1] — 2026-03-17
+
+Major release: multi-tenancy, local authentication, RBAC, admin UI overhaul, and self-hosted tooling.
+
+### Added — Multi-Tenancy
+- Tenant isolation via `tenant_id` on all 20+ tables
+- Plan limit enforcement (`max_sources`, `max_writers`, `max_articles_month`, `audio_enabled`)
+- Unified storage layer with 3 pluggable backends (S3/R2, local filesystem, PostgreSQL BYTEA)
+- Per-tenant aggregate rate limiting (starter 600/min, pro 1200/min, business unlimited)
+- CORS validation for custom domains against tenant's `custom_domain` column
+- Tenant provisioning with default categories, settings, and roles seeding
+- `DEPLOYMENT_MODE=single` for self-hosted single-tenant deployments
+
+### Added — Local Auth & RBAC
+- `POST /api/auth/login` — local username/password authentication (bcrypt, rate-limited)
+- `GET /api/auth/methods` — discover available login methods (Google/GitHub/local)
+- 4 default roles: owner, admin, editor, viewer with granular resource.action permissions
+- Custom role creation with permission picker
+- `requirePermission()` middleware enforced on all 13 admin route files
+- User CRUD: list, create, edit, deactivate, permanent delete, password reset
+- Role CRUD: list, create, update, delete (system role protection)
+
+### Added — OAuth & Secret Management
+- OAuth credentials configurable via Settings > Authentication tab
+- `ADMIN_EMAILS` env var removed — admin access via users table email matching
+- JWT secrets auto-generated on first boot, stored encrypted in settings table
+- Secret rotation support with previous-secret fallback (24h grace)
+- All API keys (Gemini, ElevenLabs, Resend, NewsAPI, Brave, R2) overridable via Settings > Integrations
+- `BASE_URL` and `MAIN_SITE_URL` configurable via Settings > General
+
+### Added — Admin UI
+- **Login page**: local auth form with OAuth method auto-detection
+- **Users page**: CRUD table with add/edit/reset-password/delete modals
+- **Roles page**: role management with interactive permissions grid (14 resource groups)
+- **Audit Log page**: filterable event viewer with live tail (10s) and owner-only archive
+- **Discover page**: search Brave/NewsAPI, preview results, selective import as draft/published
+- **Saved searches**: store results, one-click load, refresh button
+- Sidebar logo updates from site config (emoji + short name)
+- Permission-aware controls: buttons hidden/disabled based on user role
+- Settings > Integrations: panels for R2 storage, Email (Resend), Live News Sources
+
+### Added — Self-Hosted
+- `.env.example` with documented sections
+- `scripts/setup.sh` — interactive setup with secret generation
+- `Dockerfile` + `docker-compose.yml` — PostgreSQL 16 + app container
+- Onboarding wizard (cherry-picked)
+
+### Fixed
+- 9 `getSiteConfig()` calls missing tenantId (cross-tenant data leak)
+- Global pricing cache in `ai-usage.js` → tenant-scoped Map
+- `articles.writer_id` FK corrected from `voices(id)` to `writers(id)`
+- `ON CONFLICT (key)` → `ON CONFLICT (tenant_id, key)` across 35 queries
+- Settings API filtered to never return JWT/cron secrets
+- Rate limiter IPv6 validation error
+- Admin user seeded as `owner` (was `admin`) on fresh databases
+- Audit log captures user info and normalizes IPv6 to IPv4
+
+### Security
+- Timing-safe cron secret comparison (prevents timing attacks)
+- `middleware/tenant.js` validates cron secret value (was presence-only)
+- Settings API blocks writes to secret manager keys
+- Permissions fallback fixed (non-platform-admin no longer gets `['*']`)
+- Failed login attempts logged to audit log
+- SQL injection audit: all queries use parameterized `$N` (confirmed clean)
+
+### Tests
+- 146+ tests (unit + integration) covering tenant isolation, plan limits, auth flows, storage, permissions, local login
+
+---
+
 ## [1.14.0] — 2026-03-15
 
 ### Added — Writer Restructuring & Article Enhancements

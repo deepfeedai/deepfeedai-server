@@ -949,6 +949,15 @@ let articles = [];
     renderSidebar();
     initModals();
 
+    if (!hasPermission('articles.create')) {
+      const addBtn = document.getElementById('addArticleBtn');
+      if (addBtn) addBtn.style.display = 'none';
+    }
+    if (!hasPermission('articles.delete')) {
+      const delBtn = document.getElementById('bulkDeleteBtn');
+      if (delBtn) delBtn.style.display = 'none';
+    }
+
     document.getElementById('fCategory').innerHTML = categoryOptions('Industry');
     document.getElementById('addArticleBtn').addEventListener('click', openAdd);
 

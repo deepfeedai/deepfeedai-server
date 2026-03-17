@@ -10,10 +10,12 @@
 const express = require('express');
 const router  = express.Router();
 const { getSiteConfig } = require('../lib/site-config');
+const { getAppConfig } = require('../lib/app-config');
 
 router.post('/', async (req, res) => {
-  const apiKey     = process.env.RESEND_API_KEY;
-  const audienceId = process.env.RESEND_AUDIENCE_ID;
+  const appCfg     = await getAppConfig(req.tenantId);
+  const apiKey     = appCfg.resend_api_key;
+  const audienceId = appCfg.resend_audience_id;
 
   if (!apiKey || !audienceId) {
     return res.status(500).json({ error: 'Newsletter service not configured.' });
@@ -26,9 +28,9 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const site     = await getSiteConfig();
+    const site     = await getSiteConfig(req.tenantId);
     const siteName = site.name || 'Deep Feed AI';
-    const siteUrl  = (site.url || process.env.MAIN_SITE_URL || 'https://deepfeedai.com').replace(/\/$/, '');
+    const siteUrl  = (site.url || appCfg.main_site_url || 'https://deepfeedai.com').replace(/\/$/, '');
     const logoEmoji = site.logo_emoji || '🤖';
 
     const upstream = await fetch(

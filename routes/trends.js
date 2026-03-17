@@ -17,6 +17,7 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+const { getGeminiKey } = require('../lib/gemini-config');
 
 const CACHE_TTL_HOURS = 2;
 
@@ -62,8 +63,8 @@ function extractKeywords(articles) {
 
 // ── Company extraction (parallel batched Gemini) ──────────────────────────────
 
-async function extractCompaniesParallel(articles) {
-  const apiKey = process.env.GEMINI_API_KEY;
+async function extractCompaniesParallel(articles, tenantId) {
+  const apiKey = await getGeminiKey(tenantId);
   if (!apiKey) return {};
 
   const BATCH = 5;
@@ -93,12 +94,12 @@ async function extractCompaniesParallel(articles) {
         }
       );
       if (!resp.ok) {
-        logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', durationMs: Date.now() - _start, success: false, error: `${resp.status}` }).catch(() => {});
+        logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', durationMs: Date.now() - _start, success: false, error: `${resp.status}`, tenantId }).catch(() => {});
         return [];
       }
       const data = await resp.json();
       const _tokens = extractGeminiTokens(data);
-      logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
+      logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
       const out = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       if (!out || out.toUpperCase().trim() === 'NONE') return [];
       return out.split(',').map(c => c.trim()).filter(c => c.length > 1 && c.length < 60);
@@ -180,42 +181,45 @@ function buildSparkline(label, isCompany, history) {
 
 // ── Postgres cache helpers ────────────────────────────────────────────────────
 
-async function getCachedResult() {
+async function getCachedResult(tenantId) {
   const result = await getPool().query(
     `SELECT payload FROM trends_cache
-     WHERE created_at > NOW() - INTERVAL '${CACHE_TTL_HOURS} hours'
-     ORDER BY created_at DESC LIMIT 1`
+     WHERE tenant_id = $1 AND created_at > NOW() - INTERVAL '${CACHE_TTL_HOURS} hours'
+     ORDER BY created_at DESC LIMIT 1`,
+    [tenantId]
   );
   return result.rows[0]?.payload || null;
 }
 
-async function setCachedResult(payload) {
+async function setCachedResult(payload, tenantId) {
   await getPool().query(
-    `INSERT INTO trends_cache (payload, created_at) VALUES ($1, NOW())`,
-    [payload]
+    `INSERT INTO trends_cache (tenant_id, payload, created_at) VALUES ($1, $2, NOW())`,
+    [tenantId, payload]
   );
   // Keep only the last 48 rows (2h cache * 24 = 48 possible entries per day max)
   await getPool().query(
     `DELETE FROM trends_cache
-     WHERE id NOT IN (SELECT id FROM trends_cache ORDER BY created_at DESC LIMIT 48)`
+     WHERE tenant_id = $1 AND id NOT IN (SELECT id FROM trends_cache WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 48)`,
+    [tenantId]
   );
 }
 
-async function getHistory() {
+async function getHistory(tenantId) {
   const result = await getPool().query(
     `SELECT payload FROM trends_history
-     WHERE snapshot_date >= CURRENT_DATE - INTERVAL '7 days'
-     ORDER BY snapshot_date DESC`
+     WHERE tenant_id = $1 AND snapshot_date >= CURRENT_DATE - INTERVAL '7 days'
+     ORDER BY snapshot_date DESC`,
+    [tenantId]
   );
   return result.rows.map(r => r.payload);
 }
 
-async function saveSnapshot(snapshot) {
+async function saveSnapshot(snapshot, tenantId) {
   await getPool().query(
-    `INSERT INTO trends_history (snapshot_date, payload, created_at)
-     VALUES (CURRENT_DATE, $1, NOW())
-     ON CONFLICT (snapshot_date) DO UPDATE SET payload = $1, created_at = NOW()`,
-    [snapshot]
+    `INSERT INTO trends_history (tenant_id, snapshot_date, payload, created_at)
+     VALUES ($1, CURRENT_DATE, $2, NOW())
+     ON CONFLICT (snapshot_date) DO UPDATE SET payload = $2, created_at = NOW()`,
+    [tenantId, snapshot]
   );
 }
 
@@ -225,8 +229,9 @@ router.get('/', asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
 
   // Serve from cache unless force-busted
+  const tenantId = req.tenantId;
   if (!force) {
-    const cached = await getCachedResult();
+    const cached = await getCachedResult(tenantId);
     if (cached) {
       res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=7200');
       return res.status(200).json(cached);
@@ -236,8 +241,9 @@ router.get('/', asyncHandler(async (req, res) => {
   // Fetch articles directly from database
   const dbResult = await getPool().query(
     `SELECT * FROM articles
-     WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
-     ORDER BY published_at DESC`
+     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
+     ORDER BY published_at DESC`,
+    [tenantId]
   );
   const articles = dbResult.rows.map(serializeRow);
 
@@ -248,7 +254,7 @@ router.get('/', asyncHandler(async (req, res) => {
   // Analysis
   const [keywords, companyMap] = await Promise.all([
     Promise.resolve(extractKeywords(articles)),
-    extractCompaniesParallel(articles),
+    extractCompaniesParallel(articles, tenantId),
   ]);
 
   const topCompanies = Object.entries(companyMap)
@@ -260,7 +266,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const hotArticle = findHotArticle(articles, keywords);
 
   // Load historical snapshots from Postgres
-  const history  = await getHistory();
+  const history  = await getHistory(tenantId);
   const risingSet = calcRising({ trending: keywords, companies: topCompanies }, history);
 
   const enrichedKeywords = keywords.map(k => ({
@@ -286,8 +292,8 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // Cache result and save daily snapshot
   await Promise.all([
-    setCachedResult(result),
-    saveSnapshot({ trending: keywords, companies: topCompanies, timestamp: result.timestamp }),
+    setCachedResult(result, tenantId),
+    saveSnapshot({ trending: keywords, companies: topCompanies, timestamp: result.timestamp }, tenantId),
   ]);
 
   res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=7200');

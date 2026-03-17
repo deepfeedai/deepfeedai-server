@@ -13,6 +13,11 @@ onReady(async () => {
   if (!requireAuth()) return;
   renderSidebar();
 
+  if (!hasPermission('comments.moderate')) {
+    var bulkToolbar = document.getElementById('cmtBulkToolbar');
+    if (bulkToolbar) bulkToolbar.style.display = 'none';
+  }
+
   const user = localStorage.getItem('deepfeedai_user');
   if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 

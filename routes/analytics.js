@@ -8,6 +8,7 @@ const express                        = require('express');
 const router                         = express.Router();
 const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
+const { requirePermission }          = require('../middleware/permissions');
 const { asyncHandler }               = require('../lib/utils');
 
 const VALID_TYPES   = new Set(['view', 'audio_play', 'share']);
@@ -46,17 +47,18 @@ router.post('/event', asyncHandler(async (req, res) => {
   markSeen(key);
 
   await getPool().query(
-    'INSERT INTO analytics_events (event_type, article_slug, category) VALUES ($1, $2, $3)',
-    [type, slug || null, category || null]
+    'INSERT INTO analytics_events (tenant_id, event_type, article_slug, category) VALUES ($1, $2, $3, $4)',
+    [req.tenantId, type, slug || null, category || null]
   );
 
   res.json({ ok: true });
 }));
 
 // GET /api/analytics/summary
-router.get('/summary', auth, asyncHandler(async (req, res) => {
+router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const pool = getPool();
 
+  const tenantId = req.tenantId;
   const [
     totals,
     byDay,
@@ -72,8 +74,8 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')  AS views_7d,
         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS views_30d
       FROM analytics_events
-      WHERE event_type = 'view'
-    `),
+      WHERE tenant_id = $1 AND event_type = 'view'
+    `, [tenantId]),
 
     // Views per day for last 30 days
     pool.query(`
@@ -81,11 +83,11 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
         DATE_TRUNC('day', created_at AT TIME ZONE 'UTC') AS day,
         COUNT(*) AS views
       FROM analytics_events
-      WHERE event_type = 'view'
+      WHERE tenant_id = $1 AND event_type = 'view'
         AND created_at >= NOW() - INTERVAL '30 days'
       GROUP BY 1
       ORDER BY 1 ASC
-    `),
+    `, [tenantId]),
 
     // Top 10 articles by views (all time)
     // Note: articles table has no slug column — slug is computed from title in JS.
@@ -98,11 +100,11 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
         COUNT(*) FILTER (WHERE ae.event_type = 'audio_play')     AS audio_plays,
         COUNT(*) FILTER (WHERE ae.event_type = 'share')          AS shares
       FROM analytics_events ae
-      WHERE ae.article_slug IS NOT NULL
+      WHERE ae.tenant_id = $1 AND ae.article_slug IS NOT NULL
       GROUP BY ae.article_slug, ae.category
       ORDER BY views DESC
       LIMIT 10
-    `),
+    `, [tenantId]),
 
     // Views by category (last 30 days)
     pool.query(`
@@ -110,21 +112,21 @@ router.get('/summary', auth, asyncHandler(async (req, res) => {
         COALESCE(category, 'Unknown') AS category,
         COUNT(*) AS views
       FROM analytics_events
-      WHERE event_type = 'view'
+      WHERE tenant_id = $1 AND event_type = 'view'
         AND created_at >= NOW() - INTERVAL '30 days'
       GROUP BY 1
       ORDER BY views DESC
-    `),
+    `, [tenantId]),
 
     // Total audio plays
     pool.query(`
-      SELECT COUNT(*) AS total FROM analytics_events WHERE event_type = 'audio_play'
-    `),
+      SELECT COUNT(*) AS total FROM analytics_events WHERE tenant_id = $1 AND event_type = 'audio_play'
+    `, [tenantId]),
 
     // Total shares
     pool.query(`
-      SELECT COUNT(*) AS total FROM analytics_events WHERE event_type = 'share'
-    `),
+      SELECT COUNT(*) AS total FROM analytics_events WHERE tenant_id = $1 AND event_type = 'share'
+    `, [tenantId]),
   ]);
 
   res.json({

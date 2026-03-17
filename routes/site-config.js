@@ -8,7 +8,7 @@ const { getSiteConfig } = require('../lib/site-config');
 const { asyncHandler }  = require('../lib/utils');
 
 router.get('/', asyncHandler(async (req, res) => {
-  const config = await getSiteConfig();
+  const config = await getSiteConfig(req.tenantId);
   res.json(config);
 }));
 

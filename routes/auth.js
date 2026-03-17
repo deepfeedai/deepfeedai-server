@@ -16,11 +16,13 @@ const router           = express.Router();
 const crypto           = require('crypto');
 const jwt              = require('jsonwebtoken');
 const rateLimit        = require('express-rate-limit');
-const { JWT_SECRET }   = require('../middleware/auth');
+const { getJwtSecret } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
 
-const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const { getOAuthConfig } = require('../lib/oauth-config');
+const { getAppConfig }   = require('../lib/app-config');
+const { logAudit }       = require('../middleware/audit');
+const db                   = require('../db');
 
 // ── In-memory stores (short TTL — no DB needed) ────────────────────
 // Map<state, timestamp>
@@ -37,17 +39,6 @@ function pruneExpired(map) {
   }
 }
 
-// ── Email allowlist helpers ────────────────────────────────────────
-function getAdminEmails() {
-  return (process.env.ADMIN_EMAILS || '')
-    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-}
-
-function isAdminEmail(email) {
-  if (!email) return false;
-  return getAdminEmails().includes(email.toLowerCase());
-}
-
 // ── Rate limit for code exchange ───────────────────────────────────
 const codeLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
@@ -59,24 +50,26 @@ const codeLimiter = rateLimit({
 
 // ── GET /api/auth/google ───────────────────────────────────────────
 // Redirect admin to Google OAuth consent screen.
-router.get('/google', (req, res) => {
-  if (!GOOGLE_CLIENT_ID) {
+router.get('/google', asyncHandler(async (req, res) => {
+  const oauth = await getOAuthConfig();
+  if (!oauth.googleClientId) {
     return res.status(503).send('Google OAuth is not configured (GOOGLE_CLIENT_ID missing).');
   }
   pruneExpired(oauthStates);
   const state = crypto.randomBytes(24).toString('hex');
   oauthStates.set(state, Date.now());
 
+  const appCfg = await getAppConfig();
   const params = new URLSearchParams({
-    client_id:     GOOGLE_CLIENT_ID,
-    redirect_uri:  `${process.env.BASE_URL}/api/auth/google/callback`,
+    client_id:     oauth.googleClientId,
+    redirect_uri:  `${appCfg.base_url}/api/auth/google/callback`,
     response_type: 'code',
     scope:         'openid email profile',
     state,
     prompt:        'select_account',
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-});
+}));
 
 // ── GET /api/auth/google/callback ──────────────────────────────────
 // Handles the OAuth callback from Google.
@@ -95,15 +88,18 @@ router.get('/google/callback', asyncHandler(async (req, res) => {
     return res.redirect('/login.html?error=state');
   }
 
+  const oauth = await getOAuthConfig();
+  const appCfg = await getAppConfig();
+
   // Exchange code for access token
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id:     GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      redirect_uri:  `${process.env.BASE_URL}/api/auth/google/callback`,
+      client_id:     oauth.googleClientId,
+      client_secret: oauth.googleClientSecret,
+      redirect_uri:  `${appCfg.base_url}/api/auth/google/callback`,
       grant_type:    'authorization_code',
     }),
   });
@@ -130,9 +126,14 @@ router.get('/google/callback', asyncHandler(async (req, res) => {
     return res.redirect('/login.html?error=unverified');
   }
 
-  // Check allowlist
-  if (!isAdminEmail(userInfo.email)) {
-    console.warn(`[Admin OAuth] Unauthorized login attempt: ${userInfo.email}`);
+  // Check users table for admin access
+  const adminUser = await db.prepare(
+    'SELECT id, role, display_name FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1'
+  ).get(userInfo.email);
+
+  if (!adminUser) {
+    console.warn(`[Admin OAuth] No admin user found for: ${userInfo.email}`);
+    logAudit(req, 'auth.oauth-denied', 'users', null, { email: userInfo.email, provider: 'google' }).catch(() => {});
     return res.redirect('/login.html?error=unauthorized');
   }
 
@@ -142,6 +143,8 @@ router.get('/google/callback', asyncHandler(async (req, res) => {
   adminCodes.set(adminCode, {
     email:       userInfo.email,
     displayName: userInfo.name || userInfo.email,
+    userId:      adminUser.id,
+    role:        adminUser.role,
     ts:          Date.now(),
   });
 
@@ -162,9 +165,11 @@ router.post('/code', codeLimiter, asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Invalid or expired code' });
   }
 
+  const type = (entry.role === 'owner') ? 'platform-admin' : 'tenant-admin';
+  const jwtSecret = await getJwtSecret();
   const token = jwt.sign(
-    { email: entry.email, displayName: entry.displayName, provider: 'google' },
-    JWT_SECRET,
+    { sub: entry.userId, email: entry.email, displayName: entry.displayName, provider: 'google', type, tenantId: 1, role: entry.role, authMethod: 'oauth' },
+    jwtSecret,
     { expiresIn: '24h' }
   );
 

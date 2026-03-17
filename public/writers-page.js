@@ -409,5 +409,9 @@ async function init() {
 
 onReady(function() {
   if (!requireAuth()) return;
+  if (!hasPermission('writers.create')) {
+    var btn = document.getElementById('addWriterBtn');
+    if (btn) btn.style.display = 'none';
+  }
   init();
 });

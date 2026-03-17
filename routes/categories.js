@@ -7,19 +7,21 @@ const router  = express.Router();
 const { getPool } = require('../db');
 const db          = require('../db');
 const { auth: requireAdmin } = require('../middleware/auth');
+const { requirePermission }  = require('../middleware/permissions');
 const { asyncHandler }       = require('../lib/utils');
 const { getCategories, bustCategoryCache } = require('../lib/categories');
 const { bustSiteConfigCache } = require('../lib/site-config');
+const { getGeminiKey } = require('../lib/gemini-config');
 
 // GET /api/categories — public (frontend filter bar needs this)
-router.get('/', asyncHandler(async (_req, res) => {
-  const cats = await getCategories();
+router.get('/', asyncHandler(async (req, res) => {
+  const cats = await getCategories(req.tenantId);
   res.json(cats);
 }));
 
 // PUT /api/categories — admin only, bulk save
 // Body: array of { id?, name, color, keywords }
-router.put('/', requireAdmin, asyncHandler(async (req, res) => {
+router.put('/', requireAdmin, requirePermission('categories.update'), asyncHandler(async (req, res) => {
   const incoming = req.body;
   if (!Array.isArray(incoming)) {
     return res.status(400).json({ error: 'Expected an array of categories' });
@@ -28,7 +30,7 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   const pool = getPool();
 
   // Load current categories for rename/delete detection
-  const current = await db.prepare('SELECT id, name, color FROM categories ORDER BY sort_order, id').all();
+  const current = await db.prepare('SELECT id, name, color FROM categories WHERE tenant_id = $1 ORDER BY sort_order, id').all(req.tenantId);
   const currentById = new Map(current.map(c => [c.id, c]));
 
   // Clean incoming — filter out empty names
@@ -41,14 +43,14 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
       // Exists in new set — check for rename
       const updated = clean.find(c => c.id === old.id);
       if (updated && updated.name !== old.name) {
-        await pool.query('UPDATE articles SET category = $1 WHERE category = $2', [updated.name, old.name]);
-        await pool.query('UPDATE voices SET beat = $1 WHERE beat = $2', [updated.name, old.name]);
+        await pool.query('UPDATE articles SET category = $1 WHERE category = $2 AND tenant_id = $3', [updated.name, old.name, req.tenantId]);
+        await pool.query('UPDATE voices SET beat = $1 WHERE beat = $2 AND tenant_id = $3', [updated.name, old.name, req.tenantId]);
       }
     } else {
       // Deleted — reassign articles and writer beats to first remaining category
       const fallback = clean[0]?.name || 'Industry';
-      await pool.query('UPDATE articles SET category = $1 WHERE category = $2', [fallback, old.name]);
-      await pool.query('UPDATE voices SET beat = $1 WHERE beat = $2', [fallback, old.name]);
+      await pool.query('UPDATE articles SET category = $1 WHERE category = $2 AND tenant_id = $3', [fallback, old.name, req.tenantId]);
+      await pool.query('UPDATE voices SET beat = $1 WHERE beat = $2 AND tenant_id = $3', [fallback, old.name, req.tenantId]);
     }
   }
 
@@ -56,12 +58,12 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   const keepIds = clean.filter(c => c.id).map(c => c.id);
   if (keepIds.length > 0) {
     await pool.query(
-      `DELETE FROM categories WHERE id != ALL($1::int[])`,
-      [keepIds]
+      `DELETE FROM categories WHERE id != ALL($1::int[]) AND tenant_id = $2`,
+      [keepIds, req.tenantId]
     );
   } else if (current.length > 0) {
     // All existing removed (new set has no ids) — delete all, they'll be re-inserted
-    await pool.query('DELETE FROM categories');
+    await pool.query('DELETE FROM categories WHERE tenant_id = $1', [req.tenantId]);
   }
 
   // Upsert each category
@@ -73,16 +75,16 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
     if (c.id && currentById.has(c.id)) {
       // Update existing
       await pool.query(
-        `UPDATE categories SET name = $1, color = $2, keywords = $3, sort_order = $4 WHERE id = $5`,
-        [c.name.trim(), color, kw, i, c.id]
+        `UPDATE categories SET name = $1, color = $2, keywords = $3, sort_order = $4 WHERE id = $5 AND tenant_id = $6`,
+        [c.name.trim(), color, kw, i, c.id, req.tenantId]
       );
     } else {
       // Insert new
       await pool.query(
-        `INSERT INTO categories (name, color, keywords, sort_order)
-         VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO UPDATE
+        `INSERT INTO categories (tenant_id, name, color, keywords, sort_order)
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (tenant_id, name) DO UPDATE
          SET color = EXCLUDED.color, keywords = EXCLUDED.keywords, sort_order = EXCLUDED.sort_order`,
-        [c.name.trim(), color, kw, i]
+        [req.tenantId, c.name.trim(), color, kw, i]
       );
     }
   }
@@ -91,16 +93,16 @@ router.put('/', requireAdmin, asyncHandler(async (req, res) => {
   bustSiteConfigCache();
 
   // Return fresh list
-  const cats = await getCategories();
+  const cats = await getCategories(req.tenantId);
   res.json(cats);
 }));
 
 // POST /api/categories/generate-keywords — AI keyword generation for a category
-router.post('/generate-keywords', requireAdmin, asyncHandler(async (req, res) => {
+router.post('/generate-keywords', requireAdmin, requirePermission('categories.update'), asyncHandler(async (req, res) => {
   const { name, existingKeywords } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Category name is required' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = await getGeminiKey(req.tenantId);
   if (!apiKey) return res.status(503).json({ error: 'Gemini API key not configured' });
 
   const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
@@ -112,7 +114,7 @@ router.post('/generate-keywords', requireAdmin, asyncHandler(async (req, res) =>
     ? `\nThe category currently has these keywords: ${existingKeywords.join(', ')}\nGenerate additional keywords that complement these — avoid duplicates.`
     : '';
 
-  const allCats = await getCategories();
+  const allCats = await getCategories(req.tenantId);
   const otherNames = allCats.filter(c => c.name.toLowerCase() !== name.toLowerCase()).map(c => c.name);
   const otherContext = otherNames.length
     ? `\nOther categories in the system: ${otherNames.join(', ')}. Generate keywords that are specific to "${name}" and would NOT match articles belonging to those other categories.`

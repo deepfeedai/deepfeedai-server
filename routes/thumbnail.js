@@ -17,6 +17,7 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { logUsage } = require('../lib/ai-usage');
+const { getGeminiKey } = require('../lib/gemini-config');
 
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_IMAGE_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
@@ -26,34 +27,35 @@ function cacheKey(title, category) {
   return `${title}-${category}`.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 80);
 }
 
-async function getCached(key) {
+async function getCached(key, tenantId) {
   const result = await getPool().query(
     `SELECT payload FROM thumbnail_cache
-     WHERE cache_key = $1
+     WHERE tenant_id = $1 AND cache_key = $2
        AND created_at > NOW() - INTERVAL '${CACHE_TTL_DAYS} days'`,
-    [key]
+    [tenantId, key]
   );
   return result.rows[0]?.payload || null;
 }
 
-async function setCached(key, payload) {
+async function setCached(key, payload, tenantId) {
   await getPool().query(
-    `INSERT INTO thumbnail_cache (cache_key, payload, created_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (cache_key) DO UPDATE SET payload = $2, created_at = NOW()`,
-    [key, payload]
+    `INSERT INTO thumbnail_cache (tenant_id, cache_key, payload, created_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (cache_key) DO UPDATE SET payload = $3, created_at = NOW()`,
+    [tenantId, key, payload]
   );
   // Prune oldest beyond 500 rows
   await getPool().query(
     `DELETE FROM thumbnail_cache
-     WHERE cache_key NOT IN (
-       SELECT cache_key FROM thumbnail_cache ORDER BY created_at DESC LIMIT 500
-     )`
+     WHERE tenant_id = $1 AND cache_key NOT IN (
+       SELECT cache_key FROM thumbnail_cache WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 500
+     )`,
+    [tenantId]
   );
 }
 
 router.get('/', asyncHandler(async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = await getGeminiKey(req.tenantId);
   if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured.' });
 
   const { title = '', category = 'Industry' } = req.query;
@@ -62,7 +64,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const key = cacheKey(title, category);
 
   // Serve from cache if available
-  const cached = await getCached(key);
+  const cached = await getCached(key, req.tenantId);
   if (cached) {
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.status(200).json(cached);
@@ -83,7 +85,7 @@ router.get('/', asyncHandler(async (req, res) => {
   if (!upstream.ok) {
     const err = await upstream.text();
     console.error('[thumbnail] Gemini error:', err);
-    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: err }).catch(() => {});
+    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: err, tenantId: req.tenantId }).catch(() => {});
     return res.status(upstream.status).json({ error: 'Image generation failed.' });
   }
 
@@ -93,13 +95,13 @@ router.get('/', asyncHandler(async (req, res) => {
 
   if (!img?.inlineData?.data) {
     console.error('[thumbnail] No image in Gemini response');
-    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: 'No image in response' }).catch(() => {});
+    logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 0, durationMs: Date.now() - _start, success: false, error: 'No image in response', tenantId: req.tenantId }).catch(() => {});
     return res.status(502).json({ error: 'No image returned from Gemini.' });
   }
 
-  logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 1, durationMs: Date.now() - _start }).catch(() => {});
+  logUsage({ provider: 'gemini', model: GEMINI_IMAGE_MODEL, operation: 'thumbnail-render', trigger: 'page-load', imageCount: 1, durationMs: Date.now() - _start, tenantId: req.tenantId }).catch(() => {});
   const result = { image: img.inlineData.data, mimeType: img.inlineData.mimeType || 'image/png' };
-  await setCached(key, result);
+  await setCached(key, result, req.tenantId);
 
   res.setHeader('Cache-Control', 'public, max-age=86400');
   return res.status(200).json(result);

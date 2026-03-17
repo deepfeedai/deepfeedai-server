@@ -6,9 +6,12 @@ const express          = require('express');
 const path             = require('path');
 const router           = express.Router();
 const db               = require('../db');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler, toSlug } = require('../lib/utils');
 const { writerCreate, writerUpdate, validate } = require('../lib/schemas');
 const { extFromMime, upload: r2Upload } = require('../lib/r2');
+const { checkPlanLimit }    = require('../lib/plan-limits');
+const { logAudit } = require('../middleware/audit');
 
 const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
 
@@ -19,26 +22,26 @@ async function storeAvatar(buf, mimeType, writerId) {
 }
 
 /** Sync writer_beats junction table from an array of category IDs */
-async function syncBeats(writerId, beats) {
-  await db.prepare('DELETE FROM writer_beats WHERE writer_id = $1').run(writerId);
+async function syncBeats(writerId, beats, tenantId) {
+  await db.prepare('DELETE FROM writer_beats WHERE writer_id = $1 AND tenant_id = $2').run(writerId, tenantId);
   for (const catId of beats) {
     try {
-      await db.prepare('INSERT INTO writer_beats (writer_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING').run(writerId, catId);
+      await db.prepare('INSERT INTO writer_beats (writer_id, category_id, tenant_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING').run(writerId, catId, tenantId);
     } catch { /* skip invalid catId */ }
   }
 }
 
 /** Fetch beats for a single writer as [{id, name}] */
-async function getBeats(writerId) {
+async function getBeats(writerId, tenantId) {
   return db.prepare(`
     SELECT c.id, c.name FROM writer_beats wb
     JOIN categories c ON c.id = wb.category_id
-    WHERE wb.writer_id = $1 ORDER BY c.name
-  `).all(writerId);
+    WHERE wb.writer_id = $1 AND wb.tenant_id = $2 ORDER BY c.name
+  `).all(writerId, tenantId);
 }
 
 // GET /api/admin/writers — list all writers with article + follower counts + beats
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', requirePermission('writers.read'), asyncHandler(async (req, res) => {
   const writers = await db.prepare(`
     SELECT w.*, v.name AS voice_name,
            COUNT(DISTINCT a.id)::int AS article_count,
@@ -49,20 +52,26 @@ router.get('/', asyncHandler(async (req, res) => {
            ) AS beats
     FROM writers w
     LEFT JOIN voices v ON v.id = w.voice_id
-    LEFT JOIN articles a ON a.writer_id = w.id
-    LEFT JOIN writer_follows wf ON wf.writer_id = w.id
-    LEFT JOIN writer_beats wb ON wb.writer_id = w.id
-    LEFT JOIN categories c ON c.id = wb.category_id
+    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1
+    LEFT JOIN writer_follows wf ON wf.writer_id = w.id AND wf.tenant_id = $1
+    LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
+    LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
+    WHERE w.tenant_id = $1
     GROUP BY w.id, v.name
     ORDER BY w.name ASC
-  `).all();
+  `).all(req.tenantId);
   res.json(writers);
 }));
 
 // POST /api/admin/writers — create writer
-router.post('/', asyncHandler(async (req, res) => {
+router.post('/', requirePermission('writers.create'), asyncHandler(async (req, res) => {
   const body = validate(writerCreate, req.body, res);
   if (!body) return;
+
+  const limit = await checkPlanLimit(req.tenantId, 'writers');
+  if (!limit.allowed) {
+    return res.status(403).json({ error: 'Plan limit reached', resource: 'writers', current: limit.current, max: limit.max });
+  }
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
@@ -71,15 +80,15 @@ router.post('/', asyncHandler(async (req, res) => {
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
   if (voice_id) {
-    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1').get(voice_id);
+    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
     if (!voice) return res.status(400).json({ error: 'Voice not found' });
   }
 
   const writer = await db.prepare(`
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-      tone, expertise_level, style_guide, few_shot_examples)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      tone, expertise_level, style_guide, few_shot_examples, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -88,19 +97,21 @@ router.post('/', asyncHandler(async (req, res) => {
     synthesis_schedule, synthesis_lookback_hours, min_cluster_size,
     voice_id || null,
     tone || null, expertise_level || null, style_guide || null,
-    JSON.stringify(few_shot_examples || [])
+    JSON.stringify(few_shot_examples || []),
+    req.tenantId
   );
 
-  if (beats.length) await syncBeats(writer.id, beats);
-  writer.beats = await getBeats(writer.id);
+  if (beats.length) await syncBeats(writer.id, beats, req.tenantId);
+  writer.beats = await getBeats(writer.id, req.tenantId);
 
+  logAudit(req, 'writer.create', 'writer', writer.id, { name: writer.name });
   res.json(writer);
 }));
 
 // PUT /api/admin/writers/:id — update writer
-router.put('/:id', asyncHandler(async (req, res) => {
+router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const existing = await db.prepare('SELECT * FROM writers WHERE id = $1').get(id);
+  const existing = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Writer not found' });
 
   const body = validate(writerUpdate, req.body, res);
@@ -111,7 +122,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
           tone, expertise_level, style_guide, few_shot_examples } = body;
 
   if (voice_id) {
-    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1').get(voice_id);
+    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
     if (!voice) return res.status(400).json({ error: 'Voice not found' });
   }
 
@@ -123,7 +134,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
       system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
       synthesis_lookback_hours = $9, min_cluster_size = $10, voice_id = $11,
       tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15
-    WHERE id = $16
+    WHERE id = $16 AND tenant_id = $17
     RETURNING *
   `).get(
     name,
@@ -141,45 +152,48 @@ router.put('/:id', asyncHandler(async (req, res) => {
     expertise_level !== undefined ? (expertise_level || null) : existing.expertise_level,
     style_guide !== undefined ? (style_guide || null) : existing.style_guide,
     few_shot_examples !== undefined ? JSON.stringify(few_shot_examples) : existingFse,
-    id
+    id,
+    req.tenantId
   );
 
-  if (beats !== undefined) await syncBeats(id, beats);
-  writer.beats = await getBeats(id);
+  if (beats !== undefined) await syncBeats(id, beats, req.tenantId);
+  writer.beats = await getBeats(id, req.tenantId);
 
+  logAudit(req, 'writer.update', 'writer', parseInt(id), { name: writer.name });
   res.json(writer);
 }));
 
 // DELETE /api/admin/writers/:id — delete writer (articles get writer_id = NULL via FK)
-router.delete('/:id', asyncHandler(async (req, res) => {
+router.delete('/:id', requirePermission('writers.delete'), asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1').get(id);
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
-  await db.prepare('DELETE FROM writers WHERE id = $1').run(id);
+  await db.prepare('DELETE FROM writers WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
+  logAudit(req, 'writer.delete', 'writer', parseInt(id), { name: writer.name });
   res.json({ message: 'Writer deleted' });
 }));
 
 // POST /api/admin/writers/:id/avatar — upload avatar to R2
-router.post('/:id/avatar', asyncHandler(async (req, res) => {
+router.post('/:id/avatar', requirePermission('writers.update'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { dataUrl } = req.body;
   if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
 
-  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1').get(id);
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
 
   const avatarUrl = await storeAvatar(Buffer.from(match[2], 'base64'), match[1], id);
-  await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2').run(avatarUrl, id);
-  const updated = await db.prepare('SELECT * FROM writers WHERE id = $1').get(id);
+  await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
+  const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json(updated);
 }));
 
 // GET /api/admin/writers/performance — per-writer performance metrics
-router.get('/performance', asyncHandler(async (req, res) => {
+router.get('/performance', requirePermission('writers.read'), asyncHandler(async (req, res) => {
   const range = req.query.range || '30d';
   const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
 
@@ -191,13 +205,14 @@ router.get('/performance', asyncHandler(async (req, res) => {
              ROUND(AVG(editorial_score)::numeric, 1) AS avg_editorial_score
       FROM articles
       WHERE writer_id IS NOT NULL
+        AND tenant_id = $2
         AND created_at > NOW() - ($1 || ' days')::INTERVAL
       GROUP BY writer_id
     ),
     reaction_stats AS (
       SELECT a.writer_id, COUNT(r.id)::int AS total_reactions
       FROM article_reactions r
-      JOIN articles a ON a.slug = r.article_slug
+      JOIN articles a ON a.slug = r.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
         AND r.created_at > NOW() - ($1 || ' days')::INTERVAL
       GROUP BY a.writer_id
@@ -205,7 +220,7 @@ router.get('/performance', asyncHandler(async (req, res) => {
     comment_stats AS (
       SELECT a.writer_id, COUNT(cm.id)::int AS total_comments
       FROM comments cm
-      JOIN articles a ON a.slug = cm.article_slug
+      JOIN articles a ON a.slug = cm.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
         AND cm.is_deleted = 0
         AND cm.created_at > NOW() - ($1 || ' days')::INTERVAL
@@ -216,7 +231,7 @@ router.get('/performance', asyncHandler(async (req, res) => {
              COUNT(*) FILTER (WHERE e.event_type = 'view')::int AS total_views,
              COUNT(*) FILTER (WHERE e.event_type = 'audio_play')::int AS total_audio_plays
       FROM analytics_events e
-      JOIN articles a ON a.slug = e.article_slug
+      JOIN articles a ON a.slug = e.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
         AND e.created_at > NOW() - ($1 || ' days')::INTERVAL
       GROUP BY a.writer_id
@@ -226,12 +241,14 @@ router.get('/performance', asyncHandler(async (req, res) => {
              ROUND(SUM(estimated_cost)::numeric, 4) AS total_cost
       FROM ai_usage
       WHERE writer_id IS NOT NULL
+        AND tenant_id = $2
         AND created_at > NOW() - ($1 || ' days')::INTERVAL
       GROUP BY writer_id
     ),
     follow_stats AS (
       SELECT writer_id, COUNT(*)::int AS follower_count
       FROM writer_follows
+      WHERE tenant_id = $2
       GROUP BY writer_id
     )
     SELECT w.id AS writer_id, w.name, w.slug, w.avatar_url,
@@ -254,8 +271,9 @@ router.get('/performance', asyncHandler(async (req, res) => {
     LEFT JOIN view_stats vs ON vs.writer_id = w.id
     LEFT JOIN cost_stats co ON co.writer_id = w.id
     LEFT JOIN follow_stats fol ON fol.writer_id = w.id
+    WHERE w.tenant_id = $2
     ORDER BY COALESCE(ast.articles_total, 0) DESC
-  `).all(days);
+  `).all(days, req.tenantId);
 
   res.json(rows);
 }));
