@@ -11,6 +11,33 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.0-beta.7] — 2026-03-17
+
+YouTube video discovery, import, and embed support.
+
+### Added
+- **YouTube Discovery** — search YouTube videos via Data API v3 on the Discover page (alongside Brave/NewsAPI)
+- **YouTube video import** — import videos as articles with embedded playback; `embed_url` reconstructed server-side from video ID (zero-trust)
+- **YouTube API key** — configurable in Settings > Integrations > Live News Sources (encrypted at rest)
+- **Discovery date filters** — year-based and custom date range filtering on the Discover page (#150)
+- **Discovery full-width layout** — results table matches articles page width
+
+### Added — Database
+- `embed_url TEXT` and `embed_type TEXT` columns on articles table
+- `from_date TEXT` and `to_date TEXT` columns on saved_searches table
+
+### Changed
+- CSP `frame-src` allows `youtube.com` and `youtube-nocookie.com`
+- Public `/api/article` response now includes `embed_url`, `embed_type`, `source_type`
+- YouTube checkbox defaults to unchecked (requires API key configuration)
+
+### Fixed
+- `media_enabled` now set to 1 when importing YouTube videos (#152)
+- Post-fetch date filtering removes out-of-range results from API responses
+- Brave Search freshness parameter uses date range format for year/custom periods
+
+---
+
 ## [2.0.0-beta.2] — 2026-03-17
 
 Post-beta patches deployed to staging.
