@@ -1114,21 +1114,8 @@ let apiKeyVisible = false;
           html += '<div class="text-muted text-xs" style="margin-top:2px;">Job: <code>' + escHtml(job.name) + '</code></div>';
           html += '</div>';
 
-          // Middle: schedule + last run
+          // Middle: last run info
           html += '<div style="display:flex;gap:16px;align-items:center;">';
-          html += '<div>';
-          html += '<div class="text-muted text-xs">Schedule</div>';
-          html += '<select class="form-control" style="width:auto;font-size:12px;padding:4px 8px;" data-job-schedule="' + escHtml(job.name) + '">';
-
-          var scheduleOptions = getScheduleOptions(job.name, job.defaultSchedule);
-          scheduleOptions.forEach(function(opt) {
-            var selected = opt.value === schedule ? ' selected' : '';
-            html += '<option value="' + escHtml(opt.value) + '"' + selected + '>' + escHtml(opt.label) + '</option>';
-          });
-
-          html += '</select>';
-          html += '</div>';
-
           html += '<div>';
           html += '<div class="text-muted text-xs">Last run</div>';
           html += '<div class="text-sm">' + escHtml(lastRunTime) + ' ' + statusBadge + '</div>';
@@ -1146,7 +1133,58 @@ let apiKeyVisible = false;
           html += '</div>';
 
           html += '</div>';
+
+          // Cron builder
+          html += '<div class="cron-builder" data-cron-builder="' + escHtml(job.name) + '" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">';
+
+          // Row 1: Frequency
+          html += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+          html += '<span class="text-sm">Run every</span>';
+          html += '<select class="form-control form-control-sm" data-cron-interval="' + escHtml(job.name) + '">';
+          [1,2,5,10,15,20,30].forEach(function(v) {
+            html += '<option value="' + v + '">' + v + '</option>';
+          });
+          html += '</select>';
+          html += '<select class="form-control form-control-sm" data-cron-unit="' + escHtml(job.name) + '">';
+          html += '<option value="minutes">minutes</option>';
+          html += '<option value="hours">hours</option>';
+          html += '</select>';
           html += '</div>';
+
+          // Row 2: Hour range
+          html += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">';
+          html += '<label class="form-check" style="margin:0;">';
+          html += '<input type="checkbox" data-cron-hourlimit="' + escHtml(job.name) + '" /> Only during';
+          html += '</label>';
+          html += '<select class="form-control form-control-sm" data-cron-hourstart="' + escHtml(job.name) + '" disabled>' + hourOptions() + '</select>';
+          html += '<span class="text-sm">to</span>';
+          html += '<select class="form-control form-control-sm" data-cron-hourend="' + escHtml(job.name) + '" disabled>' + hourOptions() + '</select>';
+          html += '</div>';
+
+          // Row 3: Day of week
+          html += '<div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;">';
+          html += '<span class="text-sm">Days:</span>';
+          var dayLabels = [
+            { value: '1', label: 'Mon' }, { value: '2', label: 'Tue' },
+            { value: '3', label: 'Wed' }, { value: '4', label: 'Thu' },
+            { value: '5', label: 'Fri' }, { value: '6', label: 'Sat' },
+            { value: '0', label: 'Sun' }
+          ];
+          dayLabels.forEach(function(d) {
+            html += '<label class="form-check form-check-sm"><input type="checkbox" data-cron-day="' + escHtml(job.name) + '" value="' + d.value + '" checked /> ' + d.label + '</label>';
+          });
+          html += '</div>';
+
+          // Row 4: Preview
+          html += '<div style="margin-top:8px;" data-cron-preview="' + escHtml(job.name) + '">';
+          html += '<div class="text-muted text-xs" data-cron-description="' + escHtml(job.name) + '"></div>';
+          html += '<div class="text-muted text-xs" data-cron-nextruns="' + escHtml(job.name) + '" style="margin-top:4px;"></div>';
+          html += '<div class="text-xs" data-cron-saved="' + escHtml(job.name) + '" style="margin-top:4px;color:var(--success);opacity:0;transition:opacity 0.3s;"></div>';
+          html += '</div>';
+
+          html += '</div>'; // end cron-builder
+
+          html += '</div>'; // end job card
         });
 
         html += '</div>';
@@ -1154,17 +1192,38 @@ let apiKeyVisible = false;
 
       container.innerHTML = html;
 
-      // Wire up toggle and schedule change handlers
+      // Wire up toggle handlers
       container.querySelectorAll('[data-job-toggle]').forEach(function(cb) {
         cb.addEventListener('change', function() {
           updateCronJob(cb.dataset.jobToggle, { enabled: cb.checked });
         });
       });
 
-      container.querySelectorAll('[data-job-schedule]').forEach(function(sel) {
-        sel.addEventListener('change', function() {
-          updateCronJob(sel.dataset.jobSchedule, { schedule: sel.value });
+      // Wire up hour-limit checkbox to enable/disable hour selects
+      container.querySelectorAll('[data-cron-hourlimit]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          var jobName = cb.dataset.cronHourlimit;
+          var startSel = document.querySelector('[data-cron-hourstart="' + jobName + '"]');
+          var endSel = document.querySelector('[data-cron-hourend="' + jobName + '"]');
+          startSel.disabled = !cb.checked;
+          endSel.disabled = !cb.checked;
+          debouncedPreviewAndSave(jobName);
         });
+      });
+
+      // Wire up all builder controls for preview + auto-save
+      container.querySelectorAll('[data-cron-interval],[data-cron-unit],[data-cron-hourstart],[data-cron-hourend],[data-cron-day]').forEach(function(el) {
+        el.addEventListener('change', function() {
+          var jobName = el.dataset.cronInterval || el.dataset.cronUnit || el.dataset.cronHourstart || el.dataset.cronHourend || el.dataset.cronDay;
+          debouncedPreviewAndSave(jobName);
+        });
+      });
+
+      // Parse existing schedules into builder controls
+      jobs.forEach(function(job) {
+        var schedule = job.currentSchedule || job.defaultSchedule;
+        parseCronToBuilder(schedule, job.name);
+        updateCronPreview(job.name);
       });
 
     } catch (err) {
@@ -1191,6 +1250,216 @@ let apiKeyVisible = false;
       options.unshift({ value: defaultSchedule, label: defaultSchedule + ' (default)' });
     }
     return options;
+  }
+
+  // ── Cron Builder Helpers ────────────────────────────────
+
+  function hourOptions() {
+    var html = '';
+    for (var h = 0; h < 24; h++) {
+      var label = h === 0 ? '12 AM' : h < 12 ? h + ' AM' : h === 12 ? '12 PM' : (h - 12) + ' PM';
+      html += '<option value="' + h + '">' + label + '</option>';
+    }
+    return html;
+  }
+
+  function buildCronExpression(jobName) {
+    var interval = document.querySelector('[data-cron-interval="' + jobName + '"]').value;
+    var unit = document.querySelector('[data-cron-unit="' + jobName + '"]').value;
+    var hourLimited = document.querySelector('[data-cron-hourlimit="' + jobName + '"]').checked;
+    var hourStart = document.querySelector('[data-cron-hourstart="' + jobName + '"]').value;
+    var hourEnd = document.querySelector('[data-cron-hourend="' + jobName + '"]').value;
+
+    var dayCheckboxes = document.querySelectorAll('[data-cron-day="' + jobName + '"]');
+    var days = [];
+    dayCheckboxes.forEach(function(cb) { if (cb.checked) days.push(cb.value); });
+
+    var minuteField, hourField;
+
+    if (unit === 'minutes') {
+      minuteField = interval === '1' ? '*' : '*/' + interval;
+      if (hourLimited) {
+        hourField = (hourStart === hourEnd) ? String(hourStart) : hourStart + '-' + hourEnd;
+      } else {
+        hourField = '*';
+      }
+    } else {
+      // hours
+      minuteField = '0';
+      if (hourLimited) {
+        if (hourStart === hourEnd) {
+          hourField = String(hourStart);
+        } else if (interval === '1') {
+          hourField = hourStart + '-' + hourEnd;
+        } else {
+          hourField = hourStart + '-' + hourEnd + '/' + interval;
+        }
+      } else {
+        hourField = interval === '1' ? '*' : '*/' + interval;
+      }
+    }
+
+    var dayField = days.length === 0 || days.length === 7 ? '*' : days.join(',');
+
+    return minuteField + ' ' + hourField + ' * * ' + dayField;
+  }
+
+  function parseCronToBuilder(expr, jobName) {
+    var parts = expr.trim().split(/\s+/);
+    if (parts.length < 5) return;
+
+    var minField = parts[0];
+    var hourField = parts[1];
+    var dayField = parts[4];
+
+    var intervalSel = document.querySelector('[data-cron-interval="' + jobName + '"]');
+    var unitSel = document.querySelector('[data-cron-unit="' + jobName + '"]');
+    var hourLimitCb = document.querySelector('[data-cron-hourlimit="' + jobName + '"]');
+    var hourStartSel = document.querySelector('[data-cron-hourstart="' + jobName + '"]');
+    var hourEndSel = document.querySelector('[data-cron-hourend="' + jobName + '"]');
+
+    if (!intervalSel) return;
+
+    // Parse minute field
+    var minStep = minField.match(/^\*\/(\d+)$/);
+    if (minField === '*') {
+      // every minute
+      unitSel.value = 'minutes';
+      intervalSel.value = '1';
+    } else if (minStep) {
+      unitSel.value = 'minutes';
+      intervalSel.value = minStep[1];
+    } else if (minField === '0') {
+      // hourly pattern
+      unitSel.value = 'hours';
+      var hourStep = hourField.match(/^\*\/(\d+)$/);
+      var hourRange = hourField.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
+      if (hourField === '*') {
+        intervalSel.value = '1';
+      } else if (hourStep) {
+        intervalSel.value = hourStep[1];
+      } else if (hourRange) {
+        hourLimitCb.checked = true;
+        hourStartSel.disabled = false;
+        hourEndSel.disabled = false;
+        hourStartSel.value = hourRange[1];
+        hourEndSel.value = hourRange[2];
+        intervalSel.value = hourRange[3] || '1';
+      } else {
+        // Specific hour like "14" — treat as every 1 hour limited to that hour
+        var specificHour = parseInt(hourField, 10);
+        if (!isNaN(specificHour)) {
+          intervalSel.value = '1';
+          hourLimitCb.checked = true;
+          hourStartSel.disabled = false;
+          hourEndSel.disabled = false;
+          hourStartSel.value = specificHour;
+          hourEndSel.value = specificHour;
+        }
+      }
+    } else {
+      // Specific minute — best effort: treat as minutes
+      unitSel.value = 'minutes';
+      intervalSel.value = '1';
+    }
+
+    // Parse hour field for minute-based patterns
+    if (unitSel.value === 'minutes') {
+      var hRange = hourField.match(/^(\d+)-(\d+)$/);
+      if (hRange) {
+        hourLimitCb.checked = true;
+        hourStartSel.disabled = false;
+        hourEndSel.disabled = false;
+        hourStartSel.value = hRange[1];
+        hourEndSel.value = hRange[2];
+      } else if (hourField !== '*') {
+        var hVal = parseInt(hourField, 10);
+        if (!isNaN(hVal)) {
+          hourLimitCb.checked = true;
+          hourStartSel.disabled = false;
+          hourEndSel.disabled = false;
+          hourStartSel.value = hVal;
+          hourEndSel.value = hVal;
+        }
+      }
+    }
+
+    // Parse day field
+    var dayCheckboxes = document.querySelectorAll('[data-cron-day="' + jobName + '"]');
+    if (dayField !== '*') {
+      var activeDays = dayField.split(',');
+      dayCheckboxes.forEach(function(cb) {
+        cb.checked = activeDays.indexOf(cb.value) !== -1;
+      });
+    } else {
+      dayCheckboxes.forEach(function(cb) { cb.checked = true; });
+    }
+
+    // Snap interval to nearest valid option
+    var validIntervals = ['1','2','5','10','15','20','30'];
+    if (validIntervals.indexOf(intervalSel.value) === -1) {
+      // Find closest
+      var target = parseInt(intervalSel.value, 10);
+      var closest = '1';
+      var minDiff = Infinity;
+      validIntervals.forEach(function(v) {
+        var diff = Math.abs(parseInt(v, 10) - target);
+        if (diff < minDiff) { minDiff = diff; closest = v; }
+      });
+      intervalSel.value = closest;
+    }
+  }
+
+  var _previewTimers = {};
+  var _saveTimers = {};
+
+  function updateCronPreview(jobName) {
+    var expr = buildCronExpression(jobName);
+    var descEl = document.querySelector('[data-cron-description="' + jobName + '"]');
+    var runsEl = document.querySelector('[data-cron-nextruns="' + jobName + '"]');
+    if (!descEl) return;
+
+    descEl.textContent = 'Expression: ' + expr;
+    runsEl.textContent = 'Loading preview...';
+
+    apiFetch('/admin/cron/preview?schedule=' + encodeURIComponent(expr))
+      .then(function(data) {
+        descEl.textContent = data.description || expr;
+        if (data.nextRuns && data.nextRuns.length) {
+          var runStrs = data.nextRuns.map(function(r) {
+            return new Date(r).toLocaleString();
+          });
+          runsEl.textContent = 'Next runs: ' + runStrs.join('  |  ');
+        } else {
+          runsEl.textContent = '';
+        }
+      })
+      .catch(function(err) {
+        descEl.textContent = 'Expression: ' + expr;
+        runsEl.textContent = 'Preview unavailable';
+      });
+  }
+
+  function debouncedPreviewAndSave(jobName) {
+    // Debounce preview (300ms)
+    clearTimeout(_previewTimers[jobName]);
+    _previewTimers[jobName] = setTimeout(function() {
+      updateCronPreview(jobName);
+    }, 300);
+
+    // Debounce auto-save (1000ms)
+    clearTimeout(_saveTimers[jobName]);
+    _saveTimers[jobName] = setTimeout(function() {
+      var expr = buildCronExpression(jobName);
+      var savedEl = document.querySelector('[data-cron-saved="' + jobName + '"]');
+      updateCronJob(jobName, { schedule: expr }).then(function() {
+        if (savedEl) {
+          savedEl.textContent = 'Saved';
+          savedEl.style.opacity = '1';
+          setTimeout(function() { savedEl.style.opacity = '0'; }, 1500);
+        }
+      });
+    }, 1000);
   }
 
   function formatAge(dateStr) {

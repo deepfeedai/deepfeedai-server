@@ -11,6 +11,8 @@ const { requirePermission } = require('../middleware/permissions');
 const { logAudit }        = require('../middleware/audit');
 const { bustAppConfigCache } = require('../lib/app-config');
 const { getJobs, runJob, rescheduleJob } = require('../lib/cron-registry');
+const cronstrue              = require('cronstrue');
+const { CronExpressionParser } = require('cron-parser');
 
 // Minimum interval enforcement (seconds) to prevent DoS via rapid scheduling
 const MIN_INTERVALS = {
@@ -33,6 +35,29 @@ const lastManualRun = new Map();
 const RUN_COOLDOWNS = {
   newsletter: 600000, 'auto-audio': 300000, 'auto-archive': 300000, default: 60000,
 };
+
+// GET /preview — preview a cron expression (human description + next 3 runs)
+router.get('/preview', auth, requirePermission('cron.read'), asyncHandler(async (req, res) => {
+  const { schedule } = req.query;
+  if (!schedule) return res.status(400).json({ error: 'schedule param required' });
+
+  if (!cron.validate(schedule)) {
+    return res.status(400).json({ error: 'Invalid cron expression' });
+  }
+
+  let description = '';
+  try { description = cronstrue.toString(schedule); } catch { description = schedule; }
+
+  const nextRuns = [];
+  try {
+    const interval = CronExpressionParser.parse(schedule);
+    for (let i = 0; i < 3; i++) {
+      nextRuns.push(interval.next().toISOString());
+    }
+  } catch { /* unable to compute */ }
+
+  res.json({ schedule, description, nextRuns });
+}));
 
 // GET / — list all jobs with status, current schedule, enabled state, last run
 router.get('/', auth, requirePermission('cron.read'), asyncHandler(async (req, res) => {
@@ -64,9 +89,14 @@ router.get('/', auth, requirePermission('cron.read'), asyncHandler(async (req, r
       ).get(req.tenantId, job.name);
     } catch { /* no runs yet */ }
 
+    const currentSchedule = scheduleSetting?.value || job.defaultSchedule;
+    let scheduleDescription = '';
+    try { scheduleDescription = cronstrue.toString(currentSchedule); } catch {}
+
     results.push({
       ...job,
-      currentSchedule: scheduleSetting?.value || job.defaultSchedule,
+      currentSchedule,
+      scheduleDescription,
       enabled: enabledSetting?.value !== '0',
       lastRun: lastRun || null,
     });

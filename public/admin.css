@@ -693,6 +693,18 @@ textarea.form-control {
   cursor: pointer;
 }
 
+.form-control-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  width: auto;
+}
+
+.form-check-sm {
+  font-size: 11px;
+  margin-bottom: 0;
+  gap: 4px;
+}
+
 /* Help / hint text below a form field */
 .form-help {
   font-size: var(--text-sm);
