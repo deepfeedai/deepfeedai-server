@@ -33,8 +33,7 @@ app.use(helmet({
       baseUri:        ["'self'"],
     },
   },
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow frontend to load audio/images
+  crossOriginEmbedderPolicy: false, // not needed for admin panel
 }));
 
 // ── Public endpoint rate limits ────────────────────────────────────
