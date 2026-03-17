@@ -75,7 +75,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-          tone, expertise_level, style_guide, few_shot_examples, gender } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -87,8 +87,8 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
   const writer = await db.prepare(`
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-      tone, expertise_level, style_guide, few_shot_examples, gender, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -98,7 +98,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     voice_id || null,
     tone || null, expertise_level || null, style_guide || null,
     JSON.stringify(few_shot_examples || []),
-    gender || null,
+    gender || null, ethnicity || null,
     req.tenantId
   );
 
@@ -120,7 +120,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
-          tone, expertise_level, style_guide, few_shot_examples, gender } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
 
   if (voice_id) {
     const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
@@ -135,8 +135,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
       synthesis_lookback_hours = $9, min_cluster_size = $10, voice_id = $11,
       tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15,
-      gender = $16
-    WHERE id = $17 AND tenant_id = $18
+      gender = $16, ethnicity = $17
+    WHERE id = $18 AND tenant_id = $19
     RETURNING *
   `).get(
     name,
@@ -155,6 +155,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     style_guide !== undefined ? (style_guide || null) : existing.style_guide,
     few_shot_examples !== undefined ? JSON.stringify(few_shot_examples) : existingFse,
     gender !== undefined ? (gender || null) : existing.gender,
+    ethnicity !== undefined ? (ethnicity || null) : existing.ethnicity,
     id,
     req.tenantId
   );
@@ -211,7 +212,8 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   const toneDesc = writer.tone ? `, with a ${writer.tone.toLowerCase()} demeanor` : '';
 
   const genderDesc = writer.gender ? `${writer.gender} ` : '';
-  const prompt = `Professional headshot portrait of a ${genderDesc}journalist who covers ${beatNames}${toneDesc}. `
+  const ethnicityDesc = writer.ethnicity ? `${writer.ethnicity} ` : '';
+  const prompt = `Professional headshot portrait of a ${ethnicityDesc}${genderDesc}journalist who covers ${beatNames}${toneDesc}. `
     + `Clean background, studio lighting, photorealistic, high quality, sharp focus. `
     + `No text, no logos, no watermarks. Square 1:1 aspect ratio.`;
 

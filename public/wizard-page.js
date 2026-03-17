@@ -20,6 +20,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Victor",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Senior AI correspondent covering large language models, foundation model releases, and the companies shaping conversational AI.",
         "keywords": [
           "gpt",
@@ -46,6 +47,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Shuri",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Creative visual AI reporter bringing innovative perspectives to image generation, video synthesis, and generative art tools.",
         "keywords": [
           "midjourney",
@@ -71,6 +73,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Reed",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Research analyst distilling the latest AI papers, benchmarks, and academic breakthroughs into actionable insights.",
         "keywords": [
           "arxiv",
@@ -97,6 +100,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Riri",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Builder-minded developer tools correspondent with an engineer's eye for AI coding assistants, frameworks, and APIs.",
         "keywords": [
           "copilot",
@@ -123,6 +127,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Monica",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Confident business reporter commanding coverage of AI funding rounds, acquisitions, partnerships, and corporate strategy.",
         "keywords": [
           "funding",
@@ -148,6 +153,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Kamala",
         "gender": "female",
+        "ethnicity": "South Asian",
         "bio": "Passionate policy correspondent driven by justice, tracking AI legislation, ethics debates, and governance frameworks worldwide.",
         "keywords": [
           "regulation",
@@ -173,6 +179,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Miles",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Sharp cybersecurity analyst with street-smart instincts for AI-powered threats, vulnerabilities, and defensive tools.",
         "keywords": [
           "ransomware",
@@ -198,6 +205,7 @@ const NICHE_TEMPLATES = [
         "color": "#94a3b8",
         "writer": "Shang",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Disciplined industry reporter with precise coverage of AI adoption across healthcare, finance, manufacturing, and beyond.",
         "keywords": [
           "ai adoption",
@@ -266,6 +274,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Luke",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Community-focused solar energy correspondent covering photovoltaic breakthroughs, utility-scale projects, and residential adoption trends.",
         "keywords": [
           "solar",
@@ -287,6 +296,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Ororo",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Wind energy reporter tracking offshore and onshore developments, turbine technology, and wind market growth.",
         "keywords": [
           "wind",
@@ -308,6 +318,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Barry",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Electric vehicle correspondent covering new models, charging infrastructure, battery technology, and EV market dynamics.",
         "keywords": [
           "electric vehicle",
@@ -330,6 +341,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Jessica",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Thoughtful climate policy correspondent bringing analytical rigor to environmental legislation, carbon markets, and international agreements.",
         "keywords": [
           "climate policy",
@@ -352,6 +364,7 @@ const NICHE_TEMPLATES = [
         "color": "#94a3b8",
         "writer": "Amadeus",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Brilliant carbon markets analyst driven by data, covering emissions tracking, carbon capture technology, and sustainability commitments.",
         "keywords": [
           "carbon",
@@ -374,6 +387,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Misty",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Sharp, investigative climate tech startup reporter digging into early-stage ventures, funding rounds, and emerging clean technologies.",
         "keywords": [
           "climate tech",
@@ -425,6 +439,7 @@ const NICHE_TEMPLATES = [
         "color": "#f7931a",
         "writer": "T'Challa",
         "gender": "male",
+        "ethnicity": "African",
         "bio": "Regal Bitcoin analyst bringing strategic vision to price movements, protocol developments, mining economics, and institutional adoption.",
         "keywords": [
           "bitcoin",
@@ -447,6 +462,7 @@ const NICHE_TEMPLATES = [
         "color": "#627eea",
         "writer": "Ororo",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Powerful Ethereum correspondent commanding coverage of protocol upgrades, L2 scaling, smart contracts, and the EVM ecosystem.",
         "keywords": [
           "ethereum",
@@ -472,6 +488,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Wade",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "DeFi reporter covering decentralized protocols, yield strategies, liquidity events, and protocol governance.",
         "keywords": [
           "defi",
@@ -496,6 +513,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "America",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Bold digital collectibles reporter who cuts through the noise on NFT marketplaces, creator tools, and digital ownership.",
         "keywords": [
           "nft",
@@ -518,6 +536,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Sam",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Measured crypto regulatory correspondent with principled coverage of legislation, enforcement actions, and compliance worldwide.",
         "keywords": [
           "sec",
@@ -541,6 +560,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Jubilee",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Energetic Web3 technology correspondent with a forward-looking eye on decentralized infrastructure, identity, and emerging protocols.",
         "keywords": [
           "web3",
@@ -593,6 +613,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Misty",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Tough, investigative threat intelligence analyst covering active campaigns, malware families, and nation-state activity.",
         "keywords": [
           "ransomware",
@@ -616,6 +637,7 @@ const NICHE_TEMPLATES = [
         "color": "#f97316",
         "writer": "Shang",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Precise, disciplined vulnerability researcher covering CVEs, zero-days, patch releases, and exploit development.",
         "keywords": [
           "cve",
@@ -638,6 +660,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Renee",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Methodical privacy correspondent driven by justice, covering data protection laws, surveillance, and digital rights.",
         "keywords": [
           "privacy",
@@ -660,6 +683,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Vic",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Systems-thinking cloud security analyst covering misconfigurations, container security, identity management, and cloud-native threats.",
         "keywords": [
           "cloud security",
@@ -683,6 +707,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Kamala",
         "gender": "female",
+        "ethnicity": "South Asian",
         "bio": "Detail-oriented security compliance reporter covering frameworks, audits, and regulatory requirements for information security.",
         "keywords": [
           "soc 2",
@@ -706,6 +731,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Reed",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Security research correspondent covering academic papers, tool releases, and novel attack techniques.",
         "keywords": [
           "security research",
@@ -757,6 +783,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Mari",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Glamorous streaming reporter with insightful coverage of platform wars, subscriber trends, and original programming.",
         "keywords": [
           "netflix",
@@ -782,6 +809,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Logan",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Film and TV critic delivering honest reviews, rankings, and watchlist recommendations.",
         "keywords": [
           "review",
@@ -807,6 +835,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Anya",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Energetic box office analyst with a sharp eye for opening weekends, global grosses, and theatrical market trends.",
         "keywords": [
           "box office",
@@ -831,6 +860,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "John",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Authoritative entertainment business reporter covering studio deals, talent moves, and production updates with principled depth.",
         "keywords": [
           "studio",
@@ -856,6 +886,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Cassandra",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Observant genre entertainment correspondent with precise insight into superhero, sci-fi, fantasy, and horror content.",
         "keywords": [
           "marvel",
@@ -881,6 +912,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Scott",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Reality TV reporter covering competition shows, docuseries, and unscripted entertainment trends.",
         "keywords": [
           "reality tv",
@@ -934,6 +966,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Monica",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Commanding payments correspondent covering digital wallets, real-time payments, cross-border transfers, and checkout innovation.",
         "keywords": [
           "payments",
@@ -957,6 +990,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "T'Challa",
         "gender": "male",
+        "ethnicity": "African",
         "bio": "Strategic digital banking reporter bringing regal vision to neobanks, open banking, core modernization, and bank-fintech partnerships.",
         "keywords": [
           "neobank",
@@ -978,6 +1012,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Tony",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Lending technology reporter covering digital lending, BNPL, credit scoring innovation, and alternative finance.",
         "keywords": [
           "lending",
@@ -1000,6 +1035,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Jubilee",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Energetic InsurTech correspondent with a forward-looking eye on insurance technology, parametric products, and claims automation.",
         "keywords": [
           "insurtech",
@@ -1021,6 +1057,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Sam",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Principled regulatory technology reporter covering compliance automation, KYC/AML, and financial regulation worldwide.",
         "keywords": [
           "regtech",
@@ -1044,6 +1081,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Riri",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Builder-minded fintech startup reporter covering early-stage funding, product launches, and emerging financial technologies.",
         "keywords": [
           "fintech startup",
@@ -1090,6 +1128,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Miles",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Sharp PC gaming correspondent covering hardware, game releases, performance benchmarks, and the modding community.",
         "keywords": [
           "pc gaming",
@@ -1113,6 +1152,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Cassandra",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Observant console gaming reporter with precise coverage of platform exclusives, hardware updates, and the evolving console landscape.",
         "keywords": [
           "playstation",
@@ -1136,6 +1176,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Amadeus",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Brilliant esports correspondent covering competitive gaming, tournament results, team roster changes, and industry growth.",
         "keywords": [
           "esports",
@@ -1159,6 +1200,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Jubilee",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Energetic indie games reporter spotlighting innovative independent titles, game jams, and the creative side of game development.",
         "keywords": [
           "indie",
@@ -1181,6 +1223,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Mari",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Insightful gaming industry reporter covering business deals, studio acquisitions, layoffs, and market trends.",
         "keywords": [
           "acquisition",
@@ -1204,6 +1247,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Scott",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "Mobile gaming reporter covering new releases, monetization trends, and the intersection of mobile and cloud gaming.",
         "keywords": [
           "mobile game",
@@ -1255,6 +1299,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Monica",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Commanding digital health reporter covering telemedicine, health apps, patient engagement, and healthcare data interoperability.",
         "keywords": [
           "telehealth",
@@ -1276,6 +1321,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Shang",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Precise genomics reporter bringing disciplined analysis to gene therapy breakthroughs, precision medicine, and computational biology.",
         "keywords": [
           "genomics",
@@ -1298,6 +1344,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Luke",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Strong, community-focused medical devices correspondent covering wearables, implants, remote monitoring, and digital health hardware.",
         "keywords": [
           "medical device",
@@ -1319,6 +1366,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Riri",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Builder-minded medical technology correspondent covering AI diagnostics, surgical robotics, and clinical decision support systems.",
         "keywords": [
           "ai diagnostics",
@@ -1339,6 +1387,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Amadeus",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Brilliant pharmaceutical reporter covering drug discovery, clinical trials, AI-driven drug design, and biotech partnerships.",
         "keywords": [
           "drug",
@@ -1361,6 +1410,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Kamala",
         "gender": "female",
+        "ethnicity": "South Asian",
         "bio": "Passionate health policy correspondent driven by justice, covering regulations, data privacy, AI ethics, and public health.",
         "keywords": [
           "health policy",
@@ -1411,6 +1461,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "T'Challa",
         "gender": "male",
+        "ethnicity": "African",
         "bio": "Regal equities analyst bringing strategic vision to market movements, earnings reports, and sector rotations.",
         "keywords": [
           "stock",
@@ -1437,6 +1488,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Ororo",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Powerful trading correspondent commanding coverage of technical analysis, momentum plays, and retail trading trends.",
         "keywords": [
           "day trading",
@@ -1463,6 +1515,7 @@ const NICHE_TEMPLATES = [
         "color": "#f7931a",
         "writer": "Sam",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Measured crypto markets analyst with principled coverage of Bitcoin, altcoins, DeFi, and digital asset regulation.",
         "keywords": [
           "bitcoin",
@@ -1488,6 +1541,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "America",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Bold market research analyst who cuts straight to economic data, Fed policy, and macro trends with no-nonsense clarity.",
         "keywords": [
           "fed",
@@ -1513,6 +1567,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Renee",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Methodical financial regulation correspondent driven by justice, covering SEC actions, legislation, and compliance developments.",
         "keywords": [
           "sec",
@@ -1536,6 +1591,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Luke",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Community-focused personal finance reporter covering retirement planning, index funds, portfolio strategy, and wealth building.",
         "keywords": [
           "401k",
@@ -1590,6 +1646,7 @@ const NICHE_TEMPLATES = [
         "color": "#ef4444",
         "writer": "Logan",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "bio": "WWE correspondent covering Raw, SmackDown, PPVs, roster moves, and backstage developments.",
         "keywords": [
           "wwe",
@@ -1614,6 +1671,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Misty",
         "gender": "female",
+        "ethnicity": "African American",
         "bio": "Sharp, investigative AEW reporter covering Dynamite, Collision, PPVs, and the promotion's growth trajectory.",
         "keywords": [
           "aew",
@@ -1637,6 +1695,7 @@ const NICHE_TEMPLATES = [
         "color": "#94a3b8",
         "writer": "John",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Authoritative wrestling business reporter covering TV deals, attendance figures, ratings, and promotion strategy with principled depth.",
         "keywords": [
           "ratings",
@@ -1661,6 +1720,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "America",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Bold match results correspondent delivering fast, direct recaps with context and star ratings.",
         "keywords": [
           "match",
@@ -1685,6 +1745,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "Vic",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Wrestling historian with technical, systems-level understanding of the business, providing deep dives and retrospectives.",
         "keywords": [
           "history",
@@ -1709,6 +1770,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Anya",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Energetic wrestling insider tracking backstage reports, contract negotiations, and upcoming plans with sharp instincts.",
         "keywords": [
           "rumor",
@@ -1763,6 +1825,7 @@ const NICHE_TEMPLATES = [
         "color": "#60a5fa",
         "writer": "John",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Authoritative cruise industry reporter covering ship launches, itineraries, deals, and onboard experiences with principled depth.",
         "keywords": [
           "cruise",
@@ -1787,6 +1850,7 @@ const NICHE_TEMPLATES = [
         "color": "#4F8EF7",
         "writer": "Mari",
         "gender": "female",
+        "ethnicity": "African",
         "bio": "Glamorous aviation correspondent with insightful coverage of airline news, route launches, fare deals, and loyalty programs.",
         "keywords": [
           "airline",
@@ -1813,6 +1877,7 @@ const NICHE_TEMPLATES = [
         "color": "#34d399",
         "writer": "Shang",
         "gender": "male",
+        "ethnicity": "East Asian",
         "bio": "Disciplined travel destinations reporter spotlighting hidden gems, seasonal guides, and tourism trends with precise detail.",
         "keywords": [
           "destination",
@@ -1837,6 +1902,7 @@ const NICHE_TEMPLATES = [
         "color": "#fbbf24",
         "writer": "Jessica",
         "gender": "female",
+        "ethnicity": "Hispanic/Latino",
         "bio": "Thoughtful travel deals analyst bringing analytical rigor to flash sales, credit card offers, and budget travel strategies.",
         "keywords": [
           "deal",
@@ -1861,6 +1927,7 @@ const NICHE_TEMPLATES = [
         "color": "#a78bfa",
         "writer": "Miles",
         "gender": "male",
+        "ethnicity": "African American",
         "bio": "Sharp adventure travel correspondent covering outdoor experiences, eco-tourism, and off-the-beaten-path trips.",
         "keywords": [
           "adventure",
@@ -1884,6 +1951,7 @@ const NICHE_TEMPLATES = [
         "color": "#f472b6",
         "writer": "Jubilee",
         "gender": "female",
+        "ethnicity": "East Asian",
         "bio": "Energetic hospitality reporter with a forward-looking eye on hotel openings, luxury stays, boutique properties, and accommodation trends.",
         "keywords": [
           "hotel",
@@ -1937,6 +2005,7 @@ const NICHE_TEMPLATES = [
         "name": "General",
         "color": "#94a3b8",
         "gender": "male",
+        "ethnicity": "Caucasian",
         "tone": "",
         "expertiseLevel": "",
         "styleGuide": ""
@@ -2278,6 +2347,7 @@ async function executeLaunch() {
           keywords: cat.keywords || [],
           system_prompt: cat.systemPrompt || aiPersona || niche.persona || '',
           gender: cat.gender || null,
+          ethnicity: cat.ethnicity || null,
           tone: cat.tone || '',
           expertise_level: cat.expertiseLevel || '',
           style_guide: cat.styleGuide || '',

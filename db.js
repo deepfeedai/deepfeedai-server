@@ -540,6 +540,7 @@ async function initDb() {
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_guide TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS few_shot_examples JSONB DEFAULT '[]'`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS gender TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS ethnicity TEXT`,
     // ── Local auth & permissions migrations ──────────────────────────
     // 1a. Evolve users table
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`,
