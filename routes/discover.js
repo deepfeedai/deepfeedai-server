@@ -298,11 +298,13 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
         } catch {}
       }
 
+      const mediaEnabled = embedUrl ? 1 : 0;
+
       const row = await db.prepare(`
-        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, source_type, embed_url, embed_type, tenant_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${importPublished ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, NOW())
+        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, source_type, embed_url, embed_type, media_enabled, tenant_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${importPublished ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, $13, NOW())
         RETURNING id
-      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, importPublished ? 1 : 0, sourceType, embedUrl, embedType, req.tenantId);
+      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, importPublished ? 1 : 0, sourceType, embedUrl, embedType, mediaEnabled, req.tenantId);
 
       // Auto-assign writer if requested
       if (autoAssignWriter !== false && row) {
