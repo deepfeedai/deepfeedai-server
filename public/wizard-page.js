@@ -1947,7 +1947,7 @@ async function executeLaunch() {
     setLaunchStep('categories', 'active');
     let savedCategories = [];
     if (niche && niche.categories.length) {
-      savedCategories = await apiFetch('/categories', { method: 'PUT', body: JSON.stringify(niche.categories.map(c => ({ name: c.name, color: c.color, keywords: [] }))) });
+      savedCategories = await apiFetch('/categories', { method: 'PUT', body: JSON.stringify(niche.categories.map(c => ({ name: c.name, color: c.color, keywords: c.keywords || [] }))) });
       if (!Array.isArray(savedCategories)) savedCategories = [];
     }
     setLaunchStep('categories', 'done');
