@@ -45,6 +45,7 @@
       <div id="writersSection">
         <div class="section-header">
           <div class="section-title">Writer Personas</div>
+          <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
           <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
         </div>
 
@@ -278,6 +279,19 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-danger" id="confirmDeleteWriterBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Generate Writers Modal -->
+<div class="modal-overlay" id="aiGenerateModal">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title" id="aiGenModalTitle">AI Generate Writers</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body" id="aiGenContent">
+      <!-- Content injected by JS -->
     </div>
   </div>
 </div>

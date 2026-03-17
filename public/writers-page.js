@@ -6,6 +6,7 @@ let pendingDeleteId = null;
 let pendingAvatarDataUrl = null;
 let perfSortCol = 'articles_total';
 let perfSortDir = 'desc';
+let avatarPollTimer = null;
 
 // ── Data Loading ─────────────────────────────────────────────────
 
@@ -438,6 +439,322 @@ document.querySelectorAll('#writerTabs .tab-btn').forEach(function(btn) {
   });
 });
 
+// ── AI Generate Writers ──────────────────────────────────────────
+
+var aiGenPersonas = [];
+
+function getCategoryCoverage() {
+  var map = {};
+  writers.forEach(function(w) {
+    (w.beats || []).forEach(function(b) {
+      var id = typeof b === 'object' ? b.id : b;
+      if (!map[id]) map[id] = [];
+      map[id].push(w.name);
+    });
+  });
+  return map;
+}
+
+function openAiGenerate() {
+  var content = document.getElementById('aiGenContent');
+  var coverage = getCategoryCoverage();
+
+  if (!categoriesList.length) {
+    content.innerHTML = '<div class="empty-state"><p>No categories found. Add categories first.</p></div>';
+    openModal('aiGenerateModal');
+    return;
+  }
+
+  var html = '<div style="margin-bottom:12px;">'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">'
+    + '<input type="checkbox" id="aiGenUncoveredOnly" checked style="width:14px;height:14px;" />'
+    + ' Show only categories without writers'
+    + '</label></div>'
+    + '<div id="aiGenCatList" style="margin-bottom:16px;"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+    + '<button class="btn btn-outline" data-close-modal>Cancel</button>'
+    + '<button class="btn btn-primary" id="aiGenGenerateBtn">Generate Personas</button>'
+    + '</div>';
+  content.innerHTML = html;
+
+  function renderCatList() {
+    var uncoveredOnly = document.getElementById('aiGenUncoveredOnly').checked;
+    var container = document.getElementById('aiGenCatList');
+    var cats = categoriesList.filter(function(c) {
+      return !uncoveredOnly || !coverage[c.id];
+    });
+    if (!cats.length) {
+      container.innerHTML = '<p class="text-muted" style="font-size:13px;">All categories already have writers assigned.</p>';
+      return;
+    }
+    container.innerHTML = cats.map(function(c) {
+      var writerNames = coverage[c.id];
+      var badge = writerNames
+        ? '<span class="text-muted" style="font-size:11px;margin-left:8px;">Has writer: ' + esc(writerNames.join(', ')) + '</span>'
+        : '<span style="font-size:11px;margin-left:8px;color:var(--accent);">No writer</span>';
+      return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);">'
+        + '<input type="checkbox" class="aiGenCatCb" value="' + c.id + '" checked style="width:14px;height:14px;" />'
+        + ' <strong>' + esc(c.name) + '</strong>' + badge
+        + '</label>';
+    }).join('');
+  }
+
+  renderCatList();
+  document.getElementById('aiGenUncoveredOnly').addEventListener('change', renderCatList);
+  document.getElementById('aiGenGenerateBtn').addEventListener('click', doAiGenerate);
+  openModal('aiGenerateModal');
+}
+
+async function doAiGenerate() {
+  var checks = document.querySelectorAll('.aiGenCatCb:checked');
+  var categoryIds = [];
+  checks.forEach(function(el) { categoryIds.push(parseInt(el.value)); });
+  if (!categoryIds.length) { showAlert('Select at least one category', 'error'); return; }
+
+  var content = document.getElementById('aiGenContent');
+  content.innerHTML = '<div style="text-align:center;padding:40px 0;">'
+    + '<span class="spinner"></span>'
+    + '<p class="text-muted" style="margin-top:12px;">Generating writer personas with AI...</p>'
+    + '</div>';
+
+  try {
+    var result = await apiFetch('/admin/writers/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryIds: categoryIds, uncoveredOnly: false })
+    });
+
+    aiGenPersonas = result.generated || [];
+    if (!aiGenPersonas.length) {
+      content.innerHTML = '<div class="empty-state"><p>' + esc(result.message || 'No personas generated') + '</p></div>'
+        + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">'
+        + '<button class="btn btn-outline" data-close-modal>Close</button></div>';
+      initModals();
+      return;
+    }
+    renderAiGenResults();
+  } catch (err) {
+    content.innerHTML = '<div class="empty-state" style="color:var(--danger);"><p>Error: ' + esc(err.message) + '</p></div>'
+      + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">'
+      + '<button class="btn btn-outline" onclick="openAiGenerate()">Retry</button>'
+      + '<button class="btn btn-outline" data-close-modal>Close</button></div>';
+    initModals();
+  }
+}
+
+function renderAiGenResults() {
+  var content = document.getElementById('aiGenContent');
+  var toneOpts = ['', 'analytical', 'conversational', 'provocative', 'authoritative', 'casual', 'technical'];
+  var expertiseOpts = ['', 'beginner-friendly', 'intermediate', 'technical', 'expert'];
+  var genderOpts = ['', 'male', 'female', 'non-binary'];
+  var ethnicityOpts = ['', 'African American', 'African', 'Asian', 'East Asian', 'South Asian', 'Hispanic/Latino', 'Middle Eastern', 'Native American', 'Pacific Islander', 'Caucasian', 'Mixed/Multiracial'];
+
+  function selectHtml(id, opts, selected) {
+    return '<select class="form-control" data-field="' + id + '" style="font-size:12px;">'
+      + opts.map(function(o) {
+        var label = o || '— Default —';
+        return '<option value="' + esc(o) + '"' + (o === selected ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }).join('') + '</select>';
+  }
+
+  var cardsHtml = aiGenPersonas.map(function(p, i) {
+    return '<div class="aiGenCard" data-idx="' + i + '" style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
+      + '<input type="checkbox" class="aiGenSelect" data-idx="' + i + '" checked style="width:16px;height:16px;" />'
+      + '<span class="badge badge-muted" style="font-size:10px;">' + esc(p.categoryName) + '</span>'
+      + '</div>'
+      + '<div class="form-grid-2" style="gap:8px;margin-bottom:8px;">'
+      + '<div><label class="form-label" style="font-size:11px;">Name</label>'
+      + '<input type="text" class="form-control" data-field="name" data-idx="' + i + '" value="' + esc(p.name) + '" style="font-size:12px;" /></div>'
+      + '<div><label class="form-label" style="font-size:11px;">Bio</label>'
+      + '<textarea class="form-control" data-field="bio" data-idx="' + i + '" rows="2" style="font-size:12px;">' + esc(p.bio) + '</textarea></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">'
+      + '<div style="flex:1;min-width:120px;"><label class="form-label" style="font-size:11px;">Tone</label>' + selectHtml('tone', toneOpts, p.tone) + '</div>'
+      + '<div style="flex:1;min-width:120px;"><label class="form-label" style="font-size:11px;">Expertise</label>' + selectHtml('expertise_level', expertiseOpts, p.expertise_level) + '</div>'
+      + '<div style="flex:1;min-width:120px;"><label class="form-label" style="font-size:11px;">Gender</label>' + selectHtml('gender', genderOpts, p.gender || '') + '</div>'
+      + '<div style="flex:1;min-width:120px;"><label class="form-label" style="font-size:11px;">Ethnicity</label>' + selectHtml('ethnicity', ethnicityOpts, p.ethnicity || '') + '</div>'
+      + '</div>'
+      + '<div style="margin-bottom:8px;"><label class="form-label" style="font-size:11px;">Keywords</label>'
+      + '<input type="text" class="form-control" data-field="keywords" data-idx="' + i + '" value="' + esc((p.keywords || []).join(', ')) + '" style="font-size:12px;" /></div>'
+      + '<details style="margin-bottom:4px;"><summary style="font-size:11px;color:var(--text-muted);cursor:pointer;">System Prompt & Style Guide</summary>'
+      + '<div style="margin-top:6px;">'
+      + '<textarea class="form-control" data-field="system_prompt" data-idx="' + i + '" rows="3" style="font-size:12px;margin-bottom:6px;">' + esc(p.system_prompt) + '</textarea>'
+      + '<textarea class="form-control" data-field="style_guide" data-idx="' + i + '" rows="2" style="font-size:12px;">' + esc(p.style_guide) + '</textarea>'
+      + '</div></details>'
+      + '</div>';
+  }).join('');
+
+  var selectCount = aiGenPersonas.length;
+  content.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">'
+    + '<input type="checkbox" id="aiGenSelectAll" checked style="width:14px;height:14px;" /> Select All'
+    + '</label>'
+    + '<span class="text-muted" style="font-size:12px;" id="aiGenCount">' + selectCount + ' selected</span>'
+    + '</div>'
+    + '<div style="max-height:500px;overflow-y:auto;">' + cardsHtml + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">'
+    + '<button class="btn btn-outline" data-close-modal>Cancel</button>'
+    + '<button class="btn btn-primary" id="aiGenCreateBtn">Create ' + selectCount + ' Writers</button>'
+    + '</div>';
+
+  // Select all toggle
+  document.getElementById('aiGenSelectAll').addEventListener('change', function() {
+    var checked = this.checked;
+    document.querySelectorAll('.aiGenSelect').forEach(function(cb) { cb.checked = checked; });
+    updateAiGenCount();
+  });
+
+  // Individual checkbox updates
+  content.addEventListener('change', function(e) {
+    if (e.target.classList.contains('aiGenSelect')) updateAiGenCount();
+  });
+
+  document.getElementById('aiGenCreateBtn').addEventListener('click', createAiGenWriters);
+  initModals();
+}
+
+function updateAiGenCount() {
+  var checked = document.querySelectorAll('.aiGenSelect:checked').length;
+  var countEl = document.getElementById('aiGenCount');
+  if (countEl) countEl.textContent = checked + ' selected';
+  var btn = document.getElementById('aiGenCreateBtn');
+  if (btn) btn.textContent = 'Create ' + checked + ' Writer' + (checked !== 1 ? 's' : '');
+}
+
+function readAiGenCard(idx) {
+  var p = aiGenPersonas[idx];
+  var card = document.querySelector('.aiGenCard[data-idx="' + idx + '"]');
+  if (!card) return p;
+
+  var nameEl = card.querySelector('[data-field="name"]');
+  var bioEl = card.querySelector('[data-field="bio"]');
+  var toneEl = card.querySelector('[data-field="tone"]');
+  var expertiseEl = card.querySelector('[data-field="expertise_level"]');
+  var genderEl = card.querySelector('[data-field="gender"]');
+  var ethnicityEl = card.querySelector('[data-field="ethnicity"]');
+  var keywordsEl = card.querySelector('[data-field="keywords"]');
+  var promptEl = card.querySelector('[data-field="system_prompt"]');
+  var styleEl = card.querySelector('[data-field="style_guide"]');
+
+  return {
+    name: nameEl ? nameEl.value.trim() : p.name,
+    bio: bioEl ? bioEl.value.trim() : p.bio,
+    beat: p.beat,
+    beats: p.beats,
+    keywords: keywordsEl ? keywordsEl.value.split(',').map(function(k) { return k.trim(); }).filter(Boolean) : p.keywords,
+    system_prompt: promptEl ? promptEl.value.trim() : p.system_prompt,
+    tone: toneEl ? toneEl.value : p.tone,
+    expertise_level: expertiseEl ? expertiseEl.value : p.expertise_level,
+    style_guide: styleEl ? styleEl.value.trim() : p.style_guide,
+    gender: genderEl ? (genderEl.value || null) : p.gender,
+    ethnicity: ethnicityEl ? (ethnicityEl.value || null) : p.ethnicity,
+    is_auto: true,
+    synthesis_schedule: 'daily',
+    synthesis_lookback_hours: 168,
+    min_cluster_size: 3,
+  };
+}
+
+async function createAiGenWriters() {
+  var selected = [];
+  document.querySelectorAll('.aiGenSelect:checked').forEach(function(cb) {
+    selected.push(parseInt(cb.dataset.idx));
+  });
+  if (!selected.length) { showAlert('Select at least one writer', 'error'); return; }
+
+  // Read edited values from DOM BEFORE replacing innerHTML
+  var personaData = {};
+  selected.forEach(function(idx) { personaData[idx] = readAiGenCard(idx); });
+
+  var content = document.getElementById('aiGenContent');
+  var statusHtml = selected.map(function(idx) {
+    var p = personaData[idx];
+    return '<div id="aiGenStatus' + idx + '" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">'
+      + '<span class="spinner" style="width:16px;height:16px;"></span>'
+      + '<span>Creating <strong>' + esc(p.name) + '</strong> (' + esc(p.categoryName) + ')...</span>'
+      + '</div>';
+  }).join('');
+
+  content.innerHTML = '<div id="aiGenProgress">' + statusHtml + '</div>'
+    + '<div style="margin-top:16px;display:flex;justify-content:flex-end;">'
+    + '<button class="btn btn-outline" id="aiGenDoneBtn" style="display:none;" data-close-modal>Done</button></div>';
+  initModals();
+
+  var created = 0;
+  var failed = 0;
+  var createdIds = [];
+
+  for (var i = 0; i < selected.length; i++) {
+    var idx = selected[i];
+    var persona = personaData[idx];
+    var statusEl = document.getElementById('aiGenStatus' + idx);
+
+    try {
+      var savedWriter = await apiFetch('/admin/writers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(persona)
+      });
+      created++;
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">&#10003;</span> <span><strong>' + esc(persona.name) + '</strong> created — generating avatar...</span>';
+
+      // Fire-and-forget avatar generation
+      if (savedWriter && savedWriter.id) {
+        createdIds.push(savedWriter.id);
+        apiFetch('/admin/writers/' + savedWriter.id + '/generate-avatar', { method: 'POST' }).catch(function() {});
+      }
+    } catch (err) {
+      failed++;
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">&#10007;</span> <span><strong>' + esc(persona.name) + '</strong> failed: ' + esc(err.message) + '</span>';
+    }
+  }
+
+  // Show done button and summary
+  var summary = '<p style="margin-top:12px;font-size:13px;">' + created + ' writer' + (created !== 1 ? 's' : '') + ' created.'
+    + (failed ? ' ' + failed + ' failed.' : '')
+    + ' Avatars will appear as they generate.</p>';
+  var progress = document.getElementById('aiGenProgress');
+  if (progress) progress.insertAdjacentHTML('afterend', summary);
+  var doneBtn = document.getElementById('aiGenDoneBtn');
+  if (doneBtn) doneBtn.style.display = '';
+
+  // Refresh writers table and poll for avatars
+  await loadWriters();
+  if (createdIds.length) startAvatarPolling(createdIds);
+}
+
+document.getElementById('aiGenerateWritersBtn').addEventListener('click', openAiGenerate);
+
+// ── Avatar Polling ──────────────────────────────────────────────
+
+function startAvatarPolling(writerIds) {
+  stopAvatarPolling();
+  var remaining = new Set(writerIds);
+  var attempts = 0;
+  var maxAttempts = 30; // ~2.5 min at 5s intervals
+
+  avatarPollTimer = setInterval(async function() {
+    attempts++;
+    if (!remaining.size || attempts > maxAttempts) { stopAvatarPolling(); return; }
+    try {
+      var fresh = await apiFetch('/admin/writers');
+      writers = fresh;
+      for (var i = 0; i < fresh.length; i++) {
+        if (remaining.has(fresh[i].id) && fresh[i].avatar_url) {
+          remaining.delete(fresh[i].id);
+        }
+      }
+      renderWriters();
+      if (!remaining.size) stopAvatarPolling();
+    } catch (e) { /* ignore */ }
+  }, 5000);
+}
+
+function stopAvatarPolling() {
+  if (avatarPollTimer) { clearInterval(avatarPollTimer); avatarPollTimer = null; }
+}
+
 // ── Initialize ───────────────────────────────────────────────────
 
 async function init() {
@@ -453,6 +770,8 @@ onReady(function() {
   if (!hasPermission('writers.create')) {
     var btn = document.getElementById('addWriterBtn');
     if (btn) btn.style.display = 'none';
+    var aiBtn = document.getElementById('aiGenerateWritersBtn');
+    if (aiBtn) aiBtn.style.display = 'none';
   }
   init();
 });

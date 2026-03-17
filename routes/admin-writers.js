@@ -12,6 +12,8 @@ const { writerCreate, writerUpdate, validate } = require('../lib/schemas');
 const { extFromMime, upload: r2Upload } = require('../lib/r2');
 const { checkPlanLimit }    = require('../lib/plan-limits');
 const { logAudit } = require('../middleware/audit');
+const { getCategories }     = require('../lib/categories');
+const { getGeminiKey }      = require('../lib/gemini-config');
 
 const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
 
@@ -61,6 +63,152 @@ router.get('/', requirePermission('writers.read'), asyncHandler(async (req, res)
     ORDER BY w.name ASC
   `).all(req.tenantId);
   res.json(writers);
+}));
+
+// POST /api/admin/writers/generate — AI-generate writer personas from categories
+router.post('/generate', requirePermission('writers.create'), asyncHandler(async (req, res) => {
+  const { categoryIds, uncoveredOnly = true } = req.body || {};
+  const tenantId = req.tenantId;
+
+  const apiKey = await getGeminiKey(tenantId);
+  if (!apiKey) return res.status(503).json({ error: 'Gemini API key not configured' });
+
+  // Fetch tenant categories
+  let categories = await getCategories(tenantId);
+  if (Array.isArray(categoryIds) && categoryIds.length) {
+    const idSet = new Set(categoryIds);
+    categories = categories.filter(c => idSet.has(c.id));
+  }
+  if (!categories.length) return res.json({ generated: [], message: 'No categories found' });
+
+  // Determine which categories already have writers via writer_beats
+  const coverage = await db.prepare(`
+    SELECT wb.category_id, array_agg(w.name) AS writer_names
+    FROM writer_beats wb
+    JOIN writers w ON w.id = wb.writer_id AND w.tenant_id = $1
+    WHERE wb.tenant_id = $1
+    GROUP BY wb.category_id
+  `).all(tenantId);
+  const coverageMap = {};
+  for (const row of coverage) coverageMap[row.category_id] = row.writer_names;
+
+  let targetCategories = categories.map(c => ({
+    ...c,
+    hasExistingWriter: !!coverageMap[c.id],
+    existingWriters: coverageMap[c.id] || [],
+  }));
+
+  if (uncoveredOnly) {
+    targetCategories = targetCategories.filter(c => !c.hasExistingWriter);
+  }
+  if (!targetCategories.length) {
+    return res.json({ generated: [], message: 'All categories already have writers' });
+  }
+
+  // Build Gemini prompt
+  const catList = targetCategories.map(c => {
+    const kwStr = (c.keywords || []).slice(0, 10).join(', ');
+    return `- "${c.name}"${c.description ? ': ' + c.description : ''}${kwStr ? ' (keywords: ' + kwStr + ')' : ''}`;
+  }).join('\n');
+
+  const prompt = [
+    'You are helping create AI writer personas for a news aggregation platform.',
+    `Generate one unique writer persona for each of the ${targetCategories.length} categories below.`,
+    '',
+    'Categories:',
+    catList,
+    '',
+    'For EACH category, return a JSON object with these exact fields:',
+    '- categoryName: the category name exactly as shown above',
+    '- name: a single first name only (no last name). Vary gender and ethnicity across writers for diversity.',
+    '- bio: 1-2 sentence professional bio (max 200 chars)',
+    '- tone: writing tone, e.g. "analytical", "conversational", "provocative", "authoritative", "casual", "technical"',
+    '- expertise_level: one of "beginner-friendly", "intermediate", "technical", "expert"',
+    '- style_guide: 1-2 sentences describing their writing style (max 300 chars)',
+    '- system_prompt: 2-3 sentence prompt for the AI to adopt this persona when writing articles (max 500 chars). Start with "You are [name]..."',
+    '- keywords: array of 5-10 topic keywords relevant to this beat (lowercase)',
+    '- gender: one of "male", "female", "non-binary"',
+    '- ethnicity: one of "African American", "African", "Asian", "East Asian", "South Asian", "Hispanic/Latino", "Middle Eastern", "Native American", "Pacific Islander", "Caucasian", "Mixed/Multiracial"',
+    '',
+    'Rules:',
+    '- Make names diverse across gender and ethnicity — avoid homogeneity',
+    '- Each writer should have a distinct personality and voice',
+    '- Keywords should be specific to the category, not generic',
+    '- System prompts should establish a clear voice and editorial perspective',
+    '',
+    'Respond with ONLY a JSON array of objects, one per category, in the same order as listed.',
+    'No markdown fences, no explanation, no trailing text.',
+  ].join('\n');
+
+  const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+  const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+  const maxTokens = Math.min(1024 * targetCategories.length, 8192);
+  const _start = Date.now();
+
+  const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!upstream.ok) {
+    const errBody = await upstream.text().catch(() => '');
+    console.error('[generate-writers] Gemini error:', upstream.status, errBody);
+    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-writer-personas', trigger: 'admin', durationMs: Date.now() - _start, success: false, error: `${upstream.status}`, tenantId }).catch(() => {});
+    return res.status(502).json({ error: `Gemini API error: ${upstream.status}` });
+  }
+
+  const data = await upstream.json();
+  const _tokens = extractGeminiTokens(data);
+  logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-writer-personas', trigger: 'admin', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
+
+  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  let personas;
+  try {
+    let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
+    if (!cleaned.endsWith(']')) cleaned = cleaned.replace(/,\s*$/, '') + ']';
+    personas = JSON.parse(cleaned);
+    if (!Array.isArray(personas)) throw new Error('Not an array');
+  } catch (err) {
+    console.error('[generate-writers] JSON parse error:', err.message, 'raw:', raw.slice(0, 200));
+    return res.status(502).json({ error: 'Failed to parse AI response' });
+  }
+
+  // Map personas back to categories and enrich with defaults
+  const generated = personas.map((p, i) => {
+    const cat = targetCategories.find(c => c.name === p.categoryName) || targetCategories[i];
+    if (!cat) return null;
+    const slug = toSlug(p.name || 'writer');
+    return {
+      categoryId: cat.id,
+      categoryName: cat.name,
+      hasExistingWriter: cat.hasExistingWriter,
+      name: p.name || cat.name + ' Writer',
+      slug,
+      bio: p.bio || '',
+      beat: cat.name,
+      beats: [cat.id],
+      keywords: Array.isArray(p.keywords) ? p.keywords : [],
+      system_prompt: p.system_prompt || '',
+      tone: p.tone || '',
+      expertise_level: p.expertise_level || '',
+      style_guide: p.style_guide || '',
+      gender: p.gender || null,
+      ethnicity: p.ethnicity || null,
+      is_auto: true,
+      synthesis_schedule: 'daily',
+      synthesis_lookback_hours: 168,
+      min_cluster_size: 3,
+    };
+  }).filter(Boolean);
+
+  res.json({ generated, usage: { inputTokens: _tokens.promptTokenCount || 0, outputTokens: _tokens.candidatesTokenCount || 0 } });
 }));
 
 // POST /api/admin/writers — create writer
