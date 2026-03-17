@@ -11,6 +11,24 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.0-beta.2] — 2026-03-17
+
+Post-beta patches deployed to staging.
+
+### Added
+- **Wizard writers** — character-inspired first names (Victor, Wanda, Reed, etc.) with tailored bios, keyword lists, and niche-specific system prompts
+- **4 new niches** — Travel, Pro Wrestling, Investing, Entertainment (with 6 writers each)
+- **Wizard branding** — sets all branding fields on launch (short name, copyright, logo HTML, footer tagline, newsletter subject, email from name)
+
+### Changed
+- Wizard niches sorted alphabetically (Custom always last)
+- Image Generation settings panel renamed to "Google Gemini" to reflect full AI scope
+
+### Fixed
+- Summary and thumbnail cache `ON CONFLICT` clauses matched to tenant-scoped PKs
+
+---
+
 ## [2.0.0-beta.1] — 2026-03-17
 
 Major release: multi-tenancy, local authentication, RBAC, admin UI overhaul, and self-hosted tooling.
