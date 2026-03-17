@@ -314,7 +314,7 @@ document.getElementById('addFewShotBtn').addEventListener('click', function() { 
 
 // ── Generate Avatar with AI ──────────────────────────────────────
 document.getElementById('generateAvatarBtn').addEventListener('click', async function() {
-  var writerId = document.getElementById('writerForm').dataset.editId;
+  var writerId = document.getElementById('editWriterId').value;
   if (!writerId) {
     showAlert('Save the writer first, then generate an avatar', 'error');
     return;
