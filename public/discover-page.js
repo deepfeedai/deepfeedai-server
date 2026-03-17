@@ -142,10 +142,14 @@ async function doImport() {
       body: JSON.stringify({ articles: articles, status: status, autoAssignWriter: autoAssignWriter, autoCategorize: autoCategorize }),
     });
     showToast('Imported ' + result.imported + ' articles' + (result.skipped ? ', ' + result.skipped + ' skipped (duplicates)' : ''));
-    // Mark imported articles
+    // Mark imported articles in current results without re-searching
+    var importedUrls = new Set(articles.map(function(a) { return a.url; }));
+    searchResults.forEach(function(r) {
+      if (importedUrls.has(r.url)) r.alreadyImported = true;
+    });
     selectedUrls.clear();
-    // Re-search to update status
-    await doSearch();
+    renderResults();
+    updateSelection();
   } catch (err) {
     showToast('Import failed: ' + err.message, 'error');
   } finally {
