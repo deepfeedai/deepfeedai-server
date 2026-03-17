@@ -1039,6 +1039,244 @@ let apiKeyVisible = false;
     }
   };
 
+  // ── Automation Tab: Scheduled Tasks Management ──────────
+
+  // Load automation tab on click
+  (function() {
+    var tabBar = document.getElementById('settingsTabs');
+    if (!tabBar) return;
+    tabBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('.tab-btn');
+      if (btn && btn.dataset.tab === 'automation') loadAutomationTab();
+    });
+    // Also load if restored from session
+    if (sessionStorage.getItem('dfa_settings_tab') === 'automation') {
+      setTimeout(loadAutomationTab, 0);
+    }
+  })();
+
+  async function loadAutomationTab() {
+    var container = document.getElementById('cronJobsList');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state"><span class="spinner"></span> Loading...</div>';
+
+    try {
+      var _data = await apiFetch('/admin/cron');
+      var jobs = _data.jobs || [];
+      if (!jobs.length) {
+        container.innerHTML = '<div class="empty-state">No scheduled tasks found</div>';
+        return;
+      }
+
+      // Group by category
+      var groups = {};
+      jobs.forEach(function(j) {
+        var cat = j.category || 'Other';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(j);
+      });
+
+      var categoryOrder = ['Content', 'Media', 'Notifications', 'Maintenance'];
+      var html = '';
+
+      categoryOrder.forEach(function(cat) {
+        if (!groups[cat]) return;
+        html += '<div style="margin-top:20px;">';
+        html += '<h4 class="text-muted text-sm" style="margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">' + escHtml(cat) + '</h4>';
+
+        groups[cat].forEach(function(job) {
+          var enabled = job.enabled !== false;
+          var schedule = job.currentSchedule || job.defaultSchedule;
+          var lastRun = job.lastRun;
+          var statusBadge = '';
+          if (lastRun) {
+            var statusClass = lastRun.status === 'success' ? 'badge-success' : lastRun.status === 'error' ? 'badge-danger' : 'badge-muted';
+            statusBadge = '<span class="badge ' + statusClass + '">' + escHtml(lastRun.status) + '</span>';
+          }
+          var lastRunTime = lastRun ? formatAge(lastRun.started_at) : 'Never';
+          var lastSummary = '';
+          if (lastRun && lastRun.summary) {
+            var s = lastRun.summary;
+            if (s.error) lastSummary = '<span class="text-danger text-xs">' + escHtml(s.error) + '</span>';
+            else {
+              var parts = [];
+              Object.keys(s).forEach(function(k) { parts.push(k + ': ' + s[k]); });
+              if (parts.length) lastSummary = '<span class="text-muted text-xs">' + escHtml(parts.join(', ')) + '</span>';
+            }
+          }
+
+          html += '<div class="dash-panel" style="margin-bottom:12px;padding:16px;" data-job="' + escHtml(job.name) + '">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">';
+
+          // Left: name + description
+          html += '<div style="flex:1;min-width:200px;">';
+          html += '<div style="font-weight:600;">' + escHtml(job.description) + '</div>';
+          html += '<div class="text-muted text-xs" style="margin-top:2px;">Job: <code>' + escHtml(job.name) + '</code></div>';
+          html += '</div>';
+
+          // Middle: schedule + last run
+          html += '<div style="display:flex;gap:16px;align-items:center;">';
+          html += '<div>';
+          html += '<div class="text-muted text-xs">Schedule</div>';
+          html += '<select class="form-control" style="width:auto;font-size:12px;padding:4px 8px;" data-job-schedule="' + escHtml(job.name) + '">';
+
+          var scheduleOptions = getScheduleOptions(job.name, job.defaultSchedule);
+          scheduleOptions.forEach(function(opt) {
+            var selected = opt.value === schedule ? ' selected' : '';
+            html += '<option value="' + escHtml(opt.value) + '"' + selected + '>' + escHtml(opt.label) + '</option>';
+          });
+
+          html += '</select>';
+          html += '</div>';
+
+          html += '<div>';
+          html += '<div class="text-muted text-xs">Last run</div>';
+          html += '<div class="text-sm">' + escHtml(lastRunTime) + ' ' + statusBadge + '</div>';
+          if (lastSummary) html += '<div style="margin-top:2px;">' + lastSummary + '</div>';
+          html += '</div>';
+          html += '</div>';
+
+          // Right: controls
+          html += '<div style="display:flex;gap:8px;align-items:center;">';
+          html += '<button class="btn btn-outline btn-sm" onclick="viewCronHistory(\'' + escHtml(job.name) + '\')" title="View history">History</button>';
+          html += '<button class="btn btn-outline btn-sm" onclick="runCronJob(\'' + escHtml(job.name) + '\', this)" title="Run now">Run Now</button>';
+          html += '<label class="form-check" style="margin:0;" title="' + (enabled ? 'Enabled' : 'Disabled') + '">';
+          html += '<input type="checkbox" data-job-toggle="' + escHtml(job.name) + '"' + (enabled ? ' checked' : '') + ' /> On';
+          html += '</label>';
+          html += '</div>';
+
+          html += '</div>';
+          html += '</div>';
+        });
+
+        html += '</div>';
+      });
+
+      container.innerHTML = html;
+
+      // Wire up toggle and schedule change handlers
+      container.querySelectorAll('[data-job-toggle]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+          updateCronJob(cb.dataset.jobToggle, { enabled: cb.checked });
+        });
+      });
+
+      container.querySelectorAll('[data-job-schedule]').forEach(function(sel) {
+        sel.addEventListener('change', function() {
+          updateCronJob(sel.dataset.jobSchedule, { schedule: sel.value });
+        });
+      });
+
+    } catch (err) {
+      container.innerHTML = '<div class="empty-state">Failed to load: ' + escHtml(err.message) + '</div>';
+    }
+  }
+
+  function getScheduleOptions(jobName, defaultSchedule) {
+    var presets = {
+      'rss-fetch':       [{ value: '*/10 * * * *', label: 'Every 10 min' }, { value: '*/15 * * * *', label: 'Every 15 min' }, { value: '*/30 * * * *', label: 'Every 30 min' }, { value: '0 * * * *', label: 'Every hour' }],
+      'live-news':       [{ value: '*/30 * * * *', label: 'Every 30 min' }, { value: '0 * * * *', label: 'Every hour' }, { value: '0 */2 * * *', label: 'Every 2 hours' }, { value: '0 */4 * * *', label: 'Every 4 hours' }],
+      'synthesis':       [{ value: '0 * * * *', label: 'Hourly check' }],
+      'auto-audio':      [{ value: '0 6 * * *', label: '6 AM UTC' }, { value: '0 8 * * *', label: '8 AM UTC' }, { value: '0 10 * * *', label: '10 AM UTC' }, { value: '0 12 * * *', label: '12 PM UTC' }],
+      'newsletter':      [{ value: '0 14 * * 1', label: 'Monday 2 PM UTC' }, { value: '0 10 * * 1', label: 'Monday 10 AM UTC' }, { value: '0 14 * * 5', label: 'Friday 2 PM UTC' }, { value: '0 10 * * 5', label: 'Friday 10 AM UTC' }],
+      'auto-archive':    [{ value: '0 1 * * *', label: '1 AM UTC' }, { value: '0 2 * * *', label: '2 AM UTC' }, { value: '0 3 * * *', label: '3 AM UTC' }, { value: '0 4 * * *', label: '4 AM UTC' }],
+      'purge-archived':  [{ value: '0 * * * *', label: 'Every hour' }, { value: '0 */2 * * *', label: 'Every 2 hours' }, { value: '0 */6 * * *', label: 'Every 6 hours' }],
+      'auth-cleanup':    [{ value: '*/5 * * * *', label: 'Every 5 min' }, { value: '*/10 * * * *', label: 'Every 10 min' }, { value: '*/30 * * * *', label: 'Every 30 min' }],
+      'budget-alert':    [{ value: '0 8 * * *', label: '8 AM UTC' }, { value: '0 9 * * *', label: '9 AM UTC' }, { value: '0 10 * * *', label: '10 AM UTC' }, { value: '0 12 * * *', label: '12 PM UTC' }],
+    };
+
+    var options = presets[jobName] || [];
+    var hasDefault = options.some(function(o) { return o.value === defaultSchedule; });
+    if (!hasDefault && defaultSchedule) {
+      options.unshift({ value: defaultSchedule, label: defaultSchedule + ' (default)' });
+    }
+    return options;
+  }
+
+  function formatAge(dateStr) {
+    try {
+      var d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      var now = new Date();
+      var diff = Math.floor((now - d) / 1000);
+      if (diff < 60) return 'Just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      return Math.floor(diff / 86400) + 'd ago';
+    } catch (e) { return dateStr; }
+  }
+
+  async function updateCronJob(name, updates) {
+    try {
+      await apiFetch('/admin/cron/' + name, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+      showToast((updates.schedule ? 'Schedule' : (updates.enabled === false ? 'Disabled' : 'Enabled')) + ' — ' + name);
+    } catch (err) {
+      showToast('Failed: ' + err.message, 'error');
+      loadAutomationTab();
+    }
+  }
+
+  async function runCronJob(name, btn) {
+    if (!confirm('Run "' + name + '" now?')) return;
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    try {
+      var result = await apiFetch('/admin/cron/' + name + '/run', { method: 'POST' });
+      showToast('Job completed');
+      loadAutomationTab();
+    } catch (err) {
+      showToast('Failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  async function viewCronHistory(name) {
+    try {
+      var _hdata = await apiFetch('/admin/cron/' + name + '/history');
+      var runs = _hdata.runs || [];
+      if (!runs.length) { showToast('No run history yet'); return; }
+
+      var html = '<div style="max-height:400px;overflow-y:auto;">';
+      html += '<table><thead><tr><th>Started</th><th>Duration</th><th>Status</th><th>Summary</th></tr></thead><tbody>';
+      runs.forEach(function(r) {
+        var duration = r.finished_at ? Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000) + 's' : '—';
+        var statusBadge = r.status === 'success' ? '<span class="badge badge-success">success</span>' : r.status === 'error' ? '<span class="badge badge-danger">error</span>' : '<span class="badge badge-muted">' + escHtml(r.status) + '</span>';
+        var summary = '';
+        if (r.summary) {
+          if (r.summary.error) summary = escHtml(r.summary.error);
+          else {
+            var parts = [];
+            Object.keys(r.summary).forEach(function(k) { parts.push(k + ': ' + r.summary[k]); });
+            summary = escHtml(parts.join(', '));
+          }
+        }
+        html += '<tr><td class="text-sm">' + escHtml(new Date(r.started_at).toLocaleString()) + '</td><td class="text-sm">' + duration + '</td><td>' + statusBadge + '</td><td class="text-muted text-xs">' + summary + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+
+      var modal = document.createElement('div');
+      modal.className = 'modal-overlay';
+      modal.style.display = 'flex';
+      modal.innerHTML = '<div class="modal modal-xl" style="max-width:700px;">'
+        + '<div class="modal-header"><h3>Run History — ' + escHtml(name) + '</h3><button class="modal-close" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div>'
+        + '<div class="modal-body">' + html + '</div>'
+        + '</div>';
+      document.body.appendChild(modal);
+    } catch (err) {
+      showToast('Failed to load history: ' + err.message, 'error');
+    }
+  }
+
+  // Make functions available globally for onclick handlers
+  window.runCronJob = runCronJob;
+  window.viewCronHistory = viewCronHistory;
+
   renderSidebar();
   initModals();
 

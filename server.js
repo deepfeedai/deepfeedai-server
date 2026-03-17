@@ -233,20 +233,10 @@ app.use('/api/synthesis', auth, require('./routes/synthesis'));
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
+app.use('/api/admin/cron', require('./routes/admin-cron'));
 
-/** Get all active tenant IDs for cron job iteration */
-async function getActiveTenantIds() {
-  if (SINGLE_TENANT) return [1];
-  try {
-    const rows = await db.prepare("SELECT id FROM tenants WHERE status = 'active'").all();
-    const ids = rows.map(r => r.id);
-    // Always include tenant 1 (original site) even if no tenants table row exists
-    if (!ids.includes(1)) ids.unshift(1);
-    return ids;
-  } catch {
-    return [1]; // fallback
-  }
-}
+const { getActiveTenantIds } = require('./lib/tenant-utils');
+const { registerJob, startAll } = require('./lib/cron-registry');
 
 // ── SPA fallback ────────────────────────────────────────────────────
 app.get('*', (req, res) => {
@@ -268,263 +258,272 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: isDev ? err.message : 'Internal server error' });
 });
 
-// ── Cron: send weekly newsletter every Monday at 14:00 UTC ─────────
-// Mirrors the previous Vercel Cron schedule: "0 14 * * 1"
-cron.schedule('0 14 * * 1', async () => {
-  const appCfg     = await getAppConfig();
-  const resendKey  = appCfg.resend_api_key;
-  const audienceId = appCfg.resend_audience_id;
-  if (!resendKey || !audienceId) return; // skip if not configured
-  console.log('[Cron] Sending weekly newsletter...');
-  const { cronSecret } = await getSecrets();
-  for (const tenantId of await getActiveTenantIds()) {
-    try {
-      const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
-        method:  'POST',
-        headers: {
-          'Content-Type':   'application/json',
-          'x-cron-secret':  cronSecret || '',
-          'X-Tenant-Id':    String(tenantId),
-        },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (data.success) {
-        console.log(`[Cron] Newsletter (tenant ${tenantId}) sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
-      } else {
-        console.error(`[Cron] Newsletter (tenant ${tenantId}) failed:`, data.error);
-      }
-    } catch (e) {
-      console.error(`[Cron] Newsletter (tenant ${tenantId}) error:`, e.message);
-    }
-  }
+// ── Cron Job Registration ───────────────────────────────────────────
+// All 9 cron jobs are registered via the cron registry for centralized
+// management, logging, and admin API control.
+
+registerJob({
+  name: 'rss-fetch',
+  description: 'RSS auto-fetch',
+  category: 'Content',
+  defaultSchedule: '*/30 * * * *',
+  handler: async (tenantId) => {
+    console.log(`[Cron] Auto-fetching RSS sources (tenant ${tenantId})...`);
+    const result = await fetchAllSources(false, tenantId);
+    if (result.inserted > 0) console.log(`[Cron] RSS fetch (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
+    return { inserted: result.inserted, skipped: result.skipped };
+  },
 });
 
-// ── Cron: live news auto-fetch every 60 min (if API keys configured) ─
-cron.schedule('0 * * * *', async () => {
-  const appCfg = await getAppConfig();
-  if (!appCfg.news_api_key && !appCfg.brave_api_key) return;
-  console.log('[Cron] Auto-fetching live news sources...');
-  try {
-    for (const tenantId of await getActiveTenantIds()) {
-      const autoPublishSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_publish_live'").get(tenantId);
-      const autoPublish = autoPublishSetting?.value === '1';
-      const result = await fetchLiveSources(autoPublish, tenantId);
-      if (result.inserted > 0) console.log(`[Cron] Live news (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
-      if (result.errors.length) console.warn(`[Cron] Live news errors (tenant ${tenantId}):`, result.errors);
-    }
-  } catch (e) {
-    console.error('[Cron] Live news error:', e.message);
-  }
+registerJob({
+  name: 'live-news',
+  description: 'Live news fetch',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const appCfg = await getAppConfig(tenantId);
+    if (!appCfg.news_api_key && !appCfg.brave_api_key) return { skipped: 'No API keys configured' };
+    console.log(`[Cron] Auto-fetching live news sources (tenant ${tenantId})...`);
+    const autoPublishSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_publish_live'").get(tenantId);
+    const autoPublish = autoPublishSetting?.value === '1';
+    const result = await fetchLiveSources(autoPublish, tenantId);
+    if (result.inserted > 0) console.log(`[Cron] Live news (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
+    if (result.errors.length) console.warn(`[Cron] Live news errors (tenant ${tenantId}):`, result.errors);
+    return { inserted: result.inserted, skipped: result.skipped, errors: result.errors.length };
+  },
 });
 
-// ── Cron: RSS auto-fetch every 30 min ──────────────────────────────
-cron.schedule('*/30 * * * *', async () => {
-  console.log('[Cron] Auto-fetching RSS sources...');
-  try {
-    for (const tenantId of await getActiveTenantIds()) {
-      const result = await fetchAllSources(false, tenantId);
-      if (result.inserted > 0) console.log(`[Cron] RSS fetch (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
-    }
-  } catch (e) {
-    console.error('[Cron] Fetch error:', e.message);
-  }
-});
-
-// ── Cron: purge expired/used auth codes every 10 min ──────────────
-cron.schedule('*/10 * * * *', async () => {
-  try {
-    await db.prepare(`
-      DELETE FROM auth_codes
-      WHERE used = 1 OR expires_at <= NOW()
-    `).run();
-  } catch (e) {
-    console.error('[Cron] Auth code cleanup error:', e.message);
-  }
-});
-
-// ── Cron: purge archived articles past grace period ────────────────
-cron.schedule('0 * * * *', async () => {
-  try {
-    for (const tenantId of await getActiveTenantIds()) {
-      const graceSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'purge_grace_hours'").get(tenantId);
-      const graceHours = Math.max(parseInt(graceSetting?.value ?? '24', 10) || 24, 1);
-      const result = await db.getPool().query(
-        `DELETE FROM articles
-         WHERE tenant_id = $1
-           AND is_archived = 1
-           AND archived_at IS NOT NULL
-           AND archived_at <= NOW() - ($2 || ' hours')::INTERVAL`,
-        [tenantId, graceHours]
-      );
-      if (result.rowCount > 0) {
-        console.log(`[Cron] Purged ${result.rowCount} archived article(s) (tenant ${tenantId}, grace ${graceHours}h)`);
-      }
-    }
-  } catch (e) {
-    console.error('[Cron] Purge error:', e.message);
-  }
-});
-
-// ── Cron: auto-purge old articles (runs nightly at 2 AM) ───────────
-cron.schedule('0 2 * * *', async () => {
-  try {
-    for (const tenantId of await getActiveTenantIds()) {
-      const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1 AND key LIKE $2').all(tenantId, 'purge_%');
-      const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
-      if (s.purge_enabled !== '1') continue;
-
-      const days            = Math.max(parseInt(s.purge_days) || 30, 7);
-      const protectFeatured = s.purge_protect_featured !== '0';
-      const protectAudio    = s.purge_protect_audio === '1';
-      const protectEngaged  = s.purge_protect_engaged === 'true';
-      const engagedDays     = Math.max(parseInt(s.purge_protect_engaged_days) || 7, 1);
-      const cutoff          = new Date(Date.now() - days * 86400000).toISOString();
-
-      let engagedSlugs = new Set();
-      if (protectEngaged) {
-        const engagedCutoff = new Date(Date.now() - engagedDays * 86400000).toISOString();
-        const commentSlugs = await db.prepare(`
-          SELECT DISTINCT article_slug FROM comments
-          WHERE tenant_id = $1 AND created_at > $2 AND is_deleted = 0
-        `).all(tenantId, engagedCutoff);
-        const reactionSlugs = await db.prepare(`
-          SELECT DISTINCT c.article_slug FROM comment_reactions r
-          JOIN comments c ON c.id = r.comment_id
-          WHERE c.tenant_id = $1 AND r.created_at > $2 AND c.is_deleted = 0
-        `).all(tenantId, engagedCutoff);
-        for (const row of commentSlugs)  engagedSlugs.add(row.article_slug);
-        for (const row of reactionSlugs) engagedSlugs.add(row.article_slug);
-      }
-
-      const candidates = await db.prepare(`
-        SELECT id, title, is_featured, audio_status, audio_url
-        FROM articles
-        WHERE tenant_id = $1 AND is_archived = 0
-          AND (created_at < $2 OR (published_at IS NOT NULL AND published_at < $2))
-      `).all(tenantId, cutoff);
-
-      let purged = 0;
-      for (const row of candidates) {
-        if (protectFeatured && row.is_featured) continue;
-        if (protectAudio && row.audio_status === 'ready' && row.audio_url) continue;
-        if (protectEngaged && engagedSlugs.has(toSlug(row.title))) continue;
-        await db.prepare(`
-          UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
-            archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2
-        `).run(row.id, tenantId);
-        purged++;
-      }
-      if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days (tenant ${tenantId})`);
-    }
-  } catch (e) {
-    console.error('[AutoPurge] Error:', e.message);
-  }
-});
-
-// ── Cron: synthesis scheduler — runs hourly, honors each writer's synthesis_schedule ──
-cron.schedule('0 * * * *', async () => {
-  try {
+registerJob({
+  name: 'synthesis',
+  description: 'Synthesis scheduler',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
     const { runSynthesisForWriter } = require('./lib/synthesis');
     const hour = new Date().getUTCHours();
     const dow  = new Date().getUTCDay();
 
-    for (const tenantId of await getActiveTenantIds()) {
-      const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE tenant_id = $1 AND is_auto = true').all(tenantId);
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE tenant_id = $1 AND is_auto = true').all(tenantId);
+    const results = [];
 
-      for (const w of writers) {
-        const schedule = w.synthesis_schedule || 'daily';
-        let shouldRun = false;
-        if (schedule === 'daily')            shouldRun = (hour === 6);
-        else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
-        else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1);
+    for (const w of writers) {
+      const schedule = w.synthesis_schedule || 'daily';
+      let shouldRun = false;
+      if (schedule === 'daily')            shouldRun = (hour === 6);
+      else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
+      else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1);
 
-        if (!shouldRun) continue;
+      if (!shouldRun) continue;
 
-        console.log(`[Cron] Running ${schedule} synthesis for ${w.name} (tenant ${tenantId})...`);
-        const result = await runSynthesisForWriter(w.id, { tenantId });
-        if (result.generated > 0) {
-          console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
-        } else if (result.skipped) {
-          console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
-        }
+      console.log(`[Cron] Running ${schedule} synthesis for ${w.name} (tenant ${tenantId})...`);
+      const result = await runSynthesisForWriter(w.id, { tenantId });
+      if (result.generated > 0) {
+        console.log(`[Cron] Synthesis for ${w.name}: ${result.generated} articles from ${result.clusters} clusters`);
+      } else if (result.skipped) {
+        console.log(`[Cron] Synthesis for ${w.name} skipped: ${result.skipped}`);
       }
+      results.push({ writer: w.name, ...result });
     }
-  } catch (e) {
-    console.error('[Cron] Synthesis error:', e.message);
-  }
+    return { writers: results.length, results };
+  },
 });
 
-// ── Cron: daily budget alert check (9 AM UTC) ───────────────────────
-cron.schedule('0 9 * * *', async () => {
-  try {
+registerJob({
+  name: 'auto-audio',
+  description: 'Auto-audio generation',
+  category: 'Media',
+  defaultSchedule: '0 8 * * *',
+  handler: async (tenantId) => {
+    const enabledSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_enabled'").get(tenantId);
+    if (enabledSetting?.value !== '1') return { skipped: 'Auto-audio not enabled' };
+
+    const maxSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_daily_max'").get(tenantId);
+    const dailyMax = parseInt(maxSetting?.value) || 3;
+
+    const candidates = await db.prepare(`
+      SELECT id, title FROM articles
+      WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
+        AND (audio_status IS NULL OR audio_status = '')
+        AND created_at > NOW() - INTERVAL '3 days'
+      ORDER BY
+        is_featured DESC,
+        editorial_score DESC NULLS LAST,
+        CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT $2
+    `).all(tenantId, dailyMax);
+
+    if (!candidates.length) return { skipped: 'No candidates', candidates: 0 };
+
+    const { generateAudioForArticle } = require('./lib/media-helpers');
+    let generated = 0;
+    for (const article of candidates) {
+      const result = await generateAudioForArticle(article.id, tenantId);
+      if (result) {
+        generated++;
+        console.log(`[Cron] Auto-audio (tenant ${tenantId}): "${article.title}"`);
+      }
+    }
+    if (generated) console.log(`[Cron] Auto-audio (tenant ${tenantId}): generated ${generated}/${candidates.length}`);
+    return { generated, candidates: candidates.length };
+  },
+});
+
+registerJob({
+  name: 'newsletter',
+  description: 'Weekly newsletter',
+  category: 'Notifications',
+  defaultSchedule: '0 14 * * 1',
+  handler: async (tenantId) => {
+    const appCfg     = await getAppConfig(tenantId);
+    const resendKey  = appCfg.resend_api_key;
+    const audienceId = appCfg.resend_audience_id;
+    if (!resendKey || !audienceId) return { skipped: 'Resend not configured' };
+    console.log(`[Cron] Sending weekly newsletter (tenant ${tenantId})...`);
+    const { cronSecret } = await getSecrets();
+    const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'x-cron-secret':  cronSecret || '',
+        'X-Tenant-Id':    String(tenantId),
+      },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (data.success) {
+      console.log(`[Cron] Newsletter (tenant ${tenantId}) sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
+      return { broadcastId: data.broadcastId, articleCount: data.articleCount };
+    } else {
+      console.error(`[Cron] Newsletter (tenant ${tenantId}) failed:`, data.error);
+      throw new Error(data.error || 'Newsletter send failed');
+    }
+  },
+});
+
+registerJob({
+  name: 'auto-archive',
+  description: 'Auto-archive articles',
+  category: 'Maintenance',
+  defaultSchedule: '0 2 * * *',
+  handler: async (tenantId) => {
+    const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1 AND key LIKE $2').all(tenantId, 'purge_%');
+    const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    if (s.purge_enabled !== '1') return { skipped: 'Auto-archive not enabled' };
+
+    const days            = Math.max(parseInt(s.purge_days) || 30, 7);
+    const protectFeatured = s.purge_protect_featured !== '0';
+    const protectAudio    = s.purge_protect_audio === '1';
+    const protectEngaged  = s.purge_protect_engaged === 'true';
+    const engagedDays     = Math.max(parseInt(s.purge_protect_engaged_days) || 7, 1);
+    const cutoff          = new Date(Date.now() - days * 86400000).toISOString();
+
+    let engagedSlugs = new Set();
+    if (protectEngaged) {
+      const engagedCutoff = new Date(Date.now() - engagedDays * 86400000).toISOString();
+      const commentSlugs = await db.prepare(`
+        SELECT DISTINCT article_slug FROM comments
+        WHERE tenant_id = $1 AND created_at > $2 AND is_deleted = 0
+      `).all(tenantId, engagedCutoff);
+      const reactionSlugs = await db.prepare(`
+        SELECT DISTINCT c.article_slug FROM comment_reactions r
+        JOIN comments c ON c.id = r.comment_id
+        WHERE c.tenant_id = $1 AND r.created_at > $2 AND c.is_deleted = 0
+      `).all(tenantId, engagedCutoff);
+      for (const row of commentSlugs)  engagedSlugs.add(row.article_slug);
+      for (const row of reactionSlugs) engagedSlugs.add(row.article_slug);
+    }
+
+    const candidates = await db.prepare(`
+      SELECT id, title, is_featured, audio_status, audio_url
+      FROM articles
+      WHERE tenant_id = $1 AND is_archived = 0
+        AND (created_at < $2 OR (published_at IS NOT NULL AND published_at < $2))
+    `).all(tenantId, cutoff);
+
+    let purged = 0;
+    for (const row of candidates) {
+      if (protectFeatured && row.is_featured) continue;
+      if (protectAudio && row.audio_status === 'ready' && row.audio_url) continue;
+      if (protectEngaged && engagedSlugs.has(toSlug(row.title))) continue;
+      await db.prepare(`
+        UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
+          archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2
+      `).run(row.id, tenantId);
+      purged++;
+    }
+    if (purged > 0) console.log(`[AutoPurge] Archived ${purged} article(s) older than ${days} days (tenant ${tenantId})`);
+    return { purged, candidates: candidates.length, days };
+  },
+});
+
+registerJob({
+  name: 'purge-archived',
+  description: 'Purge archived articles',
+  category: 'Maintenance',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const graceSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'purge_grace_hours'").get(tenantId);
+    const graceHours = Math.max(parseInt(graceSetting?.value ?? '24', 10) || 24, 1);
+    const result = await db.getPool().query(
+      `DELETE FROM articles
+       WHERE tenant_id = $1
+         AND is_archived = 1
+         AND archived_at IS NOT NULL
+         AND archived_at <= NOW() - ($2 || ' hours')::INTERVAL`,
+      [tenantId, graceHours]
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Cron] Purged ${result.rowCount} archived article(s) (tenant ${tenantId}, grace ${graceHours}h)`);
+    }
+    return { purged: result.rowCount, graceHours };
+  },
+});
+
+registerJob({
+  name: 'auth-cleanup',
+  description: 'Auth code cleanup',
+  category: 'Maintenance',
+  defaultSchedule: '*/10 * * * *',
+  handler: async (_tenantId) => {
+    await db.prepare(`
+      DELETE FROM auth_codes
+      WHERE used = 1 OR expires_at <= NOW()
+    `).run();
+    return { cleaned: true };
+  },
+});
+
+registerJob({
+  name: 'budget-alert',
+  description: 'Budget alert check',
+  category: 'Notifications',
+  defaultSchedule: '0 9 * * *',
+  handler: async (tenantId) => {
     const { checkBudgetAlerts } = require('./lib/budget');
-    for (const tenantId of await getActiveTenantIds()) {
-      const alert = await checkBudgetAlerts(tenantId);
-      if (!alert.warn) continue;
+    const alert = await checkBudgetAlerts(tenantId);
+    if (!alert.warn) return { warn: false };
 
-      const today = new Date().toISOString().slice(0, 10);
-      const alreadySent = await db.prepare(
-        `SELECT id FROM ai_usage
-         WHERE tenant_id = $1 AND operation = 'email' AND trigger = 'cron'
-           AND error_message IS NULL
-           AND created_at >= $2::DATE
-         LIMIT 1`
-      ).get(tenantId, today);
-      if (alreadySent) continue;
+    const today = new Date().toISOString().slice(0, 10);
+    const alreadySent = await db.prepare(
+      `SELECT id FROM ai_usage
+       WHERE tenant_id = $1 AND operation = 'email' AND trigger = 'cron'
+         AND error_message IS NULL
+         AND created_at >= $2::DATE
+       LIMIT 1`
+    ).get(tenantId, today);
+    if (alreadySent) return { warn: true, alreadySent: true };
 
-      const { sendBudgetAlert } = require('./lib/notify');
-      await sendBudgetAlert(alert, tenantId);
-      console.log(`[Cron] Budget alert sent (tenant ${tenantId}): ${alert.level} (${alert.pctUsed}%)`);
-    }
-  } catch (e) {
-    console.error('[Cron] Budget alert error:', e.message);
-  }
-});
-
-// ── Cron: auto-audio generation (daily at 8 AM UTC) ─────────────────
-cron.schedule('0 8 * * *', async () => {
-  try {
-    for (const tenantId of await getActiveTenantIds()) {
-      const enabledSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_enabled'").get(tenantId);
-      if (enabledSetting?.value !== '1') continue;
-
-      const maxSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'auto_audio_daily_max'").get(tenantId);
-      const dailyMax = parseInt(maxSetting?.value) || 3;
-
-      const candidates = await db.prepare(`
-        SELECT id, title FROM articles
-        WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
-          AND (audio_status IS NULL OR audio_status = '')
-          AND created_at > NOW() - INTERVAL '3 days'
-        ORDER BY
-          is_featured DESC,
-          editorial_score DESC NULLS LAST,
-          CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
-          created_at DESC
-        LIMIT $2
-      `).all(tenantId, dailyMax);
-
-      if (!candidates.length) continue;
-
-      const { generateAudioForArticle } = require('./lib/media-helpers');
-      let generated = 0;
-      for (const article of candidates) {
-        const result = await generateAudioForArticle(article.id, tenantId);
-        if (result) {
-          generated++;
-          console.log(`[Cron] Auto-audio (tenant ${tenantId}): "${article.title}"`);
-        }
-      }
-      if (generated) console.log(`[Cron] Auto-audio (tenant ${tenantId}): generated ${generated}/${candidates.length}`);
-    }
-  } catch (e) {
-    console.error('[Cron] Auto-audio error:', e.message);
-  }
+    const { sendBudgetAlert } = require('./lib/notify');
+    await sendBudgetAlert(alert, tenantId);
+    console.log(`[Cron] Budget alert sent (tenant ${tenantId}): ${alert.level} (${alert.pctUsed}%)`);
+    return { warn: true, level: alert.level, pctUsed: alert.pctUsed, sent: true };
+  },
 });
 
 // ── Start ───────────────────────────────────────────────────────────
-db.init().then(() => {
+db.init().then(async () => {
+  await startAll();
   app.listen(PORT, () => {
     console.log(`🤖 DeepFeedAI Admin running at http://localhost:${PORT}`);
   });
