@@ -8,7 +8,7 @@ const db                  = require('../db');
 const { asyncHandler }    = require('../lib/utils');
 const { auth }            = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
-const { logAudit }        = require('../middleware/audit');
+const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { validate, userCreate, userUpdate, passwordReset, passwordChange } = require('../lib/schemas');
 
 // GET / — list local users for current tenant
@@ -34,7 +34,7 @@ router.put('/me/password', auth, asyncHandler(async (req, res) => {
   const valid = await bcrypt.compare(body.currentPassword, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
 
-  const hash = bcrypt.hashSync(body.newPassword, 10);
+  const hash = bcrypt.hashSync(body.newPassword, 12);
   await db.prepare(
     'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
   ).run(hash, user.id, tenantId);
@@ -69,7 +69,7 @@ router.post('/', auth, requirePermission('users.create'), asyncHandler(async (re
   if (!roleRow) return res.status(400).json({ error: `Role "${role}" does not exist` });
 
   // Hash password
-  const password_hash = bcrypt.hashSync(password, 10);
+  const password_hash = bcrypt.hashSync(password, 12);
 
   // Insert
   const user = await db.prepare(
@@ -121,7 +121,7 @@ router.put('/:id', auth, requirePermission('users.update'), asyncHandler(async (
     tenantId
   );
 
-  await logAudit(req, 'users.update', 'users', parseInt(req.params.id), body);
+  await logAuditWithDiff(req, 'users.update', 'users', parseInt(req.params.id), existing, updated);
 
   res.json({ ...updated, reloginRequired: body.role && body.role !== existing.role });
 }));
@@ -200,7 +200,7 @@ router.post('/:id/reset-password', auth, requirePermission('users.update'), asyn
   ).get(req.params.id, tenantId);
   if (!existing) return res.status(404).json({ error: 'User not found' });
 
-  const hash = bcrypt.hashSync(body.password, 10);
+  const hash = bcrypt.hashSync(body.password, 12);
   await db.prepare(
     'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
   ).run(hash, req.params.id, tenantId);

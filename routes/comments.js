@@ -39,6 +39,7 @@ const { auth: requireAdmin } = require('../middleware/auth');
 const { requirePermission }  = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { checkSpam }            = require('../lib/spam');
+const { logAudit }             = require('../middleware/audit');
 const { sendReplyNotification } = require('../lib/notify');
 const { createReplyNotification } = require('./notifications');
 const { decryptSetting }       = require('../lib/crypto');
@@ -108,8 +109,18 @@ function formatComment(row) {
 // Fetches all non-hard-deleted comments for an article, joined with user info
 // and aggregated reaction counts. Optional ?viewer_id= to flag user's own reaction.
 router.get('/', asyncHandler(async (req, res) => {
-  const { slug, viewer_id } = req.query;
+  const { slug } = req.query;
   if (!slug) return res.status(400).json({ error: 'slug is required' });
+
+  // Derive viewer ID from JWT if present (never from query param — prevents IDOR)
+  let viewer_id = null;
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const payload = jwt.decode(authHeader.slice(7));
+      if (payload?.sub) viewer_id = payload.sub;
+    }
+  } catch { /* no viewer */ }
 
   const rows = await db.prepare(`
     SELECT
@@ -527,6 +538,7 @@ router.post('/admin/:id/approve', requireAdmin, requirePermission('comments.mode
   await db.prepare(
     'UPDATE comments SET is_approved = 1, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
   ).run(id, req.tenantId);
+  await logAudit(req, 'comment.approve', 'comment', id, { commentId: id });
   res.json({ ok: true });
 }));
 
@@ -535,6 +547,7 @@ router.post('/admin/:id/reject', requireAdmin, requirePermission('comments.moder
   const id = parseInt(req.params.id, 10);
   // Hard-delete — rejected spam shouldn't leave a tombstone
   await db.prepare('DELETE FROM comments WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
+  await logAudit(req, 'comment.reject', 'comment', id, { commentId: id });
   res.json({ ok: true });
 }));
 
@@ -577,6 +590,7 @@ router.post('/admin/:id/restore', requireAdmin, requirePermission('comments.mode
   await db.prepare(
     'UPDATE comments SET is_deleted = 0, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
   ).run(id, req.tenantId);
+  await logAudit(req, 'comment.restore', 'comment', id, { commentId: id });
   res.json({ ok: true });
 }));
 
@@ -591,6 +605,7 @@ router.post('/admin/:id/hide', requireAdmin, requirePermission('comments.moderat
   ).run(id, req.tenantId);
   // Clear reports after hiding — no further action needed on those
   await db.prepare('DELETE FROM comment_reports WHERE comment_id = $1 AND tenant_id = $2').run(id, req.tenantId);
+  await logAudit(req, 'comment.hide', 'comment', id, { commentId: id });
   res.json({ ok: true });
 }));
 
@@ -598,6 +613,7 @@ router.post('/admin/:id/hide', requireAdmin, requirePermission('comments.moderat
 router.delete('/admin/:id', requireAdmin, requirePermission('comments.delete'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   await db.prepare('DELETE FROM comments WHERE id = $1 AND tenant_id = $2').run(id, req.tenantId);
+  await logAudit(req, 'comment.delete', 'comment', id, { commentId: id });
   res.json({ ok: true });
 }));
 
@@ -634,6 +650,7 @@ router.post('/admin/bulk', requireAdmin, requirePermission('comments.moderate'),
     ).run(...validIds, req.tenantId);
   }
 
+  await logAudit(req, 'comment.bulk', 'comment', null, { action, ids: validIds, count: validIds.length });
   res.json({ ok: true, affected: validIds.length });
 }));
 

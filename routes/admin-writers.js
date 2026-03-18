@@ -360,7 +360,8 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   let resolvedUrl = IMAGEN_URL;
   try {
     const modelSetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model' AND tenant_id = $1").get(req.tenantId);
-    if (modelSetting?.value) resolvedUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
+    const MODEL_RE = /^[a-zA-Z0-9._-]{3,80}$/;
+    if (modelSetting?.value && MODEL_RE.test(modelSetting.value)) resolvedUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
   } catch {}
 
   const imagenBody = resolvedUrl.includes(':predict')
@@ -415,7 +416,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM articles
       WHERE writer_id IS NOT NULL
         AND tenant_id = $2
-        AND created_at > NOW() - ($1 || ' days')::INTERVAL
+        AND created_at > NOW() - make_interval(days => $1)
       GROUP BY writer_id
     ),
     reaction_stats AS (
@@ -423,7 +424,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM article_reactions r
       JOIN articles a ON a.slug = r.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
-        AND r.created_at > NOW() - ($1 || ' days')::INTERVAL
+        AND r.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
     ),
     comment_stats AS (
@@ -432,7 +433,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       JOIN articles a ON a.slug = cm.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
         AND cm.is_deleted = 0
-        AND cm.created_at > NOW() - ($1 || ' days')::INTERVAL
+        AND cm.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
     ),
     view_stats AS (
@@ -442,7 +443,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM analytics_events e
       JOIN articles a ON a.slug = e.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
-        AND e.created_at > NOW() - ($1 || ' days')::INTERVAL
+        AND e.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
     ),
     cost_stats AS (
@@ -451,7 +452,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM ai_usage
       WHERE writer_id IS NOT NULL
         AND tenant_id = $2
-        AND created_at > NOW() - ($1 || ' days')::INTERVAL
+        AND created_at > NOW() - make_interval(days => $1)
       GROUP BY writer_id
     ),
     follow_stats AS (

@@ -284,6 +284,7 @@ let apiKeyVisible = false;
     document.getElementById('purgeProtectEngaged').checked       = settings.purge_protect_engaged === 'true';
     document.getElementById('purgeProtectEngagedDays').value     = settings.purge_protect_engaged_days || '7';
     document.getElementById('purgeGraceHours').value             = settings.purge_grace_hours || '24';
+    document.getElementById('auditRetentionDays').value          = settings.audit_retention_days || '90';
     toggleEngagedDaysRow();
   }
 
@@ -312,6 +313,20 @@ let apiKeyVisible = false;
       showAlert('Save failed: ' + err.message, 'error');
     } finally {
       this.disabled = false; this.textContent = 'Save Settings';
+    }
+  });
+
+  document.getElementById('saveAuditRetentionBtn').addEventListener('click', async function () {
+    const days = Math.max(parseInt(document.getElementById('auditRetentionDays').value) || 90, 30);
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ audit_retention_days: String(days) }) });
+      document.getElementById('auditRetentionStatus').textContent = '✅ Audit retention saved';
+      showAlert('Audit retention saved ✓');
+    } catch (err) {
+      showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'Save';
     }
   });
 

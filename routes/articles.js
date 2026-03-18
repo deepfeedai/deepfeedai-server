@@ -9,7 +9,7 @@ const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
 const { findBestWriter } = require('../lib/writer-assign');
 const { checkPlanLimit }    = require('../lib/plan-limits');
-const { logAudit } = require('../middleware/audit');
+const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
 
 // GET /api/articles
@@ -268,7 +268,7 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     learnFromCorrection(updated.title, category, req.tenantId).catch(() => {});
   }
 
-  logAudit(req, 'article.update', 'article', parseInt(req.params.id), { title: updated?.title });
+  logAuditWithDiff(req, 'article.update', 'article', parseInt(req.params.id), existing, updated, { title: updated?.title });
   res.json(updated);
 }));
 

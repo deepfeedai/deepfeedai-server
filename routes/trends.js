@@ -189,7 +189,7 @@ function buildSparkline(label, isCompany, history) {
 async function getCachedResult(tenantId) {
   const result = await getPool().query(
     `SELECT payload FROM trends_cache
-     WHERE tenant_id = $1 AND created_at > NOW() - INTERVAL '${CACHE_TTL_HOURS} hours'
+     WHERE tenant_id = $1 AND created_at > NOW() - INTERVAL '2 hours'
      ORDER BY created_at DESC LIMIT 1`,
     [tenantId]
   );

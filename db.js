@@ -595,7 +595,10 @@ async function initDb() {
       ip_address  TEXT,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(tenant_id, action, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(tenant_id, user_id, created_at DESC)`,
     // Saved searches for Discover
     `CREATE TABLE IF NOT EXISTS saved_searches (
       id          SERIAL PRIMARY KEY,

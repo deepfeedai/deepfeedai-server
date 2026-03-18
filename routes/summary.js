@@ -34,7 +34,7 @@ async function getCached(key, tenantId) {
   const result = await pool.query(
     `SELECT payload FROM summary_cache
      WHERE tenant_id = $1 AND cache_key = $2
-       AND created_at > NOW() - INTERVAL '${CACHE_TTL_DAYS} days'`,
+       AND created_at > NOW() - INTERVAL '7 days'`,
     [tenantId, key]
   );
   return result.rows[0]?.payload || null;
@@ -53,12 +53,12 @@ async function setCached(key, payload, tenantId) {
     `DELETE FROM summary_cache
      WHERE tenant_id = $1 AND cache_key IN (
        SELECT cache_key FROM summary_cache
-       WHERE tenant_id = $1 AND (created_at <= NOW() - INTERVAL '${CACHE_TTL_DAYS} days'
+       WHERE tenant_id = $1 AND (created_at <= NOW() - INTERVAL '7 days'
           OR cache_key IN (
                SELECT cache_key FROM summary_cache
                WHERE tenant_id = $1
                ORDER BY created_at DESC
-               OFFSET ${CACHE_MAX_ROWS}
+               OFFSET 1000
              ))
        LIMIT 200
      )`,
@@ -118,8 +118,8 @@ router.get('/', asyncHandler(async (req, res) => {
       ? 'Rules: Stay in character. Use your tone and style throughout. No generic language. keyPoints must be 3 concise bullet strings.'
       : 'Rules: Be specific and factual. No fluff. No "In this article..." opener. keyPoints must be 3 concise bullet strings.',
     '',
-    `Title: ${title}`,
-    description ? `Context: ${description}` : '',
+    `Title: ${title.replace(/[\x00-\x1F]/g, '').slice(0, 300)}`,
+    description ? `Context: ${description.replace(/[\x00-\x1F]/g, '').slice(0, 500)}` : '',
   ].filter(Boolean).join('\n');
 
   const _start = Date.now();

@@ -31,7 +31,7 @@ async function getCached(key, tenantId) {
   const result = await getPool().query(
     `SELECT payload FROM thumbnail_cache
      WHERE tenant_id = $1 AND cache_key = $2
-       AND created_at > NOW() - INTERVAL '${CACHE_TTL_DAYS} days'`,
+       AND created_at > NOW() - INTERVAL '7 days'`,
     [tenantId, key]
   );
   return result.rows[0]?.payload || null;
@@ -180,7 +180,7 @@ function extractSubject(title) {
     if (re.test(t)) return metaphor;
   }
 
-  return `a dramatic cinematic scene representing this tech news story: "${title.slice(0, 80)}"`;
+  return `a dramatic cinematic scene representing this tech news story: "${title.replace(/[^a-zA-Z0-9 .,!?'-]/g, '').slice(0, 80)}"`;
 }
 
 function categoryStyle(category) {

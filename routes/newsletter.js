@@ -22,6 +22,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
 const { getAppConfig } = require('../lib/app-config');
+const { logAudit } = require('../middleware/audit');
 
 const TOP_N = 8; // articles to include per newsletter
 
@@ -148,6 +149,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHan
     console.error('[newsletter] failed to log send:', e.message);
   }
 
+  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId });
   console.log(`[newsletter] sent broadcast ${broadcastId} with ${articles.length} articles`);
   return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
 }));

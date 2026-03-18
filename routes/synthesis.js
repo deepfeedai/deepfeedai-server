@@ -45,7 +45,7 @@ router.get('/preview/:writerId', requirePermission('synthesis.execute'), asyncHa
     WHERE tenant_id = $2
       AND (content_type IS NULL OR content_type != 'original')
       AND is_archived = 0
-      AND created_at > NOW() - ($1 || ' hours')::INTERVAL
+      AND created_at > NOW() - make_interval(hours => $1)
     ORDER BY created_at DESC LIMIT 200
   `).all(lookbackHours, req.tenantId);
 

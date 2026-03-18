@@ -311,7 +311,7 @@ router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHand
     idx++;
   }
   if (days && Number(days) > 0) {
-    conditions.push(`COALESCE(published_at, created_at) > NOW() - ($${idx} || ' days')::INTERVAL`);
+    conditions.push(`COALESCE(published_at, created_at) > NOW() - make_interval(days => $${idx})`);
     params.push(Number(days));
     idx++;
   }

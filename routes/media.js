@@ -19,6 +19,7 @@ const { getAppConfig } = require('../lib/app-config');
 const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
 const { checkFeatureEnabled }           = require('../lib/plan-limits');
+const { logAudit }                      = require('../middleware/audit');
 const MAX_CHARS     = 900;
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -164,6 +165,7 @@ router.post('/generate-audio', auth, requirePermission('media.create'), asyncHan
       WHERE id = $5 AND tenant_id = $6
     `).run(audioUrl, text, resolvedVoiceName, resolvedVoiceAvatarUrl, articleId, req.tenantId);
 
+    await logAudit(req, 'media.generate-audio', 'article', articleId, { title: article.title, charCount: text.length, voiceName: resolvedVoiceName });
     res.json({ audioUrl, charCount: text.length, ttsText: text, voiceName: resolvedVoiceName });
   } catch (err) {
     await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = $1 AND tenant_id = $2").run(articleId, req.tenantId);
@@ -203,7 +205,8 @@ router.post('/generate-image', auth, requirePermission('media.create'), asyncHan
   let resolvedImagenUrl = IMAGEN_URL;
   try {
     const modelSetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model' AND tenant_id = $1").get(req.tenantId);
-    if (modelSetting && modelSetting.value) {
+    const MODEL_RE = /^[a-zA-Z0-9._-]{3,80}$/;
+    if (modelSetting?.value && MODEL_RE.test(modelSetting.value)) {
       resolvedImagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
     }
   } catch { /* fall back to default */ }
@@ -275,6 +278,7 @@ router.post('/generate-image', auth, requirePermission('media.create'), asyncHan
 
     await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(imageUrl, articleId, req.tenantId);
 
+    await logAudit(req, 'media.generate-image', 'article', articleId, { title: article.title });
     res.json({ imageUrl, visualConcept: visualResult ? visualResult.concept : null, fullPrompt });
   } catch (err) {
     console.error('[Media] Image generation error:', err.message);
@@ -288,6 +292,7 @@ router.delete('/audio/:id', auth, requirePermission('media.delete'), asyncHandle
   if (!article) return res.status(404).json({ error: 'Article not found' });
   await deleteAudio(article.audio_url, req.tenantId);
   await db.prepare("UPDATE articles SET audio_url = NULL, audio_status = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2").run(req.params.id, req.tenantId);
+  await logAudit(req, 'media.delete-audio', 'article', parseInt(req.params.id), { title: article.title });
   res.json({ message: 'Audio removed' });
 }));
 

@@ -657,6 +657,28 @@
           <div id="purgeSettingsStatus" class="settings-status"></div>
         </div>
 
+        <!-- Audit Log Retention -->
+        <div class="dash-panel mb-6">
+          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Audit Log Retention</h3>
+          <p class="text-muted text-sm mb-4">
+            Automatically delete audit log entries older than the specified number of days. Runs weekly (Sunday 3 AM).
+          </p>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="auditRetentionDays">Retention period</label>
+              <div class="input-row">
+                <input type="number" class="form-control" id="auditRetentionDays" value="90" min="30" max="3650"
+                       style="width:90px;" />
+                <span class="text-muted text-sm">days (minimum 30)</span>
+              </div>
+            </div>
+          </div>
+          <div class="btn-group mt-3">
+            <button class="btn btn-primary" id="saveAuditRetentionBtn">Save</button>
+          </div>
+          <div id="auditRetentionStatus" class="settings-status"></div>
+        </div>
+
       </div><!-- /content tab -->
 
       <!-- ═══ Moderation Tab ═══ -->

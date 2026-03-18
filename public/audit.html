@@ -27,6 +27,9 @@
             <option value="users.">Users</option>
             <option value="roles.">Roles</option>
             <option value="settings.">Settings</option>
+            <option value="comment.">Comments</option>
+            <option value="media.">Media</option>
+            <option value="newsletter.">Newsletter</option>
             <option value="audit.">System</option>
           </select>
         </div>
@@ -45,6 +48,17 @@
         <button class="btn btn-ghost btn-sm" id="clearFiltersBtn" style="margin-bottom:2px;">Clear</button>
       </div>
 
+      <!-- Alert Banner -->
+      <div id="auditAlertBanner" style="display:none;"></div>
+
+      <!-- Stats Dashboard -->
+      <div id="auditStatsCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;"></div>
+      <div id="auditChart" style="margin-bottom:16px;"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-ghost btn-sm" data-period="7d" onclick="loadStatsWithPeriod('7d')">7 days</button>
+        <button class="btn btn-ghost btn-sm" data-period="30d" onclick="loadStatsWithPeriod('30d')">30 days</button>
+        <button class="btn btn-ghost btn-sm" data-period="90d" onclick="loadStatsWithPeriod('90d')">90 days</button>
+      </div>
       <div id="auditStats" class="text-muted text-sm" style="margin-bottom:12px;"></div>
 
       <div class="table-wrap">
@@ -70,11 +84,21 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
         <div id="paginationContainer"></div>
         <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" id="exportCsvBtn">Export CSV</button>
           <button class="btn btn-outline btn-sm" id="liveTailBtn">Live Tail: Off</button>
           <button class="btn btn-danger btn-sm" id="archiveBtn" style="display:none;">Archive Old Entries</button>
         </div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div id="detailModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+  <div style="background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow:auto;position:relative;">
+    <button onclick="closeDetailModal()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-muted,#94a3b8);font-size:20px;cursor:pointer;">&times;</button>
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text,#e2e8f0);">Event Details</h3>
+    <pre id="detailModalContent" style="background:var(--bg,#0f172a);padding:16px;border-radius:8px;overflow:auto;font-size:13px;color:var(--text,#e2e8f0);white-space:pre-wrap;word-break:break-word;"></pre>
   </div>
 </div>
 

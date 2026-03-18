@@ -8,11 +8,21 @@
  * Env vars required:
  *   RESEND_API_KEY — Full Access key from resend.com
  */
-const express = require('express');
-const router  = express.Router();
+const express   = require('express');
+const rateLimit = require('express-rate-limit');
+const router    = express.Router();
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
 const { getAppConfig } = require('../lib/app-config');
+
+const contactLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many contact requests. Please try again later.' },
+  validate: false,
+});
 
 function escHtml(str) {
   return String(str || '')
@@ -23,11 +33,16 @@ function escHtml(str) {
     .replace(/'/g,  '&#39;');
 }
 
-router.post('/', async (req, res) => {
-  const { name, email, message } = req.body || {};
+router.post('/', contactLimiter, async (req, res) => {
+  const name    = String(req.body?.name || '').trim().slice(0, 100);
+  const email   = String(req.body?.email || '').trim().slice(0, 254);
+  const message = String(req.body?.message || '').trim().slice(0, 2000);
 
   if (!name || !email || !message) {
     return res.status(400).json({ error: 'Missing required fields' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
   }
 
   const appCfg = await getAppConfig(req.tenantId);
