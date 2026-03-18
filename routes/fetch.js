@@ -10,7 +10,7 @@ const { auth }           = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler, decodeEntities } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
-const { findBestWriter, generateWriterTldr } = require('../lib/writer-assign');
+const { findBestWriter } = require('../lib/writer-assign');
 const { logUsage } = require('../lib/ai-usage');
 const { onArticlePublished } = require('../lib/post-publish');
 const { getAppConfig } = require('../lib/app-config');
@@ -82,8 +82,8 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
                 const writer = await findBestWriter(artObj, tenantId);
                 if (writer) {
                   await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
-                  const tldr = await generateWriterTldr(artObj, writer, tenantId);
-                  if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2 AND tenant_id = $3').run(tldr, artObj.id, tenantId);
+                  // TLDR generation deferred to post-publish to avoid wasting tokens
+                  // on articles that will be consumed by synthesis
                 }
 
                 if (wantPublish) {
@@ -262,12 +262,10 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
         const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary: item.summary, category, source: item.source };
         (async () => {
           try {
-            // Writer assignment
+            // Writer assignment (TLDR deferred to post-publish)
             const writer = await findBestWriter(artObj, tenantId);
             if (writer) {
               await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
-              const tldr = await generateWriterTldr(artObj, writer, tenantId);
-              if (tldr) await db.prepare('UPDATE articles SET tldr_overview = $1 WHERE id = $2 AND tenant_id = $3').run(tldr, artObj.id, tenantId);
             }
 
             // Auto-publish directly for curated articles (quality gate is for synthesis only)
