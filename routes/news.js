@@ -17,7 +17,8 @@ const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 
-const { getSecrets } = require('../lib/secrets');
+const { getSecrets }   = require('../lib/secrets');
+const { getAppConfig } = require('../lib/app-config');
 
 async function getUserId(req) {
   const authHeader = req.headers.authorization;
@@ -112,6 +113,18 @@ router.get('/', asyncHandler(async (req, res) => {
   const result = await getPool().query(query, params.length ? params : undefined);
   const items  = result.rows.map(serializeRow);
 
+  // Resolve relative image/audio URLs to absolute
+  const appCfg  = await getAppConfig(req.tenantId);
+  const baseUrl = (appCfg.base_url || '').replace(/\/$/, '');
+  items.forEach(item => {
+    if (item.image_url && item.image_url.startsWith('/') && baseUrl) {
+      item.image_url = baseUrl + item.image_url;
+    }
+    if (item.audio_url && item.audio_url.startsWith('/') && baseUrl) {
+      item.audio_url = baseUrl + item.audio_url;
+    }
+  });
+
   // Batch-fetch comment + reaction counts
   const slugs = items.map(a => toSlug(a.title));
   const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
@@ -144,6 +157,19 @@ router.get('/hot', asyncHandler(async (req, res) => {
     [req.tenantId]
   );
   const items = result.rows.map(serializeRow);
+
+  // Resolve relative image/audio URLs to absolute
+  const hotAppCfg  = await getAppConfig(req.tenantId);
+  const hotBaseUrl = (hotAppCfg.base_url || '').replace(/\/$/, '');
+  items.forEach(item => {
+    if (item.image_url && item.image_url.startsWith('/') && hotBaseUrl) {
+      item.image_url = hotBaseUrl + item.image_url;
+    }
+    if (item.audio_url && item.audio_url.startsWith('/') && hotBaseUrl) {
+      item.audio_url = hotBaseUrl + item.audio_url;
+    }
+  });
+
   const slugs = items.map(a => toSlug(a.title));
 
   const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
