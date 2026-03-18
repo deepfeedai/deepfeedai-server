@@ -112,6 +112,17 @@ router.get('/', asyncHandler(async (req, res) => {
   const result = await getPool().query(query, params.length ? params : undefined);
   const items  = result.rows.map(serializeRow);
 
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  items.forEach(item => {
+    if (item.image_url && item.image_url.startsWith('/')) {
+      item.image_url = mediaBase + item.image_url;
+    }
+    if (item.audio_url && item.audio_url.startsWith('/')) {
+      item.audio_url = mediaBase + item.audio_url;
+    }
+  });
+
   // Batch-fetch comment + reaction counts
   const slugs = items.map(a => toSlug(a.title));
   const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
@@ -144,6 +155,18 @@ router.get('/hot', asyncHandler(async (req, res) => {
     [req.tenantId]
   );
   const items = result.rows.map(serializeRow);
+
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const hotMediaBase = `${req.protocol}://${req.get('host')}`;
+  items.forEach(item => {
+    if (item.image_url && item.image_url.startsWith('/')) {
+      item.image_url = hotMediaBase + item.image_url;
+    }
+    if (item.audio_url && item.audio_url.startsWith('/')) {
+      item.audio_url = hotMediaBase + item.audio_url;
+    }
+  });
+
   const slugs = items.map(a => toSlug(a.title));
 
   const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);

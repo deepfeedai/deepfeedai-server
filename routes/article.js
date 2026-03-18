@@ -23,6 +23,15 @@ router.get('/', asyncHandler(async (req, res) => {
   const match = articles.find(a => toSlug(a.title) === slug);
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  if (match.image_url && match.image_url.startsWith('/')) {
+    match.image_url = mediaBase + match.image_url;
+  }
+  if (match.audio_url && match.audio_url.startsWith('/')) {
+    match.audio_url = mediaBase + match.audio_url;
+  }
+
   // Fetch comment count for this article
   const countRow = await db.prepare(
     'SELECT COUNT(*) AS cnt FROM comments WHERE article_slug = $1 AND is_deleted = 0 AND tenant_id = $2'
