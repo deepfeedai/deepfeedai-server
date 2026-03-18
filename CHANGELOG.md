@@ -11,6 +11,15 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.2] — 2026-03-18
+
+### Improved
+- **AI thumbnail prompts** — rewritten for more relevant, article-specific images. Gemini now produces concrete visual scenes instead of forced abstractions, with tone-matched color palettes (urgent = bold/warm, analysis = cool/muted, product launch = bright/clean)
+- **Niche-independent image generation** — site name pulled from SiteConfig; removed hardcoded "tech news site" and `CATEGORY_STYLES` map so non-tech niches get appropriate thumbnails
+- **DRY image prompt code** — `routes/media.js` now imports shared `getVisualConcept`/`buildImagePrompt` from `lib/media-helpers.js` instead of duplicating 60+ lines
+
+---
+
 ## [2.0.1] — 2026-03-18
 
 ### Changed

@@ -189,62 +189,7 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
 
 // POST /api/media/generate-image  { articleId }
 const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
-
-const CATEGORY_STYLES = {
-  'LLMs':          'glowing neural network nodes, synaptic connections, deep blue and cyan tones, abstract digital art',
-  'Research':      'abstract scientific data visualization, clean geometric forms, cool blue and white palette',
-  'Tools':         'holographic software interface, floating UI panels, dark theme, neon accent lines',
-  'Policy':        'dramatic government architecture with digital light overlay, serious and authoritative',
-  'Business':      'modern corporate technology landscape, clean lines, glass and steel aesthetic',
-  'CyberSecurity': 'digital security matrix, glowing lock symbol, high contrast red and blue, cyber aesthetic',
-  'Image AI':      'vibrant generative art canvas, colorful abstract shapes emerging from darkness',
-  'Industry':      'sweeping circuit board landscape, warm amber and gold tones, macro detail',
-  'Agents':        'autonomous robotic forms, interconnected decision nodes, silver and blue glow',
-  'Hardware':      'close-up microchip architecture, copper traces, dramatic macro photography style',
-};
-const DEFAULT_STYLE = 'futuristic technology abstract, dark background, cool blue tones';
-
-async function getVisualConcept(title, summary, category, tenantId) {
-  const apiKey = await getGeminiKey(tenantId);
-  if (!apiKey) return null;
-  const cleanSummary = (summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 600);
-  const prompt = `You are a creative director for a tech news site. Your job is to write a highly specific visual concept for an AI-generated thumbnail image.
-
-Rules:
-- Be SPECIFIC to this article — reference the actual subject matter, not generic tech visuals
-- 2-3 sentences, max 60 words
-- Describe a metaphorical or symbolic scene — NOT literal (no offices, computers, phones)
-- Think cinematic: lighting, mood, color, atmosphere
-- No text, no people, no faces, no hands, no logos, no screens, no devices
-- Use the article details to inspire unique visual metaphors (e.g. "lawsuit" → scales of justice made of circuit boards; "AI model release" → a glowing entity emerging from darkness)
-
-Article title: ${title}
-Article summary: ${cleanSummary}
-Category: ${category || 'Technology'}
-
-Specific visual concept for this article:`;
-
-  try {
-    const _start = Date.now();
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    });
-    if (!res.ok) {
-      logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'thumbnail-concept', trigger: 'manual', durationMs: Date.now() - _start, success: false, error: `${res.status}`, tenantId }).catch(() => {});
-      return null;
-    }
-    const data = await res.json();
-    const _tokens = extractGeminiTokens(data);
-    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'thumbnail-concept', trigger: 'manual', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-  } catch { return null; }
-}
-
-async function storeImage(pngBuf, filename, tenantId) {
-  return storage.upload(pngBuf, 'image/png', `images/${filename}`, tenantId || 1);
-}
+const { getVisualConcept, buildImagePrompt, storeImage } = require('../lib/media-helpers');
 
 router.post('/generate-image', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
   const { articleId } = req.body;
@@ -267,20 +212,15 @@ router.post('/generate-image', auth, requirePermission('media.create'), asyncHan
 
   try {
     const category = article.category || '';
-    const stylePreset = CATEGORY_STYLES[category] || DEFAULT_STYLE;
 
-    // Step 1: Get visual concept from Gemini
-    let visualConcept = await getVisualConcept(article.title, article.summary, category, req.tenantId);
-    if (!visualConcept) {
-      // Fallback: use title as the concept seed
-      visualConcept = `A dramatic symbolic scene representing: ${article.title}`;
-    }
+    // Step 1: Get visual concept + style from Gemini
+    const visualResult = await getVisualConcept(article.title, article.summary, category, req.tenantId, 'manual');
 
     // Step 2: Assemble full Imagen prompt
-    const fullPrompt = `${visualConcept} ${stylePreset}. Photorealistic digital art, dark background, cinematic dramatic lighting, no text, no words, no letters, no logos, no people, no faces, no hands, no screens, no devices, sharp focus, 8K quality.`;
+    const fullPrompt = buildImagePrompt(visualResult, article.title);
 
     console.log(`[ImageGen] Article ${articleId}: "${article.title}"`);
-    console.log(`[ImageGen] Visual concept: ${visualConcept}`);
+    console.log(`[ImageGen] Visual concept: ${visualResult ? visualResult.concept : 'fallback'}`);
     console.log(`[ImageGen] Full prompt: ${fullPrompt}`);
 
     const controller = new AbortController();
@@ -335,7 +275,7 @@ router.post('/generate-image', auth, requirePermission('media.create'), asyncHan
 
     await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(imageUrl, articleId, req.tenantId);
 
-    res.json({ imageUrl, visualConcept, fullPrompt });
+    res.json({ imageUrl, visualConcept: visualResult ? visualResult.concept : null, fullPrompt });
   } catch (err) {
     console.error('[Media] Image generation error:', err.message);
     res.status(500).json({ error: err.message });
