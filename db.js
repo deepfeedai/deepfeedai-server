@@ -571,7 +571,7 @@ async function initDb() {
     // Seed default roles
     `INSERT INTO roles (tenant_id, name, description, permissions, is_system) VALUES
       (1, 'owner', 'Full platform access', '["*"]', true),
-      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","settings.*","analytics.*","comments.*","newsletter.*","users.*","audit.read","fetch.execute","synthesis.execute","cron.read","cron.update","cron.execute"]', true),
+      (1, 'admin', 'Full administrative access', '["*"]', true),
       (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
       (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]', true)
      ON CONFLICT (tenant_id, name) DO NOTHING`,
@@ -625,8 +625,8 @@ async function initDb() {
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_cron_runs_job ON cron_runs (tenant_id, job_name, started_at DESC)`,
-    // Backfill: add cron.update and cron.execute to existing admin roles
-    `UPDATE roles SET permissions = permissions || '["cron.update","cron.execute"]'::jsonb WHERE name = 'admin' AND is_system = true AND NOT (permissions @> '["cron.update"]'::jsonb)`,
+    // Upgrade admin role to full wildcard permissions (same as owner)
+    `UPDATE roles SET permissions = '["*"]'::jsonb, description = 'Full administrative access' WHERE name = 'admin' AND is_system = true AND NOT (permissions @> '["*"]'::jsonb)`,
     // Clean up orphaned cron_runs rows from server crashes
     `UPDATE cron_runs SET status = 'crashed', finished_at = NOW() WHERE status = 'running'`,
   ];

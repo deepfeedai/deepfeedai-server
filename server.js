@@ -341,15 +341,17 @@ registerJob({
     const dailyMax = parseInt(maxSetting?.value) || 3;
 
     const candidates = await db.prepare(`
-      SELECT id, title FROM articles
-      WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
-        AND (audio_status IS NULL OR audio_status = '')
-        AND created_at > NOW() - INTERVAL '3 days'
+      SELECT a.id, a.title FROM articles a
+      JOIN writers w ON w.id = a.writer_id AND w.tenant_id = $1
+      WHERE a.tenant_id = $1 AND a.is_published = 1 AND a.is_archived = 0
+        AND (a.audio_status IS NULL OR a.audio_status = '')
+        AND a.created_at > NOW() - INTERVAL '3 days'
+        AND w.elevenlabs_voice_id IS NOT NULL AND w.elevenlabs_voice_id != ''
       ORDER BY
-        is_featured DESC,
-        editorial_score DESC NULLS LAST,
-        CASE WHEN content_type = 'original' THEN 0 ELSE 1 END,
-        created_at DESC
+        a.is_featured DESC,
+        a.editorial_score DESC NULLS LAST,
+        CASE WHEN a.content_type = 'original' THEN 0 ELSE 1 END,
+        a.created_at DESC
       LIMIT $2
     `).all(tenantId, dailyMax);
 
