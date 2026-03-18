@@ -115,7 +115,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // Resolve relative image/audio URLs to absolute
   const appCfg  = await getAppConfig(req.tenantId);
-  const baseUrl = (appCfg.base_url || '').replace(/\/$/, '');
+  const baseUrl = (appCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   items.forEach(item => {
     if (item.image_url && item.image_url.startsWith('/') && baseUrl) {
       item.image_url = baseUrl + item.image_url;
@@ -160,7 +160,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
 
   // Resolve relative image/audio URLs to absolute
   const hotAppCfg  = await getAppConfig(req.tenantId);
-  const hotBaseUrl = (hotAppCfg.base_url || '').replace(/\/$/, '');
+  const hotBaseUrl = (hotAppCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   items.forEach(item => {
     if (item.image_url && item.image_url.startsWith('/') && hotBaseUrl) {
       item.image_url = hotBaseUrl + item.image_url;

@@ -26,7 +26,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // Resolve relative image/audio URLs to absolute
   const appCfg  = await getAppConfig(req.tenantId);
-  const baseUrl = (appCfg.base_url || '').replace(/\/$/, '');
+  const baseUrl = (appCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   if (match.image_url && match.image_url.startsWith('/') && baseUrl) {
     match.image_url = baseUrl + match.image_url;
   }
