@@ -517,86 +517,22 @@ let articles = [];
     return '—';
   }
 
-  let _pendingAudioArticleId = null;
-  let _selectedVoiceId = null;
-
   async function generateAudio(id) {
-    _pendingAudioArticleId = id;
-    _selectedVoiceId = null;
-
-    // Load voices and render picker
-    let voices = [];
+    const cell = document.getElementById(`audio-cell-${id}`);
+    if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>';
     try {
-      voices = await apiFetch('/voices');
-    } catch (e) { voices = []; }
-
-    const list = document.getElementById('voicePickerList');
-    list.innerHTML = '';
-
-    if (voices.length === 0) {
-      list.innerHTML = '<div class="empty-state"><div class="empty-icon">🎙️</div><p>No voices configured — <a href="/voices.html">add one to get started</a></p></div>';
-    } else {
-      voices.forEach(v => {
-        const card = document.createElement('div');
-        card.className = 'voice-picker-card';
-        card.dataset.voiceId = v.id;
-        card.style.cssText = 'display:flex;gap:12px;align-items:center;padding:12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color 0.15s;';
-
-        const avatarHtml = v.avatar_url
-          ? `<img src="${v.avatar_url}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.outerHTML='<div style=\\'width:40px;height:40px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;\\'>🎙️</div>'" />`
-          : '<div style="width:40px;height:40px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🎙️</div>';
-
-        card.innerHTML = `
-          ${avatarHtml}
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;font-size:14px;">${v.name}${v.is_default ? ' <span style="font-size:11px;color:var(--accent);">Default</span>' : ''}</div>
-            <div style="font-size:12px;color:var(--muted);margin-top:2px;">${v.description || v.voice_id}</div>
-          </div>`;
-
-        card.addEventListener('click', () => {
-          document.querySelectorAll('.voice-picker-card').forEach(c => c.style.borderColor = 'var(--border)');
-          card.style.borderColor = 'var(--accent)';
-          _selectedVoiceId = v.id;
-        });
-
-        list.appendChild(card);
-
-        // Pre-select default voice
-        if (v.is_default) {
-          card.style.borderColor = 'var(--accent)';
-          _selectedVoiceId = v.id;
-        }
+      const data = await apiFetch('/media/generate-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: id })
       });
+      showAlert(`Audio ready (${data.charCount} chars)${data.voiceName ? ' — ' + data.voiceName : ''}`);
+      await loadArticles();
+    } catch (err) {
+      showAlert('Audio generation failed: ' + err.message, 'error');
+      await loadArticles();
     }
-
-    openModal('voicePickerModal');
   }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('confirmGenerateBtn').addEventListener('click', async () => {
-      if (!_pendingAudioArticleId) return;
-      const id = _pendingAudioArticleId;
-      closeModal('voicePickerModal');
-      _pendingAudioArticleId = null;
-
-      const cell = document.getElementById(`audio-cell-${id}`);
-      if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>';
-      try {
-        const payload = { articleId: id };
-        if (_selectedVoiceId) payload.voiceId = _selectedVoiceId;
-        const data = await apiFetch(`/media/generate-audio`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        showAlert(`Audio ready ✓ (${data.charCount} chars)${data.voiceName ? ' — ' + data.voiceName : ''}`);
-        await loadArticles();
-      } catch (err) {
-        showAlert('Audio generation failed: ' + err.message, 'error');
-        await loadArticles();
-      }
-    });
-  });
 
   async function generateImage(id) {
     const btn = document.querySelector(`#row-${id} [title="Generate AI image"]`);

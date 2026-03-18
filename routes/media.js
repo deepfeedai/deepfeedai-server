@@ -126,39 +126,21 @@ router.post('/generate-audio', auth, requirePermission('media.create'), asyncHan
   await db.prepare("UPDATE articles SET audio_status = 'pending', updated_at = NOW() WHERE id = $1 AND tenant_id = $2").run(articleId, req.tenantId);
 
   try {
-    // Resolve voice: explicit voiceId → default voice → settings/env
+    // Resolve voice: explicit voiceId → writer's ElevenLabs voice → app config
     const appCfg = await getAppConfig(req.tenantId);
     let resolvedVoiceId = appCfg.elevenlabs_voice_id;
     let resolvedVoiceName = null;
     let resolvedVoiceAvatarUrl = null;
 
     if (voiceId) {
-      const v = await db.prepare('SELECT * FROM voices WHERE id = $1 AND tenant_id = $2').get(voiceId, req.tenantId);
-      if (v) {
-        resolvedVoiceId = v.voice_id;
-        resolvedVoiceName = v.name;
-        resolvedVoiceAvatarUrl = v.avatar_url || null;
-      }
-    } else {
-      // Prefer the article's assigned writer's linked voice, then fall back to default
-      let writerVoice = null;
-      if (article.writer_id) {
-        const writer = await db.prepare('SELECT voice_id FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
-        if (writer?.voice_id) {
-          writerVoice = await db.prepare('SELECT voice_id, name, avatar_url FROM voices WHERE id = $1 AND tenant_id = $2').get(writer.voice_id, req.tenantId);
-        }
-      }
-      if (writerVoice) {
-        resolvedVoiceId = writerVoice.voice_id;
-        resolvedVoiceName = writerVoice.name;
-        resolvedVoiceAvatarUrl = writerVoice.avatar_url || null;
-      } else {
-        const defaultVoice = await db.prepare('SELECT * FROM voices WHERE tenant_id = $1 AND is_default = 1 LIMIT 1').get(req.tenantId);
-        if (defaultVoice) {
-          resolvedVoiceId = defaultVoice.voice_id;
-          resolvedVoiceName = defaultVoice.name;
-          resolvedVoiceAvatarUrl = defaultVoice.avatar_url || null;
-        }
+      // voiceId is now a direct ElevenLabs voice ID string
+      resolvedVoiceId = voiceId;
+    } else if (article.writer_id) {
+      const writer = await db.prepare('SELECT elevenlabs_voice_id, name, avatar_url FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+      if (writer?.elevenlabs_voice_id) {
+        resolvedVoiceId = writer.elevenlabs_voice_id;
+        resolvedVoiceName = writer.name;
+        resolvedVoiceAvatarUrl = writer.avatar_url || null;
       }
     }
 
@@ -189,6 +171,20 @@ router.post('/generate-audio', auth, requirePermission('media.create'), asyncHan
     logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message, tenantId: req.tenantId }).catch(() => {});
     res.status(500).json({ error: err.message });
   }
+}));
+
+// POST /api/media/preview-voice  { voice_id, text? }
+router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHandler(async (req, res) => {
+  const { voice_id, text } = req.body || {};
+  if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
+
+  let apiKey = EL_API_KEY;
+  const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
+  if (setting?.value) apiKey = decryptSetting(setting.value);
+
+  const previewText = (text && text.trim()) ? text.trim().slice(0, 500) : 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest updates.';
+  const mp3Buf = await generateSpeech(previewText, voice_id, apiKey);
+  res.json({ audio: mp3Buf.toString('base64'), mimeType: 'audio/mpeg' });
 }));
 
 // POST /api/media/generate-image  { articleId }

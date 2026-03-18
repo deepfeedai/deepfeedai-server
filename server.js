@@ -26,7 +26,7 @@ app.use(helmet({
       styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
       imgSrc:         ["'self'", 'data:', 'https:'],
-      mediaSrc:       ["'self'", 'https:'],
+      mediaSrc:       ["'self'", 'https:', 'blob:'],
       connectSrc:     ["'self'"],
       frameSrc:       ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
       frameAncestors: ["'none'"],
@@ -199,7 +199,7 @@ app.use('/api/article',   publicApiLimiter, require('./routes/article'));    // 
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
 app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // public — AI TLDR (rate limited)
 app.use('/api/media',     require('./routes/media'));
-app.use('/api/voices',    require('./routes/voices'));
+// voices route deprecated — ElevenLabs voice IDs now stored directly on writers
 app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     require('./routes/settings'));
 app.use('/api/categories',   require('./routes/categories'));

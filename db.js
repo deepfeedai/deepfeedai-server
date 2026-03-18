@@ -438,6 +438,7 @@ async function initDb() {
     `ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS elevenlabs_voice_id TEXT`,
     `ALTER TABLE settings ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS tenant_id INTEGER NOT NULL DEFAULT 1`,
@@ -570,9 +571,9 @@ async function initDb() {
     // Seed default roles
     `INSERT INTO roles (tenant_id, name, description, permissions, is_system) VALUES
       (1, 'owner', 'Full platform access', '["*"]', true),
-      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","voices.*","settings.*","analytics.*","comments.*","newsletter.*","users.*","audit.read","fetch.execute","synthesis.execute","cron.read","cron.update","cron.execute"]', true),
+      (1, 'admin', 'Administrative access', '["articles.*","sources.*","writers.*","categories.*","media.*","settings.*","analytics.*","comments.*","newsletter.*","users.*","audit.read","fetch.execute","synthesis.execute","cron.read","cron.update","cron.execute"]', true),
       (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
-      (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","voices.read","media.read"]', true)
+      (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]', true)
      ON CONFLICT (tenant_id, name) DO NOTHING`,
     // 1c. Add local_user_id column to tenant_admins
     `ALTER TABLE tenant_admins ADD COLUMN IF NOT EXISTS local_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`,
@@ -785,6 +786,22 @@ async function initDb() {
       if (seeded > 0) console.log(`✅ Seeded ${seeded} writer_beats from legacy beat column`);
     }
   } catch (err) { console.error('[DB] writer_beats seed error:', err.message); }
+
+  // ── Voice deprecation: copy ElevenLabs voice IDs directly to writers ──
+  try {
+    const vdDone = await prepare("SELECT value FROM settings WHERE key = 'voice_deprecation_done'").get();
+    if (!vdDone) {
+      // Copy ElevenLabs voice_id string from voices table to writers that reference them
+      await p.query(`
+        UPDATE writers w
+        SET elevenlabs_voice_id = v.voice_id
+        FROM voices v
+        WHERE w.voice_id = v.id AND w.elevenlabs_voice_id IS NULL
+      `);
+      await p.query("INSERT INTO settings (key, value) VALUES ('voice_deprecation_done', '1') ON CONFLICT (tenant_id, key) DO NOTHING");
+      console.log('✅ Voice deprecation migration: copied ElevenLabs voice IDs to writers');
+    }
+  } catch (err) { console.error('[DB] voice deprecation migration error:', err.message); }
 
   // Backfill slugs for writers missing one
   try {

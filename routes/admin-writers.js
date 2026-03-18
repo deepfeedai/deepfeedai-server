@@ -45,7 +45,7 @@ async function getBeats(writerId, tenantId) {
 // GET /api/admin/writers — list all writers with article + follower counts + beats
 router.get('/', requirePermission('writers.read'), asyncHandler(async (req, res) => {
   const writers = await db.prepare(`
-    SELECT w.*, v.name AS voice_name,
+    SELECT w.*,
            COUNT(DISTINCT a.id)::int AS article_count,
            COUNT(DISTINCT wf.id)::int AS follower_count,
            COALESCE(
@@ -53,13 +53,12 @@ router.get('/', requirePermission('writers.read'), asyncHandler(async (req, res)
              FILTER (WHERE c.id IS NOT NULL), '[]'
            ) AS beats
     FROM writers w
-    LEFT JOIN voices v ON v.id = w.voice_id
     LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1
     LEFT JOIN writer_follows wf ON wf.writer_id = w.id AND wf.tenant_id = $1
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
     WHERE w.tenant_id = $1
-    GROUP BY w.id, v.name
+    GROUP BY w.id
     ORDER BY w.name ASC
   `).all(req.tenantId);
   res.json(writers);
@@ -222,19 +221,14 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
   }
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
-          synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
+          synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-  if (voice_id) {
-    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
-    if (!voice) return res.status(400).json({ error: 'Voice not found' });
-  }
-
   const writer = await db.prepare(`
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
-      synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
+      synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
       tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity, tenant_id)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     RETURNING *
@@ -243,7 +237,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     keywords.length ? keywords : null,
     system_prompt || null, is_auto || false,
     synthesis_schedule, synthesis_lookback_hours, min_cluster_size,
-    voice_id || null,
+    elevenlabs_voice_id || null,
     tone || null, expertise_level || null, style_guide || null,
     JSON.stringify(few_shot_examples || []),
     gender || null, ethnicity || null,
@@ -267,13 +261,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   if (!body) return;
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
-          synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id,
+          synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
-
-  if (voice_id) {
-    const voice = await db.prepare('SELECT id FROM voices WHERE id = $1 AND tenant_id = $2').get(voice_id, req.tenantId);
-    if (!voice) return res.status(400).json({ error: 'Voice not found' });
-  }
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);
@@ -281,7 +270,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   const writer = await db.prepare(`
     UPDATE writers SET name = $1, slug = $2, bio = $3, beat = $4, keywords = $5,
       system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
-      synthesis_lookback_hours = $9, min_cluster_size = $10, voice_id = $11,
+      synthesis_lookback_hours = $9, min_cluster_size = $10, elevenlabs_voice_id = $11,
       tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15,
       gender = $16, ethnicity = $17
     WHERE id = $18 AND tenant_id = $19
@@ -297,7 +286,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     synthesis_schedule !== undefined ? synthesis_schedule : existing.synthesis_schedule,
     synthesis_lookback_hours !== undefined ? synthesis_lookback_hours : existing.synthesis_lookback_hours,
     min_cluster_size !== undefined ? min_cluster_size : existing.min_cluster_size,
-    voice_id !== undefined ? (voice_id || null) : existing.voice_id,
+    elevenlabs_voice_id !== undefined ? (elevenlabs_voice_id || null) : existing.elevenlabs_voice_id,
     tone !== undefined ? (tone || null) : existing.tone,
     expertise_level !== undefined ? (expertise_level || null) : existing.expertise_level,
     style_guide !== undefined ? (style_guide || null) : existing.style_guide,
