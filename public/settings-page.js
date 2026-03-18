@@ -1104,7 +1104,7 @@ let apiKeyVisible = false;
         groups[cat].push(j);
       });
 
-      var categoryOrder = ['Content', 'Media', 'Notifications', 'Maintenance'];
+      var categoryOrder = ['Content', 'Media', 'Notifications', 'Monitoring', 'Maintenance'];
       var html = '';
 
       categoryOrder.forEach(function(cat) {
@@ -1346,7 +1346,7 @@ let apiKeyVisible = false;
     var hourStartSel = document.querySelector('[data-cron-hourstart="' + jobName + '"]');
     var hourEndSel = document.querySelector('[data-cron-hourend="' + jobName + '"]');
 
-    if (!intervalSel) return;
+    if (!intervalSel || !unitSel || !hourLimitCb || !hourStartSel || !hourEndSel) return;
 
     // Parse minute field
     var minStep = minField.match(/^\*\/(\d+)$/);
