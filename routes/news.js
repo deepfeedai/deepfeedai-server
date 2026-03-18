@@ -17,8 +17,7 @@ const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 
-const { getSecrets }   = require('../lib/secrets');
-const { getAppConfig } = require('../lib/app-config');
+const { getSecrets } = require('../lib/secrets');
 
 async function getUserId(req) {
   const authHeader = req.headers.authorization;
@@ -113,15 +112,14 @@ router.get('/', asyncHandler(async (req, res) => {
   const result = await getPool().query(query, params.length ? params : undefined);
   const items  = result.rows.map(serializeRow);
 
-  // Resolve relative image/audio URLs to absolute
-  const appCfg  = await getAppConfig(req.tenantId);
-  const baseUrl = (appCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
   items.forEach(item => {
-    if (item.image_url && item.image_url.startsWith('/') && baseUrl) {
-      item.image_url = baseUrl + item.image_url;
+    if (item.image_url && item.image_url.startsWith('/')) {
+      item.image_url = mediaBase + item.image_url;
     }
-    if (item.audio_url && item.audio_url.startsWith('/') && baseUrl) {
-      item.audio_url = baseUrl + item.audio_url;
+    if (item.audio_url && item.audio_url.startsWith('/')) {
+      item.audio_url = mediaBase + item.audio_url;
     }
   });
 
@@ -158,15 +156,14 @@ router.get('/hot', asyncHandler(async (req, res) => {
   );
   const items = result.rows.map(serializeRow);
 
-  // Resolve relative image/audio URLs to absolute
-  const hotAppCfg  = await getAppConfig(req.tenantId);
-  const hotBaseUrl = (hotAppCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const hotMediaBase = `${req.protocol}://${req.get('host')}`;
   items.forEach(item => {
-    if (item.image_url && item.image_url.startsWith('/') && hotBaseUrl) {
-      item.image_url = hotBaseUrl + item.image_url;
+    if (item.image_url && item.image_url.startsWith('/')) {
+      item.image_url = hotMediaBase + item.image_url;
     }
-    if (item.audio_url && item.audio_url.startsWith('/') && hotBaseUrl) {
-      item.audio_url = hotBaseUrl + item.audio_url;
+    if (item.audio_url && item.audio_url.startsWith('/')) {
+      item.audio_url = hotMediaBase + item.audio_url;
     }
   });
 

@@ -6,7 +6,6 @@ const express               = require('express');
 const router                = express.Router();
 const db                    = require('../db');
 const { toSlug, asyncHandler } = require('../lib/utils');
-const { getAppConfig }      = require('../lib/app-config');
 
 router.get('/', asyncHandler(async (req, res) => {
   const { slug } = req.query;
@@ -24,14 +23,13 @@ router.get('/', asyncHandler(async (req, res) => {
   const match = articles.find(a => toSlug(a.title) === slug);
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
-  // Resolve relative image/audio URLs to absolute
-  const appCfg  = await getAppConfig(req.tenantId);
-  const baseUrl = (appCfg.base_url || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  if (match.image_url && match.image_url.startsWith('/') && baseUrl) {
-    match.image_url = baseUrl + match.image_url;
+  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  if (match.image_url && match.image_url.startsWith('/')) {
+    match.image_url = mediaBase + match.image_url;
   }
-  if (match.audio_url && match.audio_url.startsWith('/') && baseUrl) {
-    match.audio_url = baseUrl + match.audio_url;
+  if (match.audio_url && match.audio_url.startsWith('/')) {
+    match.audio_url = mediaBase + match.audio_url;
   }
 
   // Fetch comment count for this article
