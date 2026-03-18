@@ -1,5 +1,4 @@
 let writers = [];
-let voicesList = [];
 let categoriesList = [];
 let perfData = [];
 let pendingDeleteId = null;
@@ -19,9 +18,6 @@ async function loadWriters() {
   }
 }
 
-async function loadVoicesList() {
-  try { voicesList = await apiFetch('/voices'); } catch { voicesList = []; }
-}
 
 async function loadCategoriesList() {
   try { categoriesList = await apiFetch('/categories'); } catch { categoriesList = []; }
@@ -53,7 +49,7 @@ function renderWriters() {
       + '<td><strong>' + esc(w.name) + '</strong></td>'
       + '<td>' + beatsHtml + '</td>'
       + '<td style="text-align:center;">' + autoBadge + '</td>'
-      + '<td class="text-muted text-sm">' + esc(w.voice_name || 'None') + '</td>'
+      + '<td class="text-muted text-sm">' + (w.elevenlabs_voice_id ? '<span title="' + esc(w.elevenlabs_voice_id) + '">Configured</span>' : 'None') + '</td>'
       + '<td style="text-align:center;">' + (w.article_count || 0) + '</td>'
       + '<td>'
       + '<div style="display:flex;gap:6px;">'
@@ -86,15 +82,6 @@ function getSelectedBeats() {
   var ids = [];
   checks.forEach(function(el) { ids.push(parseInt(el.value)); });
   return ids;
-}
-
-// ── Voice Dropdown ───────────────────────────────────────────────
-
-function populateVoiceDropdown(selectedId) {
-  var sel = document.getElementById('fWriterVoice');
-  sel.innerHTML = '<option value="">None (no audio)</option>' + voicesList.map(function(v) {
-    return '<option value="' + v.id + '"' + (v.id === selectedId ? ' selected' : '') + '>' + esc(v.name) + (v.is_default ? ' (default)' : '') + '</option>';
-  }).join('');
 }
 
 // ── Few-Shot Examples ────────────────────────────────────────────
@@ -150,8 +137,8 @@ function openAdd() {
   document.getElementById('avatarPromptPreview').style.display = 'none';
   document.getElementById('fWriterAvatar').value = '';
   pendingAvatarDataUrl = null;
+  document.getElementById('fWriterElevenLabsVoice').value = '';
   populateBeatsCheckboxes([]);
-  populateVoiceDropdown(null);
   openModal('writerModal');
   document.getElementById('fWriterName').focus();
 }
@@ -186,8 +173,8 @@ function openEdit(id) {
 
   // Populate beats checkboxes with selected IDs
   var beatIds = (w.beats || []).map(function(b) { return typeof b === 'object' ? b.id : b; });
+  document.getElementById('fWriterElevenLabsVoice').value = w.elevenlabs_voice_id || '';
   populateBeatsCheckboxes(beatIds);
-  populateVoiceDropdown(w.voice_id);
 
   // Few-shot examples
   document.getElementById('fewShotContainer').innerHTML = '';
@@ -238,8 +225,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var synthesis_schedule = document.getElementById('fWriterSchedule').value;
   var synthesis_lookback_hours = parseInt(document.getElementById('fWriterLookback').value) || 168;
   var min_cluster_size = parseInt(document.getElementById('fWriterMinCluster').value) || 3;
-  var voiceVal = document.getElementById('fWriterVoice').value;
-  var voice_id = voiceVal ? parseInt(voiceVal) : null;
+  var elevenlabs_voice_id = document.getElementById('fWriterElevenLabsVoice').value.trim() || null;
   var beats = getSelectedBeats();
   var gender = document.getElementById('fWriterGender').value || null;
   var ethnicity = document.getElementById('fWriterEthnicity').value || null;
@@ -261,7 +247,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     synthesis_schedule: synthesis_schedule,
     synthesis_lookback_hours: synthesis_lookback_hours,
     min_cluster_size: min_cluster_size,
-    voice_id: voice_id,
+    elevenlabs_voice_id: elevenlabs_voice_id,
     gender: gender,
     ethnicity: ethnicity,
   };
@@ -762,8 +748,37 @@ async function init() {
   renderSidebar();
   initModals();
   await loadCategoriesList();
-  await loadVoicesList();
   await loadWriters();
+
+  // Voice preview handler
+  document.getElementById('previewVoiceBtn').addEventListener('click', async function() {
+    var voiceId = document.getElementById('fWriterElevenLabsVoice').value.trim();
+    if (!voiceId) { showAlert('Enter an ElevenLabs Voice ID first', 'error'); return; }
+    var statusEl = document.getElementById('voicePreviewStatus');
+    statusEl.style.display = '';
+    statusEl.textContent = 'Generating preview...';
+    this.disabled = true;
+    try {
+      var data = await apiFetch('/media/preview-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice_id: voiceId })
+      });
+      var raw = atob(data.audio);
+      var bytes = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      var blob = new Blob([bytes], { type: 'audio/mpeg' });
+      var blobUrl = URL.createObjectURL(blob);
+      var audio = new Audio(blobUrl);
+      audio.play();
+      statusEl.textContent = 'Playing preview...';
+      audio.onended = function() { statusEl.style.display = 'none'; URL.revokeObjectURL(blobUrl); };
+    } catch (err) {
+      statusEl.textContent = 'Preview failed: ' + err.message;
+    } finally {
+      document.getElementById('previewVoiceBtn').disabled = false;
+    }
+  });
 }
 
 onReady(function() {

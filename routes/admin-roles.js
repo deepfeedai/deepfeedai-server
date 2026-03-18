@@ -44,7 +44,7 @@ router.get('/templates', auth, requirePermission('roles.read'), (_req, res) => {
     {
       name: 'content-manager',
       description: 'Full content management without system access',
-      permissions: ['articles.*', 'sources.*', 'writers.*', 'categories.*', 'media.*', 'voices.*', 'comments.read', 'comments.moderate', 'fetch.execute', 'synthesis.execute', 'analytics.read'],
+      permissions: ['articles.*', 'sources.*', 'writers.*', 'categories.*', 'media.*', 'comments.read', 'comments.moderate', 'fetch.execute', 'synthesis.execute', 'analytics.read'],
     },
     {
       name: 'publisher',
