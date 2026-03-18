@@ -11,6 +11,22 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [2.0.1] — 2026-03-18
+
+### Changed
+- **Deprecate Voices page** — ElevenLabs voice ID now stored directly on each writer (`elevenlabs_voice_id` TEXT field) instead of indirectly via the `voices` table FK. Eliminates the Voices admin page, simplifies audio generation, and lets each writer own their voice config.
+- **Voice preview on Writers page** — text input for ElevenLabs voice ID with inline preview button replaces the old voice dropdown
+- **Simplified audio generation** — articles auto-use their writer's voice; removed voice picker modal from articles page
+- **Data migration** — existing voice assignments automatically copied to writers on startup
+
+### Removed
+- Voices admin page (`/voices.html`)
+- Voices API routes (`/api/voices`)
+- Voice picker modal on articles page
+- `voices.*` permissions from role seeds
+
+---
+
 ## [2.0.0] — 2026-03-17
 
 Production release of v2.0 — multi-tenancy, RBAC, AI writer generation, and niche independence.
