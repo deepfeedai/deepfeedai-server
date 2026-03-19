@@ -412,6 +412,8 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // TLDR column for writer analysis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
+    // Synthesis metadata (source count, names, timespan, word count)
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS synthesis_meta JSONB`,
     // Phase 4: Writer follows
     `CREATE TABLE IF NOT EXISTS writer_follows (
       id         SERIAL PRIMARY KEY,
