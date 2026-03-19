@@ -6,7 +6,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler }      = require('../lib/utils');
 const { sourceCreate, sourceUpdate, validate } = require('../lib/schemas');
 const { checkPlanLimit }    = require('../lib/plan-limits');
-const { logAudit } = require('../middleware/audit');
+const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 
 // POST /api/sources/preview-feed — validate RSS URL and return feed metadata
 const RSSParser = require('rss-parser');
@@ -96,7 +96,7 @@ router.put('/:id', auth, requirePermission('sources.update'), asyncHandler(async
     req.params.id,
     req.tenantId
   );
-  logAudit(req, 'source.update', 'source', parseInt(req.params.id), { name: updated?.name });
+  logAuditWithDiff(req, 'source.update', 'source', parseInt(req.params.id), existing, updated, { name: updated?.name });
   res.json(updated);
 }));
 

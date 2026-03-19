@@ -158,8 +158,8 @@ router.post('/:id/assign-articles', auth, asyncHandler(async (req, res) => {
     `SELECT id, title, summary, category FROM articles
      WHERE writer_id IS NULL AND is_published = 1 AND is_archived = 0
        AND tenant_id = $1
-       AND created_at > NOW() - INTERVAL '${days} days'`
-  ).all(req.tenantId);
+       AND created_at > NOW() - make_interval(days => $2)`
+  ).all(req.tenantId, days);
 
   let assigned = 0;
   for (const article of articles) {

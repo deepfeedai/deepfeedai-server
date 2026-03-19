@@ -22,6 +22,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
 const { getAppConfig } = require('../lib/app-config');
+const { logAudit } = require('../middleware/audit');
 
 const TOP_N = 8; // articles to include per newsletter
 
@@ -70,7 +71,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHan
   const raw = dbResult.rows.map(serializeRow);
 
   const articles = raw
-    .filter(a => a.title && a.source_url)
+    .filter(a => a.title && a.source_url && a.category !== 'Uncategorized')
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
     .slice(0, TOP_N)
     .map(a => ({
@@ -148,6 +149,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHan
     console.error('[newsletter] failed to log send:', e.message);
   }
 
+  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId });
   console.log(`[newsletter] sent broadcast ${broadcastId} with ${articles.length} articles`);
   return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
 }));

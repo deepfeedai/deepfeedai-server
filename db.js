@@ -412,6 +412,8 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('auto_audio_daily_max', '3') ON CONFLICT (tenant_id, key) DO NOTHING`,
     // TLDR column for writer analysis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_overview TEXT`,
+    // Synthesis metadata (source count, names, timespan, word count)
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS synthesis_meta JSONB`,
     // Phase 4: Writer follows
     `CREATE TABLE IF NOT EXISTS writer_follows (
       id         SERIAL PRIMARY KEY,
@@ -595,7 +597,10 @@ async function initDb() {
       ip_address  TEXT,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON audit_log(tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(tenant_id, action, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(tenant_id, user_id, created_at DESC)`,
     // Saved searches for Discover
     `CREATE TABLE IF NOT EXISTS saved_searches (
       id          SERIAL PRIMARY KEY,
@@ -711,57 +716,45 @@ async function initDb() {
     if (!migDone) {
       const vCount = await prepare('SELECT COUNT(*) AS cnt FROM voices').get();
       const wCount = await prepare('SELECT COUNT(*) AS cnt FROM writers').get();
-      if (parseInt(vCount.cnt) > 0) {
-        // Seed writers from voices if not already done
-        if (parseInt(wCount.cnt) === 0) {
-          await p.query(`
-            INSERT INTO writers (name, slug, avatar_url, bio, beat, keywords, system_prompt,
-              is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id, created_at)
-            SELECT name, slug, avatar_url, bio, beat, keywords, system_prompt,
-              is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, id, created_at
-            FROM voices
-          `);
-          console.log('  Writers seeded from voices table');
+      // Seed writers from voices if voices exist and writers table is empty
+      if (parseInt(vCount.cnt) > 0 && parseInt(wCount.cnt) === 0) {
+        await p.query(`
+          INSERT INTO writers (name, slug, avatar_url, bio, beat, keywords, system_prompt,
+            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, voice_id, created_at)
+          SELECT name, slug, avatar_url, bio, beat, keywords, system_prompt,
+            is_auto, synthesis_schedule, synthesis_lookback_hours, min_cluster_size, id, created_at
+          FROM voices
+        `);
+        console.log('  Writers seeded from voices table');
 
-          // Build old voice_id → new writer_id mapping and update FKs
-          const mapping = await prepare('SELECT id AS writer_id, voice_id AS old_voice_id FROM writers').all();
-          for (const m of mapping) {
-            await p.query('UPDATE articles SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
-            await p.query('UPDATE writer_follows SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
-          }
+        // Build old voice_id → new writer_id mapping and update FKs
+        const mapping = await prepare('SELECT id AS writer_id, voice_id AS old_voice_id FROM writers').all();
+        for (const m of mapping) {
+          await p.query('UPDATE articles SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
+          await p.query('UPDATE writer_follows SET writer_id = $1 WHERE writer_id = $2', [m.writer_id, m.old_voice_id]);
         }
-
-        // Drop ALL FK constraints on writer_id columns, then add new ones pointing to writers
-        // Find actual constraint names dynamically (names may vary across environments)
-        const artFks = await p.query(`
-          SELECT con.conname FROM pg_constraint con
-          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
-          WHERE con.conrelid = 'articles'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
-        `);
-        for (const row of artFks.rows) {
-          await p.query(`ALTER TABLE articles DROP CONSTRAINT "${row.conname}"`);
-        }
-        const wfFks = await p.query(`
-          SELECT con.conname FROM pg_constraint con
-          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
-          WHERE con.conrelid = 'writer_follows'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
-        `);
-        for (const row of wfFks.rows) {
-          await p.query(`ALTER TABLE writer_follows DROP CONSTRAINT "${row.conname}"`);
-        }
-        // Drop any old articles.writer_id FK pointing to wrong table (voices)
-        const artWrFks = await p.query(`
-          SELECT con.conname FROM pg_constraint con
-          JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
-          WHERE con.conrelid = 'articles'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
-        `);
-        for (const row of artWrFks.rows) {
-          await p.query(`ALTER TABLE articles DROP CONSTRAINT "${row.conname}"`);
-        }
-        try { await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL'); } catch { /* already exists */ }
-        try { await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE'); } catch { /* already exists */ }
-        console.log('  FK constraints re-pointed to writers table');
       }
+
+      // Always re-point FK constraints to writers table (fixes fresh installs where
+      // the initial schema creates writer_id REFERENCES voices(id))
+      const artFks = await p.query(`
+        SELECT con.conname FROM pg_constraint con
+        JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
+        WHERE con.conrelid = 'articles'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
+      `);
+      for (const row of artFks.rows) {
+        await p.query(`ALTER TABLE articles DROP CONSTRAINT "${row.conname}"`);
+      }
+      const wfFks = await p.query(`
+        SELECT con.conname FROM pg_constraint con
+        JOIN pg_attribute att ON att.attnum = ANY(con.conkey) AND att.attrelid = con.conrelid
+        WHERE con.conrelid = 'writer_follows'::regclass AND con.contype = 'f' AND att.attname = 'writer_id'
+      `);
+      for (const row of wfFks.rows) {
+        await p.query(`ALTER TABLE writer_follows DROP CONSTRAINT "${row.conname}"`);
+      }
+      try { await p.query('ALTER TABLE articles ADD CONSTRAINT articles_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE SET NULL'); } catch { /* already exists */ }
+      try { await p.query('ALTER TABLE writer_follows ADD CONSTRAINT writer_follows_writer_id_writers_fkey FOREIGN KEY (writer_id) REFERENCES writers(id) ON DELETE CASCADE'); } catch { /* already exists */ }
       await p.query("INSERT INTO settings (key, value) VALUES ('writers_migration_done', '1') ON CONFLICT (tenant_id, key) DO NOTHING");
       console.log('✅ Writers migration complete');
     }

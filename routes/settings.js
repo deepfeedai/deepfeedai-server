@@ -12,6 +12,7 @@ const { asyncHandler }       = require('../lib/utils');
 const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
+const { bustAppConfigCache } = require('../lib/app-config');
 
 // Keys that are managed by lib/secrets.js and must never be returned to the frontend
 const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
@@ -26,10 +27,17 @@ const BRANDING_DIR = path.join(__dirname, '..', 'public', 'media', 'branding');
 // never be returned to the frontend (prevents credential extraction via admin session).
 router.get('/', requireAdmin, requirePermission('settings.read'), asyncHandler(async (req, res) => {
   const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1').all(req.tenantId);
+  // Check if caller has permission to see decrypted sensitive values
+  const perms = req.user?.permissions || [];
+  const canReadSensitive = perms.includes('*') || perms.includes('settings.read.sensitive');
   const result = {};
   for (const row of rows) {
     if (SECRET_MANAGER_KEYS.has(row.key)) continue; // never expose JWT/cron secrets
-    result[row.key] = SENSITIVE_KEYS.has(row.key) ? decryptSetting(row.value) : row.value;
+    if (SENSITIVE_KEYS.has(row.key)) {
+      result[row.key] = canReadSensitive ? decryptSetting(row.value) : (row.value ? '********' : '');
+    } else {
+      result[row.key] = row.value;
+    }
   }
   res.json(result);
 }));
@@ -49,6 +57,16 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   const pool = getPool();
   let hasSiteKey = false;
 
+  // Capture before values for diff
+  const beforeKeys = Object.keys(body);
+  const beforeResult = beforeKeys.length > 0
+    ? await pool.query('SELECT key, value FROM settings WHERE tenant_id = $1 AND key = ANY($2)', [req.tenantId, beforeKeys])
+    : { rows: [] };
+  const beforeMap = {};
+  for (const r of beforeResult.rows) {
+    beforeMap[r.key] = SENSITIVE_KEYS.has(r.key) ? '***' : r.value;
+  }
+
   for (const [key, value] of Object.entries(body)) {
     if (key.startsWith('site_')) hasSiteKey = true;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
@@ -61,11 +79,16 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   }
 
   if (hasSiteKey) bustSiteConfigCache();
+  bustAppConfigCache(req.tenantId);
 
-  // Audit log each changed key
+  // Audit log with before/after diff
+  const changes = {};
   for (const key of Object.keys(body)) {
-    logAudit(req, 'settings.update', 'settings', null, { key, changed: true });
+    const fromVal = SENSITIVE_KEYS.has(key) ? '***' : (beforeMap[key] ?? null);
+    const toVal = SENSITIVE_KEYS.has(key) ? '***' : body[key];
+    if (fromVal !== toVal) changes[key] = { from: fromVal, to: toVal };
   }
+  logAudit(req, 'settings.update', 'settings', null, { changes });
 
 
   const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1').all(req.tenantId);

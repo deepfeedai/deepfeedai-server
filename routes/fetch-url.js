@@ -15,6 +15,14 @@ const { getSiteConfig }     = require('../lib/site-config');
 
 const PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|fc|fd)/;
 
+/** Validate URL does not resolve to a private/internal IP */
+async function validateUrlSsrf(urlStr) {
+  const parsed = new URL(urlStr);
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only http/https allowed');
+  const resolved = await dns.lookup(parsed.hostname);
+  if (PRIVATE_IP_RE.test(resolved.address)) throw new Error('Private/internal URLs are not allowed');
+}
+
 /** Fetch raw HTML from a URL, following up to 3 redirects */
 function fetchHtml(url, redirects = 0, userAgent) {
   return new Promise((resolve, reject) => {
@@ -30,13 +38,15 @@ function fetchHtml(url, redirects = 0, userAgent) {
     };
 
     lib.get(url, options, (res) => {
-      // Follow redirects
+      // Follow redirects — re-validate SSRF on each hop
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         const next = res.headers.location.startsWith('http')
           ? res.headers.location
           : new URL(res.headers.location, url).href;
         res.resume();
-        return resolve(fetchHtml(next, redirects + 1, userAgent));
+        return validateUrlSsrf(next)
+          .then(() => resolve(fetchHtml(next, redirects + 1, userAgent)))
+          .catch(reject);
       }
 
       let html = '';

@@ -21,7 +21,7 @@ router.post('/', async (req, res) => {
     return res.status(500).json({ error: 'Newsletter service not configured.' });
   }
 
-  const email = (req.body?.email || '').trim().toLowerCase();
+  const email = (req.body?.email || '').trim().toLowerCase().slice(0, 254);
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'Please enter a valid email address.' });

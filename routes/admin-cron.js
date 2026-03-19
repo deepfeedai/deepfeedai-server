@@ -69,16 +69,16 @@ router.get('/', auth, requirePermission('cron.read'), asyncHandler(async (req, r
     let scheduleSetting = null;
     try {
       scheduleSetting = await db.prepare(
-        "SELECT value FROM settings WHERE tenant_id = 1 AND key = $1"
-      ).get(`cron_${job.name}_schedule`);
+        "SELECT value FROM settings WHERE tenant_id = $1 AND key = $2"
+      ).get(req.tenantId, `cron_${job.name}_schedule`);
     } catch { /* use default */ }
 
     // Get enabled state from settings
     let enabledSetting = null;
     try {
       enabledSetting = await db.prepare(
-        "SELECT value FROM settings WHERE tenant_id = 1 AND key = $1"
-      ).get(`cron_${job.name}_enabled`);
+        "SELECT value FROM settings WHERE tenant_id = $1 AND key = $2"
+      ).get(req.tenantId, `cron_${job.name}_enabled`);
     } catch { /* default to enabled */ }
 
     // Get last run info
@@ -130,8 +130,8 @@ router.put('/:name', auth, requirePermission('cron.update'), asyncHandler(async 
       return res.status(400).json({ error: `Schedule too frequent for "${name}". Minimum interval: ${Math.round(minSecs / 60)} minutes.` });
     }
     await db.prepare(
-      "INSERT INTO settings (tenant_id, key, value) VALUES (1, $1, $2) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2"
-    ).run(`cron_${name}_schedule`, schedule);
+      "INSERT INTO settings (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $3"
+    ).run(req.tenantId, `cron_${name}_schedule`, schedule);
     changes.schedule = schedule;
   }
 
@@ -139,8 +139,8 @@ router.put('/:name', auth, requirePermission('cron.update'), asyncHandler(async 
   if (enabled !== undefined) {
     const val = enabled ? '1' : '0';
     await db.prepare(
-      "INSERT INTO settings (tenant_id, key, value) VALUES (1, $1, $2) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2"
-    ).run(`cron_${name}_enabled`, val);
+      "INSERT INTO settings (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $3"
+    ).run(req.tenantId, `cron_${name}_enabled`, val);
     changes.enabled = enabled;
   }
 
@@ -150,7 +150,7 @@ router.put('/:name', auth, requirePermission('cron.update'), asyncHandler(async 
   }
 
   // Bust app config cache
-  bustAppConfigCache(1);
+  bustAppConfigCache(req.tenantId);
 
   // Audit log
   await logAudit(req, 'cron.update', 'cron', null, { job: name, ...changes });

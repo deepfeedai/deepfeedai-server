@@ -22,7 +22,7 @@ app.use(helmet({
     directives: {
       defaultSrc:     ["'self'"],
       scriptSrc:      ["'self'", "'unsafe-inline'"],
-      scriptSrcAttr:  ["'unsafe-inline'"], // allow inline onclick handlers in admin panel
+      scriptSrcAttr:  ["'unsafe-inline'"], // TODO: migrate inline onclick handlers to addEventListener, then remove
       styleSrc:       ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc:        ["'self'", 'https://fonts.gstatic.com'],
       imgSrc:         ["'self'", 'data:', 'https:'],
@@ -56,6 +56,29 @@ const publicApiLimiter = rateLimit({
   legacyHeaders:   false,
   keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
+  validate:       false,
+});
+
+// Admin write rate limiter — protects mutation endpoints and AI-budget endpoints
+const adminWriteLimiter = rateLimit({
+  windowMs:       60 * 1000, // 1 minute
+  max:            60,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator:   (req) => req.user?.sub ? `admin:${req.user.sub}` : `ip:${req.ip}`,
+  message:        { error: 'Too many admin write requests. Please slow down.' },
+  validate:       false,
+  skip:           (req) => req.method === 'GET' || req.method === 'OPTIONS',
+});
+
+// Tight limiter for AI-budget-consuming endpoints
+const aiLimiter = rateLimit({
+  windowMs:       60 * 1000,
+  max:            10,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator:   (req) => req.user?.sub ? `ai:${req.user.sub}` : `ip:${req.ip}`,
+  message:        { error: 'Too many AI generation requests. Please slow down.' },
   validate:       false,
 });
 
@@ -95,7 +118,7 @@ app.use(async (req, res, next) => {
   } catch {
     allowedOrigins = [];
   }
-  if (allowedOrigins.length === 0) allowedOrigins = DEFAULT_LOCAL_ORIGINS;
+  if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') allowedOrigins = DEFAULT_LOCAL_ORIGINS;
 
   // Allow *.deepfeedai.com subdomains and validated custom domains for tenant access
   const isTenantSubdomain = /^https:\/\/[a-z0-9-]+\.deepfeedai\.com$/.test(origin);
@@ -132,8 +155,12 @@ app.use(async (req, res, next) => {
 });
 
 // ── Body Parsers ───────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Default: small limit for public endpoints (DoS mitigation)
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: true, limit: '64kb' }));
+
+// Admin routes with larger payloads get a higher limit via per-route middleware
+const largeBodyParser = express.json({ limit: '2mb' });
 
 // ── Static files ────────────────────────────────────────────────────
 // Allow cross-origin loading of media files (audio, images) from frontend
@@ -193,15 +220,15 @@ app.use('/api/media/file', (req, res, next) => {
 // ── API Routes ──────────────────────────────────────────────────────
 app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
-app.use('/api/articles',  require('./routes/articles'));
+app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
 app.use('/api/sources',   require('./routes/sources'));
 app.use('/api/article',   publicApiLimiter, require('./routes/article'));    // public — single article by slug
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
 app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // public — AI TLDR (rate limited)
-app.use('/api/media',     require('./routes/media'));
+app.use('/api/media',     aiLimiter, require('./routes/media'));
 // voices route deprecated — ElevenLabs voice IDs now stored directly on writers
 app.use('/api/writers',   require('./routes/writers'));
-app.use('/api/settings',     require('./routes/settings'));
+app.use('/api/settings',     largeBodyParser, require('./routes/settings'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
@@ -222,13 +249,13 @@ app.use('/api/article-reactions', require('./routes/article-reactions'));    // 
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
 
 const { auth } = require('./middleware/auth');
-app.use('/api/admin/users',   require('./routes/admin-users'));
+app.use('/api/admin/users',   adminWriteLimiter, require('./routes/admin-users'));
 app.use('/api/admin/roles',   require('./routes/admin-roles'));
 app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
-app.use('/api/synthesis', auth, require('./routes/synthesis'));
+app.use('/api/synthesis', auth, largeBodyParser, require('./routes/synthesis'));
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
@@ -472,7 +499,7 @@ registerJob({
        WHERE tenant_id = $1
          AND is_archived = 1
          AND archived_at IS NOT NULL
-         AND archived_at <= NOW() - ($2 || ' hours')::INTERVAL`,
+         AND archived_at <= NOW() - make_interval(hours => $2)`,
       [tenantId, graceHours]
     );
     if (result.rowCount > 0) {
@@ -520,6 +547,46 @@ registerJob({
     await sendBudgetAlert(alert, tenantId);
     console.log(`[Cron] Budget alert sent (tenant ${tenantId}): ${alert.level} (${alert.pctUsed}%)`);
     return { warn: true, level: alert.level, pctUsed: alert.pctUsed, sent: true };
+  },
+});
+
+registerJob({
+  name: 'audit-alerts',
+  description: 'Suspicious activity check',
+  category: 'Monitoring',
+  defaultSchedule: '*/15 * * * *',
+  handler: async (tenantId) => {
+    const { detectSuspiciousActivity } = require('./lib/audit-alerts');
+    const alerts = await detectSuspiciousActivity(tenantId);
+    if (alerts.length > 0) {
+      console.warn(`[Cron] Audit alerts (tenant ${tenantId}): ${alerts.length} suspicious patterns detected`);
+    }
+    return { alertCount: alerts.length, alerts: alerts.map(a => a.type) };
+  },
+});
+
+registerJob({
+  name: 'audit-retention',
+  description: 'Audit log retention cleanup',
+  category: 'Maintenance',
+  defaultSchedule: '0 3 * * 0',
+  handler: async (tenantId) => {
+    const { logAudit } = require('./middleware/audit');
+    const retentionSetting = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'audit_retention_days'").get(tenantId);
+    const retentionDays = Math.max(parseInt(retentionSetting?.value) || 90, 30);
+
+    const result = await db.getPool().query(
+      `DELETE FROM audit_log WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
+      [tenantId, retentionDays]
+    );
+    const deleted = result.rowCount;
+
+    if (deleted > 0) {
+      // Log the retention cleanup itself
+      await logAudit({ tenantId, user: { type: 'cron' }, ip: '127.0.0.1' }, 'audit.retention', 'audit_log', null, { retentionDays, deleted });
+      console.log(`[Cron] Audit retention (tenant ${tenantId}): deleted ${deleted} entries older than ${retentionDays} days`);
+    }
+    return { deleted, retentionDays };
   },
 });
 
