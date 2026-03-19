@@ -12,6 +12,7 @@ const { asyncHandler }       = require('../lib/utils');
 const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
+const { bustAppConfigCache } = require('../lib/app-config');
 
 // Keys that are managed by lib/secrets.js and must never be returned to the frontend
 const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
@@ -78,6 +79,7 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   }
 
   if (hasSiteKey) bustSiteConfigCache();
+  bustAppConfigCache(req.tenantId);
 
   // Audit log with before/after diff
   const changes = {};
