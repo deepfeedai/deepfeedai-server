@@ -71,7 +71,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHan
   const raw = dbResult.rows.map(serializeRow);
 
   const articles = raw
-    .filter(a => a.title && a.source_url)
+    .filter(a => a.title && a.source_url && a.category !== 'Uncategorized')
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
     .slice(0, TOP_N)
     .map(a => ({
