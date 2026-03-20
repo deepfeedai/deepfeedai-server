@@ -24,6 +24,10 @@
           <button class="tab-btn" data-tab="drafts">Drafts <span class="tab-badge" id="draftCount"></span></button>
         </div>
         <div class="btn-group">
+          <div class="view-toggle" id="viewToggle" title="Switch view">
+            <button class="view-toggle-btn active" data-view="table" title="Table view">☰</button>
+            <button class="view-toggle-btn" data-view="cards" title="Card view">▦</button>
+          </div>
           <label id="showArchivedWrap" class="text-sm text-muted" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" id="showArchived" /> Show archived
           </label>
@@ -120,7 +124,8 @@
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
 
-      <div class="table-wrap"><div class="table-scroll">
+      <!-- Desktop: table view -->
+      <div class="table-wrap articles-desktop"><div class="table-scroll">
         <table id="articlesTable">
           <thead>
             <tr>
@@ -144,6 +149,10 @@
           </tbody>
         </table>
       </div></div>
+
+      <!-- Mobile: card view -->
+      <div class="articles-mobile" id="articlesMobileList"></div>
+
       <div id="articlesPagination"></div>
     </div>
   </div>

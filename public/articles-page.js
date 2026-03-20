@@ -14,8 +14,20 @@ let articles = [];
   let categoryFilter = 'all';
   let writerNameFilter = 'all';
   let activeTab   = 'all';
+  let viewMode    = localStorage.getItem('dfa_articles_view') || 'table';
   let artPage     = 1;
   let artPageSize = 25;
+
+  function applyViewMode() {
+    const desktop = document.querySelector('.articles-desktop');
+    const mobile = document.querySelector('.articles-mobile');
+    if (!desktop || !mobile) return;
+    desktop.style.display = viewMode === 'table' ? '' : 'none';
+    mobile.style.display = viewMode === 'cards' ? 'block' : 'none';
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === viewMode);
+    });
+  }
 
   function escHtml(str) {
     if (!str) return '';
@@ -181,10 +193,12 @@ let articles = [];
 
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
+    const mobileList = document.getElementById('articlesMobileList');
     if (articles.length === 0) {
       tbody.innerHTML = `<tr><td colspan="11">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
+      if (mobileList) mobileList.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>';
       document.getElementById('articlesPagination').innerHTML = '';
       updateBulkToolbar();
       return;
@@ -192,6 +206,7 @@ let articles = [];
 
     const pageArticles = articles.slice((artPage - 1) * artPageSize, artPage * artPageSize);
 
+    // ── Desktop table rows ──
     tbody.innerHTML = pageArticles.map(a => {
       const isArchived = !!a.is_archived;
       const rowClass = [
@@ -257,6 +272,60 @@ let articles = [];
       </tr>`;
     }).join('');
 
+    // ── Mobile card view ──
+    if (mobileList) {
+      mobileList.innerHTML = pageArticles.map(a => {
+        const isArchived = !!a.is_archived;
+        const writer = writersList.find(x => x.id === a.writer_id);
+        const cardClass = [
+          'article-card',
+          selectedIds.has(a.id) ? 'card-selected' : '',
+          isArchived ? 'card-archived' : ''
+        ].filter(Boolean).join(' ');
+        return `
+        <div class="${cardClass}" id="mcard-${a.id}">
+          <div class="article-card-header">
+            <input type="checkbox" class="card-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
+            <div class="article-card-title">${escHtml(a.title)}</div>
+          </div>
+          <div class="article-card-meta">
+            ${isArchived
+              ? '<span class="badge badge-archived">Archived</span>'
+              : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}" style="cursor:pointer;border:none;background:inherit;" onclick="togglePublish(${a.id})">${a.is_published ? 'Published' : 'Draft'}</button>`}
+            <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
+            ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
+            <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
+          </div>
+          ${a.source ? `<div class="article-card-source text-muted text-sm">${escHtml(a.source)}</div>` : ''}
+          <div class="article-card-actions">
+            ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
+            ${isArchived ? `
+              <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
+            ` : `
+              <button class="btn btn-ghost btn-sm btn-icon" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄' : '✅'}</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
+            `}
+          </div>
+        </div>`;
+      }).join('');
+
+      // Wire up card checkboxes
+      mobileList.querySelectorAll('.card-check').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = parseInt(cb.dataset.id);
+          if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+          const card = document.getElementById(`mcard-${id}`);
+          if (card) card.classList.toggle('card-selected', cb.checked);
+          updateBulkToolbar();
+        });
+      });
+    }
+
     // Wire up row checkboxes
     tbody.querySelectorAll('.row-check').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -274,6 +343,8 @@ let articles = [];
       (p) => { artPage = p; renderTable(); },
       (s) => { artPageSize = s; artPage = 1; renderTable(); }
     );
+
+    applyViewMode();
   }
 
   /* ---------- Image helpers ---------- */
@@ -1024,6 +1095,15 @@ let articles = [];
       showArchived = e.target.checked;
       selectedIds.clear();
       applyFilters();
+    });
+
+    // View toggle
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        viewMode = btn.dataset.view;
+        localStorage.setItem('dfa_articles_view', viewMode);
+        applyViewMode();
+      });
     });
 
     // Sortable column headers
