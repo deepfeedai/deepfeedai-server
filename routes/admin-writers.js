@@ -3,24 +3,22 @@
  * Admin CRUD for writer personas (separate from TTS voices).
  */
 const express          = require('express');
-const path             = require('path');
 const router           = express.Router();
 const db               = require('../db');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler, toSlug } = require('../lib/utils');
 const { writerCreate, writerUpdate, validate } = require('../lib/schemas');
-const { extFromMime, upload: r2Upload } = require('../lib/r2');
+const { extFromMime } = require('../lib/r2');
+const storage = require('../lib/storage');
 const { checkPlanLimit }    = require('../lib/plan-limits');
 const { logAudit } = require('../middleware/audit');
 const { getCategories }     = require('../lib/categories');
 const { getGeminiKey }      = require('../lib/gemini-config');
 
-const AVATAR_DIR = path.join(__dirname, '..', 'public', 'media', 'avatars');
-
-async function storeAvatar(buf, mimeType, writerId) {
+async function storeAvatar(buf, mimeType, writerId, tenantId) {
   const ext = extFromMime(mimeType);
   const filename = `writer-${writerId}.${ext}`;
-  return r2Upload(buf, mimeType, `avatars/${filename}`, AVATAR_DIR, `avatars/${filename}`);
+  return storage.upload(buf, mimeType, `avatars/${filename}`, tenantId);
 }
 
 /** Sync writer_beats junction table from an array of category IDs */
@@ -327,7 +325,7 @@ router.post('/:id/avatar', requirePermission('writers.update'), asyncHandler(asy
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
 
-  const avatarUrl = await storeAvatar(Buffer.from(match[2], 'base64'), match[1], id);
+  const avatarUrl = await storeAvatar(Buffer.from(match[2], 'base64'), match[1], id, req.tenantId);
   await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
   const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json(updated);
@@ -392,7 +390,7 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
     return res.status(502).json({ error: 'No image returned from Imagen' });
   }
 
-  const avatarUrl = await storeAvatar(Buffer.from(b64, 'base64'), 'image/png', id);
+  const avatarUrl = await storeAvatar(Buffer.from(b64, 'base64'), 'image/png', id, req.tenantId);
   await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
 
   const { logUsage } = require('../lib/ai-usage');

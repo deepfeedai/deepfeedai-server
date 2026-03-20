@@ -16,11 +16,9 @@ const { bustAppConfigCache } = require('../lib/app-config');
 
 // Keys that are managed by lib/secrets.js and must never be returned to the frontend
 const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
-const { extFromMime, upload: r2Upload } = require('../lib/r2');
+const { extFromMime } = require('../lib/r2');
+const storage = require('../lib/storage');
 const { logAudit } = require('../middleware/audit');
-const path = require('path');
-
-const BRANDING_DIR = path.join(__dirname, '..', 'public', 'media', 'branding');
 
 // GET /api/settings — return all settings as key/value object (decrypt sensitive values)
 // JWT and cron secrets are excluded — they are managed via lib/secrets.js and must
@@ -80,6 +78,8 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
 
   if (hasSiteKey) bustSiteConfigCache();
   bustAppConfigCache(req.tenantId);
+  const r2Keys = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
+  if (r2Keys.some(k => k in body)) storage.bustR2ConfigCache();
 
   // Audit log with before/after diff
   const changes = {};
@@ -92,10 +92,16 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
 
 
   const rows = await db.prepare('SELECT key, value FROM settings WHERE tenant_id = $1').all(req.tenantId);
+  const perms = req.user?.permissions || [];
+  const canReadSensitive = perms.includes('*') || perms.includes('settings.read.sensitive');
   const result = {};
   for (const row of rows) {
-    if (SECRET_MANAGER_KEYS.has(row.key)) continue; // never expose JWT/cron secrets
-    result[row.key] = SENSITIVE_KEYS.has(row.key) ? decryptSetting(row.value) : row.value;
+    if (SECRET_MANAGER_KEYS.has(row.key)) continue;
+    if (SENSITIVE_KEYS.has(row.key)) {
+      result[row.key] = canReadSensitive ? decryptSetting(row.value) : (row.value ? '********' : '');
+    } else {
+      result[row.key] = row.value;
+    }
   }
   res.json(result);
 }));
@@ -127,7 +133,7 @@ router.post('/logo', requireAdmin, requirePermission('settings.update'), asyncHa
   const filename = `${bt.filename}.${ext}`;
   const r2Key = `branding/${filename}`;
 
-  const url = await r2Upload(buf, mimeType, r2Key, BRANDING_DIR, filename);
+  const url = await storage.upload(buf, mimeType, r2Key, req.tenantId);
 
   const pool = getPool();
   await pool.query(
