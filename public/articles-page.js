@@ -240,12 +240,14 @@ let articles = [];
             <span class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}" style="min-width:44px;text-align:center;">
               ${a.is_featured ? (a.featured_priority ? '⭐' + a.featured_priority : '⭐') : '—'}
             </span>
-            <select class="featured-priority-select" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;"
+            <select class="featured-priority-select" style="font-size:12px;padding:4px 6px;min-width:60px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;"
               onchange="setFeaturedPriority(${a.id}, this.value)" title="Set featured priority (1=top)">
               <option value="0"  ${!a.is_featured              ? 'selected' : ''}>Off</option>
               <option value="1"  ${a.featured_priority === 1   ? 'selected' : ''}>#1</option>
               <option value="2"  ${a.featured_priority === 2   ? 'selected' : ''}>#2</option>
               <option value="3"  ${a.featured_priority === 3   ? 'selected' : ''}>#3</option>
+              <option value="4"  ${a.featured_priority === 4   ? 'selected' : ''}>#4</option>
+              <option value="5"  ${a.featured_priority === 5   ? 'selected' : ''}>#5</option>
             </select>
           </div>`}
         </td>
