@@ -68,6 +68,7 @@ router.get('/', asyncHandler(async (req, res) => {
     embed_type:             match.embed_type             || null,
     source_type:            match.source_type            || null,
     synthesis_meta:         match.synthesis_meta         || null,
+    inline_images:          match.inline_images          || [],
   });
 }));
 
