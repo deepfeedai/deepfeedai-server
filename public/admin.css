@@ -1551,6 +1551,20 @@ kbd {
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
+.filter-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: var(--text-sm);
+  padding: 5px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.filter-select:hover { border-color: var(--accent); }
+.filter-select:focus { border-color: var(--accent); }
 .filter-pill {
   background: transparent;
   border: 1px solid var(--border);
