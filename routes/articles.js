@@ -314,7 +314,7 @@ router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHand
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
-  const MAX_FEATURED = 3;
+  const MAX_FEATURED = 5;
   const { priority } = req.body || {};
 
   // Unfeature: no priority supplied, or priority === 0/null
@@ -326,8 +326,8 @@ router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHand
   }
 
   const slot = parseInt(priority);
-  if (![1, 2, 3].includes(slot)) {
-    return res.status(400).json({ error: 'priority must be 1, 2, or 3' });
+  if (slot < 1 || slot > MAX_FEATURED) {
+    return res.status(400).json({ error: `priority must be between 1 and ${MAX_FEATURED}` });
   }
 
   // Count currently featured (excluding this article)

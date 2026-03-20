@@ -487,7 +487,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 }
 
 #articlesTable .featured-priority-select {
-  max-width: 42px;
+  max-width: 60px;
 }
 
 
@@ -667,6 +667,14 @@ select.form-control {
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 30px;
+}
+select.form-control option,
+select#fFeatured option,
+.filter-select option,
+.featured-priority-select option,
+.inline-edit-select option {
+  color: #000 !important;
+  background: #fff !important;
 }
 
 textarea.form-control {

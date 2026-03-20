@@ -73,12 +73,9 @@ async function fetchEngagement(slugs, tenantId) {
 // ?feed=following — filter to articles by writers the current user follows (requires Bearer token)
 router.get('/', asyncHandler(async (req, res) => {
   const { category, limit: lim, featured, writer, feed } = req.query;
-  let query = `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
-                      w.avatar_url AS writer_avatar_url,
-                      (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
-               FROM articles a
-               LEFT JOIN writers w ON w.id = a.writer_id
-               WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`;
+
+  // Build filter conditions separately so they can be shared with the count query
+  const conditions = ['a.tenant_id = $1', 'a.is_published = 1', '(a.is_archived = 0 OR a.is_archived IS NULL)'];
   const params = [req.tenantId];
 
   // "Following" feed: only articles by writers the user follows
@@ -86,42 +83,61 @@ router.get('/', asyncHandler(async (req, res) => {
     const userId = await getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized — sign in to use the following feed' });
     params.push(userId);
-    query += ` AND a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${params.length})`;
+    conditions.push(`a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${params.length})`);
   }
 
   if (category) {
     params.push(category);
-    query += ` AND a.category = $${params.length}`;
+    conditions.push(`a.category = $${params.length}`);
   }
   if (featured !== undefined) {
     params.push(parseInt(featured));
-    query += ` AND a.is_featured = $${params.length}`;
+    conditions.push(`a.is_featured = $${params.length}`);
   }
   if (writer) {
     params.push(writer);
-    query += ` AND w.slug = $${params.length}`;
+    conditions.push(`w.slug = $${params.length}`);
   }
   if (req.query.content_type) {
     const types = req.query.content_type.split(',').map(t => t.trim()).filter(Boolean);
     if (types.length === 1) {
       params.push(types[0]);
-      query += ` AND a.content_type = $${params.length}`;
+      conditions.push(`a.content_type = $${params.length}`);
     } else if (types.length > 1) {
       const placeholders = types.map((_, i) => `$${params.length + i + 1}`).join(', ');
       types.forEach(t => params.push(t));
-      query += ` AND a.content_type IN (${placeholders})`;
+      conditions.push(`a.content_type IN (${placeholders})`);
     }
   }
 
+  const whereClause = 'WHERE ' + conditions.join(' AND ');
+  const whereParams = [...params];
+
+  let query = `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
+                      w.avatar_url AS writer_avatar_url,
+                      (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
+               FROM articles a
+               LEFT JOIN writers w ON w.id = a.writer_id
+               ${whereClause}`;
+
   query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';
 
-  if (lim) {
-    params.push(parseInt(lim));
-    query += ` LIMIT $${params.length}`;
-  }
+  const defaultLimit = 30;
+  const limit  = parseInt(lim) || defaultLimit;
+  const offset = parseInt(req.query.offset) || 0;
+  params.push(limit);
+  query += ` LIMIT $${params.length}`;
+  params.push(offset);
+  query += ` OFFSET $${params.length}`;
 
-  const result = await getPool().query(query, params.length ? params : undefined);
-  const items  = result.rows.map(serializeRow);
+  // Run data query and count query in parallel
+  const countQuery = `SELECT COUNT(*) AS total FROM articles a LEFT JOIN writers w ON w.id = a.writer_id ${whereClause}`;
+  const [result, countResult] = await Promise.all([
+    getPool().query(query, params),
+    getPool().query(countQuery, whereParams),
+  ]);
+  const totalCount = parseInt(countResult.rows[0].total);
+  const items      = result.rows.map(serializeRow);
 
   // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
   const mediaBase = `${req.protocol}://${req.get('host')}`;
@@ -151,7 +167,8 @@ router.get('/', asyncHandler(async (req, res) => {
     };
   });
 
-  res.json({ status: 'ok', items: enriched, count: enriched.length });
+  const hasMore = offset + enriched.length < totalCount;
+  res.json({ status: 'ok', items: enriched, count: enriched.length, totalCount, hasMore });
 }));
 
 // GET /api/news/hot — top articles ranked by hot_score
