@@ -7,7 +7,7 @@ const router  = express.Router();
 const db      = require('../db');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
-const { clusterArticles, runSynthesisForWriter } = require('../lib/synthesis');
+const { clusterArticles, runSynthesisForWriter, generateDeepDive, runWeeklyDeepDives } = require('../lib/synthesis');
 
 // POST /api/synthesis/run/:writerId — run synthesis for a single writer
 // ?force=true bypasses cooldown and dedup checks
@@ -73,6 +73,39 @@ router.delete('/purge', requirePermission('synthesis.execute'), asyncHandler(asy
     ).all(req.tenantId);
   }
   res.json({ deleted: deleted.length });
+}));
+
+// POST /api/synthesis/deep-dive/:category — generate deep dive for one category
+router.post('/deep-dive/:category', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+  const force = req.query.force === 'true';
+  const result = await generateDeepDive(req.params.category, req.tenantId, { force });
+  res.json(result);
+}));
+
+// POST /api/synthesis/deep-dive-all — generate deep dives for all qualifying categories
+router.post('/deep-dive-all', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+  const force = req.query.force === 'true';
+  const result = await runWeeklyDeepDives(req.tenantId, { force });
+  res.json(result);
+}));
+
+// GET /api/synthesis/deep-dive-preview/:category — preview what a deep dive would cover
+router.get('/deep-dive-preview/:category', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+  const articles = await db.prepare(`
+    SELECT id, title, source, category, created_at FROM articles
+    WHERE tenant_id = $1 AND (content_type IS NULL OR content_type = 'curated')
+      AND is_archived = 0 AND category = $2
+      AND created_at > NOW() - INTERVAL '7 days'
+    ORDER BY created_at DESC LIMIT 500
+  `).all(req.tenantId, req.params.category);
+
+  const clusters = clusterArticles(articles, 2);
+  res.json({
+    category: req.params.category,
+    totalArticles: articles.length,
+    clusters: clusters.map(c => ({ topic: c.topic, articleCount: c.articles.length })),
+    clusterCount: clusters.length,
+  });
 }));
 
 module.exports = router;

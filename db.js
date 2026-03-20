@@ -400,6 +400,8 @@ async function initDb() {
     // YouTube/video embed support
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_url TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_type TEXT`,
+    // Inline AI images for originals & deep dives
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS inline_images JSONB DEFAULT '[]'`,
     // Editorial scoring for quality gate
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_score INTEGER`,
     // Quality gate settings

@@ -356,6 +356,21 @@ registerJob({
 });
 
 registerJob({
+  name: 'deep-dive',
+  description: 'Weekly deep dive roundups',
+  category: 'Content',
+  defaultSchedule: '0 20 * * 0',  // Sunday 8 PM UTC
+  handler: async (tenantId) => {
+    const { runWeeklyDeepDives } = require('./lib/synthesis');
+    const result = await runWeeklyDeepDives(tenantId);
+    if (result.generated > 0) {
+      console.log(`[Cron] Deep dives (tenant ${tenantId}): generated ${result.generated} for ${result.categories.join(', ')}`);
+    }
+    return result;
+  },
+});
+
+registerJob({
   name: 'auto-audio',
   description: 'Auto-audio generation',
   category: 'Media',

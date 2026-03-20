@@ -101,6 +101,17 @@ router.get('/', asyncHandler(async (req, res) => {
     params.push(writer);
     query += ` AND w.slug = $${params.length}`;
   }
+  if (req.query.content_type) {
+    const types = req.query.content_type.split(',').map(t => t.trim()).filter(Boolean);
+    if (types.length === 1) {
+      params.push(types[0]);
+      query += ` AND a.content_type = $${params.length}`;
+    } else if (types.length > 1) {
+      const placeholders = types.map((_, i) => `$${params.length + i + 1}`).join(', ');
+      types.forEach(t => params.push(t));
+      query += ` AND a.content_type IN (${placeholders})`;
+    }
+  }
 
   query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';
 
