@@ -24,6 +24,10 @@
           <button class="tab-btn" data-tab="drafts">Drafts <span class="tab-badge" id="draftCount"></span></button>
         </div>
         <div class="btn-group">
+          <div class="view-toggle" id="viewToggle" title="Switch view">
+            <button class="view-toggle-btn active" data-view="table" title="Table view">☰</button>
+            <button class="view-toggle-btn" data-view="cards" title="Card view">▦</button>
+          </div>
           <label id="showArchivedWrap" class="text-sm text-muted" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
             <input type="checkbox" id="showArchived" /> Show archived
           </label>
@@ -57,24 +61,53 @@
           <button class="filter-search-clear" id="clearSearch" style="display:none;" title="Clear search">✕</button>
         </div>
         <div class="filter-group">
-          <span class="filter-label">Audio</span>
-          <button class="filter-pill active" data-audio-filter="all">All</button>
-          <button class="filter-pill" data-audio-filter="has-audio">🎵 Has Audio</button>
-          <button class="filter-pill" data-audio-filter="no-audio">🔇 No Audio</button>
-          <button class="filter-pill" data-audio-filter="hidden">⬜ Hidden</button>
+          <label class="filter-label" for="statusFilter">Status</label>
+          <select class="filter-select" id="statusFilter">
+            <option value="all">All</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="filter-group" id="categoryFilterGroup" style="display:none;">
+          <label class="filter-label" for="categoryFilter">Category</label>
+          <select class="filter-select" id="categoryFilter">
+            <option value="all">All</option>
+            <!-- options injected dynamically by articles-page.js -->
+          </select>
         </div>
         <div class="filter-group">
-          <span class="filter-label">Date</span>
-          <button class="filter-pill active" data-date-filter="all">All</button>
-          <button class="filter-pill" data-date-filter="24h">24h</button>
-          <button class="filter-pill" data-date-filter="7d">7d</button>
-          <button class="filter-pill" data-date-filter="30d">30d</button>
+          <label class="filter-label" for="audioFilter">Audio</label>
+          <select class="filter-select" id="audioFilter">
+            <option value="all">All</option>
+            <option value="has-audio">Has Audio</option>
+            <option value="no-audio">No Audio</option>
+            <option value="hidden">Hidden</option>
+          </select>
         </div>
         <div class="filter-group">
-          <span class="filter-label">Writer</span>
-          <button class="filter-pill active" data-writer-filter="all">All</button>
-          <button class="filter-pill" data-writer-filter="unassigned">Unassigned</button>
-          <button class="filter-pill" data-writer-filter="assigned">Assigned</button>
+          <label class="filter-label" for="dateFilter">Date</label>
+          <select class="filter-select" id="dateFilter">
+            <option value="all">All</option>
+            <option value="24h">24h</option>
+            <option value="7d">7d</option>
+            <option value="30d">30d</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label" for="writerFilter">Assignment</label>
+          <select class="filter-select" id="writerFilter">
+            <option value="all">All</option>
+            <option value="unassigned">Unassigned</option>
+            <option value="assigned">Assigned</option>
+          </select>
+        </div>
+        <div class="filter-group" id="writerNameFilterGroup" style="display:none;">
+          <label class="filter-label" for="writerNameFilter">Writer</label>
+          <select class="filter-select" id="writerNameFilter">
+            <option value="all">All</option>
+            <!-- options injected dynamically by articles-page.js -->
+          </select>
         </div>
         <span class="filter-count" id="filterCount"></span>
       </div>
@@ -91,7 +124,8 @@
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
 
-      <div class="table-wrap"><div class="table-scroll">
+      <!-- Desktop: table view -->
+      <div class="table-wrap articles-desktop"><div class="table-scroll">
         <table id="articlesTable">
           <thead>
             <tr>
@@ -115,6 +149,10 @@
           </tbody>
         </table>
       </div></div>
+
+      <!-- Mobile: card view -->
+      <div class="articles-mobile" id="articlesMobileList"></div>
+
       <div id="articlesPagination"></div>
     </div>
   </div>
