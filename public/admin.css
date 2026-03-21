@@ -445,21 +445,10 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
 /* ── Articles table column sizing ── */
 #articlesTable {
-  table-layout: fixed;
+  table-layout: auto;
   width: 100%;
-  min-width: 0;
 }
-#articlesTable .th-check   { width: 36px; }
-#articlesTable .th-title   { width: 250px; }
-#articlesTable .th-source  { width: 100px; }
-#articlesTable .th-cat     { width: 90px; }
-#articlesTable .th-status  { width: 80px; }
-#articlesTable .th-feat    { width: 95px; }
-#articlesTable .th-writer  { width: 90px; }
-#articlesTable .th-date    { width: 80px; }
-#articlesTable .th-img     { width: 56px; }
-#articlesTable .th-audio   { width: 110px; }
-#articlesTable .th-actions { width: 100px; }
+#articlesTable .th-check { width: 36px; }
 
 #articlesTable td {
   overflow: hidden;
@@ -1543,6 +1532,17 @@ kbd {
   border: none;
   border-top: 1px solid var(--border);
   margin: var(--space-4) 0;
+}
+
+/* ===== TWO-ROW TABLE LAYOUT ===== */
+.row-main td { border-bottom: none; padding-bottom: 2px; }
+.row-sub td { border-bottom: 1px solid var(--border); padding-top: 0; padding-bottom: 8px; }
+.row-sub-actions { display: flex; gap: 2px; flex-wrap: wrap; }
+.btn-xs {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1.4;
 }
 
 /* ── Sortable table headers ── */

@@ -13,6 +13,7 @@ const { detectCategory } = require('../lib/categorize');
 const { findBestWriter } = require('../lib/writer-assign');
 const { logUsage } = require('../lib/ai-usage');
 const { onArticlePublished } = require('../lib/post-publish');
+const { getCuratedScore } = require('../lib/quality-gate');
 const { getAppConfig } = require('../lib/app-config');
 
 const parser = new RSSParser({
@@ -86,7 +87,11 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
                   // on articles that will be consumed by synthesis
                 }
 
-                if (wantPublish) {
+                // Always score curated articles
+                const gate = await getCuratedScore({ title: artObj.title, summary: artObj.summary, image_url: inserted_row.image_url, author: inserted_row.author, source: artObj.source }, tenantId);
+                await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
+
+                if (wantPublish && gate.publish) {
                   await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
                   onArticlePublished(inserted_row.id, tenantId).catch(() => {});
                 }
@@ -268,8 +273,11 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
               await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
             }
 
-            // Auto-publish directly for curated articles (quality gate is for synthesis only)
-            if (autoPublish) {
+            // Always score curated articles
+            const gate = await getCuratedScore({ title: artObj.title, summary: artObj.summary, image_url: inserted_row.image_url, author: inserted_row.author, source: artObj.source }, tenantId);
+            await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
+
+            if (autoPublish && gate.publish) {
               await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
               onArticlePublished(inserted_row.id, tenantId).catch(() => {});
             }
