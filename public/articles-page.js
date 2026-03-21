@@ -298,7 +298,7 @@ let articles = [];
               <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
               <button class="btn btn-ghost btn-sm btn-icon" title="Reject" onclick="rejectArticle(${a.id})">✗</button>
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
-              <button class="btn btn-sm" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+              <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
             ` : ''}
             <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
             ${!a.image_url ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
@@ -339,18 +339,21 @@ let articles = [];
           <div class="article-card-actions">
             ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
             ${isArchived ? `
-              <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
+              <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
+              <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
             ` : `
               ${a.status === 'review' ? `
-                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓</button>
-                <button class="btn btn-ghost btn-sm btn-icon" title="Reject" onclick="rejectArticle(${a.id})">✗</button>
-              ` : `<button class="btn btn-ghost btn-sm btn-icon" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄' : '✅'}</button>`}
-              <button class="btn btn-ghost btn-sm btn-icon" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
+                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+                <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
+              ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+                <button class="btn btn-ghost btn-sm" title="Publish" onclick="togglePublish(${a.id})">✅ Publish</button>
+              ` : `<button class="btn btn-ghost btn-sm" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄 Unpublish' : '✅ Publish'}</button>`}
+              <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
+              <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+              <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+              <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+              <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
             `}
           </div>
         </div>`;

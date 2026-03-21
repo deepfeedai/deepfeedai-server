@@ -1435,10 +1435,12 @@ kbd {
 
 .article-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   border-top: 1px solid var(--border);
   padding-top: var(--space-2);
 }
+.article-card-actions .btn { font-size: 0.75rem; }
 
 @media (max-width: 768px) {
   .sidebar {
