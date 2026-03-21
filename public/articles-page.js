@@ -254,7 +254,7 @@ let articles = [];
           ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
         </td>
         <td class="text-center">${a.editorial_score != null
-          ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-muted' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
+          ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
           : '<span class="text-muted">—</span>'}</td>
         <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
         <td class="td-category">
