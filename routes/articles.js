@@ -155,6 +155,15 @@ router.post('/bulk-assign-writer', auth, requirePermission('articles.update'), a
   res.json({ assigned, skipped, results });
 }));
 
+// GET /api/articles/review-queue (must be before /:id)
+router.get('/review-queue', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const result = await getPool().query(
+    'SELECT * FROM articles WHERE tenant_id = $1 AND status = $2 ORDER BY submitted_for_review_at ASC',
+    [req.tenantId, 'review']
+  );
+  res.json({ articles: result.rows.map(serializeRow), count: result.rows.length });
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
@@ -184,11 +193,13 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
     ).run(newPriority, req.tenantId);
   }
 
+  const pubVal = is_published !== undefined ? (is_published ? 1 : 0) : 1;
+  const initStatus = pubVal ? 'published' : 'draft';
   const article = await db.prepare(`
     INSERT INTO articles
       (title, summary, content, category, source, source_url, image_url, author,
-       is_featured, featured_priority, is_published, published_at, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       is_featured, featured_priority, is_published, published_at, status, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     RETURNING *
   `).get(
     title,
@@ -201,8 +212,9 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
     author     || null,
     is_featured  ? 1 : 0,
     newPriority,
-    is_published !== undefined ? (is_published ? 1 : 0) : 1,
+    pubVal,
     published_at || new Date().toISOString(),
+    initStatus,
     req.tenantId
   );
   // Auto-assign best writer if none set
@@ -240,12 +252,19 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     }
   }
 
+  // Check raw body — Zod .default() fills is_published even when not sent
+  const pubExplicit = req.body.is_published !== undefined;
+  const newIsPublished = pubExplicit ? (is_published ? 1 : 0) : existing.is_published;
+  // Only change status if is_published was explicitly sent AND actually changed
+  const pubChanged = pubExplicit && newIsPublished !== existing.is_published;
+  const newStatus = pubChanged ? (newIsPublished ? 'published' : 'draft') : (existing.status || 'draft');
+
   const updated = await db.prepare(`
     UPDATE articles SET
       title = $1, summary = $2, content = $3, category = $4, source = $5,
       source_url = $6, image_url = $7, author = $8, is_featured = $9,
-      featured_priority = $10, is_published = $11, published_at = $12, updated_at = NOW()
-    WHERE id = $13 AND tenant_id = $14
+      featured_priority = $10, is_published = $11, published_at = $12, status = $13, updated_at = NOW()
+    WHERE id = $14 AND tenant_id = $15
     RETURNING *
   `).get(
     title        !== undefined ? title        : existing.title,
@@ -258,8 +277,9 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     author       !== undefined ? author       : existing.author,
     newFeatured,
     newPriority,
-    is_published !== undefined ? (is_published ? 1 : 0) : existing.is_published,
+    newIsPublished,
     published_at !== undefined ? published_at : existing.published_at,
+    newStatus,
     req.params.id,
     req.tenantId
   );
@@ -279,7 +299,7 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
   await db.prepare(`
     UPDATE articles
     SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
-        archived_at = NOW(), updated_at = NOW()
+        status = 'archived', archived_at = NOW(), updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2
   `).run(req.params.id, req.tenantId);
   logAudit(req, 'article.archive', 'article', parseInt(req.params.id));
@@ -301,7 +321,7 @@ router.put('/:id/restore', auth, requirePermission('articles.update'), asyncHand
   if (!existing) return res.status(404).json({ error: 'Article not found' });
   const updated = await db.prepare(`
     UPDATE articles
-    SET is_archived = 0, archived_at = NULL, updated_at = NOW()
+    SET is_archived = 0, archived_at = NULL, status = 'draft', updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2
     RETURNING *
   `).get(req.params.id, req.tenantId);
@@ -349,14 +369,70 @@ router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHand
   res.json({ id: article.id, is_featured: 1, featured_priority: slot });
 }));
 
-// PUT /api/articles/:id/publish
+// Status ↔ legacy field sync helper
+function syncStatusFields(status) {
+  switch (status) {
+    case 'published': return { is_published: 1, is_archived: 0 };
+    case 'archived':  return { is_published: 0, is_archived: 1 };
+    default:          return { is_published: 0, is_archived: 0 }; // draft, review
+  }
+}
+
+// PUT /api/articles/:id/publish (toggle — kept for backwards compat)
 router.put('/:id/publish', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   const newVal = article.is_published ? 0 : 1;
-  await db.prepare('UPDATE articles SET is_published = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newVal, req.params.id, req.tenantId);
+  const newStatus = newVal ? 'published' : 'draft';
+  const sync = syncStatusFields(newStatus);
+  await db.prepare(
+    'UPDATE articles SET is_published = $1, is_archived = $2, status = $3, updated_at = NOW() WHERE id = $4 AND tenant_id = $5'
+  ).run(sync.is_published, sync.is_archived, newStatus, req.params.id, req.tenantId);
   if (newVal === 1) onArticlePublished(article.id, req.tenantId).catch(() => {});
-  res.json({ id: article.id, is_published: newVal });
+  logAudit(req, newVal ? 'article.publish' : 'article.unpublish', 'article', parseInt(req.params.id));
+  res.json({ id: article.id, is_published: newVal, status: newStatus });
+}));
+
+// PUT /api/articles/:id/submit-review
+router.put('/:id/submit-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'draft') return res.status(400).json({ error: 'Only draft articles can be submitted for review' });
+  const updated = await db.prepare(`
+    UPDATE articles SET status = 'review', submitted_for_review_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2 RETURNING *
+  `).get(req.params.id, req.tenantId);
+  logAudit(req, 'article.submit_review', 'article', parseInt(req.params.id), { title: article.title });
+  res.json(updated);
+}));
+
+// PUT /api/articles/:id/approve
+router.put('/:id/approve', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be approved' });
+  const updated = await db.prepare(`
+    UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
+      reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3 RETURNING *
+  `).get(req.user?.sub || null, req.params.id, req.tenantId);
+  onArticlePublished(article.id, req.tenantId).catch(() => {});
+  logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
+  res.json(updated);
+}));
+
+// PUT /api/articles/:id/reject
+router.put('/:id/reject', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be rejected' });
+  const updated = await db.prepare(`
+    UPDATE articles SET status = 'draft', is_published = 0, is_archived = 0,
+      submitted_for_review_at = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2 RETURNING *
+  `).get(req.params.id, req.tenantId);
+  logAudit(req, 'article.reject', 'article', parseInt(req.params.id), { title: article.title });
+  res.json(updated);
 }));
 
 // POST /api/articles/purge-old — archive articles older than N days
@@ -411,7 +487,7 @@ router.post('/purge-old', auth, requirePermission('articles.delete'), asyncHandl
     await db.prepare(`
       UPDATE articles
       SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
-          archived_at = NOW(), updated_at = NOW()
+          status = 'archived', archived_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND tenant_id = $2
     `).run(row.id, req.tenantId);
     purgedCount++;

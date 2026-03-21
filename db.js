@@ -636,6 +636,15 @@ async function initDb() {
     `UPDATE roles SET permissions = '["*"]'::jsonb, description = 'Full administrative access' WHERE name = 'admin' AND is_system = true AND NOT (permissions @> '["*"]'::jsonb)`,
     // Clean up orphaned cron_runs rows from server crashes
     `UPDATE cron_runs SET status = 'crashed', finished_at = NOW() WHERE status = 'running'`,
+    // ── Editorial workflow: status column + review metadata ──
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft'`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS submitted_for_review_at TIMESTAMPTZ`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS reviewed_by INTEGER`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`,
+    // Backfill status from legacy is_published / is_archived flags
+    `UPDATE articles SET status = 'published' WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL) AND (status IS NULL OR status = 'draft')`,
+    `UPDATE articles SET status = 'archived' WHERE is_archived = 1 AND (status IS NULL OR status = 'draft')`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(tenant_id, status)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

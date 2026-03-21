@@ -65,10 +65,10 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
         const wantPublish = shouldAutoPublish && autoPublishedForSource < maxToPublish;
         if (wantPublish) autoPublishedForSource++;
 
-        // Insert as unpublished; quality gate decides whether to publish
+        // Insert as draft; auto-publish path upgrades to 'published' if selected
         await db.prepare(
-          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, tenant_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, $9)`
+          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 'draft', $9)`
         ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, pubDate, tenantId);
         inserted++;
 
@@ -87,7 +87,7 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
                 }
 
                 if (wantPublish) {
-                  await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1 AND tenant_id = $2').run(inserted_row.id, tenantId);
+                  await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
                   onArticlePublished(inserted_row.id, tenantId).catch(() => {});
                 }
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
@@ -248,10 +248,10 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
     // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
     const category = await detectCategory({ title: item.title, contentSnippet: item.summary }, { tenantId });
 
-    // Insert as unpublished first; quality gate decides whether to publish
+    // Insert as draft; auto-publish path upgrades to 'published' if selected
     await db.prepare(
-      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, tenant_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, $9)`
+      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, status, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 'draft', $9)`
     ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType, tenantId);
     inserted++;
 
@@ -270,7 +270,7 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
 
             // Auto-publish directly for curated articles (quality gate is for synthesis only)
             if (autoPublish) {
-              await db.prepare('UPDATE articles SET is_published = 1 WHERE id = $1 AND tenant_id = $2').run(inserted_row.id, tenantId);
+              await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
               onArticlePublished(inserted_row.id, tenantId).catch(() => {});
             }
           } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }

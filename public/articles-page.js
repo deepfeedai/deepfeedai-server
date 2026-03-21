@@ -56,17 +56,45 @@ let articles = [];
   }
 
   function applyFilters() {
-    // Update draft count badge regardless of active tab
+    // Update draft + review count badges regardless of active tab
     const draftCountEl = document.getElementById('draftCount');
     if (draftCountEl) {
-      const draftCount = allArticles.filter(a => !a.is_archived && !a.is_published).length;
+      const draftCount = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published)).length;
       draftCountEl.textContent = draftCount || '';
       draftCountEl.style.display = draftCount ? 'inline-flex' : 'none';
+    }
+    const reviewCountEl = document.getElementById('reviewCount');
+    if (reviewCountEl) {
+      const reviewCount = allArticles.filter(a => a.status === 'review').length;
+      reviewCountEl.textContent = reviewCount || '';
+      reviewCountEl.style.display = reviewCount ? 'inline-flex' : 'none';
+    }
+
+    // Review tab — show articles pending review
+    if (activeTab === 'review') {
+      let filtered = allArticles.filter(a => a.status === 'review');
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a =>
+          (a.title   && a.title.toLowerCase().includes(q)) ||
+          (a.summary && a.summary.toLowerCase().includes(q))
+        );
+      }
+      filtered.sort((a, b) => new Date(a.submitted_for_review_at || a.created_at) - new Date(b.submitted_for_review_at || b.created_at));
+      articles = filtered;
+      artPage = 1;
+      const countEl = document.getElementById('filterCount');
+      if (countEl) {
+        countEl.textContent = `${filtered.length} in review`;
+        countEl.classList.remove('filter-count-active');
+      }
+      renderTable();
+      return;
     }
 
     // Drafts tab — override all other filters
     if (activeTab === 'drafts') {
-      let filtered = allArticles.filter(a => !a.is_archived && !a.is_published);
+      let filtered = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published));
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(a =>
@@ -228,8 +256,9 @@ let articles = [];
             ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
             : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
         </td>
-        <td>${isArchived ? '<span class="badge badge-muted">—</span>' : `
-          <button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
+        <td>${isArchived ? '<span class="badge badge-muted">—</span>'
+          : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
+          : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
             style="cursor:pointer;border:none;background:inherit;"
             onclick="togglePublish(${a.id})">
             ${a.is_published ? 'Published' : 'Draft'}
@@ -265,6 +294,12 @@ let articles = [];
             <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
             <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
           ` : `
+            ${a.status === 'review' ? `
+              <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Reject" onclick="rejectArticle(${a.id})">✗</button>
+            ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+              <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+            ` : ''}
             <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
             ${!a.image_url ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
             <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
@@ -293,7 +328,9 @@ let articles = [];
           <div class="article-card-meta">
             ${isArchived
               ? '<span class="badge badge-archived">Archived</span>'
-              : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}" style="cursor:pointer;border:none;background:inherit;" onclick="togglePublish(${a.id})">${a.is_published ? 'Published' : 'Draft'}</button>`}
+              : a.status === 'review'
+                ? '<span class="badge badge-warning">In Review</span>'
+                : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}" style="cursor:pointer;border:none;background:inherit;" onclick="togglePublish(${a.id})">${a.is_published ? 'Published' : 'Draft'}</button>`}
             <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
             ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
             <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
@@ -302,15 +339,21 @@ let articles = [];
           <div class="article-card-actions">
             ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
             ${isArchived ? `
-              <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
+              <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
+              <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
             ` : `
-              <button class="btn btn-ghost btn-sm btn-icon" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄' : '✅'}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
+              ${a.status === 'review' ? `
+                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+                <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
+              ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+                <button class="btn btn-ghost btn-sm" title="Publish" onclick="togglePublish(${a.id})">✅ Publish</button>
+              ` : `<button class="btn btn-ghost btn-sm" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄 Unpublish' : '✅ Publish'}</button>`}
+              <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
+              <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+              <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+              <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+              <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
             `}
           </div>
         </div>`;
@@ -945,6 +988,30 @@ let articles = [];
     } catch (err) { showAlert('Error: ' + err.message, 'error'); }
   }
 
+  async function approveArticle(id) {
+    try {
+      await apiFetch(`/articles/${id}/approve`, { method: 'PUT' });
+      showAlert('Article approved and published', 'success');
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+  }
+
+  async function rejectArticle(id) {
+    try {
+      await apiFetch(`/articles/${id}/reject`, { method: 'PUT' });
+      showAlert('Article rejected — moved back to drafts', 'info');
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+  }
+
+  async function submitForReview(id) {
+    try {
+      await apiFetch(`/articles/${id}/submit-review`, { method: 'PUT' });
+      showAlert('Article submitted for review', 'success');
+      await loadArticles();
+    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+  }
+
   async function setFeaturedPriority(id, priority) {
     try {
       const p = parseInt(priority);
@@ -1146,7 +1213,7 @@ let articles = [];
         selectedIds.clear();
         // Show/hide "Show archived" — only relevant in All tab
         const archivedWrap = document.getElementById('showArchivedWrap');
-        if (archivedWrap) archivedWrap.style.display = activeTab === 'drafts' ? 'none' : 'flex';
+        if (archivedWrap) archivedWrap.style.display = (activeTab === 'drafts' || activeTab === 'review') ? 'none' : 'flex';
         // Reset search when switching tabs
         searchQuery = '';
         document.getElementById('articleSearch').value = '';
@@ -1213,6 +1280,18 @@ let articles = [];
     }
 
     await loadArticles();
+
+    // Activate tab from URL hash (e.g. #review, #drafts)
+    const hashTab = location.hash.replace('#', '');
+    if (hashTab && ['all', 'review', 'drafts'].includes(hashTab)) {
+      activeTab = hashTab;
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === hashTab);
+      });
+      const archivedWrap = document.getElementById('showArchivedWrap');
+      if (archivedWrap) archivedWrap.style.display = (hashTab === 'drafts' || hashTab === 'review') ? 'none' : 'flex';
+      applyFilters();
+    }
 
     // Build writer filter options dynamically (after loadArticles populates writersList)
     const writerSelect = document.getElementById('writerNameFilter');
