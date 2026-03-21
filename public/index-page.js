@@ -35,7 +35,8 @@ onReady(async () => {
 
       const active    = articles.filter(a => !a.is_archived);
       const published = active.filter(a => a.is_published);
-      const drafts    = active.filter(a => !a.is_published);
+      const drafts    = active.filter(a => !a.is_published && a.status !== 'review');
+      const inReview  = active.filter(a => a.status === 'review');
       const today     = published.filter(a => now - new Date(a.published_at || a.created_at).getTime() <= DAY_MS);
       const week      = published.filter(a => now - new Date(a.published_at || a.created_at).getTime() <= WEEK_MS);
 
@@ -58,6 +59,14 @@ onReady(async () => {
       document.getElementById('statNoAudio').textContent     = noAudio.length;
       document.getElementById('statImages').textContent      = hasImage.length;
       document.getElementById('statFeatured').textContent    = active.filter(a => a.is_featured).length;
+
+      // Review count
+      const reviewEl = document.getElementById('statReview');
+      if (reviewEl) reviewEl.textContent = inReview.length;
+      if (inReview.length > 0) {
+        const reviewCard = document.getElementById('statReviewCard');
+        if (reviewCard) reviewCard.classList.add('stat-card-warn');
+      }
 
       // Highlight drafts card if pending
       if (drafts.length > 0) {
