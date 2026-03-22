@@ -86,47 +86,47 @@ describe('CORS validation', () => {
 
   it('allows *.deepfeedai.com subdomains for admin endpoints', () => {
     assert.equal(
-      checkCors('https://acme.deepfeedai.com', '/api/articles', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://acme.deepfeedai.com', '/api/articles', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
     assert.equal(
-      checkCors('https://my-site.deepfeedai.com', '/api/settings', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://my-site.deepfeedai.com', '/api/settings', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
   });
 
   it('allows http subdomains too', () => {
     assert.equal(
-      checkCors('http://test.deepfeedai.com', '/api/articles', [], 'https://olympus.deepfeedai.com'),
+      checkCors('http://test.deepfeedai.com', '/api/articles', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
   });
 
   it('blocks random external origins on non-public paths', () => {
     assert.equal(
-      checkCors('https://evil.example.com', '/api/sources', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://evil.example.com', '/api/sources', [], 'https://portal.deepfeedai.com'),
       'blocked'
     );
     assert.equal(
-      checkCors('https://attacker.io', '/api/settings', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://attacker.io', '/api/settings', [], 'https://portal.deepfeedai.com'),
       'blocked'
     );
   });
 
   it('allows external origins on public paths', () => {
     assert.equal(
-      checkCors('https://external.com', '/api/news', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://external.com', '/api/news', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
     assert.equal(
-      checkCors('https://external.com', '/api/article/some-slug', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://external.com', '/api/article/some-slug', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
   });
 
   it('allows same-origin requests on any path', () => {
     assert.equal(
-      checkCors('https://olympus.deepfeedai.com', '/api/articles', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://portal.deepfeedai.com', '/api/articles', [], 'https://portal.deepfeedai.com'),
       'allowed'
     );
   });
@@ -134,25 +134,25 @@ describe('CORS validation', () => {
   it('allows explicitly listed origins', () => {
     const allowed = ['https://my-custom-domain.com'];
     assert.equal(
-      checkCors('https://my-custom-domain.com', '/api/articles', allowed, 'https://olympus.deepfeedai.com'),
+      checkCors('https://my-custom-domain.com', '/api/articles', allowed, 'https://portal.deepfeedai.com'),
       'allowed'
     );
   });
 
   it('allows requests with no origin header', () => {
-    assert.equal(checkCors(null, '/api/articles', [], 'https://olympus.deepfeedai.com'), 'allowed');
-    assert.equal(checkCors(undefined, '/api/articles', [], 'https://olympus.deepfeedai.com'), 'allowed');
+    assert.equal(checkCors(null, '/api/articles', [], 'https://portal.deepfeedai.com'), 'allowed');
+    assert.equal(checkCors(undefined, '/api/articles', [], 'https://portal.deepfeedai.com'), 'allowed');
   });
 
   it('blocks subdomains that do not match the pattern', () => {
     // Uppercase not matched by the regex
     assert.equal(
-      checkCors('https://ACME.deepfeedai.com', '/api/sources', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://ACME.deepfeedai.com', '/api/sources', [], 'https://portal.deepfeedai.com'),
       'blocked'
     );
     // Extra dots
     assert.equal(
-      checkCors('https://sub.sub.deepfeedai.com', '/api/sources', [], 'https://olympus.deepfeedai.com'),
+      checkCors('https://sub.sub.deepfeedai.com', '/api/sources', [], 'https://portal.deepfeedai.com'),
       'blocked'
     );
   });
@@ -340,7 +340,7 @@ describe('tenant slug validation', () => {
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
   const RESERVED_SLUGS = new Set([
     'www', 'api', 'admin', 'app', 'mail', 'ftp', 'staging', 'dev',
-    'test', 'olympus', 'asgard', 'status', 'help', 'support', 'blog',
+    'test', 'portal', 'portal-staging', 'status', 'help', 'support', 'blog',
   ]);
 
   function validateSlug(slug) {

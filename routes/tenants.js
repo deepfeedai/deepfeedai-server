@@ -14,7 +14,7 @@ const { logAudit } = require('../middleware/audit');
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
 const RESERVED_SLUGS = new Set([
   'www', 'api', 'admin', 'app', 'mail', 'ftp', 'staging', 'dev',
-  'test', 'olympus', 'asgard', 'status', 'help', 'support', 'blog',
+  'test', 'portal', 'portal-staging', 'status', 'help', 'support', 'blog',
 ]);
 
 // GET /api/tenants/mine — list tenants the current user is an admin of
