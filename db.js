@@ -645,6 +645,30 @@ async function initDb() {
     `UPDATE articles SET status = 'published' WHERE is_published = 1 AND (is_archived = 0 OR is_archived IS NULL) AND (status IS NULL OR status = 'draft')`,
     `UPDATE articles SET status = 'archived' WHERE is_archived = 1 AND (status IS NULL OR status = 'draft')`,
     `CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(tenant_id, status)`,
+    // Synthesis forecasts table
+    `CREATE TABLE IF NOT EXISTS synthesis_forecasts (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      writer_id   INTEGER NOT NULL,
+      forecast_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      clusters    JSONB NOT NULL,
+      summary     JSONB NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'pending',
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_synth_forecasts_tenant ON synthesis_forecasts(tenant_id, forecast_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_synth_forecasts_writer ON synthesis_forecasts(tenant_id, writer_id, forecast_at DESC)`,
+    // Synthesis watchlist table
+    `CREATE TABLE IF NOT EXISTS synthesis_watchlist (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL DEFAULT 1,
+      keyword     TEXT NOT NULL,
+      type        TEXT NOT NULL DEFAULT 'blocked',
+      created_by  INTEGER,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, keyword, type)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_synth_watchlist_tenant ON synthesis_watchlist(tenant_id, type)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
