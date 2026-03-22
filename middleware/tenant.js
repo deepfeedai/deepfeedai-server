@@ -123,7 +123,7 @@ async function tenantContext(req, _res, next) {
       const hostname = new URL(origin).hostname;
       // Check *.deepfeedai.com subdomains
       const subMatch = hostname.match(/^([a-z0-9-]+)\.deepfeedai\.com$/);
-      if (subMatch && subMatch[1] !== 'www' && subMatch[1] !== 'staging') {
+      if (subMatch && subMatch[1] !== 'www' && subMatch[1] !== 'staging' && subMatch[1] !== 'portal' && subMatch[1] !== 'portal-staging') {
         resolveTenantId(subMatch[1])
           .then(id => {
             req.tenantId = id || 1;

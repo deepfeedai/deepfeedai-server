@@ -744,8 +744,8 @@ let articles = [];
     const sourceLink = document.getElementById('previewSourceLink');
 
     const host = window.location.hostname;
-    const siteBase = host === 'asgard.deepfeedai.com' ? 'https://staging.deepfeedai.com'
-      : host === 'olympus.deepfeedai.com' ? 'https://deepfeedai.com'
+    const siteBase = host === 'portal-staging.deepfeedai.com' ? 'https://staging.deepfeedai.com'
+      : host === 'portal.deepfeedai.com' ? 'https://deepfeedai.com'
       : 'http://localhost:3000';
     if (a.is_published && slug) {
       liveLink.href = `${siteBase}/article/${slug}`;
