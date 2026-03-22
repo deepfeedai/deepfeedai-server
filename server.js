@@ -371,6 +371,45 @@ registerJob({
 });
 
 registerJob({
+  name: 'synthesis-forecast',
+  description: 'Pre-synthesis forecast and admin notification',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',  // hourly, same cadence as synthesis
+  handler: async (tenantId) => {
+    const { generateForecast } = require('./lib/synthesis');
+    const { sendForecastNotification } = require('./lib/notify');
+    const hour = new Date().getUTCHours();
+    const dow  = new Date().getUTCDay();
+
+    const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE tenant_id = $1 AND is_auto = true').all(tenantId);
+    const forecasts = [];
+
+    for (const w of writers) {
+      const schedule = w.synthesis_schedule || 'daily';
+      // Run forecast 1 hour before synthesis would fire
+      let shouldForecast = false;
+      if (schedule === 'daily')            shouldForecast = (hour === 5);
+      else if (schedule === 'twice-daily') shouldForecast = (hour === 5 || hour === 17);
+      else if (schedule === 'weekly')      shouldForecast = (hour === 5 && dow === 1);
+
+      if (!shouldForecast) continue;
+
+      console.log(`[Cron] Generating synthesis forecast for ${w.name} (tenant ${tenantId})...`);
+      const forecast = await generateForecast(w.id, tenantId);
+      if (forecast) forecasts.push(forecast);
+    }
+
+    if (forecasts.length > 0) {
+      await sendForecastNotification(forecasts, tenantId).catch(err => {
+        console.error('[Cron] Forecast notification error:', err.message);
+      });
+    }
+
+    return { forecasts: forecasts.length };
+  },
+});
+
+registerJob({
   name: 'auto-audio',
   description: 'Auto-audio generation',
   category: 'Media',

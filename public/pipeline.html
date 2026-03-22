@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Pipeline</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    .pipeline-table { width: 100%; }
+    .pipeline-table th, .pipeline-table td { padding: 8px 12px; text-align: left; font-size: 13px; }
+    .pipeline-table th { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+    .schedule-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: rgba(99,102,241,0.12); color: #6366f1; }
+    .cooldown-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .cooldown-ready { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .cooldown-active { background: rgba(251,146,60,0.12); color: #fb923c; }
+    .cluster-count { font-weight: 700; font-size: 15px; }
+    .cluster-count-zero { color: var(--text-muted); }
+    .section-gap { margin-top: 28px; }
+    .queue-table { width: 100%; }
+    .queue-table th, .queue-table td { padding: 6px 12px; text-align: left; font-size: 13px; }
+    .queue-table th { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+    .strength-high { color: #22c55e; font-weight: 600; }
+    .strength-med { color: #f59e0b; font-weight: 600; }
+    .strength-low { color: #94a3b8; font-weight: 600; }
+    .dedup-warn { color: #f59e0b; font-weight: 600; font-size: 12px; }
+    .dedup-ok { color: #22c55e; font-size: 12px; }
+    .proposed-headline { font-size: 11px; color: var(--text-muted); font-style: italic; }
+    .history-table { width: 100%; }
+    .history-table th, .history-table td { padding: 6px 12px; text-align: left; font-size: 13px; }
+    .history-table th { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+    .status-success { color: #22c55e; }
+    .status-failed { color: #ef4444; }
+    .run-selected-bar { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+    .text-sm { font-size: 12px; }
+    .text-muted { color: var(--text-muted); }
+    .generated-at { font-size: 11px; color: var(--text-muted); }
+    .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 14px; font-size: 12px; font-weight: 600; }
+    .chip-wanted { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .chip-blocked { background: rgba(239,68,68,0.12); color: #ef4444; }
+    .chip-delete { cursor: pointer; opacity: 0.7; font-size: 14px; line-height: 1; }
+    .chip-delete:hover { opacity: 1; }
+    .watchlist-wanted { background: rgba(34,197,94,0.1); color: #22c55e; font-size: 11px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+    .watchlist-blocked { background: rgba(239,68,68,0.1); color: #ef4444; font-size: 11px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <main class="main-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Synthesis Pipeline</h1>
+        <p class="page-subtitle">Overview of scheduled synthesis runs, pending clusters, and history</p>
+      </div>
+      <div>
+        <button class="btn btn-outline" id="refreshBtn">Refresh</button>
+      </div>
+    </div>
+
+    <div id="loadingMsg" class="text-muted" style="padding:24px;">Loading pipeline data...</div>
+
+    <!-- Writer Schedule Overview -->
+    <div class="card-section" id="writersSection" style="display:none;">
+      <div class="section-header">
+        <h2 class="section-title">Writer Schedules</h2>
+        <span class="generated-at" id="generatedAt"></span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table pipeline-table">
+          <thead>
+            <tr>
+              <th>Writer</th>
+              <th>Schedule</th>
+              <th>Next Run</th>
+              <th>Cooldown</th>
+              <th>Article Pool</th>
+              <th>Clusters</th>
+              <th>Would Generate</th>
+            </tr>
+          </thead>
+          <tbody id="writersTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cluster Queue -->
+    <div class="card-section section-gap" id="queueSection" style="display:none;">
+      <div class="section-header">
+        <h2 class="section-title">Cluster Queue</h2>
+      </div>
+      <div class="run-selected-bar">
+        <button class="btn btn-primary btn-sm" id="runSelectedBtn" disabled>Run Selected</button>
+        <span class="text-sm text-muted" id="selectedCount">0 selected</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table queue-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="selectAll"></th>
+              <th>Writer</th>
+              <th>Topic</th>
+              <th>Articles</th>
+              <th>Strength</th>
+              <th>Dedup</th>
+              <th>Headline</th>
+            </tr>
+          </thead>
+          <tbody id="queueTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Topic Watchlist -->
+    <div class="card-section section-gap" id="watchlistSection" style="display:none;">
+      <div class="section-header">
+        <h2 class="section-title">Topic Watchlist</h2>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" id="watchlistInput" class="form-control" placeholder="Enter keyword..." style="width:200px;font-size:13px;">
+        <select id="watchlistType" class="form-control" style="width:120px;font-size:13px;">
+          <option value="blocked">Blocked</option>
+          <option value="wanted">Wanted</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="addWatchlistBtn">Add</button>
+      </div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <h3 style="font-size:12px;text-transform:uppercase;color:var(--text-muted);margin:0 0 8px;">Wanted Topics</h3>
+          <div id="wantedChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+        <div style="flex:1;min-width:200px;">
+          <h3 style="font-size:12px;text-transform:uppercase;color:var(--text-muted);margin:0 0 8px;">Blocked Topics</h3>
+          <div id="blockedChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Forecasts -->
+    <div class="card-section section-gap" id="forecastSection" style="display:none;">
+      <div class="section-header">
+        <h2 class="section-title">Latest Forecasts</h2>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table history-table">
+          <thead>
+            <tr>
+              <th>Writer</th>
+              <th>Forecast Time</th>
+              <th>Clusters</th>
+              <th>Would Generate</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="forecastTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Recent History -->
+    <div class="card-section section-gap" id="historySection" style="display:none;">
+      <div class="section-header">
+        <h2 class="section-title">Recent History</h2>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="data-table history-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Job</th>
+              <th>Status</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody id="historyTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/pipeline-page.js"></script>
+</body>
+</html>

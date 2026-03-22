@@ -5,11 +5,14 @@ onReady(async () => {
 
   const writerSelect = document.getElementById('writerSelect');
   const previewBtn   = document.getElementById('previewBtn');
+  const dryRunBtn    = document.getElementById('dryRunBtn');
   const runBtn       = document.getElementById('runBtn');
   const runAllBtn    = document.getElementById('runAllBtn');
   const clusterSection = document.getElementById('clusterSection');
   const clusterTbody   = document.getElementById('clusterTbody');
   const clusterLabel   = document.getElementById('clusterWriterLabel');
+  const statsSection   = document.getElementById('statsSection');
+  const statsRow       = document.getElementById('statsRow');
   const resultSection  = document.getElementById('resultSection');
   const resultBody     = document.getElementById('resultBody');
 
@@ -24,6 +27,76 @@ onReady(async () => {
     writerSelect.innerHTML = '<option value="">Error loading writers</option>';
   }
 
+  // --- Shared cluster rendering ---
+  function renderClusterResults(data) {
+    // Stats bar
+    const cooldown = data.cooldown || {};
+    const pool = data.articlePool || {};
+    const summary = data.summary || {};
+    const cooldownHtml = cooldown.active
+      ? `<span class="cooldown-badge cooldown-active">Cooldown: ${Math.round(cooldown.hoursSinceLastRun)}h ago</span>`
+      : `<span class="cooldown-badge cooldown-ready">Ready</span>`;
+
+    statsRow.innerHTML = `
+      ${cooldownHtml}
+      <div class="stat-pill"><span class="stat-value">${pool.total || 0}</span><span class="stat-label">Article Pool</span></div>
+      <div class="stat-pill"><span class="stat-value">${pool.writerScoped || 0}</span><span class="stat-label">Writer-Scoped</span></div>
+      <div class="stat-pill"><span class="stat-value">${pool.beatFallback || 0}</span><span class="stat-label">Beat Fallback</span></div>
+      <div class="stat-pill"><span class="stat-value">${(data.clusters || []).length}</span><span class="stat-label">Clusters</span></div>
+      ${summary.wouldGenerate !== undefined ? `<div class="stat-pill"><span class="stat-value">${summary.wouldGenerate}</span><span class="stat-label">Would Generate</span></div>` : ''}
+      ${summary.wouldSkipDedup ? `<div class="stat-pill"><span class="stat-value">${summary.wouldSkipDedup}</span><span class="stat-label">Would Skip (Dedup)</span></div>` : ''}
+    `;
+    statsSection.style.display = '';
+
+    // Writer label
+    const writer = data.writer || {};
+    clusterLabel.textContent = writer.name || '';
+
+    // Clusters table
+    const clusters = data.clusters || [];
+    if (!clusters.length) {
+      clusterTbody.innerHTML = `<tr><td colspan="6" class="text-muted text-center" style="padding:24px;">No clusters found — ${pool.total || 0} articles in lookback window. Try fetching more articles or lowering min_cluster_size.</td></tr>`;
+    } else {
+      clusterTbody.innerHTML = clusters.map((c, i) => {
+        const sourceCount = (c.articles || []).length;
+        const uniqueSources = [...new Set((c.articles || []).map(a => a.source).filter(Boolean))];
+        const dedupHtml = c.wouldSkipDedup
+          ? `<span class="dedup-warn">Skip (${c.overlapPct}% overlap)</span>`
+          : `<span class="dedup-ok">OK</span>`;
+        const strength = c.strength || 0;
+        const strengthClass = strength >= 0.3 ? 'strength-high' : strength >= 0.15 ? 'strength-med' : 'strength-low';
+        const strengthLabel = strength >= 0.3 ? 'High' : strength >= 0.15 ? 'Med' : 'Low';
+        const sourceRows = (c.articles || []).map(a =>
+          `<li>${esc(a.title)} ${a.source ? `<span class="text-muted">(${esc(a.source)})</span>` : ''}${a.source_url ? ` <a href="${esc(a.source_url)}" target="_blank" rel="noopener">link</a>` : ''}</li>`
+        ).join('');
+        return `
+          <tr>
+            <td>${i + 1}</td>
+            <td>
+              ${esc(c.topic)}
+              ${c.proposedHeadline ? `<div class="proposed-headline">${esc(c.proposedHeadline)}</div>` : ''}
+              <div id="sources-${i}" style="display:none;">
+                <ul class="source-list">${sourceRows}</ul>
+              </div>
+            </td>
+            <td>${c.articleCount}</td>
+            <td><span class="${strengthClass}">${strengthLabel} (${strength})</span></td>
+            <td>
+              <span class="expand-toggle" onclick="toggleSources(${i})">${sourceCount} articles from ${uniqueSources.length} source${uniqueSources.length !== 1 ? 's' : ''}</span>
+            </td>
+            <td>${dedupHtml}</td>
+          </tr>`;
+      }).join('');
+    }
+    clusterSection.style.display = '';
+  }
+
+  // Toggle source list visibility
+  window.toggleSources = function(idx) {
+    const el = document.getElementById('sources-' + idx);
+    if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+  };
+
   // Preview
   previewBtn.addEventListener('click', async () => {
     const writerId = writerSelect.value;
@@ -32,23 +105,30 @@ onReady(async () => {
     previewBtn.textContent = 'Loading...';
     try {
       const data = await apiFetch(`/synthesis/preview/${writerId}`);
-      clusterLabel.textContent = data.writer.name + (data.writer.beat ? ` — ${data.writer.beat}` : '');
-      if (!data.clusters.length) {
-        clusterTbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center" style="padding:24px;">No clusters found — ${data.articleCount || 0} articles in lookback window, none grouped into 3+ matching articles. Try fetching more articles or lowering min_cluster_size on the writer.</td></tr>`;
-      } else {
-        clusterTbody.innerHTML = data.clusters.map((c, i) => `
-          <tr>
-            <td>${i + 1}</td>
-            <td>${esc(c.topic)}</td>
-            <td>${c.articleCount}</td>
-          </tr>`).join('');
-      }
-      clusterSection.style.display = '';
+      renderClusterResults(data);
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
       previewBtn.disabled = false;
       previewBtn.textContent = 'Preview Clusters';
+    }
+  });
+
+  // Dry Run
+  dryRunBtn.addEventListener('click', async () => {
+    const writerId = writerSelect.value;
+    if (!writerId) return showToast('Select a writer first', 'error');
+    const force = forceCheck && forceCheck.checked;
+    dryRunBtn.disabled = true;
+    dryRunBtn.textContent = 'Running...';
+    try {
+      const data = await apiFetch(`/synthesis/dry-run/${writerId}${force ? '?force=true' : ''}`);
+      renderClusterResults(data);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      dryRunBtn.disabled = false;
+      dryRunBtn.textContent = 'Dry Run';
     }
   });
 
