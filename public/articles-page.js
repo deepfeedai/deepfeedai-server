@@ -180,7 +180,7 @@ let articles = [];
     filtered.sort((a, b) => {
       let va = a[sortCol], vb = b[sortCol];
       if (va == null) va = ''; if (vb == null) vb = '';
-      if (['is_published','is_featured'].includes(sortCol)) { va = Number(va); vb = Number(vb); }
+      if (['is_published','is_featured','editorial_score'].includes(sortCol)) { va = Number(va || 0); vb = Number(vb || 0); }
       else if (['published_at','created_at'].includes(sortCol)) { va = new Date(va); vb = new Date(vb); }
       else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
@@ -223,7 +223,7 @@ let articles = [];
     const tbody = document.getElementById('articlesBody');
     const mobileList = document.getElementById('articlesMobileList');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="11">
+      tbody.innerHTML = `<tr><td colspan="10">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
       if (mobileList) mobileList.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>';
@@ -234,35 +234,37 @@ let articles = [];
 
     const pageArticles = articles.slice((artPage - 1) * artPageSize, artPage * artPageSize);
 
-    // ── Desktop table rows ──
+    // ── Desktop table rows (two-row layout: data + actions) ──
+    const totalCols = 10; // checkbox + title + score + source + category + status + featured + writer + date + image
     tbody.innerHTML = pageArticles.map(a => {
       const isArchived = !!a.is_archived;
       const rowClass = [
         selectedIds.has(a.id) ? 'row-selected' : '',
         isArchived ? 'row-archived' : ''
       ].filter(Boolean).join(' ');
-      return `
-      <tr id="row-${a.id}" class="${rowClass}">
-        <td class="td-check">
+
+      // ── Row 1: All data columns ──
+      const row1 = `
+      <tr id="row-${a.id}" class="row-main ${rowClass}">
+        <td class="td-check" rowspan="2">
           <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
         </td>
         <td class="td-title" title="${escHtml(a.title)}">
           <span class="td-editable-text">${escHtml(a.title)}</span>
           ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
         </td>
+        <td class="text-center">${a.editorial_score != null
+          ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
+          : '<span class="text-muted">—</span>'}</td>
         <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
         <td class="td-category">
           ${isArchived
             ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
             : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
         </td>
-        <td>${isArchived ? '<span class="badge badge-muted">—</span>'
+        <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
           : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
-          : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}"
-            style="cursor:pointer;border:none;background:inherit;"
-            onclick="togglePublish(${a.id})">
-            ${a.is_published ? 'Published' : 'Draft'}
-          </button>`}
+          : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
         </td>
         <td>${isArchived ? '—' : `
           <div class="featured-picker" style="display:flex;align-items:center;gap:4px;">
@@ -285,28 +287,35 @@ let articles = [];
         <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
           ${isArchived ? '—' : renderImageCell(a)}
         </td>
-        <td class="td-audio" id="audio-cell-${a.id}">
-          ${isArchived ? '—' : renderAudioCell(a)}
-        </td>
-        <td class="td-actions">
-          ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original article">🔗</a>` : ''}
-          ${isArchived ? `
-            <button class="btn btn-ghost btn-sm btn-icon" title="Restore" onclick="restoreArticle(${a.id})">♻️</button>
-            <button class="btn btn-ghost btn-sm btn-icon" title="Permanently delete" onclick="openPurge(${a.id})">💀</button>
-          ` : `
-            ${a.status === 'review' ? `
-              <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Reject" onclick="rejectArticle(${a.id})">✗</button>
-            ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
-              <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-            ` : ''}
-            <button class="btn btn-ghost btn-sm btn-icon" title="Preview" onclick="previewArticle(${a.id})">👁</button>
-            ${!a.image_url ? `<button class="btn btn-ghost btn-sm btn-icon" title="Generate AI image" onclick="generateImage(${a.id})">🎨</button>` : ''}
-            <button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(${a.id})">✏️</button>
-            <button class="btn btn-ghost btn-sm btn-icon" title="Archive" onclick="openDelete(${a.id})">🗑️</button>
-          `}
+      </tr>`;
+
+      // ── Row 2: Actions ──
+      const row2 = `
+      <tr class="row-sub ${rowClass}">
+        <td colspan="${totalCols - 1}">
+          <div class="row-sub-actions">
+            ${a.source_url ? `<a class="btn btn-ghost btn-sm" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
+            ${isArchived ? `
+              <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
+              <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
+            ` : `
+              ${a.status === 'review' ? `
+                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+                <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
+              ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+              ` : ''}
+              <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
+              <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+              <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+              <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+              <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
+            `}
+          </div>
         </td>
       </tr>`;
+
+      return row1 + row2;
     }).join('');
 
     // ── Mobile card view ──
@@ -330,7 +339,7 @@ let articles = [];
               ? '<span class="badge badge-archived">Archived</span>'
               : a.status === 'review'
                 ? '<span class="badge badge-warning">In Review</span>'
-                : `<button class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}" style="cursor:pointer;border:none;background:inherit;" onclick="togglePublish(${a.id})">${a.is_published ? 'Published' : 'Draft'}</button>`}
+                : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
             <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
             ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
             <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
@@ -347,8 +356,7 @@ let articles = [];
                 <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
               ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
                 <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-                <button class="btn btn-ghost btn-sm" title="Publish" onclick="togglePublish(${a.id})">✅ Publish</button>
-              ` : `<button class="btn btn-ghost btn-sm" title="${a.is_published ? 'Unpublish' : 'Publish'}" onclick="togglePublish(${a.id})">${a.is_published ? '📄 Unpublish' : '✅ Publish'}</button>`}
+              ` : ''}
               <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
               <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
               <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>

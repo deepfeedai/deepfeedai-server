@@ -12,6 +12,7 @@ const { detectCategory } = require('../lib/categorize');
 const { scrapeOgImage }  = require('../lib/scrape');
 const { findBestWriter } = require('../lib/writer-assign');
 const { logAudit }       = require('../middleware/audit');
+const { getCuratedScore } = require('../lib/quality-gate');
 
 // ── Date range helper ───────────────────────────────────────────────────────
 
@@ -317,6 +318,15 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
             await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3')
               .run(writer.id, row.id, req.tenantId);
           }
+        } catch { /* non-fatal */ }
+      }
+
+      // Score discovered articles
+      if (row) {
+        try {
+          const gate = await getCuratedScore({ title, summary, image_url: imageUrl, author: null, source: sourceName }, req.tenantId);
+          await db.prepare('UPDATE articles SET editorial_score = $1, status = $2 WHERE id = $3 AND tenant_id = $4')
+            .run(gate.score, importPublished ? 'published' : 'draft', row.id, req.tenantId);
         } catch { /* non-fatal */ }
       }
 
