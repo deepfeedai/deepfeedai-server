@@ -4,6 +4,13 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0-beta.2] — 2026-03-23
+
+### Added
+- `GET /admin/tenants/plan-limits` endpoint for platform dashboard wizard and quotas display
+
+---
+
 ## [3.0.0-beta.1] — 2026-03-23
 
 Multi-tenant platform release (beta).
