@@ -1,25 +1,35 @@
 /**
  * Deep Feed AI Admin — /api/media
- * ElevenLabs audio generation.
- * Production: uploads MP3 to Cloudflare R2, stores CDN URL in DB.
- * Local dev: saves MP3 to public/media/audio/ (R2 env vars not set).
+ * Media generation (audio, images) and user image uploads.
+ * Production: uploads to Cloudflare R2, stores CDN URL in DB.
+ * Local dev: saves to public/media/ (R2 env vars not set).
  */
 const express = require('express');
 const router  = require('express').Router();
 const https   = require('https');
+const crypto  = require('crypto');
+const multer  = require('multer');
 const db      = require('../db');
 
 const { auth }               = require('../middleware/auth');
 const { requirePermission }  = require('../middleware/permissions');
 const { toSlug, asyncHandler } = require('../lib/utils');
-const { decryptSetting }     = require('../lib/crypto');
 const storage = require('../lib/storage');
-const { getGeminiKey } = require('../lib/gemini-config');
+const { getGeminiKey, getImagenModel, getImagenUrl } = require('../lib/gemini-config');
 const { getAppConfig } = require('../lib/app-config');
-const EL_API_KEY    = process.env.ELEVENLABS_API_KEY;
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
-const { checkFeatureEnabled }           = require('../lib/plan-limits');
+const { checkFeatureEnabled, checkPlanLimit } = require('../lib/plan-limits');
 const { logAudit }                      = require('../middleware/audit');
+
+// Multer config for user image uploads
+const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (_req, file, cb) => {
+    cb(null, ALLOWED_MIMES.has(file.mimetype));
+  },
+});
 const MAX_CHARS     = 900;
 const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
 const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
@@ -62,7 +72,7 @@ async function buildTtsText(title, summary, source, tenantId) {
 
 function generateSpeech(text, voiceId, apiKey) {
   const resolvedVoiceId = voiceId;
-  const resolvedApiKey  = apiKey  || EL_API_KEY;
+  const resolvedApiKey  = apiKey;
   return new Promise((resolve, reject) => {
     if (!resolvedApiKey || !resolvedVoiceId) return reject(new Error('ElevenLabs credentials not configured'));
     const body = JSON.stringify({
@@ -98,23 +108,43 @@ function generateSpeech(text, voiceId, apiKey) {
 }
 
 async function storeAudio(mp3Buf, filename, tenantId) {
-  return storage.upload(mp3Buf, 'audio/mpeg', `audio/${filename}`, tenantId || 1);
+  return storage.upload(mp3Buf, 'audio/mpeg', `audio/${filename}`, tenantId);
 }
 
+// deleteAudio delegated to lib/media-helpers.js (canonical location)
 async function deleteAudio(audioUrl, tenantId) {
-  if (!audioUrl) return;
-  // Extract the key from the URL and delegate to storage.remove
-  const match = audioUrl.match(/audio\/([^/?#]+)/);
-  if (match) {
-    try { await storage.remove(`audio/${match[1]}`, tenantId || 1); } catch { /* best effort */ }
-  }
+  return deleteAudioHelper(audioUrl, tenantId);
 }
+
+// POST /api/media/upload — upload a user-provided image
+router.post('/upload', auth, requirePermission('media.create'), imageUpload.single('image'), asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No valid image file provided. Accepted: PNG, JPEG, WebP, GIF (max 10MB)' });
+  }
+
+  const quota = await checkPlanLimit(req.tenantId, 'storage');
+  if (!quota.allowed) {
+    return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: quota.current, max: quota.max });
+  }
+
+  const ext = storage.extFromMime(req.file.mimetype);
+  const randHex = crypto.randomBytes(8).toString('hex');
+  const filename = `upload-${randHex}-${Date.now()}.${ext}`;
+  const imageUrl = await storage.upload(req.file.buffer, req.file.mimetype, `images/${filename}`, req.tenantId);
+
+  await logAudit(req, 'media.upload', 'media', null, { filename, size: req.file.size, mime: req.file.mimetype });
+  res.json({ imageUrl, size: req.file.size });
+}));
 
 // POST /api/media/generate-audio  { articleId, voiceId? }
 router.post('/generate-audio', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
   const audioEnabled = await checkFeatureEnabled(req.tenantId, 'audio_enabled');
   if (!audioEnabled) {
     return res.status(403).json({ error: 'Feature not available on your plan', feature: 'audio_enabled' });
+  }
+  const storageQuota = await checkPlanLimit(req.tenantId, 'storage');
+  if (!storageQuota.allowed) {
+    return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: storageQuota.current, max: storageQuota.max });
   }
 
   const { articleId, voiceId } = req.body;
@@ -145,10 +175,8 @@ router.post('/generate-audio', auth, requirePermission('media.create'), asyncHan
       }
     }
 
-    // Resolve API key: settings table → env var
-    let resolvedApiKey = EL_API_KEY;
-    const apiKeySetting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
-    if (apiKeySetting && apiKeySetting.value) resolvedApiKey = decryptSetting(apiKeySetting.value);
+    // Resolve API key via centralized config (settings table → env var)
+    const resolvedApiKey = appCfg.elevenlabs_api_key;
 
     const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
     const _elStart = Date.now();
@@ -180,9 +208,8 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
   const { voice_id, text } = req.body || {};
   if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
 
-  let apiKey = EL_API_KEY;
-  const setting = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
-  if (setting?.value) apiKey = decryptSetting(setting.value);
+  const appCfg = await getAppConfig(req.tenantId);
+  const apiKey = appCfg.elevenlabs_api_key;
 
   const previewText = (text && text.trim()) ? text.trim().slice(0, 500) : 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest updates.';
   const mp3Buf = await generateSpeech(previewText, voice_id, apiKey);
@@ -191,29 +218,31 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
 
 // POST /api/media/generate-image  { articleId }
 const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
-const { getVisualConcept, buildImagePrompt, storeImage } = require('../lib/media-helpers');
+const { getVisualConcept, buildImagePrompt, storeImage, deleteImage, deleteAudio: deleteAudioHelper } = require('../lib/media-helpers');
 
 router.post('/generate-image', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
+  const imgStorageQuota = await checkPlanLimit(req.tenantId, 'storage');
+  if (!imgStorageQuota.allowed) {
+    return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: imgStorageQuota.current, max: imgStorageQuota.max });
+  }
+
   const { articleId } = req.body;
   if (!articleId) return res.status(400).json({ error: 'articleId required' });
 
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(articleId, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
-  // Resolve API key and model from settings (DB overrides env var)
+  // Resolve API key and model (tenant → platform → env var)
   const resolvedImageApiKey = await getGeminiKey(req.tenantId);
-  let resolvedImagenUrl = IMAGEN_URL;
-  try {
-    const modelSetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model' AND tenant_id = $1").get(req.tenantId);
-    const MODEL_RE = /^[a-zA-Z0-9._-]{3,80}$/;
-    if (modelSetting?.value && MODEL_RE.test(modelSetting.value)) {
-      resolvedImagenUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
-    }
-  } catch { /* fall back to default */ }
+  const resolvedModel = await getImagenModel(req.tenantId);
+  const resolvedImagenUrl = getImagenUrl(resolvedModel);
 
   if (!resolvedImageApiKey) return res.status(500).json({ error: 'Gemini/Imagen API key not configured — set it in Settings > Integrations or GEMINI_API_KEY env var' });
 
   try {
+    // Clean up old image if replacing
+    await deleteImage(article.image_url, req.tenantId);
+
     const category = article.category || '';
 
     // Step 1: Get visual concept + style from Gemini

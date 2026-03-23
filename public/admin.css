@@ -177,6 +177,69 @@ code {
   padding: var(--space-3) 0;
 }
 
+/* Tenant switcher */
+.tenant-switcher {
+  position: relative;
+  margin-bottom: var(--space-1);
+}
+
+.tenant-switcher-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tenant-switcher-name {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenant-switcher-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: var(--space-3);
+  right: var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-1) 0;
+  margin-bottom: var(--space-1);
+  box-shadow: 0 -4px 16px rgba(0,0,0,.4);
+  z-index: 100;
+}
+
+.tenant-switcher-menu.open {
+  display: block;
+}
+
+.tenant-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tenant-option:hover {
+  background: var(--accent-dim);
+}
+
+.tenant-option.tenant-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* ===== MAIN CONTENT ===== */
 .main-content {
   flex: 1;

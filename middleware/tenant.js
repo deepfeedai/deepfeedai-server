@@ -31,33 +31,49 @@ function safeCompare(a, b) {
   return timingSafeEqual(bufA, bufB);
 }
 
+// Returns { id, suspended } — id is null for unknown slugs, suspended=true for non-active tenants
 async function resolveTenantId(slug) {
   const cached = slugCache.get(slug);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.id;
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached;
 
   const row = await db.prepare(
-    "SELECT id FROM tenants WHERE slug = $1 AND status = 'active'"
+    "SELECT id, status FROM tenants WHERE slug = $1"
   ).get(slug);
 
-  const id = row ? row.id : null;
-  slugCache.set(slug, { id, ts: Date.now() });
-  return id;
+  let result;
+  if (!row) {
+    result = { id: null, suspended: false };
+  } else if (row.status !== 'active') {
+    result = { id: null, suspended: true };
+  } else {
+    result = { id: row.id, suspended: false };
+  }
+  slugCache.set(slug, { ...result, ts: Date.now() });
+  return result;
 }
 
 // Cache custom_domain → id lookups (5-min TTL)
 const domainCache = new Map();
 
+// Returns { id, suspended } — same pattern as resolveTenantId
 async function resolveCustomDomain(hostname) {
   const cached = domainCache.get(hostname);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.id;
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached;
 
   const row = await db.prepare(
-    "SELECT id FROM tenants WHERE custom_domain = $1 AND status = 'active'"
+    "SELECT id, status FROM tenants WHERE custom_domain = $1"
   ).get(hostname);
 
-  const id = row ? row.id : null;
-  domainCache.set(hostname, { id, ts: Date.now() });
-  return id;
+  let result;
+  if (!row) {
+    result = { id: null, suspended: false };
+  } else if (row.status !== 'active') {
+    result = { id: null, suspended: true };
+  } else {
+    result = { id: row.id, suspended: false };
+  }
+  domainCache.set(hostname, { ...result, ts: Date.now() });
+  return result;
 }
 
 /**
@@ -65,7 +81,7 @@ async function resolveCustomDomain(hostname) {
  * Verifies JWT to extract tenantId (not just base64 peek).
  * Does NOT block requests if tenant can't be resolved — falls back to 1.
  */
-async function tenantContext(req, _res, next) {
+async function tenantContext(req, res, next) {
   const { jwtSecret, jwtSecretPrevious, cronSecret } = await getSecrets();
 
   // 1. Try to extract tenantId from Bearer JWT (fully verified)
@@ -101,18 +117,21 @@ async function tenantContext(req, _res, next) {
     }
   }
 
+  // Helper: handle resolve result { id, suspended }
+  function handleResolved(result) {
+    if (result.suspended) {
+      return res.status(403).json({ error: 'This site has been suspended' });
+    }
+    req.tenantId = result.id || 1;
+    next();
+  }
+
   // 3. Check X-Tenant-Slug header (sent by frontend)
   const slug = req.headers['x-tenant-slug'];
   if (slug) {
     resolveTenantId(slug)
-      .then(id => {
-        req.tenantId = id || 1;
-        next();
-      })
-      .catch(() => {
-        req.tenantId = 1;
-        next();
-      });
+      .then(handleResolved)
+      .catch(() => { req.tenantId = 1; next(); });
     return;
   }
 
@@ -123,29 +142,17 @@ async function tenantContext(req, _res, next) {
       const hostname = new URL(origin).hostname;
       // Check *.deepfeedai.com subdomains
       const subMatch = hostname.match(/^([a-z0-9-]+)\.deepfeedai\.com$/);
-      if (subMatch && subMatch[1] !== 'www' && subMatch[1] !== 'staging' && subMatch[1] !== 'portal' && subMatch[1] !== 'portal-staging') {
+      if (subMatch && subMatch[1] !== 'www' && subMatch[1] !== 'staging' && subMatch[1] !== 'portal' && subMatch[1] !== 'portal-staging' && subMatch[1] !== 'platform' && subMatch[1] !== 'platform-staging') {
         resolveTenantId(subMatch[1])
-          .then(id => {
-            req.tenantId = id || 1;
-            next();
-          })
-          .catch(() => {
-            req.tenantId = 1;
-            next();
-          });
+          .then(handleResolved)
+          .catch(() => { req.tenantId = 1; next(); });
         return;
       }
       // Check custom domains
       if (!hostname.includes('deepfeedai.com') && !hostname.includes('localhost') && !hostname.match(/^(127\.|192\.168\.|10\.)/)) {
         resolveCustomDomain(hostname)
-          .then(id => {
-            req.tenantId = id || 1;
-            next();
-          })
-          .catch(() => {
-            req.tenantId = 1;
-            next();
-          });
+          .then(handleResolved)
+          .catch(() => { req.tenantId = 1; next(); });
         return;
       }
     } catch { /* invalid URL, ignore */ }
@@ -156,4 +163,12 @@ async function tenantContext(req, _res, next) {
   next();
 }
 
-module.exports = { tenantContext };
+function invalidateSlugCache(slug) {
+  if (slug) slugCache.delete(slug);
+}
+
+function invalidateDomainCache(domain) {
+  if (domain) domainCache.delete(domain);
+}
+
+module.exports = { tenantContext, invalidateSlugCache, invalidateDomainCache };

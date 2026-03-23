@@ -936,6 +936,58 @@ let articles = [];
     }
   }
 
+  // Image upload/clear helpers
+  function setImageField(url) {
+    document.getElementById('fImageUrl').value = url || '';
+    var status = document.getElementById('fImageStatus');
+    var clearBtn = document.getElementById('fImageClearBtn');
+    if (url) {
+      var name = url.split('/').pop();
+      status.textContent = name;
+      status.title = url;
+      clearBtn.style.display = '';
+    } else {
+      status.textContent = 'No image';
+      status.title = '';
+      clearBtn.style.display = 'none';
+    }
+  }
+
+  document.getElementById('fImageUploadBtn').addEventListener('click', function() {
+    document.getElementById('fImageUpload').click();
+  });
+  document.getElementById('fImageClearBtn').addEventListener('click', function() {
+    setImageField('');
+  });
+  document.getElementById('fImageUpload').addEventListener('change', async function() {
+    var file = this.files[0];
+    if (!file) return;
+    var btn = document.getElementById('fImageUploadBtn');
+    var origText = btn.textContent;
+    btn.textContent = 'Uploading\u2026';
+    btn.style.pointerEvents = 'none';
+    try {
+      var form = new FormData();
+      form.append('image', file);
+      var token = getToken();
+      var res = await fetch('/api/media/upload', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      setImageField(data.imageUrl);
+      showToast('Image uploaded');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btn.textContent = origText;
+      btn.style.pointerEvents = '';
+      this.value = '';
+    }
+  });
+
   function previewAudio(id) {
     const el = document.getElementById(`ap-${id}`);
     if (!el) return;
@@ -1060,7 +1112,7 @@ let articles = [];
     document.getElementById('fAuthor').value = '';
     document.getElementById('fSource').value = '';
     document.getElementById('fSourceUrl').value = '';
-    document.getElementById('fImageUrl').value = '';
+    setImageField('');
     document.getElementById('fPublished').checked = true;
     document.getElementById('fFeatured').value = '0';
     populateWriterSelect(null);
@@ -1089,7 +1141,7 @@ let articles = [];
       set('fSummary',   data.summary);
       set('fSource',    data.source);
       set('fSourceUrl', data.source_url);
-      set('fImageUrl',  data.image);
+      setImageField(data.image || '');
       set('fAuthor',    data.author);
       if (data.category) document.getElementById('fCategory').innerHTML = categoryOptions(data.category);
 
@@ -1120,7 +1172,7 @@ let articles = [];
     document.getElementById('fAuthor').value = a.author || '';
     document.getElementById('fSource').value = a.source || '';
     document.getElementById('fSourceUrl').value = a.source_url || '';
-    document.getElementById('fImageUrl').value = a.image_url || '';
+    setImageField(a.image_url || '');
     document.getElementById('fPublished').checked = !!a.is_published;
     document.getElementById('fFeatured').value = a.is_featured ? (a.featured_priority || 1) : 0;
     populateWriterSelect(a.writer_id || null);

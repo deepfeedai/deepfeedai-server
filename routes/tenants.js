@@ -10,15 +10,40 @@ const { asyncHandler } = require('../lib/utils');
 const requireUser = require('../middleware/user-jwt');
 const { getJwtSecret } = require('../middleware/auth');
 const { logAudit } = require('../middleware/audit');
+const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
+const { getSecrets } = require('../lib/secrets');
+
+// Middleware that accepts either a public user JWT or an admin JWT.
+// Needed for /mine and /switch which are called from the admin panel
+// (admin JWT) and during signup/login flows (public user JWT).
+async function requireAnyAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const token = auth.slice(7);
+  const secrets = await getSecrets();
+
+  // Try admin JWT first (most common path from admin panel)
+  for (const secret of [secrets.jwtSecret, secrets.jwtSecretPrevious, secrets.userJwtSecret]) {
+    if (!secret) continue;
+    try {
+      req.user = jwt.verify(token, secret);
+      return next();
+    } catch (_) { /* try next */ }
+  }
+  return res.status(401).json({ error: 'Invalid token' });
+}
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
 const RESERVED_SLUGS = new Set([
   'www', 'api', 'admin', 'app', 'mail', 'ftp', 'staging', 'dev',
-  'test', 'portal', 'portal-staging', 'status', 'help', 'support', 'blog',
+  'test', 'portal', 'portal-staging', 'platform', 'platform-staging',
+  'status', 'help', 'support', 'blog',
 ]);
 
 // GET /api/tenants/mine — list tenants the current user is an admin of
-router.get('/mine', requireUser, asyncHandler(async (req, res) => {
+router.get('/mine', requireAnyAuth, asyncHandler(async (req, res) => {
   const tenants = await db.prepare(`
     SELECT ta.tenant_id, ta.role, t.slug, t.display_name, t.status, t.plan
     FROM tenant_admins ta
@@ -31,7 +56,7 @@ router.get('/mine', requireUser, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/tenants/switch — switch to a different tenant
-router.post('/switch', requireUser, asyncHandler(async (req, res) => {
+router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
   const { tenantId } = req.body || {};
 
   if (!tenantId || typeof tenantId !== 'number') {
@@ -304,6 +329,39 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
   });
 }));
 
+// POST /api/tenants/cancel — owner cancels their own tenant
+router.post('/cancel', requireUser, asyncHandler(async (req, res) => {
+  const { tenantId } = req.body || {};
+  if (!tenantId || typeof tenantId !== 'number') {
+    return res.status(400).json({ error: 'tenantId is required and must be a number' });
+  }
+  if (tenantId === 1) {
+    return res.status(400).json({ error: 'Cannot cancel the primary site' });
+  }
+
+  // Verify user is owner of the tenant
+  const admin = await db.prepare(`
+    SELECT ta.role, t.id, t.slug, t.status
+    FROM tenant_admins ta
+    JOIN tenants t ON t.id = ta.tenant_id
+    WHERE ta.user_id = $1 AND ta.tenant_id = $2
+  `).get(req.user.sub, tenantId);
+
+  if (!admin) return res.status(404).json({ error: 'Tenant not found' });
+  if (admin.role !== 'owner') return res.status(403).json({ error: 'Only the owner can cancel a tenant' });
+  if (admin.status !== 'active') return res.status(409).json({ error: `Tenant is already ${admin.status}` });
+
+  const tenantRow = await db.prepare("SELECT custom_domain FROM tenants WHERE id = $1").get(tenantId);
+  await db.prepare("UPDATE tenants SET status = 'cancelled' WHERE id = $1").run(tenantId);
+
+  // Invalidate caches so the tenant is immediately unreachable
+  invalidateSlugCache(admin.slug);
+  if (tenantRow?.custom_domain) invalidateDomainCache(tenantRow.custom_domain);
+
+  logAudit(req, 'tenant.cancel', 'tenants', tenantId, { slug: admin.slug });
+  res.json({ success: true, status: 'cancelled' });
+}));
+
 // GET /api/tenants/check-slug?slug= — check if slug is available (public)
 router.get('/check-slug', asyncHandler(async (req, res) => {
   const slug = (req.query.slug || '').toLowerCase().trim();
@@ -315,6 +373,35 @@ router.get('/check-slug', asyncHandler(async (req, res) => {
   }
   const existing = await db.prepare('SELECT id FROM tenants WHERE slug = $1').get(slug);
   res.json({ available: !existing });
+}));
+
+// GET /api/tenants/onboarding-status — onboarding checklist for current tenant
+const { auth: authMiddleware } = require('../middleware/auth');
+
+router.get('/onboarding-status', authMiddleware, asyncHandler(async (req, res) => {
+  const tid = req.tenantId || 1;
+
+  const [sources, writers, articles, aiKey, domain] = await Promise.all([
+    db.prepare("SELECT COUNT(*)::int AS cnt FROM sources WHERE tenant_id = $1").get(tid),
+    db.prepare("SELECT COUNT(*)::int AS cnt FROM writers WHERE tenant_id = $1").get(tid),
+    db.prepare("SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND is_published = 1").get(tid),
+    db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'openai_api_key'").get(tid),
+    db.prepare("SELECT custom_domain FROM tenants WHERE id = $1").get(tid),
+  ]);
+
+  const steps = [
+    { key: 'add_source', label: 'Add your first RSS source', done: parseInt(sources.cnt) > 0 },
+    { key: 'add_writer', label: 'Create a writer persona', done: parseInt(writers.cnt) > 0 },
+    { key: 'configure_ai', label: 'Set up an AI API key', done: !!(aiKey?.value) },
+    { key: 'publish_article', label: 'Publish your first article', done: parseInt(articles.cnt) > 0 },
+    { key: 'custom_domain', label: 'Set up a custom domain', done: !!domain?.custom_domain, optional: true },
+  ];
+
+  const required = steps.filter(s => !s.optional);
+  const doneCount = required.filter(s => s.done).length;
+  const completionPct = required.length > 0 ? Math.round((doneCount / required.length) * 100) : 100;
+
+  res.json({ steps, completionPct });
 }));
 
 module.exports = router;

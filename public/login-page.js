@@ -55,9 +55,9 @@ onReady(async () => {
     // If /api/auth/methods fails, fall back to showing OAuth only
   }
 
-  // OAuth: Google sign-in
+  // OAuth: Google sign-in (uses public user OAuth → tenant login exchange)
   googleBtn.addEventListener('click', () => {
-    window.location.href = '/api/auth/google';
+    window.location.href = '/api/user-auth/google?return_to=login';
   });
 
   // Local login
@@ -117,15 +117,33 @@ onReady(async () => {
     googleBtn.disabled = true;
     googleBtn.innerHTML = '<span class="spinner"></span> Signing in\u2026';
     try {
-      const res  = await fetch('/api/auth/code', {
+      // Step 1: Exchange one-time code for public user JWT
+      const tokenRes = await fetch('/api/user-auth/token', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ code: oauthCode }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Code exchange failed');
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) throw new Error(tokenData.error || 'Code exchange failed');
 
-      localStorage.setItem('deepfeedai_token', data.token);
+      // Step 2: Exchange public user JWT for tenant-admin JWT
+      const loginRes = await fetch('/api/tenants/login', {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + tokenData.token,
+        },
+      });
+      const loginData = await loginRes.json();
+
+      if (loginRes.status === 404 && loginData.signup) {
+        // No tenant found — redirect to signup
+        window.location.href = '/signup.html?token=' + encodeURIComponent(tokenData.token);
+        return;
+      }
+      if (!loginRes.ok) throw new Error(loginData.error || 'Tenant login failed');
+
+      localStorage.setItem('deepfeedai_token', loginData.token);
       window.location.replace('/index.html');
     } catch (err) {
       showLoginError(err.message);

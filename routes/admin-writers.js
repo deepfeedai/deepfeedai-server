@@ -354,13 +354,9 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
 
   console.log(`[AvatarGen] Writer ${id} (${writer.name}): ${prompt}`);
 
-  const IMAGEN_URL = 'https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict';
-  let resolvedUrl = IMAGEN_URL;
-  try {
-    const modelSetting = await db.prepare("SELECT value FROM settings WHERE key = 'imagen_model' AND tenant_id = $1").get(req.tenantId);
-    const MODEL_RE = /^[a-zA-Z0-9._-]{3,80}$/;
-    if (modelSetting?.value && MODEL_RE.test(modelSetting.value)) resolvedUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelSetting.value}:predict`;
-  } catch {}
+  const { getImagenModel, getImagenUrl } = require('../lib/gemini-config');
+  const resolvedAvatarModel = await getImagenModel(req.tenantId);
+  const resolvedUrl = getImagenUrl(resolvedAvatarModel);
 
   const imagenBody = resolvedUrl.includes(':predict')
     ? { instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: '1:1', safetyFilterLevel: 'block_few' } }

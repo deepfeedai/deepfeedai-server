@@ -11,7 +11,7 @@ const { getPool } = require('../db');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { getTodaySpend, getMonthlySpend } = require('../lib/ai-usage');
-const { decryptSetting } = require('../lib/crypto');
+const { getAppConfig } = require('../lib/app-config');
 
 // GET /api/ai-usage/summary?range=7d|30d|90d
 router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
@@ -142,12 +142,9 @@ router.get('/recent', requirePermission('analytics.read'), asyncHandler(async (r
 
 // GET /api/ai-usage/elevenlabs — proxy ElevenLabs subscription usage
 router.get('/elevenlabs', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
-  // Resolve API key: DB setting (encrypted) → env var
-  let apiKey = process.env.ELEVENLABS_API_KEY;
-  try {
-    const row = await db.prepare("SELECT value FROM settings WHERE key = 'elevenlabs_api_key' AND tenant_id = $1").get(req.tenantId);
-    if (row?.value) apiKey = decryptSetting(row.value);
-  } catch { /* fall back to env */ }
+  // Resolve API key via centralized config (settings table → env var)
+  const appCfg = await getAppConfig(req.tenantId);
+  const apiKey = appCfg.elevenlabs_api_key;
 
   if (!apiKey) return res.json({ configured: false });
 

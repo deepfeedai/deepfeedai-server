@@ -11,6 +11,7 @@ const { findBestWriter } = require('../lib/writer-assign');
 const { checkPlanLimit }    = require('../lib/plan-limits');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
+const { deleteImage, deleteAudio } = require('../lib/media-helpers');
 
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
@@ -38,15 +39,38 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
 // ?type=curated|original|all (default: all)
 router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
   const { type = 'all' } = req.query;
-  let sql;
+
+  // Fetch media URLs before deleting so we can clean up storage
+  let selectSql;
   if (type === 'curated') {
-    sql = `DELETE FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL) RETURNING id`;
+    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL)`;
   } else if (type === 'original') {
-    sql = `DELETE FROM articles WHERE tenant_id = $1 AND content_type = 'original' RETURNING id`;
+    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND content_type = 'original'`;
   } else {
-    sql = `DELETE FROM articles WHERE tenant_id = $1 RETURNING id`;
+    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1`;
   }
-  const deleted = await db.prepare(sql).all(req.tenantId);
+  const articles = await db.prepare(selectSql).all(req.tenantId);
+
+  // Clean up stored media files (best effort, don't block on failures)
+  for (const a of articles) {
+    await deleteAudio(a.audio_url, req.tenantId);
+    await deleteImage(a.image_url, req.tenantId);
+    const inlines = typeof a.inline_images === 'string'
+      ? JSON.parse(a.inline_images) : (a.inline_images || []);
+    for (const img of inlines) {
+      if (img.url) await deleteImage(img.url, req.tenantId);
+    }
+  }
+
+  let deleteSql;
+  if (type === 'curated') {
+    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL) RETURNING id`;
+  } else if (type === 'original') {
+    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND content_type = 'original' RETURNING id`;
+  } else {
+    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 RETURNING id`;
+  }
+  const deleted = await db.prepare(deleteSql).all(req.tenantId);
   res.json({ deleted: deleted.length, type });
 }));
 
@@ -308,8 +332,18 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
 
 // DELETE /api/articles/:id/purge — hard delete
 router.delete('/:id/purge', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  const existing = await db.prepare('SELECT id, image_url, audio_url, inline_images FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
+
+  // Clean up stored media files
+  await deleteAudio(existing.audio_url, req.tenantId);
+  await deleteImage(existing.image_url, req.tenantId);
+  const inlines = typeof existing.inline_images === 'string'
+    ? JSON.parse(existing.inline_images) : (existing.inline_images || []);
+  for (const img of inlines) {
+    if (img.url) await deleteImage(img.url, req.tenantId);
+  }
+
   await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
   logAudit(req, 'article.purge', 'article', parseInt(req.params.id));
   res.json({ message: 'Article permanently deleted' });

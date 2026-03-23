@@ -735,35 +735,6 @@ let apiKeyVisible = false;
     { id: 'siteAdsenseId',  key: 'site_adsense_id' },
   ]));
 
-  // ── Cloudflare R2 Storage save ──────────────────────────────────
-  panelSave('saveR2Btn', 'r2SaveStatus', 'R2 Settings', async () => {
-    const payload = {};
-    const fields = [
-      { id: 'r2AccountId',      key: 'r2_account_id' },
-      { id: 'r2BucketName',     key: 'r2_bucket_name' },
-      { id: 'r2PublicUrl',      key: 'r2_public_url' },
-      { id: 'r2AccessKeyId',    key: 'r2_access_key_id' },
-      { id: 'r2SecretAccessKey', key: 'r2_secret_access_key' },
-    ];
-    for (const f of fields) {
-      const val = document.getElementById(f.id).value.trim();
-      if (val) payload[f.key] = val;
-    }
-    if (Object.keys(payload).length === 0) {
-      showToast('Please fill in at least one field', 'error');
-      return;
-    }
-    await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
-    // Clear secret fields after save
-    document.getElementById('r2AccessKeyId').value = '';
-    document.getElementById('r2SecretAccessKey').value = '';
-    document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
-    document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
-    // Update status
-    var status = document.getElementById('r2Status');
-    if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
-  });
-
   // ── Email (Resend) save ──────────────────────────────────────────
   panelSave('saveResendBtn', 'resendSaveStatus', 'Email Settings', async () => {
     const payload = {};
@@ -919,23 +890,24 @@ let apiKeyVisible = false;
     await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
   });
 
-  // ── Authentication Tab ────────────────────────────────────
-  function loadR2Tab(settings) {
-    var accountId = settings.r2_account_id;
-    var bucket = settings.r2_bucket_name;
-    var publicUrl = settings.r2_public_url;
-    var accessKey = settings.r2_access_key_id;
-    var secretKey = settings.r2_secret_access_key;
-    var status = document.getElementById('r2Status');
-
-    if (accountId || bucket) {
-      if (status) { status.textContent = 'Configured'; status.className = 'badge badge-success'; }
-      if (accountId) document.getElementById('r2AccountId').value = accountId;
-      if (bucket) document.getElementById('r2BucketName').value = bucket;
-      if (publicUrl) document.getElementById('r2PublicUrl').value = publicUrl;
-      if (accessKey) document.getElementById('r2AccessKeyId').placeholder = '••••••••  (saved)';
-      if (secretKey) document.getElementById('r2SecretAccessKey').placeholder = '••••••••  (saved)';
-    }
+  // ── Storage status (read-only — config moved to Platform Dashboard) ──
+  function loadStorageSection() {
+    apiFetch('/settings/storage-status').then(function(data) {
+      var backendEl = document.getElementById('storageBackendDisplay');
+      var usageEl = document.getElementById('storageUsageDisplay');
+      var statusBadge = document.getElementById('r2Status');
+      if (backendEl) {
+        backendEl.textContent = data.r2Configured ? 'Cloudflare R2' : (data.backend === 'local' ? 'Local (ephemeral)' : data.backend);
+      }
+      if (usageEl) {
+        var mb = (data.bytesUsed / (1024 * 1024)).toFixed(1);
+        usageEl.textContent = mb + ' MB / ' + data.fileCount + ' files';
+      }
+      if (statusBadge) {
+        statusBadge.textContent = data.r2Configured ? 'Active' : 'Local';
+        statusBadge.className = data.r2Configured ? 'badge badge-success' : 'badge badge-muted';
+      }
+    }).catch(function() {});
   }
 
   function loadAuthTab(settings) {
@@ -1058,7 +1030,7 @@ let apiKeyVisible = false;
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
       loadAuthTab(settings);
-      loadR2Tab(settings);
+      loadStorageSection();
       loadResendTab(settings);
       loadNewsKeysTab(settings);
       await loadSiteSettings(settings);

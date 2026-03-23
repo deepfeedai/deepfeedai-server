@@ -13,9 +13,14 @@ const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
 const { bustAppConfigCache } = require('../lib/app-config');
+const { requirePlatformAdmin } = require('../middleware/permissions');
 
 // Keys that are managed by lib/secrets.js and must never be returned to the frontend
 const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
+// Platform-level keys in multi-tenant mode — managed via platform dashboard
+const R2_KEYS = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
+const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model'];
+const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS];
 const { extFromMime } = require('../lib/r2');
 const storage = require('../lib/storage');
 const { logAudit } = require('../middleware/audit');
@@ -49,6 +54,15 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   for (const key of Object.keys(body)) {
     if (SECRET_MANAGER_KEYS.has(key)) {
       return res.status(400).json({ error: `Setting '${key}' cannot be updated via this endpoint` });
+    }
+  }
+
+  // Block non-platform-admins from writing platform-level keys
+  if (req.user?.type !== 'platform-admin') {
+    for (const key of Object.keys(body)) {
+      if (PLATFORM_KEYS.includes(key)) {
+        return res.status(403).json({ error: 'This setting requires platform admin access. Configure via Platform Dashboard > Settings.' });
+      }
     }
   }
 
@@ -104,6 +118,78 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
     }
   }
   res.json(result);
+}));
+
+// ── Platform-level config (always tenant_id=1) ────────────────────
+// In multi-tenant mode, R2/S3 credentials and AI API keys are platform-wide.
+// These endpoints read/write from tenant_id=1 regardless of the caller's tenant.
+const { bustGeminiKeyCache } = require('../lib/gemini-config');
+
+// GET /api/settings/platform-storage — platform admin reads platform config
+router.get('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler(async (req, res) => {
+  const placeholders = PLATFORM_KEYS.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await db.prepare(
+    `SELECT key, value FROM settings WHERE tenant_id = 1 AND key IN (${placeholders})`
+  ).all(...PLATFORM_KEYS);
+
+  const result = { backend: storage.backendName };
+  for (const row of rows) {
+    if (SENSITIVE_KEYS.has(row.key)) {
+      result[row.key] = row.value ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '';
+    } else {
+      result[row.key] = row.value;
+    }
+  }
+  res.json(result);
+}));
+
+// PUT /api/settings/platform-storage — platform admin saves platform config
+router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const pool = getPool();
+
+  const savedKeys = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (!PLATFORM_KEYS.includes(key)) continue;
+    const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
+    await pool.query(
+      `INSERT INTO settings (tenant_id, key, value, updated_at)
+       VALUES (1, $1, $2, NOW())
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, stored]
+    );
+    savedKeys.push(key);
+  }
+
+  // Bust relevant caches
+  if (savedKeys.some(k => R2_KEYS.includes(k))) storage.bustR2ConfigCache();
+  if (savedKeys.some(k => AI_KEYS.includes(k))) bustGeminiKeyCache();
+
+  logAudit(req, 'settings.platform-config', 'settings', null, { keys: savedKeys });
+
+  res.json({ message: 'Platform storage settings saved' });
+}));
+
+// GET /api/settings/storage-status — any admin reads storage status (no credentials)
+router.get('/storage-status', requireAdmin, asyncHandler(async (req, res) => {
+  const backend = storage.backendName;
+  // Check if R2 is configured (platform-level, tenant_id=1)
+  const r2Row = await db.prepare(
+    `SELECT value FROM settings WHERE tenant_id = 1 AND key = 'r2_bucket_name'`
+  ).get();
+  const r2Configured = !!(r2Row && r2Row.value);
+
+  // Get tenant storage usage
+  const usage = await db.prepare(
+    'SELECT bytes_used, file_count FROM tenant_storage_usage WHERE tenant_id = $1'
+  ).get(req.tenantId);
+
+  res.json({
+    backend,
+    r2Configured,
+    bytesUsed: usage ? Number(usage.bytes_used) : 0,
+    fileCount: usage ? usage.file_count : 0,
+  });
 }));
 
 // POST /api/settings/logo — upload site branding image (base64 dataUrl)

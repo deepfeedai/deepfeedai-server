@@ -16,4 +16,11 @@ function requirePermission(...required) {
   };
 }
 
-module.exports = { requirePermission };
+function requirePlatformAdmin(req, res, next) {
+  if (req.user?.type !== 'platform-admin') {
+    return res.status(403).json({ error: 'Platform admin access required' });
+  }
+  next();
+}
+
+module.exports = { requirePermission, requirePlatformAdmin };

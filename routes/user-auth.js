@@ -82,6 +82,27 @@ async function findOrCreateUser(provider, providerId, email, displayName, avatar
     'SELECT * FROM public_users WHERE provider = $1 AND provider_id = $2'
   ).get(provider, String(providerId));
 
+  if (!user && email) {
+    // Check for a placeholder record created via platform admin invite
+    const placeholder = await db.prepare(
+      "SELECT * FROM public_users WHERE LOWER(email) = LOWER($1) AND provider IN ('platform', 'local')"
+    ).get(email);
+    if (placeholder) {
+      // Upgrade placeholder to real OAuth user — preserves the same id so tenant_admins links stay valid
+      user = await db.prepare(`
+        UPDATE public_users
+        SET provider     = $1,
+            provider_id  = $2,
+            display_name = $3,
+            avatar_url   = $4,
+            notify_token = COALESCE(notify_token, $5),
+            updated_at   = NOW()
+        WHERE id = $6
+        RETURNING *
+      `).get(provider, String(providerId), safeName, avatarUrl || null, crypto.randomBytes(24).toString('hex'), placeholder.id);
+    }
+  }
+
   if (!user) {
     const notifyToken = crypto.randomBytes(24).toString('hex');
     user = await db.prepare(`

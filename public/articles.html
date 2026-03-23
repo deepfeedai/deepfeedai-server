@@ -224,8 +224,14 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label" for="fImageUrl">Image URL</label>
-        <input class="form-control" type="url" id="fImageUrl" placeholder="https://…" />
+        <label class="form-label">Image</label>
+        <input type="hidden" id="fImageUrl" />
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span id="fImageStatus" class="text-muted text-sm" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">No image</span>
+          <span class="btn btn-ghost btn-sm" style="cursor:pointer;white-space:nowrap;" id="fImageUploadBtn">Upload</span>
+          <span class="btn btn-ghost btn-sm" style="cursor:pointer;white-space:nowrap;display:none;" id="fImageClearBtn">Clear</span>
+          <input type="file" id="fImageUpload" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" />
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label" for="fWriter">Writer</label>

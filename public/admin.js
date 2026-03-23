@@ -70,6 +70,14 @@ function hasPermission(perm) {
   return perms.includes(perm) || perms.includes(resource + '.*');
 }
 
+function isPlatformAdmin() {
+  var token = localStorage.getItem('deepfeedai_token');
+  if (!token) return false;
+  try {
+    return JSON.parse(atob(token.split('.')[1])).type === 'platform-admin';
+  } catch { return false; }
+}
+
 // ── Fetch wrapper ─────────────────────────────────────────
 async function apiFetch(path, options = {}) {
   const token = getToken();
@@ -178,13 +186,14 @@ function renderSidebar() {
   const sidebarHtml = '<aside class="sidebar" id="sidebar">'
     + '<div class="sidebar-header"><div class="sidebar-logo" id="sidebarLogo">' + defaultLogo + '</div></div>'
     + '<nav class="sidebar-nav">' + navHtml + '</nav>'
-    + '<div class="sidebar-footer"><button class="nav-link" data-logout>' + LOGOUT_ICON + ' Logout</button></div>'
+    + '<div class="sidebar-footer"><div id="tenantSwitcher"></div><button class="nav-link" data-logout>' + LOGOUT_ICON + ' Logout</button></div>'
     + '</aside>'
     + '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
 
   layout.insertAdjacentHTML('afterbegin', sidebarHtml);
   initSidebar();
   initLogout();
+  loadTenantSwitcher();
 
   // Fetch site config to update logo
   apiFetch('/site-config').then(function(config) {
@@ -250,6 +259,74 @@ function initSidebar() {
       if (window.innerWidth < 768) closeSidebar();
     });
   });
+}
+
+// ── Tenant switcher ──────────────────────────────────────
+function loadTenantSwitcher() {
+  const container = document.getElementById('tenantSwitcher');
+  if (!container) return;
+
+  // Get current tenantId from JWT
+  var currentTenantId = null;
+  try {
+    var token = localStorage.getItem('deepfeedai_token');
+    if (token) currentTenantId = JSON.parse(atob(token.split('.')[1])).tenantId;
+  } catch (_) {}
+
+  apiFetch('/tenants/mine').then(function(data) {
+    var tenants = data.tenants || [];
+    if (tenants.length < 2) return; // No need to show switcher for single tenant
+
+    var current = tenants.find(function(t) { return t.tenant_id === currentTenantId; });
+    var currentName = current ? escHtml(current.display_name || current.slug) : 'Select site';
+
+    container.innerHTML =
+      '<div class="tenant-switcher">'
+      + '<button class="tenant-switcher-btn nav-link" id="tenantSwitcherBtn">'
+      + '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>'
+      + ' <span class="tenant-switcher-name">' + currentName + '</span>'
+      + '</button>'
+      + '<div class="tenant-switcher-menu" id="tenantSwitcherMenu">'
+      + tenants.map(function(t) {
+          var active = t.tenant_id === currentTenantId ? ' tenant-active' : '';
+          return '<button class="tenant-option' + active + '" data-tenant-id="' + t.tenant_id + '">'
+            + escHtml(t.display_name || t.slug)
+            + '<span class="text-muted text-xs">' + escHtml(t.role) + '</span>'
+            + '</button>';
+        }).join('')
+      + '</div>'
+      + '</div>';
+
+    var btn = document.getElementById('tenantSwitcherBtn');
+    var menu = document.getElementById('tenantSwitcherMenu');
+
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      menu.classList.toggle('open');
+    });
+
+    document.addEventListener('click', function() {
+      menu.classList.remove('open');
+    });
+
+    menu.querySelectorAll('.tenant-option').forEach(function(opt) {
+      opt.addEventListener('click', function() {
+        var tid = Number(opt.getAttribute('data-tenant-id'));
+        if (tid === currentTenantId) { menu.classList.remove('open'); return; }
+        opt.textContent = 'Switching\u2026';
+        apiFetch('/tenants/switch', {
+          method: 'POST',
+          body: JSON.stringify({ tenantId: tid }),
+        }).then(function(res) {
+          setToken(res.token);
+          window.location.reload();
+        }).catch(function(err) {
+          showToast(err.message, 'error');
+          menu.classList.remove('open');
+        });
+      });
+    });
+  }).catch(function() { /* ignore — user may not have multi-tenant access */ });
 }
 
 // ── Logout ────────────────────────────────────────────────
@@ -340,11 +417,8 @@ window._siteCategories = [];
 async function loadCategories() {
   if (window._siteCategories.length) return window._siteCategories;
   try {
-    const res = await fetch('/api/categories');
-    if (res.ok) {
-      const cats = await res.json();
-      window._siteCategories = Array.isArray(cats) ? cats.map(c => c.name) : [];
-    }
+    const cats = await apiFetch('/categories');
+    window._siteCategories = Array.isArray(cats) ? cats.map(c => c.name) : [];
   } catch { /* ignore */ }
   if (!window._siteCategories.length) window._siteCategories = ['Industry'];
   return window._siteCategories;

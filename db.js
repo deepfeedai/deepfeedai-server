@@ -511,6 +511,8 @@ async function initDb() {
       UNIQUE(tenant_id, user_id)
     )`,
     `INSERT INTO plan_limits (plan, max_sources, max_writers, max_articles_month, max_ai_cost_month, audio_enabled, custom_domain_enabled) VALUES
+      ('demo', 5, 2, 50, 1.00, false, false),
+      ('trial', 20, 10, 500, 10.00, true, false),
       ('starter', 20, 6, 500, 5.00, false, false),
       ('pro', 50, 20, 2000, 20.00, true, true),
       ('business', NULL, NULL, NULL, 50.00, true, true)
@@ -584,6 +586,8 @@ async function initDb() {
     `CREATE UNIQUE INDEX IF NOT EXISTS tenant_admins_tenant_local ON tenant_admins(tenant_id, local_user_id) WHERE local_user_id IS NOT NULL`,
     // Phase 4: max_tenants column on plan_limits
     `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS max_tenants INTEGER`,
+    `UPDATE plan_limits SET max_tenants = 1 WHERE plan = 'demo' AND max_tenants IS NULL`,
+    `UPDATE plan_limits SET max_tenants = 1 WHERE plan = 'trial' AND max_tenants IS NULL`,
     `UPDATE plan_limits SET max_tenants = 1 WHERE plan = 'starter' AND max_tenants IS NULL`,
     `UPDATE plan_limits SET max_tenants = 3 WHERE plan = 'pro' AND max_tenants IS NULL`,
     // Audit log table (referenced by middleware/audit.js)
@@ -669,6 +673,38 @@ async function initDb() {
       UNIQUE(tenant_id, keyword, type)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_synth_watchlist_tenant ON synthesis_watchlist(tenant_id, type)`,
+    // Tenant lifecycle columns
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`,
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS suspension_reason TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_tenants_custom_domain ON tenants(custom_domain) WHERE custom_domain IS NOT NULL`,
+    // Custom domain verification tracking
+    `CREATE TABLE IF NOT EXISTS tenant_domains (
+      id                 SERIAL PRIMARY KEY,
+      tenant_id          INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      domain             TEXT NOT NULL UNIQUE,
+      status             TEXT NOT NULL DEFAULT 'pending',
+      verification_token TEXT NOT NULL,
+      verified_at        TIMESTAMPTZ,
+      created_at         TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tenant_domains_tenant ON tenant_domains(tenant_id)`,
+    // Composite indexes for common tenant-scoped queries
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant_published ON articles(tenant_id, is_published, published_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant_category ON articles(tenant_id, category, published_at DESC)`,
+    // Phase 5: Storage quota tracking
+    `CREATE TABLE IF NOT EXISTS tenant_storage_usage (
+      tenant_id   INTEGER PRIMARY KEY REFERENCES tenants(id),
+      bytes_used  BIGINT NOT NULL DEFAULT 0,
+      file_count  INTEGER NOT NULL DEFAULT 0,
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS max_storage_mb INTEGER`,
+    `UPDATE plan_limits SET max_storage_mb = 100  WHERE plan = 'demo'    AND max_storage_mb IS NULL`,
+    `UPDATE plan_limits SET max_storage_mb = 500  WHERE plan = 'trial'   AND max_storage_mb IS NULL`,
+    `UPDATE plan_limits SET max_storage_mb = 500  WHERE plan = 'starter' AND max_storage_mb IS NULL`,
+    `UPDATE plan_limits SET max_storage_mb = 5000 WHERE plan = 'pro'     AND max_storage_mb IS NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

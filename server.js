@@ -92,7 +92,7 @@ const aiLimiter = rateLimit({
 // fetching its own API) are always allowed.
 const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers'];
 
-const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:4000', 'http://127.0.0.1:4000'];
+const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
 app.use(async (req, res, next) => {
   const origin = req.headers.origin;
@@ -143,7 +143,7 @@ app.use(async (req, res, next) => {
   // Allow the request — public routes get wildcard, others get reflected origin
   res.setHeader('Access-Control-Allow-Origin', isPublic ? '*' : origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Tenant-Slug');
   if (!isPublic) res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') {
@@ -210,6 +210,14 @@ app.use('/api', async (req, res, next) => {
   next();
 });
 
+// ── Rate limiter cleanup — evict stale buckets every 5 min ──────────
+setInterval(() => {
+  const now = Date.now();
+  for (const [tid, bucket] of tenantRateBuckets) {
+    if (now - bucket.windowStart > 120000) tenantRateBuckets.delete(tid);
+  }
+}, 5 * 60 * 1000);
+
 // ── Database storage file serving (after tenant middleware) ─────────
 const { serveRoute: storageServeRoute } = require('./lib/storage');
 app.use('/api/media/file', (req, res, next) => {
@@ -252,6 +260,7 @@ const { auth } = require('./middleware/auth');
 app.use('/api/admin/users',   adminWriteLimiter, require('./routes/admin-users'));
 app.use('/api/admin/roles',   require('./routes/admin-roles'));
 app.use('/api/admin/audit-log', require('./routes/admin-audit'));
+app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
@@ -641,6 +650,99 @@ registerJob({
       console.log(`[Cron] Audit retention (tenant ${tenantId}): deleted ${deleted} entries older than ${retentionDays} days`);
     }
     return { deleted, retentionDays };
+  },
+});
+
+registerJob({
+  name: 'tenant-cleanup',
+  description: 'Clean up deleted tenant data after retention period',
+  category: 'Maintenance',
+  defaultSchedule: '0 3 * * *',
+  handler: async (_tenantId) => {
+    // This job runs globally (not per-tenant) — find tenants past retention
+    const RETENTION_DAYS = 30;
+    const expired = await db.prepare(`
+      SELECT id, slug FROM tenants
+      WHERE status = 'deleted' AND deleted_at IS NOT NULL
+        AND deleted_at < NOW() - make_interval(days => $1)
+      LIMIT 1
+    `).get(RETENTION_DAYS);
+
+    if (!expired) return { cleaned: 0 };
+
+    const tid = expired.id;
+    // Delete in dependency order
+    const tables = [
+      'comment_reactions', 'article_reactions', 'article_favorites',
+      'comments', 'articles', 'sources', 'writers', 'categories', 'voices',
+      'settings', 'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
+      'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
+      'synthesis_forecasts', 'synthesis_watchlist',
+      'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
+      'roles', 'users',
+      'tenant_admins',
+    ];
+    let totalRows = 0;
+    for (const table of tables) {
+      try {
+        const result = await db.getPool().query(
+          `DELETE FROM ${table} WHERE tenant_id = $1`, [tid]
+        );
+        totalRows += result.rowCount || 0;
+      } catch { /* table may not exist or have tenant_id */ }
+    }
+    // Finally delete the tenant row
+    await db.prepare('DELETE FROM tenants WHERE id = $1').run(tid);
+    totalRows++;
+    console.log(`[Cron] Tenant cleanup: purged tenant ${expired.slug} (id ${tid}), ${totalRows} rows deleted`);
+    return { cleaned: 1, slug: expired.slug, rowsDeleted: totalRows };
+  },
+});
+
+registerJob({
+  name: 'tenant-health',
+  description: 'Compute tenant health metrics',
+  category: 'Monitoring',
+  defaultSchedule: '0 4 * * *',
+  handler: async (tenantId) => {
+    const [articleCount, sourceCount, writerCount, aiSpend, planInfo, lastCron, storageSize] = await Promise.all([
+      db.prepare("SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(tenantId),
+      db.prepare("SELECT COUNT(*)::int AS cnt FROM sources WHERE tenant_id = $1").get(tenantId),
+      db.prepare("SELECT COUNT(*)::int AS cnt FROM writers WHERE tenant_id = $1").get(tenantId),
+      db.prepare("SELECT COALESCE(SUM(estimated_cost), 0) AS total FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(tenantId),
+      db.prepare("SELECT t.plan, pl.max_articles_month, pl.max_ai_cost_month FROM tenants t LEFT JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1").get(tenantId),
+      db.prepare("SELECT status, finished_at FROM cron_runs WHERE tenant_id = $1 ORDER BY finished_at DESC LIMIT 1").get(tenantId),
+      db.prepare("SELECT COALESCE(SUM(size), 0)::bigint AS total FROM file_storage WHERE tenant_id = $1").get(tenantId),
+    ]);
+
+    const metrics = {
+      articles_month: parseInt(articleCount.cnt),
+      articles_limit: planInfo?.max_articles_month || null,
+      ai_spend_month: parseFloat(aiSpend.total),
+      ai_limit: planInfo?.max_ai_cost_month ? parseFloat(planInfo.max_ai_cost_month) : null,
+      sources: parseInt(sourceCount.cnt),
+      writers: parseInt(writerCount.cnt),
+      storage_bytes: parseInt(storageSize.total),
+      last_cron_status: lastCron?.status || null,
+      last_cron_at: lastCron?.finished_at || null,
+    };
+
+    // Store as a settings key for easy retrieval
+    await db.prepare(
+      "INSERT INTO settings (tenant_id, key, value) VALUES ($1, 'tenant_health_metrics', $2) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2"
+    ).run(tenantId, JSON.stringify(metrics));
+
+    // Log warnings for tenants approaching limits
+    const warnings = [];
+    if (metrics.articles_limit && metrics.articles_month >= metrics.articles_limit * 0.9) {
+      warnings.push(`articles at ${Math.round(metrics.articles_month / metrics.articles_limit * 100)}% of limit`);
+    }
+    if (metrics.ai_limit && metrics.ai_spend_month >= metrics.ai_limit * 0.9) {
+      warnings.push(`AI spend at ${Math.round(metrics.ai_spend_month / metrics.ai_limit * 100)}% of limit`);
+    }
+    if (warnings.length) console.log(`[Cron] Tenant health (${tenantId}): ${warnings.join(', ')}`);
+
+    return metrics;
   },
 });
 

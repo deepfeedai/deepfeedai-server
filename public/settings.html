@@ -375,60 +375,27 @@
           <div id="perspectiveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Cloudflare R2 Storage -->
-        <div class="settings-card">
+        <!-- Storage status (read-only — configure via Platform Dashboard) -->
+        <div class="settings-card" id="storageCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">☁️</div>
             <div>
-              <div class="settings-card-title">Cloudflare R2 Storage</div>
-              <div class="settings-card-subtitle">S3-compatible object storage for media files</div>
+              <div class="settings-card-title">Storage</div>
+              <div class="settings-card-subtitle">Media file storage for images and audio</div>
             </div>
-            <span id="r2Status" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+            <span id="r2Status" class="badge badge-muted" style="margin-left:auto;">Checking…</span>
           </div>
-
           <div class="form-grid-2">
             <div class="form-group">
-              <label class="form-label">Account ID</label>
-              <input type="text" class="form-control input-mono" id="r2AccountId" placeholder="e.g. a1b2c3d4e5f6" />
-              <p class="form-help">Found in Cloudflare dashboard &gt; R2 &gt; Overview</p>
+              <label class="form-label">Backend</label>
+              <div class="text-muted" id="storageBackendDisplay">—</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Bucket Name</label>
-              <input type="text" class="form-control" id="r2BucketName" placeholder="e.g. deepfeedai-media" />
+              <label class="form-label">Usage</label>
+              <div class="text-muted" id="storageUsageDisplay">—</div>
             </div>
           </div>
-
-          <div class="form-group">
-            <label class="form-label">Public URL</label>
-            <input type="text" class="form-control" id="r2PublicUrl" placeholder="https://media.yourdomain.com" />
-            <p class="form-help">Custom domain or R2.dev URL for serving files publicly</p>
-          </div>
-
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label">Access Key ID</label>
-              <div class="input-action-row">
-                <input type="password" class="form-control input-mono" id="r2AccessKeyId" placeholder="API token access key" autocomplete="off" />
-                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2AccessKeyId', this)">👁️</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Secret Access Key</label>
-              <div class="input-action-row">
-                <input type="password" class="form-control input-mono" id="r2SecretAccessKey" placeholder="API token secret" autocomplete="off" />
-                <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('r2SecretAccessKey', this)">👁️</button>
-              </div>
-            </div>
-          </div>
-
-          <p class="form-help">
-            Overrides <code>R2_*</code> / <code>S3_*</code> environment variables. Leave blank to use env vars. Requires server restart to take effect.
-          </p>
-
-          <div class="btn-group mt-5">
-            <button class="btn btn-primary" id="saveR2Btn">Save R2 Settings</button>
-          </div>
-          <div id="r2SaveStatus" class="settings-status"></div>
+          <p class="form-help">Storage is configured at the platform level. Contact your platform administrator to change storage settings.</p>
         </div>
 
         <!-- Email (Resend) -->
