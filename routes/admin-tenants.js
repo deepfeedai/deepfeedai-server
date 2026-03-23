@@ -70,6 +70,18 @@ const DEFAULT_SETTINGS = [
   ['ai_monthly_budget', '50.00'],
 ];
 
+// GET /plan-limits — return all plan limit definitions
+// NOTE: Must stay above GET /:id to avoid being matched as a tenant ID.
+router.get('/plan-limits', asyncHandler(async (req, res) => {
+  const limits = await db.prepare(
+    `SELECT plan, max_sources, max_writers, max_articles_month, max_ai_cost_month,
+            max_storage_mb, audio_enabled, custom_domain_enabled
+     FROM plan_limits
+     ORDER BY CASE plan WHEN 'demo' THEN 1 WHEN 'trial' THEN 2 WHEN 'starter' THEN 3 WHEN 'pro' THEN 4 WHEN 'business' THEN 5 ELSE 99 END`
+  ).all();
+  res.json({ limits });
+}));
+
 // POST / — create a new tenant (platform admin)
 router.post('/', asyncHandler(async (req, res) => {
   const { slug, display_name, plan, owner_email } = req.body || {};
