@@ -434,8 +434,8 @@ let articles = [];
     if (filtIdx !== -1) articles.splice(filtIdx, 1);
 
     renderPagination('articlesPagination', articles.length, artPage, artPageSize,
-      (p) => { artPage = p; renderTable(); },
-      (s) => { artPageSize = s; artPage = 1; renderTable(); }
+      (p) => { artPage = p; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      (s) => { artPageSize = s; artPage = 1; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     );
     updateTabBadges();
   }
@@ -484,8 +484,8 @@ let articles = [];
     updateBulkToolbar();
 
     renderPagination('articlesPagination', articles.length, artPage, artPageSize,
-      (p) => { artPage = p; renderTable(); },
-      (s) => { artPageSize = s; artPage = 1; renderTable(); }
+      (p) => { artPage = p; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      (s) => { artPageSize = s; artPage = 1; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     );
 
     applyViewMode();
