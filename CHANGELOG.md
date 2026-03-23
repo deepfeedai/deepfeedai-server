@@ -4,10 +4,132 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
-## [Unreleased]
-> Features planned or in progress
+## [3.0.0-beta.1] — 2026-03-23
 
-- **HeyGen avatar video** — async video generation endpoint, MP4 download + DB storage, admin polling UI, video modal on article page
+Multi-tenant platform release (beta).
+
+### Added — Platform Admin
+- **Platform admin tenant management** — create, suspend, reactivate, delete, purge tenants (#215)
+- **Tenant owner assignment** — auto-created placeholder users linked to OAuth (#216-218)
+- **Tenant switcher UI** — admin sidebar switcher for multi-tenant users (#221)
+
+### Added — Multi-Tenant Auth
+- **OAuth login rewrite** — public user OAuth flow for multi-tenancy (#219)
+- **X-Tenant-Slug CORS** — preflight support for tenant slug header (#220)
+
+### Added — Storage
+- **Multi-tenant R2 storage** — platform-level config with tenant fallback (#222-228)
+- **User image uploads** — image upload support for articles (#222)
+- **Upload-only image field** — removed editable URL, upload with clear button (#224)
+
+### Added — Integrations
+- **Platform-level Gemini/Imagen** — centralized AI config with tenant fallback (#229)
+- **ElevenLabs BYOK** — centralized via app-config with tenant override (#230)
+
+### Changed
+- **Backend URLs renamed** — olympus → portal, asgard → portal-staging (#213)
+
+### Fixed
+- Category dropdown showing tenant 1's categories for all tenants
+- Duplicate appCfg declaration crash in media.js generate-audio handler
+
+---
+
+## [2.5.1] — 2026-03-20
+
+### Changed
+- **Article preview redesign** — redesigned preview to match frontend layout with markdown support (#206)
+
+---
+
+## [2.5.0] — 2026-03-20
+
+### Added
+- **Editorial workflow** — draft → review → published status pipeline (#202)
+- **Editorial UI polish** — workflow-related UI improvements (#203)
+
+---
+
+## [2.4.0] — 2026-03-20
+
+### Added
+- **Infinite scroll** — replace paginated articles with infinite scroll loading (#200)
+- **Featured carousel** — rotating featured article carousel (#200)
+- **Dropdown fixes** — filter dropdown UI improvements (#200)
+
+---
+
+## [2.3.0] — 2026-03-20
+
+### Added
+- **AI-generated excerpts** — synthesis prompts request dedicated excerpt line from Gemini (#198)
+- **Weekly deep dives** — category-level weekly synthesis with inline AI images (#197)
+
+---
+
+## [2.2.0] — 2026-03-20
+
+### Added
+- **Responsive card view** — responsive design and card view for articles page (#195)
+- **Filter dropdowns** — filter dropdowns added to admin articles page (#194)
+
+---
+
+## [2.1.1-hotfix.1] — 2026-03-19
+
+### Fixed
+- **Storage R2 from DB settings** — R2 credentials read from DB settings with caller fixes (#193)
+
+---
+
+## [2.1.0] — 2026-03-19
+
+### Changed
+- Release merge: staging → main incorporating v2.0.3 through v2.0.6-hotfix.1 (#191)
+
+---
+
+## [2.0.6-hotfix.1] — 2026-03-19
+
+### Fixed
+- **Writer auto-assign FK violation** — foreign key violation on fresh installs (#190)
+
+---
+
+## [2.0.6] — 2026-03-18
+
+### Fixed
+- **Newsletter exclusion** — exclude uncategorized articles from newsletter (#189)
+- **App config cache bust** — bust app config cache after settings save (#188)
+
+---
+
+## [2.0.5] — 2026-03-18
+
+### Added
+- **Engaging synthesis** — improved prompt, citations, metadata (#186)
+- **Deferred TLDR** — defer TLDR generation to post-publish (#185)
+- **Uncategorized bucket** — low-confidence articles go to Uncategorized (#184)
+
+### Fixed
+- **Automation tab crash** — add Monitoring category for audit-alerts job (#183)
+- **Security hardening** — OWASP Top 10 + LLM prompt injection fixes (#182)
+- **Media URL resolution** — use request host for media URL resolution (#178-181)
+
+---
+
+## [2.0.4] — 2026-03-18
+
+### Fixed
+- **Relative media URLs** — resolve relative media URLs to absolute in API responses (#181)
+
+---
+
+## [2.0.3] — 2026-03-17
+
+### Fixed
+- **Admin role permissions** — upgrade admin role to wildcard permissions (#176)
+- **Audio generation guard** — require writer with ElevenLabs voice for audio generation (#175)
 
 ---
 
