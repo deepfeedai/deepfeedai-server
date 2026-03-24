@@ -181,6 +181,27 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
     `, [tenantId]),
   ]);
 
+  // Fetch 7-day mini trends for top articles
+  const topSlugs = topArticles.rows.map(r => r.slug).filter(Boolean);
+  let miniTrends = {};
+  if (topSlugs.length) {
+    const trendRows = await pool.query(`
+      SELECT article_slug AS slug,
+        DATE_TRUNC('day', created_at AT TIME ZONE 'UTC') AS day,
+        COUNT(*) AS views
+      FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'view'
+        AND article_slug = ANY($2)
+        AND created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY article_slug, DATE_TRUNC('day', created_at AT TIME ZONE 'UTC')
+      ORDER BY 1, 2
+    `, [tenantId, topSlugs]);
+    for (const r of trendRows.rows) {
+      if (!miniTrends[r.slug]) miniTrends[r.slug] = [];
+      miniTrends[r.slug].push({ day: r.day, views: parseInt(r.views) });
+    }
+  }
+
   const viewsPeriod = parseInt(totals.rows[0].views_period) || 0;
   const audioPeriod = parseInt(periodAudio.rows[0].total)   || 0;
   const sharesPeriod = parseInt(periodShares.rows[0].total) || 0;
@@ -222,6 +243,7 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
       views:       parseInt(r.views)       || 0,
       audio_plays: parseInt(r.audio_plays) || 0,
       shares:      parseInt(r.shares)      || 0,
+      mini_trend:  miniTrends[r.slug] || [],
     })),
     by_category: byCategory.rows.map(r => ({
       category: r.category,

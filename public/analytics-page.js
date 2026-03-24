@@ -185,13 +185,13 @@
     });
   }
 
-  /* ── Top articles table ─────────────────────────────────── */
+  /* ── Top articles table + mini sparklines ─────────────────── */
 
   function renderTopArticles(articles) {
     const tbody = document.getElementById('topArticlesTbody');
     if (!tbody) return;
     if (!articles.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:24px;">No data yet</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">No data yet</td></tr>';
       return;
     }
     tbody.innerHTML = articles.map((a, i) => `
@@ -204,9 +204,53 @@
         </td>
         <td><span class="badge badge-muted">${escHtml(a.category)}</span></td>
         <td><strong>${fmt(a.views)}</strong></td>
+        <td><canvas id="miniTrend${i}" width="60" height="24" style="vertical-align:middle;"></canvas></td>
         <td class="text-muted text-sm">${fmt(a.audio_plays)}</td>
         <td class="text-muted text-sm">${fmt(a.shares)}</td>
       </tr>`).join('');
+
+    // Render mini sparkline charts after DOM is updated
+    articles.forEach((a, i) => renderMiniSparkline(`miniTrend${i}`, a.mini_trend || []));
+  }
+
+  function renderMiniSparkline(canvasId, trendData) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    // Fill 7 days
+    const filled = [];
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const match = trendData.find(r => r.day && r.day.slice(0, 10) === key);
+      filled.push(match ? match.views : 0);
+    }
+
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: filled.map(() => ''),
+        datasets: [{
+          data: filled,
+          borderColor: '#00d9ff',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: {
+          x: { display: false },
+          y: { display: false },
+        },
+      },
+    });
   }
 
   /* ── Load data ──────────────────────────────────────────── */
