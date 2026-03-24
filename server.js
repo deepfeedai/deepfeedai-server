@@ -696,13 +696,24 @@ registerJob({
     if (!expired) return { cleaned: 0 };
 
     const tid = expired.id;
+
+    // Clean up storage (R2 / local filesystem) before DB so credentials remain accessible
+    const storage = require('./lib/storage');
+    let storageResult = { deleted: 0 };
+    try {
+      storageResult = await storage.removeAll(tid);
+    } catch (err) {
+      console.warn(`[Cron] Tenant cleanup: storage cleanup failed for tenant ${tid}: ${err.message}`);
+    }
+
     // Delete in dependency order
     const tables = [
       'comment_reactions', 'article_reactions', 'article_favorites',
       'comments', 'articles', 'sources', 'writers', 'categories', 'voices',
       'settings', 'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
       'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
-      'synthesis_forecasts', 'synthesis_watchlist',
+      'synthesis_forecasts', 'synthesis_watchlist', 'tenant_domains',
+      'tenant_storage_usage',
       'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
       'roles', 'users',
       'tenant_admins',
@@ -719,8 +730,8 @@ registerJob({
     // Finally delete the tenant row
     await db.prepare('DELETE FROM tenants WHERE id = $1').run(tid);
     totalRows++;
-    console.log(`[Cron] Tenant cleanup: purged tenant ${expired.slug} (id ${tid}), ${totalRows} rows deleted`);
-    return { cleaned: 1, slug: expired.slug, rowsDeleted: totalRows };
+    console.log(`[Cron] Tenant cleanup: purged tenant ${expired.slug} (id ${tid}), ${totalRows} rows deleted, ${storageResult.deleted} storage files removed`);
+    return { cleaned: 1, slug: expired.slug, rowsDeleted: totalRows, storageFilesDeleted: storageResult.deleted };
   },
 });
 

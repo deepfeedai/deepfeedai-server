@@ -13,6 +13,7 @@ const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { bustPlanCache } = require('../lib/plan-limits');
 const { getPlatformTenantId } = require('../lib/platform-tenant');
+const storage = require('../lib/storage');
 const dns = require('dns').promises;
 const crypto = require('crypto');
 
@@ -741,6 +742,15 @@ router.post('/:id/purge', asyncHandler(async (req, res) => {
   if (tenant.custom_domain) invalidateDomainCache(tenant.custom_domain);
   bustPlanCache(id);
 
+  // Clean up storage (R2 / local filesystem) before DB so credentials remain accessible
+  let storageResult = { deleted: 0 };
+  try {
+    storageResult = await storage.removeAll(id);
+    console.log(`[tenants] purge: cleaned up storage for tenant ${id} — ${storageResult.deleted} files`);
+  } catch (err) {
+    console.warn(`[tenants] purge: storage cleanup failed for tenant ${id}: ${err.message}`);
+  }
+
   // Hard delete in dependency order
   const tables = [
     'comment_reactions', 'article_reactions', 'article_favorites',
@@ -748,6 +758,7 @@ router.post('/:id/purge', asyncHandler(async (req, res) => {
     'settings', 'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
     'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
     'synthesis_forecasts', 'synthesis_watchlist', 'tenant_domains',
+    'tenant_storage_usage',
     'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
     'roles', 'users',
     'tenant_admins',
@@ -768,10 +779,10 @@ router.post('/:id/purge', asyncHandler(async (req, res) => {
   await logAudit(
     { ...req, tenantId: 1 },
     'tenant.purge', 'tenants', id,
-    { slug: tenant.slug, rowsDeleted: totalRows }
+    { slug: tenant.slug, rowsDeleted: totalRows, storageFilesDeleted: storageResult.deleted }
   );
 
-  res.json({ success: true, slug: tenant.slug, rowsDeleted: totalRows });
+  res.json({ success: true, slug: tenant.slug, rowsDeleted: totalRows, storageFilesDeleted: storageResult.deleted });
 }));
 
 module.exports = router;
