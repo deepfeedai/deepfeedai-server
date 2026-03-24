@@ -1212,7 +1212,8 @@ let articles = [];
     if (!preservePage && tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       await loadWriters();
-      allArticles = await apiFetch('/articles');
+      const data = await apiFetch('/articles');
+      allArticles = Array.isArray(data) ? data : (data.articles || []);
       applyFilters({ preservePage });
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');

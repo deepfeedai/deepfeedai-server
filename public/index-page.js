@@ -15,7 +15,7 @@ onReady(async () => {
     if (recentBodyEl) recentBodyEl.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-md'], 5);
 
     try {
-      const [articles, sources, settings, commentsData, queueData] = await Promise.all([
+      const [articlesData, sources, settings, commentsData, queueData] = await Promise.all([
         apiFetch('/articles'),
         apiFetch('/sources'),
         apiFetch('/settings').catch(() => ({})),
@@ -29,6 +29,7 @@ onReady(async () => {
         if (banner) banner.style.display = 'block';
       }
 
+      const articles  = Array.isArray(articlesData) ? articlesData : (articlesData.articles || []);
       const now       = Date.now();
       const DAY_MS    = 86400000;
       const WEEK_MS   = 7 * DAY_MS;

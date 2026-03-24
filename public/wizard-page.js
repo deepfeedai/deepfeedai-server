@@ -2434,12 +2434,13 @@ function initCustomSource() {
 // ── Existing data detection & reset ──────────────────────────
 async function checkExistingData() {
   try {
-    const [articles, sources, categories, writers] = await Promise.all([
-      apiFetch('/articles').catch(() => []),
+    const [articlesData, sources, categories, writers] = await Promise.all([
+      apiFetch('/articles').catch(() => ({ articles: [] })),
       apiFetch('/sources').catch(() => []),
       apiFetch('/categories').catch(() => []),
       apiFetch('/admin/writers').catch(() => []),
     ]);
+    const articles = Array.isArray(articlesData) ? articlesData : (articlesData.articles || []);
     const total = articles.length + sources.length + categories.length + writers.length;
     if (total > 0) {
       const parts = [];
@@ -2461,7 +2462,8 @@ async function resetAllData() {
   status.textContent = 'Clearing data...';
   try {
     // Delete all articles
-    const articles = await apiFetch('/articles').catch(() => []);
+    const artData = await apiFetch('/articles').catch(() => ({ articles: [] }));
+    const articles = Array.isArray(artData) ? artData : (artData.articles || []);
     for (const a of articles) {
       try { await apiFetch('/articles/' + a.id, { method: 'DELETE' }); } catch {}
     }
