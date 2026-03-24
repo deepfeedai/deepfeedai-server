@@ -30,7 +30,7 @@ async function initTestDb() {
 
 /**
  * Create a test tenant with a unique slug.
- * @param {string} plan — 'starter' | 'pro' | 'business'
+ * @param {string} plan — 'free' | 'starter' | 'pro' | 'business'
  * @returns {Promise<{ id: number, slug: string }>}
  */
 async function createTestTenant(plan = 'starter') {

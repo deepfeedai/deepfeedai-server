@@ -511,9 +511,8 @@ async function initDb() {
       UNIQUE(tenant_id, user_id)
     )`,
     `INSERT INTO plan_limits (plan, max_sources, max_writers, max_articles_month, max_ai_cost_month, audio_enabled, custom_domain_enabled) VALUES
-      ('demo', 5, 2, 50, 1.00, false, false),
-      ('trial', 20, 10, 500, 10.00, true, false),
-      ('starter', 20, 6, 500, 5.00, false, false),
+      ('free', 3, 1, 25, 0.00, false, false),
+      ('starter', 10, 4, 250, 5.00, false, false),
       ('pro', 50, 20, 2000, 20.00, true, true),
       ('business', NULL, NULL, NULL, 50.00, true, true)
      ON CONFLICT (plan) DO NOTHING`,
@@ -705,6 +704,16 @@ async function initDb() {
     `UPDATE plan_limits SET max_storage_mb = 500  WHERE plan = 'trial'   AND max_storage_mb IS NULL`,
     `UPDATE plan_limits SET max_storage_mb = 500  WHERE plan = 'starter' AND max_storage_mb IS NULL`,
     `UPDATE plan_limits SET max_storage_mb = 5000 WHERE plan = 'pro'     AND max_storage_mb IS NULL`,
+    // Phase 6: Plan restructure — free/starter/pro/business (remove demo + trial)
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`,
+    `UPDATE tenants SET plan = 'free' WHERE plan = 'demo'`,
+    `UPDATE tenants SET plan = 'starter' WHERE plan = 'trial'`,
+    `ALTER TABLE tenants ALTER COLUMN plan SET DEFAULT 'free'`,
+    `INSERT INTO plan_limits (plan, max_sources, max_writers, max_articles_month, max_ai_cost_month, audio_enabled, custom_domain_enabled, max_tenants, max_storage_mb)
+     VALUES ('free', 3, 1, 25, 0.00, false, false, 1, 50)
+     ON CONFLICT (plan) DO NOTHING`,
+    `UPDATE plan_limits SET max_sources = 10, max_writers = 4, max_articles_month = 250 WHERE plan = 'starter'`,
+    `DELETE FROM plan_limits WHERE plan IN ('demo', 'trial')`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

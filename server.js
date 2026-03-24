@@ -180,18 +180,19 @@ if (SINGLE_TENANT) {
 
 // ── Per-tenant aggregate rate limiting ──────────────────────────────
 const tenantRateBuckets = new Map(); // tenantId → { count, windowStart }
-const PLAN_RATE_LIMITS = { starter: 600, pro: 1200 }; // requests per minute
+const PLAN_RATE_LIMITS = { free: 300, starter: 600, pro: 1200 }; // requests per minute
+const { getPlanInfo } = require('./lib/plan-limits');
 
 app.use('/api', async (req, res, next) => {
   const tid = req.tenantId;
   if (!tid) return next();
 
-  // Look up tenant plan
-  let plan = 'starter';
+  // Look up tenant effective plan (trial-aware, cached)
+  let plan = 'free';
   try {
-    const row = await db.prepare('SELECT plan FROM tenants WHERE id = $1').get(tid);
-    if (row) plan = row.plan;
-  } catch { /* fallback to starter */ }
+    const info = await getPlanInfo(tid);
+    if (info) plan = info.effectivePlan;
+  } catch { /* fallback to free */ }
 
   const limit = PLAN_RATE_LIMITS[plan];
   if (!limit) return next(); // business = unlimited

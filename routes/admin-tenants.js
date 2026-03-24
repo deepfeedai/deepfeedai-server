@@ -77,7 +77,7 @@ router.get('/plan-limits', asyncHandler(async (req, res) => {
     `SELECT plan, max_sources, max_writers, max_articles_month, max_ai_cost_month,
             max_storage_mb, audio_enabled, custom_domain_enabled
      FROM plan_limits
-     ORDER BY CASE plan WHEN 'demo' THEN 1 WHEN 'trial' THEN 2 WHEN 'starter' THEN 3 WHEN 'pro' THEN 4 WHEN 'business' THEN 5 ELSE 99 END`
+     ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 ELSE 99 END`
   ).all();
   res.json({ limits });
 }));
@@ -112,13 +112,19 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Validate plan
-  const validPlans = ['demo', 'trial', 'starter', 'pro', 'business'];
-  const tenantPlan = validPlans.includes(plan) ? plan : 'starter';
+  const validPlans = ['free', 'starter', 'pro', 'business'];
+  const tenantPlan = validPlans.includes(plan) ? plan : 'free';
+
+  // Optional trial period
+  const { trial_days } = req.body || {};
+  const trialEndsAt = trial_days && parseInt(trial_days) > 0
+    ? new Date(Date.now() + parseInt(trial_days) * 86400000).toISOString()
+    : null;
 
   // Create tenant
   const tenant = await db.prepare(
-    'INSERT INTO tenants (slug, display_name, owner_user_id, plan) VALUES ($1, $2, $3, $4) RETURNING *'
-  ).get(cleanSlug, display_name.trim(), ownerUserId, tenantPlan);
+    'INSERT INTO tenants (slug, display_name, owner_user_id, plan, trial_ends_at) VALUES ($1, $2, $3, $4, $5) RETURNING *'
+  ).get(cleanSlug, display_name.trim(), ownerUserId, tenantPlan, trialEndsAt);
 
   // Create tenant_admin entry if owner resolved
   if (ownerUserId) {
@@ -380,7 +386,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
   const before = await db.prepare("SELECT * FROM tenants WHERE id = $1").get(id);
   if (!before) return res.status(404).json({ error: 'Tenant not found' });
 
-  const { display_name, plan, custom_domain, owner_email } = req.body || {};
+  const { display_name, plan, custom_domain, owner_email, trial_days, trial_ends_at } = req.body || {};
 
   const updates = [];
   const params = [];
@@ -394,12 +400,21 @@ router.put('/:id', asyncHandler(async (req, res) => {
     params.push(display_name.trim());
   }
   if (plan !== undefined) {
-    const validPlans = ['demo', 'trial', 'starter', 'pro', 'business'];
+    const validPlans = ['free', 'starter', 'pro', 'business'];
     if (!validPlans.includes(plan)) {
       return res.status(400).json({ error: `plan must be one of: ${validPlans.join(', ')}` });
     }
     updates.push(`plan = $${idx++}`);
     params.push(plan);
+  }
+  // Trial: set via trial_days (convenience) or trial_ends_at (explicit date/null)
+  if (trial_days !== undefined) {
+    const days = parseInt(trial_days);
+    updates.push(`trial_ends_at = $${idx++}`);
+    params.push(days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null);
+  } else if (trial_ends_at !== undefined) {
+    updates.push(`trial_ends_at = $${idx++}`);
+    params.push(trial_ends_at); // null to clear, ISO string to set
   }
   if (custom_domain !== undefined) {
     if (custom_domain !== null && typeof custom_domain !== 'string') {
@@ -438,8 +453,10 @@ router.put('/:id', asyncHandler(async (req, res) => {
     `UPDATE tenants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`
   ).get(...params);
 
-  // Bust plan cache if plan changed
-  if (plan !== undefined && plan !== before.plan) bustPlanCache(id);
+  // Bust plan cache if plan or trial changed
+  if ((plan !== undefined && plan !== before.plan) || trial_days !== undefined || trial_ends_at !== undefined) {
+    bustPlanCache(id);
+  }
 
   await logAuditWithDiff(req, 'tenant.update', 'tenants', id, before, tenant);
   res.json(tenant);
