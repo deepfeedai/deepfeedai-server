@@ -229,7 +229,84 @@
 
   document.getElementById('refreshBtn').addEventListener('click', loadData);
 
+  /* ── Promo & Credits ─────────────────────────────────────── */
+
+  async function loadCreditsSection() {
+    try {
+      const promos = await apiFetch('/promo/active');
+      const promoEl = document.getElementById('activePromos');
+      if (promoEl && promos.redemptions?.length > 0) {
+        promoEl.innerHTML = promos.redemptions.map(r =>
+          `<div style="margin-bottom:4px;">✓ <strong>${escHtml(r.code)}</strong> — ${fmt(r.bonus_credits)} bonus credits${r.expires_at ? ' (expires ' + new Date(r.expires_at).toLocaleDateString() + ')' : ''}</div>`
+        ).join('');
+      } else if (promoEl) {
+        promoEl.textContent = '';
+      }
+
+      const packsData = await apiFetch('/credits/packs');
+      const packsEl = document.getElementById('creditPacks');
+      if (packsEl && packsData.packs?.length > 0) {
+        packsEl.innerHTML = `
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#aaa;">Buy More Credits</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${packsData.packs.map(p => `
+              <button class="btn btn-sm buy-pack-btn" data-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;padding:8px 16px;line-height:1.4;">
+                <span style="font-weight:600">${fmt(p.credits)} credits</span>
+                <span style="font-size:11px;color:#888;">$${(p.price_cents / 100).toFixed(2)}</span>
+              </button>
+            `).join('')}
+          </div>`;
+        packsEl.querySelectorAll('.buy-pack-btn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Redirecting...';
+            try {
+              const res = await apiFetch('/credits/checkout', {
+                method: 'POST',
+                body: JSON.stringify({ packId: parseInt(btn.dataset.id) }),
+              });
+              if (res.checkout_url) window.location.href = res.checkout_url;
+            } catch (err) {
+              showAlert(err.message, 'error');
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+
+      const params = new URLSearchParams(location.search);
+      if (params.get('credits') === 'purchased') {
+        showAlert('Credits purchased successfully!', 'success');
+        history.replaceState({}, '', location.pathname);
+      } else if (params.get('credits') === 'cancelled') {
+        showAlert('Credit purchase cancelled', 'error');
+        history.replaceState({}, '', location.pathname);
+      }
+    } catch {
+      // Credits section is optional
+    }
+  }
+
+  document.getElementById('redeemPromoBtn')?.addEventListener('click', async () => {
+    const input = document.getElementById('promoCodeInput');
+    const code = input?.value?.trim();
+    if (!code) return;
+    try {
+      const res = await apiFetch('/promo/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+      showAlert(`Redeemed! +${fmt(res.bonus_credits)} bonus credits`, 'success');
+      input.value = '';
+      await loadCreditsSection();
+      await loadData(); // refresh credit gauges
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  });
+
   // Init
   renderSidebar();
   loadData();
+  loadCreditsSection();
 })();

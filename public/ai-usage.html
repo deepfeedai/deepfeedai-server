@@ -133,6 +133,23 @@
         </div>
       </div>
 
+      <!-- Promo Code & Credits -->
+      <div class="dash-section-label">Credits</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Buy &amp; Redeem Credits</h2>
+        </div>
+        <div style="padding:16px 20px;">
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+            <input type="text" id="promoCodeInput" placeholder="Enter promo code" style="flex:1;padding:8px 12px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#e0e0e0;">
+            <button class="btn btn-sm" id="redeemPromoBtn" style="white-space:nowrap;">Redeem Code</button>
+          </div>
+          <div id="activePromos" class="text-muted text-sm" style="margin-bottom:12px;"></div>
+          <div id="creditPacks"></div>
+          <div id="purchaseHistory" style="margin-top:12px;"></div>
+        </div>
+      </div>
+
       <!-- Stat cards -->
       <div class="dash-section-label">Overview</div>
       <div class="stat-grid" id="statCards">
