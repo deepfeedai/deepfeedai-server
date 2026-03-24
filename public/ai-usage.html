@@ -153,6 +153,25 @@
       </div>
     </div>
 
+    <!-- Cost efficiency -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px;">
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label">Cost per Article</div>
+        <div class="stat-value" id="statCostPerArticle">--</div>
+        <div class="stat-delta" id="statArticleCount"></div>
+      </div>
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label">Cost per 1K Views</div>
+        <div class="stat-value" id="statCostPerViews">--</div>
+        <div class="stat-delta" id="statViewCount"></div>
+      </div>
+      <div class="stat-card" style="text-align:center;">
+        <div class="stat-label">Most Expensive Article</div>
+        <div class="stat-value" id="statTopExpensiveCost">--</div>
+        <div class="stat-delta" id="statTopExpensiveSlug" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px auto 0;"></div>
+      </div>
+    </div>
+
     <!-- Budget card -->
     <div class="card-section" style="margin-top:20px;">
       <div class="section-header">

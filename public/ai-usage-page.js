@@ -98,6 +98,24 @@
     document.getElementById('statTokens').textContent = fmt(parseInt(t.total_tokens) || 0);
     document.getElementById('statSuccess').textContent = (parseFloat(t.success_rate) || 0) + '%';
 
+    // Cost efficiency
+    const eff = data.efficiency || {};
+    document.getElementById('statCostPerArticle').textContent = '$' + parseFloat(eff.cost_per_article || 0).toFixed(4);
+    document.getElementById('statCostPerViews').textContent = '$' + parseFloat(eff.cost_per_1k_views || 0).toFixed(4);
+    document.getElementById('statArticleCount').textContent = (eff.published_articles || 0) + ' articles published';
+    document.getElementById('statViewCount').textContent = fmt(eff.total_views || 0) + ' views';
+
+    const topExp = (eff.top_expensive_articles || [])[0];
+    if (topExp) {
+      document.getElementById('statTopExpensiveCost').textContent = '$' + parseFloat(topExp.cost).toFixed(4);
+      const title = topExp.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      document.getElementById('statTopExpensiveSlug').textContent = title;
+      document.getElementById('statTopExpensiveSlug').title = title;
+    } else {
+      document.getElementById('statTopExpensiveCost').textContent = '--';
+      document.getElementById('statTopExpensiveSlug').textContent = 'no data';
+    }
+
     // Budget
     const pct = Math.min(b.percent_used || 0, 100);
     document.getElementById('budgetSpent').textContent = '$' + parseFloat(b.current_spend || 0).toFixed(2) + ' spent';

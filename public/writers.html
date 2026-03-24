@@ -24,6 +24,23 @@
     .sortable:hover { color:var(--accent); }
     .sort-asc::after { content:' \u25B2'; font-size:10px; }
     .sort-desc::after { content:' \u25BC'; font-size:10px; }
+
+    /* ── Writer Leaderboard ── */
+    .leaderboard { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px; }
+    .leader-card { background:var(--bg-card, #161616); border:1px solid var(--border); border-radius:10px; padding:16px; text-align:center; position:relative; }
+    .leader-rank { position:absolute; top:8px; left:12px; font-size:20px; }
+    .leader-avatar { width:48px; height:48px; border-radius:50%; object-fit:cover; margin-bottom:8px; }
+    .leader-avatar-placeholder { width:48px; height:48px; border-radius:50%; background:var(--bg, #0d0d0d); display:inline-flex; align-items:center; justify-content:center; font-size:18px; margin-bottom:8px; color:var(--text-muted); }
+    .leader-name { font-weight:700; font-size:14px; margin-bottom:4px; }
+    .leader-stat { font-size:11px; color:var(--text-muted); margin-top:2px; }
+    .leader-stat strong { color:var(--text, #f0f0f0); }
+    .leader-bars { margin-top:12px; }
+    .leader-bar-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+    .leader-bar-label { width:50px; font-size:10px; color:var(--text-muted); text-align:right; }
+    .leader-bar-track { flex:1; height:6px; background:var(--bg, #0d0d0d); border-radius:3px; overflow:hidden; }
+    .leader-bar-fill { height:100%; border-radius:3px; transition:width 0.4s ease; }
+    .chart-section { margin-bottom:24px; }
+    .chart-section .chart-container { position:relative; height:260px; }
   </style>
 </head>
 <body>
@@ -79,6 +96,20 @@
             <option value="90d">Last 90 days</option>
           </select>
         </div>
+
+        <!-- Leaderboard -->
+        <div class="leaderboard" id="leaderboard"></div>
+
+        <!-- Writer comparison chart -->
+        <div class="card-section chart-section">
+          <div class="section-header">
+            <h2 class="section-title">Writer Comparison</h2>
+          </div>
+          <div class="chart-container">
+            <canvas id="writerCompareChart"></canvas>
+          </div>
+        </div>
+
         <div class="table-wrap"><div class="table-scroll">
           <table id="perfTable">
             <thead>
@@ -298,6 +329,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="/admin.js"></script>
 <script src="/writers-page.js"></script>
 </body>

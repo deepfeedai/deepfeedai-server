@@ -342,13 +342,100 @@ document.getElementById('generateAvatarBtn').addEventListener('click', async fun
 
 // ── Performance Dashboard ────────────────────────────────────────
 
+var writerCompareChart = null;
+var CHART_COLORS = ['#00d9ff', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#f59e0b'];
+
+function createChart(canvasId, config) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas || typeof Chart === 'undefined') return null;
+  var defaults = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#888', font: { family: "'Inter', sans-serif", size: 11 } } },
+      tooltip: { backgroundColor: '#222', titleColor: '#f0f0f0', bodyColor: '#ccc', borderColor: '#333', borderWidth: 1 },
+    },
+  };
+  if (!config.type || config.type === 'line' || config.type === 'bar') {
+    var scaleDefaults = { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#888', font: { family: "'Inter', sans-serif", size: 11 } } };
+    config.options = config.options || {};
+    config.options.scales = config.options.scales || {};
+    ['x', 'y'].forEach(function(axis) {
+      config.options.scales[axis] = Object.assign({}, scaleDefaults, config.options.scales[axis] || {});
+    });
+  }
+  config.options = Object.assign({}, defaults, config.options, { plugins: Object.assign({}, defaults.plugins, (config.options || {}).plugins || {}) });
+  return new Chart(canvas, config);
+}
+
 async function loadPerformance(range) {
   try {
     perfData = await apiFetch('/admin/writers/performance?range=' + (range || '30d'));
+    renderLeaderboard();
+    renderWriterChart();
     renderPerformance();
   } catch (err) {
     document.getElementById('perfBody').innerHTML = '<tr><td colspan="10" class="text-muted" style="text-align:center;">Failed to load: ' + esc(err.message) + '</td></tr>';
   }
+}
+
+function renderLeaderboard() {
+  var el = document.getElementById('leaderboard');
+  if (!el || !perfData.length) { if (el) el.innerHTML = ''; return; }
+
+  // Sort by engagement score: views + reactions*5 + comments*3
+  var ranked = perfData.slice().sort(function(a, b) {
+    var scoreA = (a.total_views || 0) + (a.total_reactions || 0) * 5 + (a.total_comments || 0) * 3;
+    var scoreB = (b.total_views || 0) + (b.total_reactions || 0) * 5 + (b.total_comments || 0) * 3;
+    return scoreB - scoreA;
+  });
+
+  var top = ranked.slice(0, 3);
+  var medals = ['\uD83E\uDD47', '\uD83E\uDD48', '\uD83E\uDD49']; // gold, silver, bronze
+  var maxViews = Math.max.apply(null, top.map(function(w) { return w.total_views || 1; }));
+  var maxArticles = Math.max.apply(null, top.map(function(w) { return w.articles_total || 1; }));
+
+  el.innerHTML = top.map(function(w, i) {
+    var avatarHtml = w.avatar_url
+      ? '<img class="leader-avatar" src="' + esc(w.avatar_url) + '" alt="" />'
+      : '<div class="leader-avatar-placeholder">' + esc(w.name.charAt(0)) + '</div>';
+    var viewsPct = Math.round(((w.total_views || 0) / maxViews) * 100);
+    var articlesPct = Math.round(((w.articles_total || 0) / maxArticles) * 100);
+    return '<div class="leader-card">'
+      + '<div class="leader-rank">' + medals[i] + '</div>'
+      + avatarHtml
+      + '<div class="leader-name">' + esc(w.name) + '</div>'
+      + '<div class="leader-stat"><strong>' + (w.articles_total || 0) + '</strong> articles</div>'
+      + '<div class="leader-stat"><strong>' + (w.total_views || 0) + '</strong> views</div>'
+      + '<div class="leader-stat"><strong>$' + (w.cost_per_article || 0).toFixed(4) + '</strong> /article</div>'
+      + '<div class="leader-bars">'
+      + '<div class="leader-bar-row"><div class="leader-bar-label">Views</div><div class="leader-bar-track"><div class="leader-bar-fill" style="width:' + viewsPct + '%;background:#00d9ff;"></div></div></div>'
+      + '<div class="leader-bar-row"><div class="leader-bar-label">Articles</div><div class="leader-bar-track"><div class="leader-bar-fill" style="width:' + articlesPct + '%;background:#4ade80;"></div></div></div>'
+      + '</div></div>';
+  }).join('');
+}
+
+function renderWriterChart() {
+  if (writerCompareChart) writerCompareChart.destroy();
+  if (!perfData.length) return;
+
+  var writers = perfData.filter(function(w) { return w.articles_total > 0; }).slice(0, 8);
+  if (!writers.length) return;
+
+  writerCompareChart = createChart('writerCompareChart', {
+    type: 'bar',
+    data: {
+      labels: writers.map(function(w) { return w.name; }),
+      datasets: [
+        { label: 'Articles', data: writers.map(function(w) { return w.articles_total; }), backgroundColor: '#00d9ff', borderRadius: 4 },
+        { label: 'Views', data: writers.map(function(w) { return w.total_views; }), backgroundColor: '#4ade80', borderRadius: 4 },
+        { label: 'Reactions', data: writers.map(function(w) { return w.total_reactions; }), backgroundColor: '#fbbf24', borderRadius: 4 },
+      ],
+    },
+    options: {
+      plugins: { legend: { display: true, position: 'top' } },
+      scales: { x: { stacked: false }, y: { beginAtZero: true } },
+    },
+  });
 }
 
 function renderPerformance() {

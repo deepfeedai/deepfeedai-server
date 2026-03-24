@@ -6,26 +6,127 @@
   <title>DeepFeedAI Admin — Analytics</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
-    /* ── Sparkline bar chart ── */
-    .spark-chart {
+    /* ── Range tabs ── */
+    .range-tabs {
       display: flex;
-      align-items: flex-end;
-      gap: 3px;
-      height: 80px;
-      padding: 8px 0 0;
+      gap: 4px;
     }
-    .spark-bar {
+    .range-tab {
+      padding: 4px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .range-tab.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    /* ── Stat delta trends ── */
+    .stat-delta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .stat-delta.up   { color: var(--success, #4ade80); }
+    .stat-delta.down { color: var(--danger, #f87171); }
+
+    /* ── Chart containers ── */
+    .chart-container {
+      position: relative;
+      height: 220px;
+      padding: 16px 20px 12px;
+    }
+
+    /* ── Engagement ratio cards ── */
+    .ratio-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .ratio-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      text-align: center;
+    }
+    .ratio-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .ratio-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Quota gauges ── */
+    .quota-section {
+      margin-top: 20px;
+    }
+    .quota-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .quota-label {
+      width: 80px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .quota-track {
       flex: 1;
-      background: var(--accent, #4F8EF7);
-      opacity: 0.75;
-      border-radius: 2px 2px 0 0;
-      min-height: 2px;
-      transition: opacity 0.15s;
+      height: 8px;
+      background: var(--bg);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .quota-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+    .quota-detail {
+      width: 110px;
+      text-align: right;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── Heatmap ── */
+    .heatmap-wrap { overflow-x: auto; }
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: 40px repeat(24, 1fr);
+      gap: 2px;
+    }
+    .heatmap-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 4px;
+    }
+    .heatmap-hour-label {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+    .heatmap-cell {
+      aspect-ratio: 1;
+      min-width: 14px;
+      border-radius: 3px;
       cursor: default;
       position: relative;
+      transition: opacity 0.15s;
     }
-    .spark-bar:hover { opacity: 1; }
-    .spark-bar[title]:hover::after {
+    .heatmap-cell:hover { opacity: 0.8; }
+    .heatmap-cell[title]:hover::after {
       content: attr(title);
       position: absolute;
       bottom: calc(100% + 4px);
@@ -40,47 +141,58 @@
       white-space: nowrap;
       z-index: 10;
     }
-    .spark-x-labels {
+
+    /* ── Live feed ── */
+    .live-header { display: flex; align-items: center; gap: 8px; }
+    .live-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--success, #4ade80);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .feed-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .feed-item {
       display: flex;
       justify-content: space-between;
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    /* ── Category bars ── */
-    .cat-bar-row {
-      display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .cat-bar-label {
-      width: 110px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
       font-size: 12px;
-      color: var(--text);
-      white-space: nowrap;
+      animation: fadeIn 0.3s ease;
+    }
+    .feed-item:last-child { border-bottom: none; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .feed-type {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text-muted);
+      margin-right: 6px;
+    }
+    .feed-type.view { color: var(--accent); }
+    .feed-type.audio_play { color: #a78bfa; }
+    .feed-type.share { color: #4ade80; }
+    .feed-time { color: var(--text-muted); white-space: nowrap; }
+    .feed-slug {
+      flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-    .cat-bar-track {
-      flex: 1;
-      height: 10px;
-      background: var(--bg);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .cat-bar-fill {
-      height: 100%;
-      background: var(--accent, #4F8EF7);
-      border-radius: 5px;
-      transition: width 0.4s ease;
-    }
-    .cat-bar-count {
-      width: 40px;
-      text-align: right;
-      font-size: 12px;
-      color: var(--text-muted);
+      white-space: nowrap;
+      margin: 0 8px;
     }
 
     /* ── Top articles table tweaks ── */
@@ -91,7 +203,6 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .stat-delta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -103,54 +214,80 @@
         <h1 class="page-title">Analytics</h1>
         <p class="page-subtitle">Page views, audio plays, and top content — last updated <span id="lastUpdated">—</span></p>
       </div>
-      <button class="btn btn-primary" id="refreshBtn">↻ Refresh</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="range-tabs" id="rangeTabs"></div>
+        <button class="btn btn-primary" id="refreshBtn">↻ Refresh</button>
+      </div>
     </div>
 
     <!-- Stat cards -->
     <div class="stats-grid" id="statCards">
       <div class="stat-card">
-        <div class="stat-label">Total Views</div>
-        <div class="stat-value" id="statTotalViews">—</div>
-        <div class="stat-delta" id="statViews7d">— last 7 days</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Last 30 Days</div>
-        <div class="stat-value" id="statViews30d">—</div>
-        <div class="stat-delta">page views</div>
+        <div class="stat-label">Views</div>
+        <div class="stat-value" id="statViews">—</div>
+        <div class="stat-delta" id="statViewsDelta"></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Audio Plays</div>
         <div class="stat-value" id="statAudioPlays">—</div>
-        <div class="stat-delta">all time</div>
+        <div class="stat-delta" id="statAudioDelta"></div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Shares</div>
         <div class="stat-value" id="statShares">—</div>
-        <div class="stat-delta">all time</div>
+        <div class="stat-delta" id="statSharesDelta"></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">All-Time Views</div>
+        <div class="stat-value" id="statTotalViews">—</div>
+        <div class="stat-delta">total</div>
+      </div>
+    </div>
+
+    <!-- Engagement ratios + Quota gauges -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+      <!-- Engagement ratios -->
+      <div class="ratio-grid" style="margin-top:0;">
+        <div class="ratio-card">
+          <div class="ratio-value" id="listenRate">—</div>
+          <div class="ratio-label">Listen Rate (audio plays / views)</div>
+        </div>
+        <div class="ratio-card">
+          <div class="ratio-value" id="shareRate">—</div>
+          <div class="ratio-label">Share Rate (shares / views)</div>
+        </div>
+      </div>
+
+      <!-- Quota usage -->
+      <div class="card-section" style="margin-top:0;">
+        <div class="section-header">
+          <h2 class="section-title">Quota Usage</h2>
+          <span class="text-muted text-sm">this month</span>
+        </div>
+        <div style="padding:16px 20px;" id="quotaGauges">
+          <div class="text-muted text-sm">Loading…</div>
+        </div>
       </div>
     </div>
 
     <!-- Views over time -->
     <div class="card-section" style="margin-top:24px;">
       <div class="section-header">
-        <h2 class="section-title">Views — Last 30 Days</h2>
+        <h2 class="section-title" id="chartTitle">Daily Views</h2>
       </div>
-      <div class="card-body" style="padding:16px 20px 12px;">
-        <div class="spark-chart" id="sparkChart">
-          <div style="color:var(--text-muted);font-size:13px;align-self:center;">Loading…</div>
-        </div>
-        <div class="spark-x-labels" id="sparkLabels"></div>
+      <div class="chart-container">
+        <canvas id="viewsChart"></canvas>
       </div>
     </div>
 
     <!-- Two-column: top articles + category breakdown -->
-    <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;margin-top:20px;">
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;margin-top:20px;">
 
       <!-- Top articles -->
       <div class="card-section">
         <div class="section-header">
           <h2 class="section-title">Top Articles</h2>
-          <span class="text-muted text-sm">by views, all time</span>
+          <span class="text-muted text-sm" id="topArticlesRange">by views</span>
         </div>
         <div style="overflow-x:auto;">
           <table class="data-table analytics-table" id="topArticlesTable">
@@ -160,12 +297,13 @@
                 <th>Title</th>
                 <th>Category</th>
                 <th>Views</th>
+                <th>7d Trend</th>
                 <th>🎧</th>
                 <th>↗</th>
               </tr>
             </thead>
             <tbody id="topArticlesTbody">
-              <tr><td colspan="6" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
+              <tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -175,10 +313,45 @@
       <div class="card-section">
         <div class="section-header">
           <h2 class="section-title">By Category</h2>
-          <span class="text-muted text-sm">last 30 days</span>
+          <span class="text-muted text-sm" id="categoryRange">views</span>
         </div>
-        <div style="padding:16px;" id="categoryBars">
-          <div class="text-muted text-sm">Loading…</div>
+        <div style="padding:16px;">
+          <div class="chart-container" style="height:280px;padding:0;">
+            <canvas id="categoryChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Heatmap + Live feed -->
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;margin-top:20px;">
+
+      <!-- Engagement heatmap -->
+      <div class="card-section">
+        <div class="section-header">
+          <h2 class="section-title">Peak Hours</h2>
+          <span class="text-muted text-sm">views by day &times; hour, last 30 days</span>
+        </div>
+        <div style="padding:16px 20px;" class="heatmap-wrap">
+          <div id="heatmapGrid" class="heatmap-grid">
+            <div class="text-muted text-sm" style="grid-column:1/-1;text-align:center;padding:20px;">Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live activity feed -->
+      <div class="card-section">
+        <div class="section-header">
+          <div class="live-header">
+            <div class="live-dot" id="liveDot"></div>
+            <h2 class="section-title">Live Activity</h2>
+          </div>
+        </div>
+        <div style="padding:12px 16px;">
+          <ul class="feed-list" id="liveFeed">
+            <li class="feed-item text-muted" style="justify-content:center;">Connecting…</li>
+          </ul>
         </div>
       </div>
 
@@ -186,6 +359,7 @@
   </main>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="/admin.js"></script>
 <script src="/analytics-page.js"></script>
 </body>
