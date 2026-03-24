@@ -275,6 +275,7 @@ const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./ro
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
 app.use('/api/admin/cron', require('./routes/admin-cron'));
+app.use('/api/admin/metrics', require('./routes/admin-metrics'));
 
 const { getActiveTenantIds } = require('./lib/tenant-utils');
 const { registerJob, startAll } = require('./lib/cron-registry');
