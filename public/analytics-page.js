@@ -2,6 +2,8 @@
 (function () {
   'use strict';
 
+  /* ── Utilities ─────────────────────────────────────────── */
+
   function fmt(n) {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
     if (n >= 1000)    return (n / 1000).toFixed(1) + 'k';
@@ -12,24 +14,95 @@
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function shortDate(isoStr) {
-    const d = new Date(isoStr);
-    return (d.getMonth() + 1) + '/' + d.getDate();
-  }
+  /* ── Chart.js helpers (ported from platform.js) ────────── */
 
-  /* ── Sparkline ──────────────────────────────────────────────── */
-  function renderSparkline(byDay) {
-    const chart  = document.getElementById('sparkChart');
-    const labels = document.getElementById('sparkLabels');
-    if (!chart || !byDay.length) {
-      if (chart) chart.innerHTML = '<div style="color:var(--text-muted);font-size:13px;align-self:center;">No data yet</div>';
-      return;
+  const CHART_COLORS = ['#00d9ff', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#f59e0b'];
+
+  function createChart(canvasId, config) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || typeof Chart === 'undefined') return null;
+
+    const defaults = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#888', font: { family: "'Inter', sans-serif", size: 11 } } },
+        tooltip: { backgroundColor: '#222', titleColor: '#f0f0f0', bodyColor: '#ccc', borderColor: '#333', borderWidth: 1 },
+      },
+      scales: {},
+    };
+
+    // Apply dark-theme scale defaults for cartesian charts
+    if (!config.type || config.type === 'line' || config.type === 'bar') {
+      const scaleDefaults = {
+        grid: { color: 'rgba(255,255,255,0.06)' },
+        ticks: { color: '#888', font: { family: "'Inter', sans-serif", size: 11 } },
+      };
+      config.options = config.options || {};
+      config.options.scales = config.options.scales || {};
+      for (const axis of ['x', 'y']) {
+        config.options.scales[axis] = { ...scaleDefaults, ...(config.options.scales[axis] || {}) };
+      }
     }
 
-    // Fill missing days in last 30
+    config.options = { ...defaults, ...config.options, plugins: { ...defaults.plugins, ...(config.options?.plugins || {}) } };
+    return new Chart(canvas, config);
+  }
+
+  /* ── Range tabs ────────────────────────────────────────── */
+
+  function renderRangeTabs(containerId, options, active, onChange) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = options.map(opt =>
+      `<button class="range-tab${opt === active ? ' active' : ''}" data-range="${opt}">${opt}</button>`
+    ).join('');
+    container.querySelectorAll('.range-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('.range-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        onChange(btn.dataset.range);
+      });
+    });
+  }
+
+  /* ── Delta rendering ───────────────────────────────────── */
+
+  function renderDelta(elId, current, previous, label) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!previous || previous === 0) {
+      el.textContent = label || '';
+      el.className = 'stat-delta';
+      return;
+    }
+    const pct = Math.round(((current - previous) / previous) * 100);
+    if (pct === 0) {
+      el.textContent = `→ 0% vs prior period`;
+      el.className = 'stat-delta';
+    } else if (pct > 0) {
+      el.textContent = `↑ ${pct}% vs prior period`;
+      el.className = 'stat-delta up';
+    } else {
+      el.textContent = `↓ ${Math.abs(pct)}% vs prior period`;
+      el.className = 'stat-delta down';
+    }
+  }
+
+  /* ── Charts ────────────────────────────────────────────── */
+
+  let viewsChart = null;
+  let categoryChart = null;
+  let currentRange = '30d';
+
+  function renderViewsChart(byDay) {
+    if (viewsChart) viewsChart.destroy();
+
+    // Fill missing days
+    const rangeDays = parseInt(currentRange);
     const filled = [];
     const now = new Date();
-    for (let i = 29; i >= 0; i--) {
+    for (let i = rangeDays - 1; i >= 0; i--) {
       const d = new Date(now);
       d.setUTCDate(d.getUTCDate() - i);
       const key = d.toISOString().slice(0, 10);
@@ -37,39 +110,45 @@
       filled.push({ day: key, views: match ? match.views : 0 });
     }
 
-    const max = Math.max(...filled.map(r => r.views), 1);
-    chart.innerHTML = filled.map(r => {
-      const pct = Math.max(Math.round((r.views / max) * 100), 2);
-      return `<div class="spark-bar" style="height:${pct}%" title="${shortDate(r.day)}: ${r.views} views"></div>`;
-    }).join('');
-
-    // Show first, middle, last date labels
-    labels.innerHTML = `<span>${shortDate(filled[0].day)}</span><span>${shortDate(filled[14].day)}</span><span>${shortDate(filled[29].day)}</span>`;
+    viewsChart = createChart('viewsChart', {
+      type: 'line',
+      data: {
+        labels: filled.map(d => new Date(d.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+        datasets: [{
+          label: 'Views',
+          data: filled.map(d => d.views),
+          borderColor: '#00d9ff',
+          backgroundColor: 'rgba(0,217,255,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: rangeDays > 30 ? 0 : 2,
+        }],
+      },
+      options: { plugins: { legend: { display: false } } },
+    });
   }
 
-  /* ── Category bars ──────────────────────────────────────────── */
-  function renderCategoryBars(byCategory) {
-    const el = document.getElementById('categoryBars');
-    if (!el) return;
-    if (!byCategory.length) {
-      el.innerHTML = '<div class="text-muted text-sm">No data yet</div>';
-      return;
-    }
-    const max = Math.max(...byCategory.map(r => r.views), 1);
-    el.innerHTML = byCategory.map(r => {
-      const pct = Math.round((r.views / max) * 100);
-      return `
-        <div class="cat-bar-row">
-          <div class="cat-bar-label" title="${escHtml(r.category)}">${escHtml(r.category)}</div>
-          <div class="cat-bar-track">
-            <div class="cat-bar-fill" style="width:${pct}%"></div>
-          </div>
-          <div class="cat-bar-count">${fmt(r.views)}</div>
-        </div>`;
-    }).join('');
+  function renderCategoryChart(byCategory) {
+    if (categoryChart) categoryChart.destroy();
+    if (!byCategory.length) return;
+
+    categoryChart = createChart('categoryChart', {
+      type: 'bar',
+      data: {
+        labels: byCategory.map(c => c.category),
+        datasets: [{
+          label: 'Views',
+          data: byCategory.map(c => c.views),
+          backgroundColor: CHART_COLORS.concat(CHART_COLORS).slice(0, byCategory.length),
+          borderRadius: 4,
+        }],
+      },
+      options: { indexAxis: 'y', plugins: { legend: { display: false } } },
+    });
   }
 
-  /* ── Top articles table ─────────────────────────────────────── */
+  /* ── Top articles table ─────────────────────────────────── */
+
   function renderTopArticles(articles) {
     const tbody = document.getElementById('topArticlesTbody');
     if (!tbody) return;
@@ -92,24 +171,39 @@
       </tr>`).join('');
   }
 
-  /* ── Load data ──────────────────────────────────────────────── */
-  async function loadAnalytics() {
+  /* ── Load data ──────────────────────────────────────────── */
+
+  async function loadAnalytics(range) {
+    if (range) currentRange = range;
+
     document.getElementById('refreshBtn').disabled = true;
     document.getElementById('refreshBtn').textContent = 'Loading…';
 
     try {
-      const data = await apiFetch('/analytics/summary');
+      const data = await apiFetch(`/analytics/summary?range=${currentRange}`);
 
       // Stat cards
-      document.getElementById('statTotalViews').textContent  = fmt(data.totals.views);
-      document.getElementById('statViews7d').textContent     = `${fmt(data.totals.views_7d)} last 7 days`;
-      document.getElementById('statViews30d').textContent    = fmt(data.totals.views_30d);
+      document.getElementById('statViews').textContent       = fmt(data.totals.views_period);
       document.getElementById('statAudioPlays').textContent  = fmt(data.totals.audio_plays);
       document.getElementById('statShares').textContent      = fmt(data.totals.shares);
+      document.getElementById('statTotalViews').textContent  = fmt(data.totals.views);
 
-      renderSparkline(data.by_day);
+      // Deltas
+      renderDelta('statViewsDelta', data.totals.views_period, data.totals.views_prev);
+      renderDelta('statAudioDelta', data.totals.audio_plays, data.totals.audio_plays_prev);
+      renderDelta('statSharesDelta', data.totals.shares, data.totals.shares_prev);
+
+      // Section labels
+      document.getElementById('chartTitle').textContent = `Daily Views — ${currentRange}`;
+      document.getElementById('topArticlesRange').textContent = `by views, ${currentRange}`;
+      document.getElementById('categoryRange').textContent = `views, ${currentRange}`;
+
+      // Charts
+      renderViewsChart(data.by_day);
+      renderCategoryChart(data.by_category);
+
+      // Table
       renderTopArticles(data.top_articles);
-      renderCategoryBars(data.by_category);
 
       document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
     } catch (err) {
@@ -120,11 +214,15 @@
     }
   }
 
-  /* ── Init ───────────────────────────────────────────────────── */
+  /* ── Init ───────────────────────────────────────────────── */
+
   document.addEventListener('DOMContentLoaded', () => {
     if (!requireAuth()) return;
     renderSidebar();
-    document.getElementById('refreshBtn')?.addEventListener('click', loadAnalytics);
+
+    renderRangeTabs('rangeTabs', ['7d', '30d', '90d'], '30d', loadAnalytics);
+    document.getElementById('refreshBtn')?.addEventListener('click', () => loadAnalytics());
+
     loadAnalytics();
   });
 })();

@@ -55,43 +55,49 @@ router.post('/event', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/analytics/summary
+const VALID_RANGES = { '7d': 7, '30d': 30, '90d': 90 };
+
 router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const pool = getPool();
-
   const tenantId = req.tenantId;
+
+  const rangeDays = VALID_RANGES[req.query.range] || 30;
+  const rangeInterval = `${rangeDays} days`;
+  const prevInterval = `${rangeDays * 2} days`;
+
   const [
     totals,
     byDay,
     topArticles,
     byCategory,
-    audioPlays,
-    shares,
+    periodAudio,
+    periodShares,
+    prevViews,
+    prevAudio,
+    prevShares,
   ] = await Promise.all([
-    // All-time, 7d, 30d view counts
+    // Views for current range
     pool.query(`
       SELECT
-        COUNT(*)                                                          AS total_views,
-        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')  AS views_7d,
-        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS views_30d
+        COUNT(*)                                                                    AS total_views,
+        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '${rangeInterval}')  AS views_period
       FROM analytics_events
       WHERE tenant_id = $1 AND event_type = 'view'
     `, [tenantId]),
 
-    // Views per day for last 30 days
+    // Views per day for selected range
     pool.query(`
       SELECT
         DATE_TRUNC('day', created_at AT TIME ZONE 'UTC') AS day,
         COUNT(*) AS views
       FROM analytics_events
       WHERE tenant_id = $1 AND event_type = 'view'
-        AND created_at >= NOW() - INTERVAL '30 days'
+        AND created_at >= NOW() - INTERVAL '${rangeInterval}'
       GROUP BY 1
       ORDER BY 1 ASC
     `, [tenantId]),
 
-    // Top 10 articles by views (all time)
-    // Note: articles table has no slug column — slug is computed from title in JS.
-    // We store the slug in analytics_events at event time, so use it directly.
+    // Top 10 articles by views within range
     pool.query(`
       SELECT
         ae.article_slug                                           AS slug,
@@ -101,41 +107,73 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
         COUNT(*) FILTER (WHERE ae.event_type = 'share')          AS shares
       FROM analytics_events ae
       WHERE ae.tenant_id = $1 AND ae.article_slug IS NOT NULL
+        AND ae.created_at >= NOW() - INTERVAL '${rangeInterval}'
       GROUP BY ae.article_slug, ae.category
       ORDER BY views DESC
       LIMIT 10
     `, [tenantId]),
 
-    // Views by category (last 30 days)
+    // Views by category within range
     pool.query(`
       SELECT
         COALESCE(category, 'Unknown') AS category,
         COUNT(*) AS views
       FROM analytics_events
       WHERE tenant_id = $1 AND event_type = 'view'
-        AND created_at >= NOW() - INTERVAL '30 days'
+        AND created_at >= NOW() - INTERVAL '${rangeInterval}'
       GROUP BY 1
       ORDER BY views DESC
     `, [tenantId]),
 
-    // Total audio plays
+    // Audio plays in current range
     pool.query(`
-      SELECT COUNT(*) AS total FROM analytics_events WHERE tenant_id = $1 AND event_type = 'audio_play'
+      SELECT COUNT(*) AS total FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'audio_play'
+        AND created_at >= NOW() - INTERVAL '${rangeInterval}'
     `, [tenantId]),
 
-    // Total shares
+    // Shares in current range
     pool.query(`
-      SELECT COUNT(*) AS total FROM analytics_events WHERE tenant_id = $1 AND event_type = 'share'
+      SELECT COUNT(*) AS total FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'share'
+        AND created_at >= NOW() - INTERVAL '${rangeInterval}'
+    `, [tenantId]),
+
+    // Previous period views (for delta)
+    pool.query(`
+      SELECT COUNT(*) AS total FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'view'
+        AND created_at >= NOW() - INTERVAL '${prevInterval}'
+        AND created_at < NOW() - INTERVAL '${rangeInterval}'
+    `, [tenantId]),
+
+    // Previous period audio plays (for delta)
+    pool.query(`
+      SELECT COUNT(*) AS total FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'audio_play'
+        AND created_at >= NOW() - INTERVAL '${prevInterval}'
+        AND created_at < NOW() - INTERVAL '${rangeInterval}'
+    `, [tenantId]),
+
+    // Previous period shares (for delta)
+    pool.query(`
+      SELECT COUNT(*) AS total FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'share'
+        AND created_at >= NOW() - INTERVAL '${prevInterval}'
+        AND created_at < NOW() - INTERVAL '${rangeInterval}'
     `, [tenantId]),
   ]);
 
   res.json({
+    range: req.query.range || '30d',
     totals: {
-      views:       parseInt(totals.rows[0].total_views)  || 0,
-      views_7d:    parseInt(totals.rows[0].views_7d)     || 0,
-      views_30d:   parseInt(totals.rows[0].views_30d)    || 0,
-      audio_plays: parseInt(audioPlays.rows[0].total)    || 0,
-      shares:      parseInt(shares.rows[0].total)        || 0,
+      views:           parseInt(totals.rows[0].total_views)   || 0,
+      views_period:    parseInt(totals.rows[0].views_period)  || 0,
+      audio_plays:     parseInt(periodAudio.rows[0].total)    || 0,
+      shares:          parseInt(periodShares.rows[0].total)   || 0,
+      views_prev:      parseInt(prevViews.rows[0].total)      || 0,
+      audio_plays_prev: parseInt(prevAudio.rows[0].total)     || 0,
+      shares_prev:     parseInt(prevShares.rows[0].total)     || 0,
     },
     by_day:       byDay.rows.map(r => ({ day: r.day, views: parseInt(r.views) })),
     top_articles: topArticles.rows.map(r => ({
