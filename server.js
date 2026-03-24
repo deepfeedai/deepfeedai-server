@@ -162,17 +162,10 @@ app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 // Admin routes with larger payloads get a higher limit via per-route middleware
 const largeBodyParser = express.json({ limit: '2mb' });
 
-// ── Static files ────────────────────────────────────────────────────
-// Allow cross-origin loading of media files (audio, images) from frontend
-app.use('/media', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-});
-app.use(express.static(path.join(__dirname, 'public')));
-
 // ── Signup subdomain routing ────────────────────────────────────────
+// Must be BEFORE express.static so index.html doesn't get served for '/'.
 // When accessed via signup.deepfeedai.com or signup-staging.deepfeedai.com,
-// serve signup.html as the default page instead of login.html/index.html.
+// serve signup.html as the default page instead of index.html.
 const SIGNUP_HOSTS = new Set([
   'signup.deepfeedai.com',
   'signup-staging.deepfeedai.com',
@@ -184,6 +177,14 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ── Static files ────────────────────────────────────────────────────
+// Allow cross-origin loading of media files (audio, images) from frontend
+app.use('/media', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
 const { tenantContext } = require('./middleware/tenant');
