@@ -51,6 +51,14 @@ router.post('/event', asyncHandler(async (req, res) => {
     [req.tenantId, type, slug || null, category || null]
   );
 
+  // Broadcast to live feed SSE clients
+  broadcastEvent(req.tenantId, {
+    event_type: type,
+    article_slug: slug || null,
+    category: category || null,
+    created_at: new Date().toISOString(),
+  });
+
   res.json({ ok: true });
 }));
 
@@ -76,6 +84,7 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
     prevAudio,
     prevShares,
     quotaData,
+    heatmapData,
   ] = await Promise.all([
     // Views for current range
     pool.query(`
@@ -179,6 +188,18 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
           AND created_at >= DATE_TRUNC('month', NOW())) AS ai_spend_this_month,
         (SELECT COALESCE(bytes_used, 0) FROM tenant_storage_usage WHERE tenant_id = $1) AS storage_bytes
     `, [tenantId]),
+
+    // Heatmap: views by day-of-week × hour (last 30 days)
+    pool.query(`
+      SELECT
+        EXTRACT(DOW FROM created_at AT TIME ZONE 'UTC')::int  AS dow,
+        EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC')::int AS hour,
+        COUNT(*)::int AS views
+      FROM analytics_events
+      WHERE tenant_id = $1 AND event_type = 'view'
+        AND created_at >= NOW() - INTERVAL '30 days'
+      GROUP BY 1, 2
+    `, [tenantId]),
   ]);
 
   // Fetch 7-day mini trends for top articles
@@ -249,7 +270,67 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
       category: r.category,
       views:    parseInt(r.views) || 0,
     })),
+    heatmap: heatmapData.rows.map(r => ({
+      dow:   r.dow,
+      hour:  r.hour,
+      views: r.views,
+    })),
   });
 }));
 
+// GET /api/analytics/live — SSE stream of recent events
+// Supports ?token= query param for EventSource (no header support)
+const _sseClients = new Map(); // tenantId → Set<res>
+
+router.get('/live', (req, res, next) => {
+  // Allow token via query param for SSE
+  if (req.query.token && !req.headers.authorization) {
+    req.headers.authorization = 'Bearer ' + req.query.token;
+  }
+  next();
+}, auth, requirePermission('analytics.read'), (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  res.write(':\n\n'); // SSE comment to establish connection
+
+  const tenantId = req.tenantId;
+  if (!_sseClients.has(tenantId)) _sseClients.set(tenantId, new Set());
+  _sseClients.get(tenantId).add(res);
+
+  req.on('close', () => {
+    const clients = _sseClients.get(tenantId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) _sseClients.delete(tenantId);
+    }
+  });
+});
+
+// Broadcast new events to SSE clients (called from POST /event)
+function broadcastEvent(tenantId, event) {
+  const clients = _sseClients.get(tenantId);
+  if (!clients || clients.size === 0) return;
+  const data = JSON.stringify(event);
+  for (const client of clients) {
+    client.write(`data: ${data}\n\n`);
+  }
+}
+
+// GET /api/analytics/recent — recent events for initial feed load
+router.get('/recent', auth, requirePermission('analytics.read'), asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const rows = await pool.query(`
+    SELECT event_type, article_slug, category, created_at
+    FROM analytics_events
+    WHERE tenant_id = $1
+    ORDER BY created_at DESC
+    LIMIT 15
+  `, [req.tenantId]);
+  res.json(rows.rows);
+}));
+
 module.exports = router;
+module.exports._broadcastEvent = broadcastEvent;
