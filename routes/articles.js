@@ -8,7 +8,7 @@ const { serializeRow, asyncHandler } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
 const { findBestWriter } = require('../lib/writer-assign');
-const { checkPlanLimit }    = require('../lib/plan-limits');
+// Plan limit for articles removed — credits are the natural throttle
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
 const { deleteImage, deleteAudio } = require('../lib/media-helpers');
@@ -249,11 +249,6 @@ router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async 
 router.post('/', auth, requirePermission('articles.create'), asyncHandler(async (req, res) => {
   const body = validate(articleCreate, req.body, res);
   if (!body) return;
-
-  const limit = await checkPlanLimit(req.tenantId, 'articles_month');
-  if (!limit.allowed) {
-    return res.status(403).json({ error: 'Plan limit reached', resource: 'articles_month', current: limit.current, max: limit.max });
-  }
 
   const { title, summary, content, category, source, source_url,
           image_url, author, is_featured, featured_priority: fp, is_published, published_at } = body;

@@ -184,8 +184,8 @@ onReady(async () => {
         else p.features.push('Unlimited sources');
         if (limit.max_writers) p.features.push(`${limit.max_writers} writers`);
         else p.features.push('Unlimited writers');
-        if (limit.max_articles_month) p.features.push(`${limit.max_articles_month.toLocaleString()} articles/mo`);
-        else p.features.push('Unlimited articles');
+        if (limit.max_credits_month) p.features.push(`${limit.max_credits_month.toLocaleString()} AI credits/mo`);
+        else p.features.push('Unlimited AI credits');
         if (limit.custom_domain_enabled) p.features.push('Custom domain');
         if (limit.audio_enabled) p.features.push('Audio generation');
       }
