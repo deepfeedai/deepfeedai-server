@@ -172,6 +172,12 @@ const SIGNUP_HOSTS = new Set([
 ]);
 app.use((req, res, next) => {
   const host = (req.hostname || '').toLowerCase();
+  const rawHost = (req.headers.host || '').toLowerCase();
+  const fwdHost = (req.headers['x-forwarded-host'] || '').toLowerCase();
+  // Debug: log hostname resolution for signup requests
+  if (rawHost.includes('signup') || fwdHost.includes('signup') || host.includes('signup')) {
+    console.log(`[signup-route] hostname=${host} rawHost=${rawHost} fwdHost=${fwdHost} path=${req.path} match=${SIGNUP_HOSTS.has(host)}`);
+  }
   if (SIGNUP_HOSTS.has(host) && !req.path.startsWith('/api') && !req.path.includes('.')) {
     return res.sendFile(path.join(__dirname, 'public', 'signup.html'));
   }
