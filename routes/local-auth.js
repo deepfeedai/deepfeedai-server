@@ -58,8 +58,8 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const isPlatform = await isPlatformTenant(tenantId);
   const type = (isPlatform && user.role === 'owner') ? 'platform-admin' : 'tenant-admin';
 
-  // Look up tenant UUID for the JWT payload
-  const tenant = await db.prepare('SELECT uuid FROM tenants WHERE id = $1').get(tenantId);
+  // Look up tenant UUID + slug for the JWT payload
+  const tenant = await db.prepare('SELECT uuid, slug FROM tenants WHERE id = $1').get(tenantId);
   const tenantUuid = tenant?.uuid || tenantId; // grace fallback
 
   // Sign JWT — permissions resolved from DB on each request via middleware/auth.js
@@ -71,6 +71,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
       displayName: user.display_name,
       email:      user.email,
       tenantId:   tenantUuid,
+      tenantSlug: tenant?.slug || null,
       role:       user.role,
       type,
       authMethod: 'local',
