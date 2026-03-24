@@ -170,6 +170,21 @@ app.use('/media', (req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ── Signup subdomain routing ────────────────────────────────────────
+// When accessed via signup.deepfeedai.com or signup-staging.deepfeedai.com,
+// serve signup.html as the default page instead of login.html/index.html.
+const SIGNUP_HOSTS = new Set([
+  'signup.deepfeedai.com',
+  'signup-staging.deepfeedai.com',
+]);
+app.use((req, res, next) => {
+  const host = (req.hostname || '').toLowerCase();
+  if (SIGNUP_HOSTS.has(host) && !req.path.startsWith('/api') && !req.path.includes('.')) {
+    return res.sendFile(path.join(__dirname, 'public', 'signup.html'));
+  }
+  next();
+});
+
 // ── Tenant Context ──────────────────────────────────────────────────
 const { tenantContext } = require('./middleware/tenant');
 const { getPlatformTenantId } = require('./lib/platform-tenant');
