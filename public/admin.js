@@ -2,6 +2,16 @@
 
 const API = '/api';
 
+// ── Site URL helper (tenant-aware) ───────────────────────
+function getSiteBase() {
+  const host = window.location.hostname;
+  if (host === 'portal-staging.deepfeedai.com') return 'https://staging.deepfeedai.com';
+  if (host === 'portal.deepfeedai.com') return 'https://deepfeedai.com';
+  if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:3000';
+  // Tenant subdomain — admin portal shares hostname with the public site
+  return window.location.origin;
+}
+
 function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }

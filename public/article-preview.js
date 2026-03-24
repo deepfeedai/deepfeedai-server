@@ -353,10 +353,7 @@ function showArticlePreview(a, writer) {
   // Footer links
   var liveLink = document.getElementById('previewLiveLink');
   var sourceLink = document.getElementById('previewSourceLink');
-  var host = window.location.hostname;
-  var siteBase = host === 'portal-staging.deepfeedai.com' ? 'https://staging.deepfeedai.com'
-    : host === 'portal.deepfeedai.com' ? 'https://deepfeedai.com'
-    : 'http://localhost:3000';
+  var siteBase = getSiteBase();
   if (a.is_published && slug) {
     liveLink.href = siteBase + '/article/' + slug;
     liveLink.style.display = '';

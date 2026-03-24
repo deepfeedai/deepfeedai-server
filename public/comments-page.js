@@ -147,7 +147,7 @@ function renderTable() {
     const hiddenBadge = c.isDeleted
       ? `<span class="badge badge-muted" style="font-size:11px;margin-left:4px;">🙈 Hidden</span>`
       : '';
-    const articleLink = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
+    const articleLink = `<a href="${getSiteBase()}/article/${slug}" target="_blank" rel="noopener"
       style="color:var(--accent);font-size:12px;word-break:break-all;"
       title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
@@ -261,7 +261,7 @@ function renderQueueTable(tbody) {
     const date     = `<span title="${fmtDate(c.createdAt)}">${relativeTime(c.createdAt)}</span>`;
     const prior    = c.priorApproved ?? 0;
     const providerIcon = provider === 'google' ? '🔵' : provider === 'github' ? '⚫' : '👤';
-    const articleLink  = `<a href="https://deepfeedai.com/article/${slug}" target="_blank" rel="noopener"
+    const articleLink  = `<a href="${getSiteBase()}/article/${slug}" target="_blank" rel="noopener"
       style="color:var(--accent);font-size:12px;" title="${slug}">${slug.length > 28 ? slug.slice(0, 28) + '…' : slug}</a>`;
 
     // Spam indicator
