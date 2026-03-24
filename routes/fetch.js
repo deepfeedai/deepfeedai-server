@@ -8,7 +8,7 @@ const db                 = require('../db');
 const { scrapeOgImage }  = require('../lib/scrape');
 const { auth }           = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
-const { asyncHandler, decodeEntities } = require('../lib/utils');
+const { asyncHandler, decodeEntities, toSlug } = require('../lib/utils');
 const { detectCategory } = require('../lib/categorize');
 const { findBestWriter } = require('../lib/writer-assign');
 const { logUsage } = require('../lib/ai-usage');
@@ -68,9 +68,9 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
 
         // Insert as draft; auto-publish path upgrades to 'published' if selected
         await db.prepare(
-          `INSERT INTO articles (title, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 'draft', $9)`
-        ).run(decodeEntities(item.title), summary, category, source.name, url, image, author, pubDate, tenantId);
+          `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'draft', $10)`
+        ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), summary, category, source.name, url, image, author, pubDate, tenantId);
         inserted++;
 
         // Fire-and-forget: writer assignment + quality gate auto-publish
@@ -255,9 +255,9 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
 
     // Insert as draft; auto-publish path upgrades to 'published' if selected
     await db.prepare(
-      `INSERT INTO articles (title, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, status, tenant_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 0, $8, 'draft', $9)`
-    ).run(decodeEntities(item.title), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType, tenantId);
+      `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, status, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'draft', $10)`
+    ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType, tenantId);
     inserted++;
 
     // Fire-and-forget: writer assignment + quality gate auto-publish

@@ -15,37 +15,48 @@ const { getSiteConfig }     = require('../lib/site-config');
 
 const PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|fc|fd)/;
 
-/** Validate URL does not resolve to a private/internal IP */
+/**
+ * Validate URL does not resolve to a private/internal IP.
+ * Returns the resolved IP address so callers can pin the connection to it.
+ */
 async function validateUrlSsrf(urlStr) {
   const parsed = new URL(urlStr);
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('Only http/https allowed');
   const resolved = await dns.lookup(parsed.hostname);
   if (PRIVATE_IP_RE.test(resolved.address)) throw new Error('Private/internal URLs are not allowed');
+  return resolved.address;
 }
 
-/** Fetch raw HTML from a URL, following up to 3 redirects */
-function fetchHtml(url, redirects = 0, userAgent) {
+/** Fetch raw HTML from a URL, following up to 3 redirects.
+ *  Pins connections to the resolved IP to prevent DNS rebinding attacks. */
+function fetchHtml(url, redirects = 0, userAgent, pinnedIp) {
   return new Promise((resolve, reject) => {
     if (redirects > 3) return reject(new Error('Too many redirects'));
 
-    const lib     = url.startsWith('https') ? https : http;
+    const parsed  = new URL(url);
+    const lib     = parsed.protocol === 'https:' ? https : http;
     const options = {
+      hostname: pinnedIp || parsed.hostname,
+      port:     parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path:     parsed.pathname + parsed.search,
       headers: {
+        'Host':       parsed.host, // preserve original Host header for vhosts/SNI
         'User-Agent': userAgent || 'Mozilla/5.0 (compatible; DeepFeedAI-Bot/1.0)',
         'Accept':     'text/html,application/xhtml+xml',
       },
+      servername: parsed.hostname, // SNI for TLS
       timeout: 8000,
     };
 
-    lib.get(url, options, (res) => {
-      // Follow redirects — re-validate SSRF on each hop
+    lib.get(options, (res) => {
+      // Follow redirects — re-validate SSRF on each hop and pin to new IP
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         const next = res.headers.location.startsWith('http')
           ? res.headers.location
           : new URL(res.headers.location, url).href;
         res.resume();
         return validateUrlSsrf(next)
-          .then(() => resolve(fetchHtml(next, redirects + 1, userAgent)))
+          .then((nextIp) => resolve(fetchHtml(next, redirects + 1, userAgent, nextIp)))
           .catch(reject);
       }
 
@@ -110,18 +121,20 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
     return res.status(400).json({ error: 'Only http and https URLs are allowed' });
   }
+  let resolvedIp;
   try {
     const resolved = await dns.lookup(parsedUrl.hostname);
     if (PRIVATE_IP_RE.test(resolved.address)) {
       return res.status(400).json({ error: 'Private/internal URLs are not allowed' });
     }
+    resolvedIp = resolved.address;
   } catch {
     return res.status(400).json({ error: 'Unable to resolve hostname' });
   }
 
   const site = await getSiteConfig(req.tenantId);
   const botUA = `Mozilla/5.0 (compatible; ${site.short_name || 'DeepFeedAI'}-Bot/1.0)`;
-  const html = await fetchHtml(url, 0, botUA);
+  const html = await fetchHtml(url, 0, botUA, resolvedIp);
 
     const title   = getMeta(html, 'og:title', 'twitter:title')          || getTitle(html)          || '';
     const image   = getMeta(html, 'og:image', 'twitter:image')           || '';

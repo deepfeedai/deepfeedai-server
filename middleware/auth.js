@@ -71,12 +71,21 @@ async function auth(req, res, next) {
   }
 
   // Cross-check tenantId: JWT claim must match resolved tenant context
-  // tenant.js has already resolved the JWT's tenantId (UUID or integer) to req.tenantId (integer)
-  // payload.tenantId may be UUID (new) or integer (grace period) — compare resolved values
+  // tenant.js has already resolved the request context to req.tenantId (integer)
+  // payload.tenantId may be UUID (new) or integer (grace period) — resolve and compare
   if (payload.type === 'tenant-admin' && req.tenantId) {
-    // req.tenantId is always the resolved integer (set by tenant.js)
-    // For the comparison, we trust req.tenantId since tenant.js already resolved the JWT's tenantId
-    // The mismatch only matters if the request context (slug/domain) differs from the JWT
+    let jwtTenantId = payload.tenantId;
+    // Resolve UUID to integer if needed
+    if (typeof jwtTenantId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jwtTenantId)) {
+      const { resolveUuidToId } = require('../middleware/tenant');
+      const resolved = await resolveUuidToId(jwtTenantId);
+      jwtTenantId = resolved?.id;
+    } else if (typeof jwtTenantId === 'string') {
+      jwtTenantId = parseInt(jwtTenantId, 10) || null;
+    }
+    if (jwtTenantId && jwtTenantId !== req.tenantId) {
+      return res.status(403).json({ error: 'Token tenant mismatch' });
+    }
   }
 
   req.user = payload;

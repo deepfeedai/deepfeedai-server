@@ -596,24 +596,24 @@ router.get('/activity', async (req, res) => {
     const commentRows = await db.prepare(`
       SELECT c.id, c.body, c.article_slug, c.parent_id, c.created_at, c.updated_at
       FROM comments c
-      WHERE c.user_id = $1 AND c.is_deleted = 0 AND c.is_approved = 1
+      WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.is_deleted = 0 AND c.is_approved = 1
       ORDER BY c.created_at DESC
-      LIMIT $2 OFFSET $3
-    `).all(userId, limit, offset);
+      LIMIT $3 OFFSET $4
+    `).all(userId, req.tenantId, limit, offset);
 
     // Fetch total count
     const countRow = await db.prepare(`
       SELECT COUNT(*) AS cnt FROM comments
-      WHERE user_id = $1 AND is_deleted = 0 AND is_approved = 1
-    `).get(userId);
+      WHERE user_id = $1 AND tenant_id = $2 AND is_deleted = 0 AND is_approved = 1
+    `).get(userId, req.tenantId);
     const total = parseInt(countRow?.cnt ?? 0, 10);
 
-    // Fetch all articles to match slugs → titles (mirrors /api/article approach)
+    // Fetch tenant-scoped articles to match slugs → titles
     let articleTitleMap = {};
     if (commentRows.length > 0) {
       const allArticles = await db.prepare(
-        'SELECT title FROM articles WHERE is_published = 1'
-      ).all();
+        'SELECT title FROM articles WHERE tenant_id = $1 AND is_published = 1'
+      ).all(req.tenantId);
       const { toSlug } = require('../lib/utils');
       for (const a of allArticles) {
         articleTitleMap[toSlug(a.title)] = a.title;
@@ -647,6 +647,59 @@ router.get('/activity', async (req, res) => {
     });
   } catch (err) {
     console.error('[user-auth/activity]', err.message);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+/* ── DELETE /api/user-auth/account ─────────────────────────────────
+   Delete the current user's account and all associated data.
+   CASCADE constraints handle: comments, favorites, reactions,
+   notifications, auth_codes, writer_follows, comment_reports.
+   Requires confirmation body: { confirm: "DELETE" }
+ ─────────────────────────────────────────────────────────────────── */
+router.delete('/account', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
+
+  try {
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
+    const userId  = payload.sub;
+
+    const { confirm } = req.body || {};
+    if (confirm !== 'DELETE') {
+      return res.status(400).json({ error: 'Send { confirm: "DELETE" } to confirm account deletion' });
+    }
+
+    // Check if user owns any tenants — require ownership transfer first
+    const ownedTenants = await db.prepare(
+      "SELECT t.slug FROM tenants t WHERE t.owner_user_id = $1 AND t.status = 'active'"
+    ).all(userId);
+    if (ownedTenants.length > 0) {
+      return res.status(409).json({
+        error: 'You own active tenants. Transfer ownership before deleting your account.',
+        tenants: ownedTenants.map(t => t.slug),
+      });
+    }
+
+    // Verify user exists
+    const user = await db.prepare('SELECT id FROM public_users WHERE id = $1').get(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // CASCADE handles: comments (soft-delete body first for audit trail),
+    // article_favorites, article_reactions, notifications, auth_codes,
+    // writer_follows, comment_reports, tenant_admins
+    // Soft-delete comment bodies before hard-deleting user (preserves thread structure)
+    await db.prepare(
+      "UPDATE comments SET body = '[deleted]', is_deleted = 1 WHERE user_id = $1"
+    ).run(userId);
+
+    // Hard-delete the user (CASCADE cleans up FK references)
+    await db.prepare('DELETE FROM public_users WHERE id = $1').run(userId);
+
+    res.json({ success: true, message: 'Account deleted' });
+  } catch (err) {
+    console.error('[user-auth/delete-account]', err.message);
     res.status(401).json({ error: 'Invalid token' });
   }
 });

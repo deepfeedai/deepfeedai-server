@@ -16,22 +16,54 @@ const { deleteImage, deleteAudio } = require('../lib/media-helpers');
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   let query = 'SELECT * FROM articles WHERE tenant_id = $1';
+  let countQuery = 'SELECT COUNT(*) AS cnt FROM articles WHERE tenant_id = $1';
   const params = [req.tenantId];
+  const countParams = [req.tenantId];
+
   if (req.query.published !== undefined) {
-    params.push(parseInt(req.query.published));
-    query += ` AND is_published = $${params.length}`;
+    const pubVal = parseInt(req.query.published);
+    if (pubVal === 0 || pubVal === 1) {
+      params.push(pubVal);
+      countParams.push(pubVal);
+      query += ` AND is_published = $${params.length}`;
+      countQuery += ` AND is_published = $${countParams.length}`;
+    }
   }
   if (req.query.category) {
     params.push(req.query.category);
+    countParams.push(req.query.category);
     query += ` AND category = $${params.length}`;
+    countQuery += ` AND category = $${countParams.length}`;
   }
   if (req.query.search) {
-    params.push('%' + req.query.search + '%');
+    const search = String(req.query.search).slice(0, 200);
+    params.push('%' + search + '%');
+    countParams.push('%' + search + '%');
     query += ` AND LOWER(title) LIKE LOWER($${params.length})`;
+    countQuery += ` AND LOWER(title) LIKE LOWER($${countParams.length})`;
   }
   query += ' ORDER BY created_at DESC';
-  const result = await getPool().query(query, params.length ? params : undefined);
-  res.json(result.rows.map(serializeRow));
+
+  // Pagination: ?limit=50&offset=0 (defaults: limit 100, offset 0)
+  const limit  = Math.min(Math.max(1, parseInt(req.query.limit) || 100), 500);
+  const offset = Math.max(0, parseInt(req.query.offset) || 0);
+  params.push(limit);
+  query += ` LIMIT $${params.length}`;
+  params.push(offset);
+  query += ` OFFSET $${params.length}`;
+
+  const [result, countRow] = await Promise.all([
+    getPool().query(query, params),
+    getPool().query(countQuery, countParams),
+  ]);
+  const totalCount = parseInt(countRow.rows[0]?.cnt ?? 0, 10);
+
+  res.json({
+    articles: result.rows.map(serializeRow),
+    count: result.rows.length,
+    totalCount,
+    hasMore: offset + result.rows.length < totalCount,
+  });
 }));
 
 // ── GET /api/articles/export — must be BEFORE /:id to avoid "export" being parsed as an integer
@@ -143,7 +175,9 @@ router.get('/export', auth, requirePermission('articles.read'), asyncHandler(asy
 
   function csvCell(val) {
     if (val === null || val === undefined) return '';
-    const s = String(val);
+    let s = String(val);
+    // Prevent CSV formula injection — prefix dangerous leading characters with a tab
+    if (/^[=+\-@\t\r]/.test(s)) s = '\t' + s;
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
       return '"' + s.replace(/"/g, '""') + '"';
     }
@@ -219,14 +253,6 @@ router.get('/preview-by-slug', auth, requirePermission('articles.read'), asyncHa
   ).all(req.tenantId);
   let match = articles.find(a => toSlug(a.title) === slug);
 
-  // Fallback: search all tenants this admin can access
-  if (!match) {
-    const allArticles = await db.prepare(
-      'SELECT * FROM articles WHERE is_published = 1 ORDER BY published_at DESC'
-    ).all();
-    match = allArticles.find(a => toSlug(a.title) === slug);
-  }
-
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
   // Include writer info
@@ -262,16 +288,18 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
     ).run(newPriority, req.tenantId);
   }
 
+  const { toSlug } = require('../lib/utils');
   const pubVal = is_published !== undefined ? (is_published ? 1 : 0) : 1;
   const initStatus = pubVal ? 'published' : 'draft';
   const article = await db.prepare(`
     INSERT INTO articles
-      (title, summary, content, category, source, source_url, image_url, author,
+      (title, slug, summary, content, category, source, source_url, image_url, author,
        is_featured, featured_priority, is_published, published_at, status, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
     RETURNING *
   `).get(
     title,
+    toSlug(title),
     summary    || null,
     content    || null,
     category   || 'Industry',

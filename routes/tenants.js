@@ -385,7 +385,23 @@ router.post('/cancel', requireUser, asyncHandler(async (req, res) => {
   if (admin.role !== 'owner') return res.status(403).json({ error: 'Only the owner can cancel a tenant' });
   if (admin.status !== 'active') return res.status(409).json({ error: `Tenant is already ${admin.status}` });
 
-  const tenantRow = await db.prepare("SELECT custom_domain FROM tenants WHERE id = $1").get(tenantId);
+  const tenantRow = await db.prepare("SELECT custom_domain, stripe_subscription_id FROM tenants WHERE id = $1").get(tenantId);
+
+  // Cancel Stripe subscription if active (prevent continued billing)
+  if (tenantRow?.stripe_subscription_id) {
+    try {
+      const { getStripeConfig } = require('../lib/stripe-config');
+      const { secretKey } = await getStripeConfig();
+      if (secretKey) {
+        const stripe = require('stripe')(secretKey);
+        await stripe.subscriptions.cancel(tenantRow.stripe_subscription_id);
+      }
+    } catch (err) {
+      console.warn(`[tenants/cancel] Stripe cancellation failed for tenant ${tenantId}: ${err.message}`);
+      // Non-fatal — still cancel the tenant
+    }
+  }
+
   await db.prepare("UPDATE tenants SET status = 'cancelled' WHERE id = $1").run(tenantId);
 
   // Invalidate caches so the tenant is immediately unreachable

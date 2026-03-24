@@ -31,16 +31,17 @@ const { getSecrets } = require('../lib/secrets');
 
 function safeCompare(a, b) {
   if (!a || !b) return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  // Use HMAC comparison to avoid leaking secret length via timing
+  const crypto = require('crypto');
+  const macA = crypto.createHmac('sha256', 'safeCompare').update(a).digest();
+  const macB = crypto.createHmac('sha256', 'safeCompare').update(b).digest();
+  return timingSafeEqual(macA, macB);
 }
 
 // Auth: admin JWT OR cron secret
 async function cronOrAdmin(req, res, next) {
   const { cronSecret } = await getSecrets();
-  const provided = req.headers['x-cron-secret'] || req.body?.secret;
+  const provided = req.headers['x-cron-secret'];
   if (cronSecret && safeCompare(provided, cronSecret)) {
     // Cron jobs get full permissions
     req.user = { permissions: ['*'], type: 'cron' };

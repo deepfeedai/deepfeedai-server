@@ -60,14 +60,9 @@ const commentRateLimit = rateLimit({
   // Suppress IPv6 key generator validation — we handle this in keyGenerator above
   validate: { keyGeneratorIpFallback: false },
   keyGenerator: (req) => {
-    // Limit by user ID (from JWT) rather than IP — fairer for shared networks
-    try {
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
-        const payload = jwt.decode(authHeader.slice(7));
-        if (payload?.sub) return `user:${payload.sub}`;
-      }
-    } catch {}
+    // Limit by verified user ID if available (set by requireUser middleware),
+    // otherwise fall back to IP
+    if (req.user?.sub) return `user:${req.user.sub}`;
     return req.ip || 'unknown';
   },
 });
@@ -212,7 +207,7 @@ router.get('/leaderboard', asyncHandler(async (req, res) => {
 }));
 
 /* ── POST /api/comments — post a new comment ─────────────────────── */
-router.post('/', commentRateLimit, requireUser, asyncHandler(async (req, res) => {
+router.post('/', requireUser, commentRateLimit, asyncHandler(async (req, res) => {
   const { slug, body, parentId } = req.body;
   if (!slug) return res.status(400).json({ error: 'slug is required' });
 

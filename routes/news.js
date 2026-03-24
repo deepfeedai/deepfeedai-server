@@ -176,10 +176,11 @@ router.get('/', asyncHandler(async (req, res) => {
 router.get('/hot', asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 10, 30);
 
-  // Fetch all published articles (no limit — we need to score & sort first)
+  // Fetch recent published articles — 30-day window since older articles have near-zero hot scores
   const result = await getPool().query(
     `SELECT * FROM articles
-     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)`,
+     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
+       AND published_at >= NOW() - INTERVAL '30 days'`,
     [req.tenantId]
   );
   const items = result.rows.map(serializeRow);
