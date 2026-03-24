@@ -11,6 +11,7 @@ const { getJwtSecret } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
 const { loginSchema, validate } = require('../lib/schemas');
 const { logAudit }     = require('../middleware/audit');
+const { isPlatformTenant } = require('../lib/platform-tenant');
 const db               = require('../db');
 
 // ── Rate limit: 5 attempts per 15 min per IP ─────────────────────
@@ -28,7 +29,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   if (!data) return;
 
   const { username, password } = data;
-  const tenantId = req.tenantId || 1;
+  const tenantId = req.tenantId;
 
   // Look up user
   const user = await db.prepare(
@@ -53,8 +54,13 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  // Determine type
-  const type = (tenantId === 1 && user.role === 'owner') ? 'platform-admin' : 'tenant-admin';
+  // Determine type — platform-admin for owners on the platform tenant
+  const isPlatform = await isPlatformTenant(tenantId);
+  const type = (isPlatform && user.role === 'owner') ? 'platform-admin' : 'tenant-admin';
+
+  // Look up tenant UUID for the JWT payload
+  const tenant = await db.prepare('SELECT uuid FROM tenants WHERE id = $1').get(tenantId);
+  const tenantUuid = tenant?.uuid || tenantId; // grace fallback
 
   // Sign JWT — permissions resolved from DB on each request via middleware/auth.js
   const jwtSecret = await getJwtSecret();
@@ -64,7 +70,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
       username:   user.username,
       displayName: user.display_name,
       email:      user.email,
-      tenantId,
+      tenantId:   tenantUuid,
       role:       user.role,
       type,
       authMethod: 'local',
@@ -87,7 +93,7 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
       displayName: user.display_name,
       email:       user.email,
       role:        user.role,
-      tenantId,
+      tenantId:    tenantUuid,
     },
   });
 }));

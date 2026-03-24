@@ -475,8 +475,6 @@ let apiKeyVisible = false;
     { id: 'siteDescription',      key: 'site_description' },
     { id: 'siteLogoEmoji',        key: 'site_logo_emoji' },
     { id: 'siteLogoHtml',         key: 'site_logo_html' },
-    { id: 'siteDomain',           key: 'site_domain' },
-    { id: 'siteUrl',              key: 'site_url' },
     { id: 'siteTwitterHandle',    key: 'site_twitter_handle' },
     { id: 'siteCopyright',        key: 'site_copyright' },
     { id: 'siteFooterTagline',    key: 'site_footer_tagline' },
@@ -485,9 +483,6 @@ let apiKeyVisible = false;
     { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
-    { id: 'baseUrl',              key: 'base_url' },
-    { id: 'mainSiteUrl',          key: 'main_site_url' },
-    { id: 'allowedOrigins',       key: 'allowed_origins' },
   ];
 
   // Logo HTML live preview
@@ -870,13 +865,8 @@ let apiKeyVisible = false;
     { id: 'siteFooterTagline',key: 'site_footer_tagline' },
   ]));
 
-  // ── Domain & URLs save ──────────────────────────────────────────
-  panelSave('saveDomainBtn', 'domainStatus', 'Domain & URLs', () => saveFields([
-    { id: 'siteDomain',        key: 'site_domain' },
-    { id: 'siteUrl',           key: 'site_url' },
-    { id: 'baseUrl',           key: 'base_url' },
-    { id: 'mainSiteUrl',       key: 'main_site_url' },
-    { id: 'allowedOrigins',    key: 'allowed_origins' },
+  // ── Social & Metadata save ──────────────────────────────────────
+  panelSave('saveDomainBtn', 'domainStatus', 'Social & Metadata', () => saveFields([
     { id: 'siteTwitterHandle', key: 'site_twitter_handle' },
   ]));
 

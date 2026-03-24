@@ -22,6 +22,7 @@ const { asyncHandler } = require('../lib/utils');
 const { getOAuthConfig } = require('../lib/oauth-config');
 const { getAppConfig }   = require('../lib/app-config');
 const { logAudit }       = require('../middleware/audit');
+const { getPlatformTenantId, getPlatformTenantUuid } = require('../lib/platform-tenant');
 const db                   = require('../db');
 
 // ── In-memory stores (short TTL — no DB needed) ────────────────────
@@ -126,10 +127,11 @@ router.get('/google/callback', asyncHandler(async (req, res) => {
     return res.redirect('/login.html?error=unverified');
   }
 
-  // Check users table for admin access
+  // Check users table for admin access (platform tenant)
+  const platformId = await getPlatformTenantId();
   const adminUser = await db.prepare(
-    'SELECT id, role, display_name FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1'
-  ).get(userInfo.email);
+    'SELECT id, role, display_name FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(userInfo.email, platformId);
 
   if (!adminUser) {
     console.warn(`[Admin OAuth] No admin user found for: ${userInfo.email}`);
@@ -167,10 +169,13 @@ router.post('/code', codeLimiter, asyncHandler(async (req, res) => {
 
   const type = (entry.role === 'owner') ? 'platform-admin' : 'tenant-admin';
 
+  // Use platform tenant UUID in the JWT
+  const platformUuid = await getPlatformTenantUuid();
+
   // Permissions resolved from DB on each request via middleware/auth.js
   const jwtSecret = await getJwtSecret();
   const token = jwt.sign(
-    { sub: entry.userId, email: entry.email, displayName: entry.displayName, provider: 'google', type, tenantId: 1, role: entry.role, authMethod: 'oauth' },
+    { sub: entry.userId, email: entry.email, displayName: entry.displayName, provider: 'google', type, tenantId: platformUuid, role: entry.role, authMethod: 'oauth' },
     jwtSecret,
     { expiresIn: '24h' }
   );

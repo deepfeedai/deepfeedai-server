@@ -30,8 +30,8 @@ async function initTestDb() {
 
 /**
  * Create a test tenant with a unique slug.
- * @param {string} plan — 'starter' | 'pro' | 'business'
- * @returns {Promise<{ id: number, slug: string }>}
+ * @param {string} plan — 'free' | 'starter' | 'pro' | 'business'
+ * @returns {Promise<{ id: number, uuid: string, slug: string }>}
  */
 async function createTestTenant(plan = 'starter') {
   _testTenantCounter++;
@@ -39,14 +39,15 @@ async function createTestTenant(plan = 'starter') {
   const row = await db.prepare(
     `INSERT INTO tenants (slug, display_name, plan, status)
      VALUES ($1, $2, $3, 'active')
-     RETURNING id, slug`
+     RETURNING id, uuid, slug`
   ).get(slug, `Test Tenant ${_testTenantCounter}`, plan);
-  return { id: row.id, slug: row.slug };
+  return { id: row.id, uuid: row.uuid, slug: row.slug };
 }
 
 /**
  * Sign an admin JWT with the same structure used in routes/tenants.js.
- * @param {number} tenantId
+ * Accepts either a UUID string or integer tenantId (for backward compat in tests).
+ * @param {string|number} tenantId — UUID string (preferred) or integer
  * @param {'tenant-admin'|'platform-admin'} type
  * @param {string} email
  * @param {object} [opts] — extra JWT options (e.g. { expiresIn: '-1s' })

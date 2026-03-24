@@ -44,7 +44,7 @@ const summaryLimiter = rateLimit({
   max:            30,
   standardHeaders: true,
   legacyHeaders:   false,
-  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
+  keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many summary requests. Please try again later.' },
   validate:       false,
 });
@@ -54,7 +54,7 @@ const publicApiLimiter = rateLimit({
   max:            120,
   standardHeaders: true,
   legacyHeaders:   false,
-  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
+  keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
   validate:       false,
 });
@@ -172,26 +172,31 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
 const { tenantContext } = require('./middleware/tenant');
+const { getPlatformTenantId } = require('./lib/platform-tenant');
 if (SINGLE_TENANT) {
-  app.use('/api', (req, _res, next) => { req.tenantId = 1; next(); });
+  app.use('/api', async (req, _res, next) => {
+    req.tenantId = await getPlatformTenantId();
+    next();
+  });
 } else {
   app.use('/api', tenantContext);
 }
 
 // ── Per-tenant aggregate rate limiting ──────────────────────────────
 const tenantRateBuckets = new Map(); // tenantId → { count, windowStart }
-const PLAN_RATE_LIMITS = { starter: 600, pro: 1200 }; // requests per minute
+const PLAN_RATE_LIMITS = { free: 300, starter: 600, pro: 1200 }; // requests per minute
+const { getPlanInfo } = require('./lib/plan-limits');
 
 app.use('/api', async (req, res, next) => {
   const tid = req.tenantId;
   if (!tid) return next();
 
-  // Look up tenant plan
-  let plan = 'starter';
+  // Look up tenant effective plan (trial-aware, cached)
+  let plan = 'free';
   try {
-    const row = await db.prepare('SELECT plan FROM tenants WHERE id = $1').get(tid);
-    if (row) plan = row.plan;
-  } catch { /* fallback to starter */ }
+    const info = await getPlanInfo(tid);
+    if (info) plan = info.effectivePlan;
+  } catch { /* fallback to free */ }
 
   const limit = PLAN_RATE_LIMITS[plan];
   if (!limit) return next(); // business = unlimited
@@ -473,12 +478,15 @@ registerJob({
     if (!resendKey || !audienceId) return { skipped: 'Resend not configured' };
     console.log(`[Cron] Sending weekly newsletter (tenant ${tenantId})...`);
     const { cronSecret } = await getSecrets();
+    // Look up tenant UUID for the X-Tenant-Id header
+    const tenantRow = await db.prepare('SELECT uuid FROM tenants WHERE id = $1').get(tenantId);
+    const tenantIdHeader = tenantRow?.uuid || String(tenantId); // grace fallback
     const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
       method:  'POST',
       headers: {
         'Content-Type':   'application/json',
         'x-cron-secret':  cronSecret || '',
-        'X-Tenant-Id':    String(tenantId),
+        'X-Tenant-Id':    tenantIdHeader,
       },
       body: JSON.stringify({}),
     });

@@ -4,6 +4,20 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0-beta.3] — 2026-03-24
+
+### Changed — Plan Restructure
+- Replaced 5-plan system (demo/trial/starter/pro/business) with 4 plans: **free**, **starter**, **pro**, **business**
+- Free plan: 3 sources, 1 writer, 25 articles/mo, $0 AI budget, 50 MB storage
+- Starter plan updated: 10 sources (was 20), 4 writers (was 6), 250 articles/mo (was 500)
+- Trial is now a time-limited state (`trial_ends_at` on tenants) granting pro-level access, not a plan
+- Default plan for new tenants changed from `starter` to `free`
+- Budget gate blocks all AI operations when plan AI budget is $0 (free plan)
+- Rate limiting: free plan gets 300 req/min, trial tenants get pro-level (1200 req/min)
+- Existing demo tenants migrated to free, trial tenants migrated to starter
+
+---
+
 ## [3.0.0-beta.2] — 2026-03-23
 
 ### Added

@@ -12,6 +12,7 @@ const { getJwtSecret } = require('../middleware/auth');
 const { logAudit } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { getSecrets } = require('../lib/secrets');
+const { getPlatformTenantId, isPlatformTenant } = require('../lib/platform-tenant');
 
 // Middleware that accepts either a public user JWT or an admin JWT.
 // Needed for /mine and /switch which are called from the admin panel
@@ -65,7 +66,7 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
 
   // Verify user is an admin of the requested tenant
   const admin = await db.prepare(`
-    SELECT ta.role, t.id, t.slug, t.display_name, t.plan
+    SELECT ta.role, t.id, t.slug, t.display_name, t.plan, t.uuid
     FROM tenant_admins ta
     JOIN tenants t ON t.id = ta.tenant_id
     WHERE ta.user_id = $1 AND ta.tenant_id = $2 AND t.status = 'active'
@@ -75,10 +76,11 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'You do not have access to this tenant' });
   }
 
-  // Determine token type: platform-admin for users table owners on tenant 1, otherwise tenant-admin
+  // Determine token type: platform-admin for users table owners on platform tenant
+  const platformId = await getPlatformTenantId();
   const platformUser = await db.prepare(
-    'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1'
-  ).get(req.user.email || '');
+    'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email || '', platformId);
   const isPlatformAdmin = platformUser && platformUser.role === 'owner';
 
   // Look up role permissions
@@ -103,7 +105,7 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
       email: user?.email || req.user.email,
       displayName: user?.display_name || req.user.displayName,
       avatarUrl: req.user.avatarUrl,
-      tenantId: admin.id,
+      tenantId: admin.uuid,
       tenantSlug: admin.slug,
       role: admin.role,
       type: isPlatformAdmin ? 'platform-admin' : 'tenant-admin',
@@ -117,7 +119,7 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
 
   res.json({
     token,
-    tenant: { id: admin.id, slug: admin.slug, displayName: admin.display_name, plan: admin.plan },
+    tenant: { uuid: admin.uuid, slug: admin.slug, displayName: admin.display_name, plan: admin.plan },
   });
 }));
 
@@ -247,8 +249,10 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
 //   3. Neither → 404 with signup hint
 router.post('/login', requireUser, asyncHandler(async (req, res) => {
   // 1. Check tenant_admins table
+  const platformId = await getPlatformTenantId();
+
   let admin = await db.prepare(`
-    SELECT ta.tenant_id, ta.role, t.slug, t.display_name, t.status
+    SELECT ta.tenant_id, ta.role, t.slug, t.display_name, t.status, t.uuid
     FROM tenant_admins ta
     JOIN tenants t ON t.id = ta.tenant_id
     WHERE ta.user_id = $1 AND t.status = 'active'
@@ -260,27 +264,27 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
   if (!admin) {
     const userEmail = (req.user.email || '').toLowerCase();
     const adminUser = await db.prepare(
-      'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1'
-    ).get(userEmail);
+      'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+    ).get(userEmail, platformId);
 
     if (userEmail && adminUser && adminUser.role === 'owner') {
-      // Auto-provision as admin of the original site (tenant_id=1)
+      // Auto-provision as admin of the platform tenant
       const existing = await db.prepare(
-        'SELECT id FROM tenant_admins WHERE tenant_id = 1 AND user_id = $1'
-      ).get(req.user.sub);
+        'SELECT id FROM tenant_admins WHERE tenant_id = $1 AND user_id = $2'
+      ).get(platformId, req.user.sub);
 
       if (!existing) {
         await db.prepare(
-          'INSERT INTO tenant_admins (tenant_id, user_id, email, role) VALUES (1, $1, $2, $3)'
-        ).run(req.user.sub, userEmail, 'owner');
+          'INSERT INTO tenant_admins (tenant_id, user_id, email, role) VALUES ($1, $2, $3, $4)'
+        ).run(platformId, req.user.sub, userEmail, 'owner');
       }
 
       admin = await db.prepare(`
-        SELECT ta.tenant_id, ta.role, t.slug, t.display_name, t.status
+        SELECT ta.tenant_id, ta.role, t.slug, t.display_name, t.status, t.uuid
         FROM tenant_admins ta
         JOIN tenants t ON t.id = ta.tenant_id
-        WHERE ta.user_id = $1 AND ta.tenant_id = 1
-      `).get(req.user.sub);
+        WHERE ta.user_id = $1 AND ta.tenant_id = $2
+      `).get(req.user.sub, platformId);
     }
   }
 
@@ -288,15 +292,15 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
     return res.status(404).json({ error: 'No site found for this account', signup: true });
   }
 
-  // Determine JWT type: users table owners on tenant 1 get platform-admin, others get tenant-admin
+  // Determine JWT type: users table owners on platform tenant get platform-admin
   const loginPlatformUser = await db.prepare(
-    'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1'
-  ).get(req.user.email || '');
-  const isPlatformAdmin = admin.tenant_id === 1 && loginPlatformUser && loginPlatformUser.role === 'owner';
+    'SELECT id, role FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email || '', platformId);
+  const isPlatformAdminLogin = admin.tenant_id === platformId && loginPlatformUser && loginPlatformUser.role === 'owner';
 
   // Look up role permissions
   let permissions = ['*'];
-  if (!isPlatformAdmin) {
+  if (!isPlatformAdminLogin) {
     try {
       const roleRow = await db.prepare('SELECT permissions FROM roles WHERE tenant_id = $1 AND name = $2').get(admin.tenant_id, admin.role);
       if (roleRow) {
@@ -313,10 +317,10 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
       email: req.user.email,
       displayName: req.user.displayName,
       avatarUrl: req.user.avatarUrl,
-      tenantId: admin.tenant_id,
+      tenantId: admin.uuid,
       tenantSlug: admin.slug,
       role: admin.role,
-      type: isPlatformAdmin ? 'platform-admin' : 'tenant-admin',
+      type: isPlatformAdminLogin ? 'platform-admin' : 'tenant-admin',
       permissions,
     },
     await getJwtSecret(),
@@ -325,7 +329,7 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
 
   res.json({
     token,
-    tenant: { id: admin.tenant_id, slug: admin.slug, display_name: admin.display_name },
+    tenant: { uuid: admin.uuid, slug: admin.slug, display_name: admin.display_name },
   });
 }));
 
@@ -335,7 +339,7 @@ router.post('/cancel', requireUser, asyncHandler(async (req, res) => {
   if (!tenantId || typeof tenantId !== 'number') {
     return res.status(400).json({ error: 'tenantId is required and must be a number' });
   }
-  if (tenantId === 1) {
+  if (await isPlatformTenant(tenantId)) {
     return res.status(400).json({ error: 'Cannot cancel the primary site' });
   }
 

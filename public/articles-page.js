@@ -55,7 +55,7 @@ let articles = [];
     applyFilters();
   }
 
-  function applyFilters() {
+  function applyFilters({ preservePage = false } = {}) {
     // Update draft + review count badges regardless of active tab
     const draftCountEl = document.getElementById('draftCount');
     if (draftCountEl) {
@@ -82,7 +82,8 @@ let articles = [];
       }
       filtered.sort((a, b) => new Date(a.submitted_for_review_at || a.created_at) - new Date(b.submitted_for_review_at || b.created_at));
       articles = filtered;
-      artPage = 1;
+      if (!preservePage) artPage = 1;
+      else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
       const countEl = document.getElementById('filterCount');
       if (countEl) {
         countEl.textContent = `${filtered.length} in review`;
@@ -105,7 +106,8 @@ let articles = [];
       // Default sort: oldest first (surface stale drafts)
       filtered.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       articles = filtered;
-      artPage = 1;
+      if (!preservePage) artPage = 1;
+      else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
       const countEl = document.getElementById('filterCount');
       if (countEl) {
         countEl.textContent = `${filtered.length} draft${filtered.length !== 1 ? 's' : ''}`;
@@ -189,7 +191,8 @@ let articles = [];
     });
 
     articles = filtered;
-    artPage = 1;
+    if (!preservePage) artPage = 1;
+    else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
 
     // 6. Update count badge
     const countEl = document.getElementById('filterCount');
@@ -219,6 +222,237 @@ let articles = [];
     if (all) all.checked = articles.length > 0 && selectedIds.size === articles.length;
   }
 
+  // ── Per-row HTML generators (extracted for reuse by rerenderRow) ──
+
+  const ROW_TOTAL_COLS = 10;
+
+  function renderRowHtml(a) {
+    const isArchived = !!a.is_archived;
+    const rowClass = [
+      selectedIds.has(a.id) ? 'row-selected' : '',
+      isArchived ? 'row-archived' : ''
+    ].filter(Boolean).join(' ');
+
+    const row1 = `
+    <tr id="row-${a.id}" class="row-main ${rowClass}">
+      <td class="td-check" rowspan="2">
+        <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
+      </td>
+      <td class="td-title" title="${escHtml(a.title)}">
+        <span class="td-editable-text">${escHtml(a.title)}</span>
+        ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
+      </td>
+      <td class="text-center">${a.editorial_score != null
+        ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
+        : '<span class="text-muted">—</span>'}</td>
+      <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
+      <td class="td-category">
+        ${isArchived
+          ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
+          : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
+      </td>
+      <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
+        : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
+        : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
+      </td>
+      <td>${isArchived ? '—' : `
+        <div class="featured-picker" style="display:flex;align-items:center;gap:4px;">
+          <span class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}" style="min-width:44px;text-align:center;">
+            ${a.is_featured ? (a.featured_priority ? '⭐' + a.featured_priority : '⭐') : '—'}
+          </span>
+          <select class="featured-priority-select" style="font-size:12px;padding:4px 6px;min-width:60px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;"
+            onchange="setFeaturedPriority(${a.id}, this.value)" title="Set featured priority (1=top)">
+            <option value="0"  ${!a.is_featured              ? 'selected' : ''}>Off</option>
+            <option value="1"  ${a.featured_priority === 1   ? 'selected' : ''}>#1</option>
+            <option value="2"  ${a.featured_priority === 2   ? 'selected' : ''}>#2</option>
+            <option value="3"  ${a.featured_priority === 3   ? 'selected' : ''}>#3</option>
+            <option value="4"  ${a.featured_priority === 4   ? 'selected' : ''}>#4</option>
+            <option value="5"  ${a.featured_priority === 5   ? 'selected' : ''}>#5</option>
+          </select>
+        </div>`}
+      </td>
+      <td class="text-muted text-sm">${(() => { const w = writersList.find(x => x.id === a.writer_id); return w ? escHtml(w.name) : '<span style="color:var(--muted);">—</span>'; })()}</td>
+      <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
+      <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
+        ${isArchived ? '—' : renderImageCell(a)}
+      </td>
+    </tr>`;
+
+    const row2 = `
+    <tr class="row-sub ${rowClass}">
+      <td colspan="${ROW_TOTAL_COLS - 1}">
+        <div class="row-sub-actions">
+          ${a.source_url ? `<a class="btn btn-ghost btn-sm" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
+          ${isArchived ? `
+            <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
+            <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
+          ` : `
+            ${a.status === 'review' ? `
+              <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+              <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
+            ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+              <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+            ` : ''}
+            <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
+            <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+            <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+            <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+            <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
+          `}
+        </div>
+      </td>
+    </tr>`;
+
+    return row1 + row2;
+  }
+
+  function renderCardHtml(a) {
+    const isArchived = !!a.is_archived;
+    const writer = writersList.find(x => x.id === a.writer_id);
+    const cardClass = [
+      'article-card',
+      selectedIds.has(a.id) ? 'card-selected' : '',
+      isArchived ? 'card-archived' : ''
+    ].filter(Boolean).join(' ');
+    return `
+    <div class="${cardClass}" id="mcard-${a.id}">
+      <div class="article-card-header">
+        <input type="checkbox" class="card-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
+        <div class="article-card-title">${escHtml(a.title)}</div>
+      </div>
+      <div class="article-card-meta">
+        ${isArchived
+          ? '<span class="badge badge-archived">Archived</span>'
+          : a.status === 'review'
+            ? '<span class="badge badge-warning">In Review</span>'
+            : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
+        <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
+        ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
+        <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
+      </div>
+      ${a.source ? `<div class="article-card-source text-muted text-sm">${escHtml(a.source)}</div>` : ''}
+      <div class="article-card-actions">
+        ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
+        ${isArchived ? `
+          <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
+          <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
+        ` : `
+          ${a.status === 'review' ? `
+            <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
+            <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
+          ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
+            <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+          ` : ''}
+          <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
+          <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+          <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+          <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+          <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
+        `}
+      </div>
+    </div>`;
+  }
+
+  // ── Optimistic update helpers ──
+
+  function wireRowCheckbox(row) {
+    const cb = row.querySelector('.row-check');
+    if (cb) cb.addEventListener('change', () => {
+      const id = parseInt(cb.dataset.id);
+      if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+      row.classList.toggle('row-selected', cb.checked);
+      updateBulkToolbar();
+    });
+  }
+
+  function wireCardCheckbox(card) {
+    const cb = card.querySelector('.card-check');
+    if (cb) cb.addEventListener('change', () => {
+      const id = parseInt(cb.dataset.id);
+      if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+      card.classList.toggle('card-selected', cb.checked);
+      updateBulkToolbar();
+    });
+  }
+
+  function updateTabBadges() {
+    const draftCountEl = document.getElementById('draftCount');
+    if (draftCountEl) {
+      const c = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published)).length;
+      draftCountEl.textContent = c || '';
+      draftCountEl.style.display = c ? 'inline-flex' : 'none';
+    }
+    const reviewCountEl = document.getElementById('reviewCount');
+    if (reviewCountEl) {
+      const c = allArticles.filter(a => a.status === 'review').length;
+      reviewCountEl.textContent = c || '';
+      reviewCountEl.style.display = c ? 'inline-flex' : 'none';
+    }
+  }
+
+  function rerenderRow(id) {
+    const a = allArticles.find(x => x.id === id);
+    if (!a) return;
+
+    // Desktop
+    const mainRow = document.getElementById(`row-${id}`);
+    if (mainRow) {
+      const subRow = mainRow.nextElementSibling;
+      const temp = document.createElement('tbody');
+      temp.innerHTML = renderRowHtml(a);
+      const newMain = temp.children[0];
+      const newSub = temp.children[1];
+      mainRow.replaceWith(newMain);
+      if (subRow) subRow.replaceWith(newSub);
+      wireRowCheckbox(newMain);
+    }
+
+    // Mobile
+    const card = document.getElementById(`mcard-${id}`);
+    if (card) {
+      const temp = document.createElement('div');
+      temp.innerHTML = renderCardHtml(a);
+      const newCard = temp.firstElementChild;
+      card.replaceWith(newCard);
+      wireCardCheckbox(newCard);
+    }
+
+    updateTabBadges();
+  }
+
+  function removeArticleRow(id) {
+    const mainRow = document.getElementById(`row-${id}`);
+    if (mainRow) {
+      const subRow = mainRow.nextElementSibling;
+      mainRow.remove();
+      if (subRow) subRow.remove();
+    }
+    const card = document.getElementById(`mcard-${id}`);
+    if (card) card.remove();
+
+    const filtIdx = articles.findIndex(x => x.id === id);
+    if (filtIdx !== -1) articles.splice(filtIdx, 1);
+
+    renderPagination('articlesPagination', articles.length, artPage, artPageSize,
+      (p) => { artPage = p; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      (s) => { artPageSize = s; artPage = 1; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    );
+    updateTabBadges();
+  }
+
+  /**
+   * Optimistically patch an article in allArticles and re-render its row.
+   * Returns a rollback function that restores the original state.
+   */
+  function updateArticleRow(id, patch) {
+    const idx = allArticles.findIndex(x => x.id === id);
+    if (idx === -1) return () => {};
+    const snapshot = { ...allArticles[idx] };
+    Object.assign(allArticles[idx], patch);
+    rerenderRow(id);
+    return () => { Object.assign(allArticles[idx], snapshot); rerenderRow(id); };
+  }
+
   function renderTable() {
     const tbody = document.getElementById('articlesBody');
     const mobileList = document.getElementById('articlesMobileList');
@@ -234,167 +468,24 @@ let articles = [];
 
     const pageArticles = articles.slice((artPage - 1) * artPageSize, artPage * artPageSize);
 
-    // ── Desktop table rows (two-row layout: data + actions) ──
-    const totalCols = 10; // checkbox + title + score + source + category + status + featured + writer + date + image
-    tbody.innerHTML = pageArticles.map(a => {
-      const isArchived = !!a.is_archived;
-      const rowClass = [
-        selectedIds.has(a.id) ? 'row-selected' : '',
-        isArchived ? 'row-archived' : ''
-      ].filter(Boolean).join(' ');
+    tbody.innerHTML = pageArticles.map(a => renderRowHtml(a)).join('');
 
-      // ── Row 1: All data columns ──
-      const row1 = `
-      <tr id="row-${a.id}" class="row-main ${rowClass}">
-        <td class="td-check" rowspan="2">
-          <input type="checkbox" class="row-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
-        </td>
-        <td class="td-title" title="${escHtml(a.title)}">
-          <span class="td-editable-text">${escHtml(a.title)}</span>
-          ${isArchived ? ' <span class="badge badge-archived" style="font-size:10px;margin-left:4px;">Archived</span>' : `<button class="td-edit-btn" onclick="startInlineEdit(${a.id},'title')" title="Edit title">✏️</button>`}
-        </td>
-        <td class="text-center">${a.editorial_score != null
-          ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
-          : '<span class="text-muted">—</span>'}</td>
-        <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
-        <td class="td-category">
-          ${isArchived
-            ? `<span class="badge badge-muted">${escHtml(a.category || '—')}</span>`
-            : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
-        </td>
-        <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
-          : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
-          : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
-        </td>
-        <td>${isArchived ? '—' : `
-          <div class="featured-picker" style="display:flex;align-items:center;gap:4px;">
-            <span class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}" style="min-width:44px;text-align:center;">
-              ${a.is_featured ? (a.featured_priority ? '⭐' + a.featured_priority : '⭐') : '—'}
-            </span>
-            <select class="featured-priority-select" style="font-size:12px;padding:4px 6px;min-width:60px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;"
-              onchange="setFeaturedPriority(${a.id}, this.value)" title="Set featured priority (1=top)">
-              <option value="0"  ${!a.is_featured              ? 'selected' : ''}>Off</option>
-              <option value="1"  ${a.featured_priority === 1   ? 'selected' : ''}>#1</option>
-              <option value="2"  ${a.featured_priority === 2   ? 'selected' : ''}>#2</option>
-              <option value="3"  ${a.featured_priority === 3   ? 'selected' : ''}>#3</option>
-              <option value="4"  ${a.featured_priority === 4   ? 'selected' : ''}>#4</option>
-              <option value="5"  ${a.featured_priority === 5   ? 'selected' : ''}>#5</option>
-            </select>
-          </div>`}
-        </td>
-        <td class="text-muted text-sm">${(() => { const w = writersList.find(x => x.id === a.writer_id); return w ? escHtml(w.name) : '<span style="color:var(--muted);">—</span>'; })()}</td>
-        <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
-        <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
-          ${isArchived ? '—' : renderImageCell(a)}
-        </td>
-      </tr>`;
-
-      // ── Row 2: Actions ──
-      const row2 = `
-      <tr class="row-sub ${rowClass}">
-        <td colspan="${totalCols - 1}">
-          <div class="row-sub-actions">
-            ${a.source_url ? `<a class="btn btn-ghost btn-sm" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
-            ${isArchived ? `
-              <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
-              <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
-            ` : `
-              ${a.status === 'review' ? `
-                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
-                <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
-              ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
-                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-              ` : ''}
-              <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
-              <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
-              <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
-              <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
-              <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
-            `}
-          </div>
-        </td>
-      </tr>`;
-
-      return row1 + row2;
-    }).join('');
-
-    // ── Mobile card view ──
     if (mobileList) {
-      mobileList.innerHTML = pageArticles.map(a => {
-        const isArchived = !!a.is_archived;
-        const writer = writersList.find(x => x.id === a.writer_id);
-        const cardClass = [
-          'article-card',
-          selectedIds.has(a.id) ? 'card-selected' : '',
-          isArchived ? 'card-archived' : ''
-        ].filter(Boolean).join(' ');
-        return `
-        <div class="${cardClass}" id="mcard-${a.id}">
-          <div class="article-card-header">
-            <input type="checkbox" class="card-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
-            <div class="article-card-title">${escHtml(a.title)}</div>
-          </div>
-          <div class="article-card-meta">
-            ${isArchived
-              ? '<span class="badge badge-archived">Archived</span>'
-              : a.status === 'review'
-                ? '<span class="badge badge-warning">In Review</span>'
-                : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
-            <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
-            ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
-            <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
-          </div>
-          ${a.source ? `<div class="article-card-source text-muted text-sm">${escHtml(a.source)}</div>` : ''}
-          <div class="article-card-actions">
-            ${a.source_url ? `<a class="btn btn-ghost btn-sm btn-icon" href="${escHtml(a.source_url)}" target="_blank" rel="noopener" title="View original">🔗</a>` : ''}
-            ${isArchived ? `
-              <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
-              <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
-            ` : `
-              ${a.status === 'review' ? `
-                <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
-                <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
-              ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
-                <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-              ` : ''}
-              <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
-              <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
-              <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
-              <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
-              <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
-            `}
-          </div>
-        </div>`;
-      }).join('');
-
-      // Wire up card checkboxes
+      mobileList.innerHTML = pageArticles.map(a => renderCardHtml(a)).join('');
       mobileList.querySelectorAll('.card-check').forEach(cb => {
-        cb.addEventListener('change', () => {
-          const id = parseInt(cb.dataset.id);
-          if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
-          const card = document.getElementById(`mcard-${id}`);
-          if (card) card.classList.toggle('card-selected', cb.checked);
-          updateBulkToolbar();
-        });
+        wireCardCheckbox(cb.closest('.article-card'));
       });
     }
 
-    // Wire up row checkboxes
     tbody.querySelectorAll('.row-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        const id = parseInt(cb.dataset.id);
-        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
-        const row = document.getElementById(`row-${id}`);
-        if (row) row.classList.toggle('row-selected', cb.checked);
-        updateBulkToolbar();
-      });
+      wireRowCheckbox(cb.closest('tr'));
     });
 
     updateBulkToolbar();
 
     renderPagination('articlesPagination', articles.length, artPage, artPageSize,
-      (p) => { artPage = p; renderTable(); },
-      (s) => { artPageSize = s; artPage = 1; renderTable(); }
+      (p) => { artPage = p; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+      (s) => { artPageSize = s; artPage = 1; renderTable(); document.getElementById('articlesBody')?.closest('.table-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     );
 
     applyViewMode();
@@ -783,7 +874,7 @@ let articles = [];
     }
     selectedIds.clear();
     showAlert(`Images generated: ${done} ✓${failed ? `, ${failed} failed` : ''}`);
-    await loadArticles();
+    await loadArticles({ preservePage: true });
   }
 
   /* ---------- Recategorize helpers ---------- */
@@ -842,7 +933,7 @@ let articles = [];
       const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
       showAlert(`Re-categorized ${data.updated} of ${data.total} articles${writerMsg}`);
       selectedIds.clear();
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Re-categorize failed: ' + err.message, 'error');
     } finally {
@@ -912,10 +1003,10 @@ let articles = [];
         body: JSON.stringify({ articleId: id })
       });
       showAlert(`Audio ready (${data.charCount} chars)${data.voiceName ? ' — ' + data.voiceName : ''}`);
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Audio generation failed: ' + err.message, 'error');
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     }
   }
 
@@ -929,7 +1020,7 @@ let articles = [];
         body: JSON.stringify({ articleId: id })
       });
       showAlert('Image generated ✓');
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Image generation failed: ' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = '🎨'; }
@@ -999,7 +1090,7 @@ let articles = [];
     try {
       await apiFetch(`/media/audio/${id}`, { method: 'DELETE' });
       showAlert('Audio removed');
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Failed to remove audio: ' + err.message, 'error');
     }
@@ -1009,7 +1100,7 @@ let articles = [];
     try {
       const data = await apiFetch(`/media/toggle/${id}`, { method: 'PUT' });
       showAlert(data.media_enabled ? 'Audio published on site ✓' : 'Audio hidden from site');
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Toggle failed: ' + err.message, 'error');
     }
@@ -1058,6 +1149,7 @@ let articles = [];
 
   async function commitInlineEdit(id, field, value, original) {
     if (!value || value === original) return cancelInlineEdit(id);
+    const rollback = updateArticleRow(id, { [field]: value });
     try {
       const updated = await apiFetch(`/articles/${id}`, {
         method: 'PUT',
@@ -1065,16 +1157,16 @@ let articles = [];
       });
       const idx = allArticles.findIndex(x => x.id === id);
       if (idx !== -1) Object.assign(allArticles[idx], updated);
+      rerenderRow(id);
       showAlert(`${field === 'title' ? 'Title' : 'Category'} updated ✓`);
-      applyFilters();
     } catch (err) {
+      rollback();
       showAlert('Update failed: ' + err.message, 'error');
-      applyFilters();
     }
   }
 
   function cancelInlineEdit(id) {
-    applyFilters();
+    rerenderRow(id);
   }
 
   async function loadWriters() {
@@ -1089,13 +1181,13 @@ let articles = [];
       writersList.map(w => `<option value="${w.id}"${w.id === selectedId ? ' selected' : ''}>${escHtml(w.name)}</option>`).join('');
   }
 
-  async function loadArticles() {
+  async function loadArticles({ preservePage = false } = {}) {
     const tbody = document.getElementById('articlesBody');
-    if (tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
+    if (!preservePage && tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       await loadWriters();
       allArticles = await apiFetch('/articles');
-      applyFilters();
+      applyFilters({ preservePage });
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
     }
@@ -1206,43 +1298,67 @@ let articles = [];
     const writerVal = document.getElementById('fWriter').value;
     const writerId = writerVal ? parseInt(writerVal) : null;
 
+    const saveBtn = document.getElementById('saveArticleBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
     try {
-      const saveBtn = document.getElementById('saveArticleBtn');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving…';
-      let saved;
       if (id) {
-        saved = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        await apiFetch(`/articles/${id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
-        showAlert('Article updated ✓');
+        // Edit: optimistic update + close modal immediately
+        const rollback = updateArticleRow(parseInt(id), { ...payload, writer_id: writerId });
+        closeModal('articleModal');
+        try {
+          const saved = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+          await apiFetch(`/articles/${id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
+          const idx = allArticles.findIndex(x => x.id === parseInt(id));
+          if (idx !== -1) Object.assign(allArticles[idx], saved, { writer_id: writerId });
+          rerenderRow(parseInt(id));
+          showAlert('Article updated ✓');
+        } catch (err) {
+          rollback();
+          showAlert('Error: ' + err.message, 'error');
+        }
       } else {
-        saved = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
+        // Create: wait for API, then reload with page preserved
+        const saved = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
         if (saved && saved.id) {
           await apiFetch(`/articles/${saved.id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
         }
+        closeModal('articleModal');
         showAlert('Article created ✓');
+        await loadArticles({ preservePage: true });
       }
-      closeModal('articleModal');
-      await loadArticles();
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save Article';
     } catch (err) {
       showAlert('Error: ' + err.message, 'error');
-      document.getElementById('saveArticleBtn').disabled = false;
-      document.getElementById('saveArticleBtn').textContent = 'Save Article';
     }
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Article';
   }
 
   async function confirmDelete() {
     if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    selectedIds.delete(id);
+    closeModal('deleteModal');
+    deleteTargetId = null;
+
+    // Optimistic: patch as archived and remove from view
+    const idx = allArticles.findIndex(x => x.id === id);
+    const snapshot = idx !== -1 ? { ...allArticles[idx] } : null;
+    if (idx !== -1) Object.assign(allArticles[idx], { is_archived: 1, is_published: 0, is_featured: 0, featured_priority: null, status: 'archived' });
+    if (!showArchived && statusFilter !== 'archived') {
+      removeArticleRow(id);
+    } else {
+      rerenderRow(id);
+    }
+
     try {
-      await apiFetch(`/articles/${deleteTargetId}`, { method: 'DELETE' });
-      selectedIds.delete(deleteTargetId);
-      closeModal('deleteModal');
+      await apiFetch(`/articles/${id}`, { method: 'DELETE' });
       showAlert('Article archived — will be purged automatically after 24h');
-      deleteTargetId = null;
-      await loadArticles();
     } catch (err) {
+      // Rollback
+      if (snapshot && idx !== -1) Object.assign(allArticles[idx], snapshot);
+      applyFilters({ preservePage: true });
       showAlert('Archive failed: ' + err.message, 'error');
     }
   }
@@ -1255,68 +1371,128 @@ let articles = [];
 
   async function confirmPurge() {
     if (!purgeTargetId) return;
+    const id = purgeTargetId;
+    selectedIds.delete(id);
+    closeModal('purgeModal');
+    purgeTargetId = null;
+
+    // Optimistic: remove from allArticles and DOM
+    const idx = allArticles.findIndex(x => x.id === id);
+    const snapshot = idx !== -1 ? allArticles.splice(idx, 1)[0] : null;
+    removeArticleRow(id);
+
     try {
-      await apiFetch(`/articles/${purgeTargetId}/purge`, { method: 'DELETE' });
-      selectedIds.delete(purgeTargetId);
-      closeModal('purgeModal');
+      await apiFetch(`/articles/${id}/purge`, { method: 'DELETE' });
       showAlert('Article permanently deleted');
-      purgeTargetId = null;
-      await loadArticles();
     } catch (err) {
+      // Rollback: re-insert into allArticles and re-render
+      if (snapshot) allArticles.push(snapshot);
+      applyFilters({ preservePage: true });
       showAlert('Purge failed: ' + err.message, 'error');
     }
   }
 
   async function restoreArticle(id) {
+    const rollback = updateArticleRow(id, { is_archived: 0, status: 'draft', archived_at: null });
     try {
-      await apiFetch(`/articles/${id}/restore`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/restore`, { method: 'PUT' });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
+      rerenderRow(id);
       showAlert('Article restored ✓');
-      await loadArticles();
     } catch (err) {
+      rollback();
       showAlert('Restore failed: ' + err.message, 'error');
     }
   }
 
   async function togglePublish(id) {
+    const a = allArticles.find(x => x.id === id);
+    if (!a) return;
+    const newVal = a.is_published ? 0 : 1;
+    const newStatus = newVal ? 'published' : 'draft';
+    const rollback = updateArticleRow(id, { is_published: newVal, status: newStatus });
     try {
-      await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
-      await loadArticles();
-    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+      const result = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
+      rerenderRow(id);
+    } catch (err) {
+      rollback();
+      showAlert('Error: ' + err.message, 'error');
+    }
   }
 
   async function approveArticle(id) {
+    const rollback = updateArticleRow(id, { status: 'published', is_published: 1, is_archived: 0 });
+    // If on review tab, article will leave the filtered view
+    if (activeTab === 'review') {
+      removeArticleRow(id);
+    }
     try {
-      await apiFetch(`/articles/${id}/approve`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/approve`, { method: 'PUT' });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
       showAlert('Article approved and published', 'success');
-      await loadArticles();
-    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+    } catch (err) {
+      rollback();
+      if (activeTab === 'review') applyFilters({ preservePage: true });
+      showAlert('Error: ' + err.message, 'error');
+    }
   }
 
   async function rejectArticle(id) {
+    const rollback = updateArticleRow(id, { status: 'draft', is_published: 0, is_archived: 0 });
+    if (activeTab === 'review') {
+      removeArticleRow(id);
+    }
     try {
-      await apiFetch(`/articles/${id}/reject`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/reject`, { method: 'PUT' });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
       showAlert('Article rejected — moved back to drafts', 'info');
-      await loadArticles();
-    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+    } catch (err) {
+      rollback();
+      if (activeTab === 'review') applyFilters({ preservePage: true });
+      showAlert('Error: ' + err.message, 'error');
+    }
   }
 
   async function submitForReview(id) {
+    const rollback = updateArticleRow(id, { status: 'review' });
+    if (activeTab === 'drafts') {
+      removeArticleRow(id);
+    }
     try {
-      await apiFetch(`/articles/${id}/submit-review`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/submit-review`, { method: 'PUT' });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
       showAlert('Article submitted for review', 'success');
-      await loadArticles();
-    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+    } catch (err) {
+      rollback();
+      if (activeTab === 'drafts') applyFilters({ preservePage: true });
+      showAlert('Error: ' + err.message, 'error');
+    }
   }
 
   async function setFeaturedPriority(id, priority) {
+    const p = parseInt(priority);
+    const rollback = updateArticleRow(id, {
+      is_featured: p > 0 ? 1 : 0,
+      featured_priority: p || null
+    });
     try {
-      const p = parseInt(priority);
-      await apiFetch(`/articles/${id}/feature`, {
+      const result = await apiFetch(`/articles/${id}/feature`, {
         method: 'PUT',
         body: JSON.stringify({ priority: p || null }),
       });
-      await loadArticles();
-    } catch (err) { showAlert('Error: ' + err.message, 'error'); }
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], result);
+      rerenderRow(id);
+    } catch (err) {
+      rollback();
+      showAlert('Error: ' + err.message, 'error');
+    }
   }
 
   // ── Bulk actions ────────────────────────────────────────────────────────────
@@ -1333,7 +1509,7 @@ let articles = [];
     }
     selectedIds.clear();
     showAlert(`${done} article(s) ${val ? 'published' : 'unpublished'} ✓`);
-    await loadArticles();
+    await loadArticles({ preservePage: true });
   }
 
   async function bulkDelete() {
@@ -1346,7 +1522,7 @@ let articles = [];
     }
     selectedIds.clear();
     showAlert(`${done} article(s) deleted`);
-    await loadArticles();
+    await loadArticles({ preservePage: true });
   }
 
   async function bulkAutoAssignWriters() {
@@ -1367,7 +1543,7 @@ let articles = [];
       });
       selectedIds.clear();
       showAlert(`${result.assigned} article(s) assigned to writers` + (result.skipped ? `, ${result.skipped} skipped` : ''));
-      await loadArticles();
+      await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Auto-assign failed: ' + err.message, 'error');
     }
@@ -1445,7 +1621,7 @@ let articles = [];
         try {
           const data = await apiFetch(`/articles/purge-all?type=${type}`, { method: 'DELETE' });
           showAlert(`Deleted ${data.deleted} ${type} article${data.deleted !== 1 ? 's' : ''}`, 'success');
-          await loadArticles();
+          await loadArticles({ preservePage: true });
         } catch (err) {
           showAlert('Purge failed: ' + err.message, 'error');
         }

@@ -12,8 +12,24 @@ const { requirePlatformAdmin } = require('../middleware/permissions');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { bustPlanCache } = require('../lib/plan-limits');
+const { getPlatformTenantId } = require('../lib/platform-tenant');
 const dns = require('dns').promises;
 const crypto = require('crypto');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve a tenant route param (integer or UUID) to the internal integer ID.
+ * Returns null if not found.
+ */
+async function resolveTenantParam(raw) {
+  if (UUID_RE.test(raw)) {
+    const row = await db.prepare('SELECT id FROM tenants WHERE uuid = $1').get(raw);
+    return row?.id || null;
+  }
+  const parsed = parseInt(raw, 10);
+  return parsed > 0 ? parsed : null;
+}
 
 // All routes require platform-admin auth
 router.use(auth, requirePlatformAdmin);
@@ -31,10 +47,11 @@ async function resolveOwnerByEmail(email) {
   ).get(clean);
   if (pubUser) return pubUser;
 
-  // 2. Check local users table (tenant 1 admins)
+  // 2. Check local users table (platform tenant admins)
+  const platformId = await getPlatformTenantId();
   const localUser = await db.prepare(
-    "SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = 1 AND is_active = 1"
-  ).get(clean);
+    "SELECT id, email FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1"
+  ).get(clean, platformId);
   if (localUser) {
     // Check if they already have a public_users record by another email variant
     // If not, create one linked to their local account
@@ -77,7 +94,7 @@ router.get('/plan-limits', asyncHandler(async (req, res) => {
     `SELECT plan, max_sources, max_writers, max_articles_month, max_ai_cost_month,
             max_storage_mb, audio_enabled, custom_domain_enabled
      FROM plan_limits
-     ORDER BY CASE plan WHEN 'demo' THEN 1 WHEN 'trial' THEN 2 WHEN 'starter' THEN 3 WHEN 'pro' THEN 4 WHEN 'business' THEN 5 ELSE 99 END`
+     ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 ELSE 99 END`
   ).all();
   res.json({ limits });
 }));
@@ -112,13 +129,19 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Validate plan
-  const validPlans = ['demo', 'trial', 'starter', 'pro', 'business'];
-  const tenantPlan = validPlans.includes(plan) ? plan : 'starter';
+  const validPlans = ['free', 'starter', 'pro', 'business'];
+  const tenantPlan = validPlans.includes(plan) ? plan : 'free';
+
+  // Optional trial period
+  const { trial_days } = req.body || {};
+  const trialEndsAt = trial_days && parseInt(trial_days) > 0
+    ? new Date(Date.now() + parseInt(trial_days) * 86400000).toISOString()
+    : null;
 
   // Create tenant
   const tenant = await db.prepare(
-    'INSERT INTO tenants (slug, display_name, owner_user_id, plan) VALUES ($1, $2, $3, $4) RETURNING *'
-  ).get(cleanSlug, display_name.trim(), ownerUserId, tenantPlan);
+    'INSERT INTO tenants (slug, display_name, owner_user_id, plan, trial_ends_at) VALUES ($1, $2, $3, $4, $5) RETURNING *'
+  ).get(cleanSlug, display_name.trim(), ownerUserId, tenantPlan, trialEndsAt);
 
   // Create tenant_admin entry if owner resolved
   if (ownerUserId) {
@@ -137,8 +160,18 @@ router.post('/', asyncHandler(async (req, res) => {
     } catch { /* skip */ }
   }
 
-  // Seed default settings
-  const allSettings = [['site_name', display_name.trim()], ...DEFAULT_SETTINGS];
+  // Seed default settings (derive URLs from slug + environment)
+  const tenantDomain = `${cleanSlug}.deepfeedai.com`;
+  const tenantSiteUrl = `https://${tenantDomain}`;
+  const adminServerUrl = process.env.BASE_URL || 'https://portal.deepfeedai.com';
+  const allSettings = [
+    ['site_name', display_name.trim()],
+    ['site_domain', tenantDomain],
+    ['site_url', tenantSiteUrl],
+    ['base_url', adminServerUrl],
+    ['main_site_url', tenantSiteUrl],
+    ...DEFAULT_SETTINGS,
+  ];
   for (const [key, value] of allSettings) {
     try {
       await db.prepare(
@@ -219,9 +252,9 @@ router.get('/', asyncHandler(async (req, res) => {
   const total = parseInt(countRow.cnt);
 
   const tenants = await db.prepare(`
-    SELECT t.id, t.slug, t.display_name, t.plan, t.status, t.custom_domain,
+    SELECT t.id, t.uuid, t.slug, t.display_name, t.plan, t.status, t.custom_domain,
            t.created_at, t.suspended_at, t.suspension_reason, t.deleted_at,
-           pu.email AS owner_email, pu.display_name AS owner_name
+           t.is_platform, pu.email AS owner_email, pu.display_name AS owner_name
     FROM tenants t
     LEFT JOIN public_users pu ON pu.id = t.owner_user_id
     ${where}
@@ -248,7 +281,7 @@ router.get('/stats', asyncHandler(async (req, res) => {
       WHERE t.status != 'deleted' AND u.created_at >= date_trunc('month', NOW())
     `).get(),
     db.prepare(`
-      SELECT t.id, t.slug, t.display_name, t.plan, t.created_at,
+      SELECT t.id, t.uuid, t.slug, t.display_name, t.plan, t.created_at,
              pu.email AS owner_email
       FROM tenants t
       LEFT JOIN public_users pu ON pu.id = t.owner_user_id
@@ -256,12 +289,12 @@ router.get('/stats', asyncHandler(async (req, res) => {
       ORDER BY t.created_at DESC LIMIT 10
     `).all(),
     db.prepare(`
-      SELECT t.id, t.slug, t.display_name, t.plan,
+      SELECT t.id, t.uuid, t.slug, t.display_name, t.plan,
              COUNT(a.id) AS article_count
       FROM tenants t
       LEFT JOIN articles a ON a.tenant_id = t.id
       WHERE t.status = 'active'
-      GROUP BY t.id, t.slug, t.display_name, t.plan
+      GROUP BY t.id, t.uuid, t.slug, t.display_name, t.plan
       ORDER BY article_count DESC
       LIMIT 10
     `).all(),
@@ -289,7 +322,7 @@ router.get('/storage-usage', requirePlatformAdmin, asyncHandler(async (req, res)
 
 // GET /:id — tenant detail
 router.get('/:id', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const tenant = await db.prepare(`
@@ -333,7 +366,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // GET /:id/usage — monthly usage breakdown
 router.get('/:id/usage', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const exists = await db.prepare("SELECT id FROM tenants WHERE id = $1").get(id);
@@ -374,13 +407,13 @@ router.get('/:id/usage', asyncHandler(async (req, res) => {
 
 // PUT /:id — update tenant
 router.put('/:id', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const before = await db.prepare("SELECT * FROM tenants WHERE id = $1").get(id);
   if (!before) return res.status(404).json({ error: 'Tenant not found' });
 
-  const { display_name, plan, custom_domain, owner_email } = req.body || {};
+  const { display_name, plan, custom_domain, owner_email, trial_days, trial_ends_at } = req.body || {};
 
   const updates = [];
   const params = [];
@@ -394,12 +427,21 @@ router.put('/:id', asyncHandler(async (req, res) => {
     params.push(display_name.trim());
   }
   if (plan !== undefined) {
-    const validPlans = ['demo', 'trial', 'starter', 'pro', 'business'];
+    const validPlans = ['free', 'starter', 'pro', 'business'];
     if (!validPlans.includes(plan)) {
       return res.status(400).json({ error: `plan must be one of: ${validPlans.join(', ')}` });
     }
     updates.push(`plan = $${idx++}`);
     params.push(plan);
+  }
+  // Trial: set via trial_days (convenience) or trial_ends_at (explicit date/null)
+  if (trial_days !== undefined) {
+    const days = parseInt(trial_days);
+    updates.push(`trial_ends_at = $${idx++}`);
+    params.push(days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null);
+  } else if (trial_ends_at !== undefined) {
+    updates.push(`trial_ends_at = $${idx++}`);
+    params.push(trial_ends_at); // null to clear, ISO string to set
   }
   if (custom_domain !== undefined) {
     if (custom_domain !== null && typeof custom_domain !== 'string') {
@@ -438,8 +480,10 @@ router.put('/:id', asyncHandler(async (req, res) => {
     `UPDATE tenants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`
   ).get(...params);
 
-  // Bust plan cache if plan changed
-  if (plan !== undefined && plan !== before.plan) bustPlanCache(id);
+  // Bust plan cache if plan or trial changed
+  if ((plan !== undefined && plan !== before.plan) || trial_days !== undefined || trial_ends_at !== undefined) {
+    bustPlanCache(id);
+  }
 
   await logAuditWithDiff(req, 'tenant.update', 'tenants', id, before, tenant);
   res.json(tenant);
@@ -447,7 +491,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
 
 // POST /:id/suspend — suspend tenant
 router.post('/:id/suspend', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
   if (id === 1) return res.status(400).json({ error: 'Cannot suspend the primary tenant' });
 
@@ -473,7 +517,7 @@ router.post('/:id/suspend', asyncHandler(async (req, res) => {
 
 // POST /:id/reactivate — reactivate suspended tenant
 router.post('/:id/reactivate', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const tenant = await db.prepare("SELECT * FROM tenants WHERE id = $1").get(id);
@@ -498,7 +542,7 @@ router.post('/:id/reactivate', asyncHandler(async (req, res) => {
 
 // DELETE /:id — soft delete tenant
 router.delete('/:id', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
   if (id === 1) return res.status(400).json({ error: 'Cannot delete the primary tenant' });
 
@@ -523,7 +567,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 
 // POST /:id/domain — set custom domain, return DNS instructions
 router.post('/:id/domain', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const tenant = await db.prepare("SELECT * FROM tenants WHERE id = $1").get(id);
@@ -578,7 +622,7 @@ router.post('/:id/domain', asyncHandler(async (req, res) => {
 
 // GET /:id/domain — get domain status
 router.get('/:id/domain', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const domainRow = await db.prepare(
@@ -595,7 +639,7 @@ router.get('/:id/domain', asyncHandler(async (req, res) => {
 
 // POST /:id/domain/verify — check DNS records
 router.post('/:id/domain/verify', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const domainRow = await db.prepare(
@@ -658,7 +702,7 @@ router.post('/:id/domain/verify', asyncHandler(async (req, res) => {
 
 // DELETE /:id/domain — remove custom domain
 router.delete('/:id/domain', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
 
   const tenant = await db.prepare("SELECT custom_domain FROM tenants WHERE id = $1").get(id);
@@ -679,7 +723,7 @@ router.delete('/:id/domain', asyncHandler(async (req, res) => {
 
 // POST /:id/purge — hard delete tenant and all data immediately
 router.post('/:id/purge', asyncHandler(async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = await resolveTenantParam(req.params.id);
   if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
   if (id === 1) return res.status(400).json({ error: 'Cannot purge the primary tenant' });
 
