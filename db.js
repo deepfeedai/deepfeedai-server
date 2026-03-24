@@ -805,6 +805,9 @@ async function initDb() {
     `UPDATE plan_limits SET max_credits_day = NULL WHERE plan IN ('starter', 'pro', 'business') AND max_credits_day IS NOT NULL`,
     `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS seo_titles_enabled BOOLEAN DEFAULT false`,
     `UPDATE plan_limits SET seo_titles_enabled = true WHERE plan IN ('pro', 'business', 'internal')`,
+    // Phase 13: Stripe subscription checkout — store price IDs and display prices per plan
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS stripe_price_id TEXT`,
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS price_cents INTEGER DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

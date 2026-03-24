@@ -97,16 +97,17 @@ router.get('/plan-limits', asyncHandler(async (req, res) => {
   const limits = await db.prepare(
     `SELECT plan, max_sources, max_writers, max_ai_cost_month,
             max_credits_month, max_credits_day, max_storage_mb,
-            audio_enabled, custom_domain_enabled, COALESCE(seo_titles_enabled, false) AS seo_titles_enabled
+            audio_enabled, custom_domain_enabled, COALESCE(seo_titles_enabled, false) AS seo_titles_enabled,
+            stripe_price_id, COALESCE(price_cents, 0) AS price_cents
      FROM plan_limits
      ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 WHEN 'internal' THEN 5 ELSE 99 END`
   ).all();
   res.json({ limits });
 }));
 
-// PUT /plan-limits — update credit allocations per plan
+// PUT /plan-limits — update credit allocations and Stripe pricing per plan
 router.put('/plan-limits', asyncHandler(async (req, res) => {
-  const { plan, max_credits_month, max_credits_day } = req.body || {};
+  const { plan, max_credits_month, max_credits_day, stripe_price_id, price_cents } = req.body || {};
   if (!plan) return res.status(400).json({ error: 'plan is required' });
 
   const updates = [];
@@ -120,6 +121,14 @@ router.put('/plan-limits', asyncHandler(async (req, res) => {
   if (max_credits_day !== undefined) {
     updates.push(`max_credits_day = $${paramIdx++}`);
     params.push(parseInt(max_credits_day));
+  }
+  if (stripe_price_id !== undefined) {
+    updates.push(`stripe_price_id = $${paramIdx++}`);
+    params.push(stripe_price_id || null);
+  }
+  if (price_cents !== undefined) {
+    updates.push(`price_cents = $${paramIdx++}`);
+    params.push(parseInt(price_cents) || 0);
   }
   if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 

@@ -15,14 +15,15 @@ onReady(async () => {
   const error = params.get('error');
 
   if (error) showError(error === 'unauthorized' ? 'OAuth error. Please try again.' : 'Sign-in failed.');
+  if (params.get('cancelled') === 'true') showError('Payment was cancelled. You can choose a different plan or try again.');
   if (code) await exchangeOAuthCode(code);
 
-  // ── Plan data ──
+  // ── Plan data (public endpoint, no auth required) ──
   try {
-    const res = await fetch('/api/admin/tenants/plan-limits');
+    const res = await fetch('/api/tenants/plans');
     if (res.ok) {
       const data = await res.json();
-      planLimits = data.limits || [];
+      planLimits = data.plans || [];
     }
   } catch { /* use defaults */ }
   renderPlans();
@@ -166,6 +167,12 @@ onReady(async () => {
     goToStep(2);
   }
 
+  function formatPrice(cents) {
+    if (!cents || cents === 0) return '$0/mo';
+    const dollars = cents / 100;
+    return dollars % 1 === 0 ? `$${dollars}/mo` : `$${dollars.toFixed(2)}/mo`;
+  }
+
   function renderPlans() {
     const grid = document.getElementById('planGrid');
     const plans = [
@@ -179,6 +186,7 @@ onReady(async () => {
     for (const p of plans) {
       const limit = planLimits.find(l => l.plan === p.id);
       if (limit) {
+        if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
         p.features = [];
         if (limit.max_sources) p.features.push(`${limit.max_sources} sources`);
         else p.features.push('Unlimited sources');
@@ -255,6 +263,23 @@ onReady(async () => {
       setToken(data.token);
       localStorage.setItem('deepfeedai_user', name);
       localStorage.setItem('deepfeedai_tenant', data.tenant.slug);
+
+      // Paid plans require Stripe checkout before activation
+      if (data.requires_payment) {
+        btn.innerHTML = 'Redirecting to payment...';
+        // Save user token so checkout-success page can poll status
+        sessionStorage.setItem('deepfeedai_user_token', userToken);
+        const checkoutRes = await fetch('/api/tenants/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + userToken },
+          body: JSON.stringify({ tenantId: data.tenant.id }),
+        });
+        const checkoutData = await checkoutRes.json();
+        if (!checkoutRes.ok) throw new Error(checkoutData.error || 'Failed to start checkout');
+        window.location.href = checkoutData.checkout_url;
+        return;
+      }
+
       window.location.replace('/wizard.html');
     } catch (err) {
       showError(err.message);
