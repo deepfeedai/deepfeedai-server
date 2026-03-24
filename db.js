@@ -721,6 +721,9 @@ async function initDb() {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_uuid ON tenants(uuid)`,
     `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_platform BOOLEAN DEFAULT false`,
     `UPDATE tenants SET is_platform = true WHERE id = 1`,
+    // Phase 8: Email/password registration for public users
+    `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_public_users_email_local ON public_users(LOWER(email)) WHERE provider = 'local'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

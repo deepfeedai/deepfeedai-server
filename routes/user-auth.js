@@ -309,6 +309,141 @@ router.get('/github/callback', async (req, res) => {
   }
 });
 
+/* ── Email/Password Registration (POST /api/user-auth/register) ─── */
+const bcrypt   = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  message: { error: 'Too many registration attempts. Please try again later.' },
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+router.post('/register', registerLimiter, async (req, res) => {
+  const { email, password, name } = req.body || {};
+
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'Valid email is required' });
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  const cleanEmail = email.toLowerCase().trim();
+  const safeName = name.replace(/<[^>]*>/g, '').trim().slice(0, 60);
+
+  try {
+    // Check if email already registered as local user
+    const existing = await db.prepare(
+      "SELECT id FROM public_users WHERE LOWER(email) = $1 AND provider = 'local'"
+    ).get(cleanEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    // Check for OAuth user with same email — they should use OAuth instead
+    const oauthUser = await db.prepare(
+      "SELECT provider FROM public_users WHERE LOWER(email) = $1 AND provider != 'local' AND provider != 'platform'"
+    ).get(cleanEmail);
+    if (oauthUser) {
+      return res.status(409).json({ error: `This email is registered via ${oauthUser.provider}. Please sign in with ${oauthUser.provider} instead.` });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const notifyToken = crypto.randomBytes(24).toString('hex');
+    const providerId = crypto.randomBytes(16).toString('hex'); // unique ID for local users
+
+    // Check for placeholder record from platform admin invite
+    const placeholder = await db.prepare(
+      "SELECT id FROM public_users WHERE LOWER(email) = $1 AND provider = 'platform'"
+    ).get(cleanEmail);
+
+    let user;
+    if (placeholder) {
+      // Upgrade placeholder to local user
+      user = await db.prepare(`
+        UPDATE public_users
+        SET provider = 'local', provider_id = $1, display_name = $2,
+            password_hash = $3, notify_token = COALESCE(notify_token, $4), updated_at = NOW()
+        WHERE id = $5
+        RETURNING *
+      `).get(providerId, safeName, passwordHash, notifyToken, placeholder.id);
+    } else {
+      user = await db.prepare(`
+        INSERT INTO public_users (provider, provider_id, email, display_name, password_hash, notify_token)
+        VALUES ('local', $1, $2, $3, $4, $5)
+        RETURNING *
+      `).get(providerId, cleanEmail, safeName, passwordHash, notifyToken);
+    }
+
+    const token = await issueJwt(user);
+    res.status(201).json({
+      token,
+      user: {
+        id: user.id,
+        displayName: user.display_name,
+        email: user.email,
+        provider: 'local',
+      },
+    });
+  } catch (err) {
+    console.error('[user-auth/register]', err.message);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+/* ── Email/Password Login (POST /api/user-auth/login) ────────────── */
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
+  const { email, password } = req.body || {};
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    const user = await db.prepare(
+      "SELECT * FROM public_users WHERE LOWER(email) = LOWER($1) AND provider = 'local'"
+    ).get(email.toLowerCase().trim());
+
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    if (user.is_banned) {
+      return res.status(403).json({ error: 'Account suspended' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = await issueJwt(user);
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        displayName: user.display_name,
+        email: user.email,
+        provider: 'local',
+      },
+    });
+  } catch (err) {
+    console.error('[user-auth/login]', err.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
 /* ── Token exchange (POST /api/user-auth/token) ─────────────────── */
 // Main site calls this after receiving the one-time code from the callback URL.
 router.post('/token', async (req, res) => {
