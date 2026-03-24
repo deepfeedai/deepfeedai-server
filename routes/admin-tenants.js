@@ -143,8 +143,18 @@ router.post('/', asyncHandler(async (req, res) => {
     } catch { /* skip */ }
   }
 
-  // Seed default settings
-  const allSettings = [['site_name', display_name.trim()], ...DEFAULT_SETTINGS];
+  // Seed default settings (derive URLs from slug + environment)
+  const tenantDomain = `${cleanSlug}.deepfeedai.com`;
+  const tenantSiteUrl = `https://${tenantDomain}`;
+  const adminServerUrl = process.env.BASE_URL || 'https://portal.deepfeedai.com';
+  const allSettings = [
+    ['site_name', display_name.trim()],
+    ['site_domain', tenantDomain],
+    ['site_url', tenantSiteUrl],
+    ['base_url', adminServerUrl],
+    ['main_site_url', tenantSiteUrl],
+    ...DEFAULT_SETTINGS,
+  ];
   for (const [key, value] of allSettings) {
     try {
       await db.prepare(
