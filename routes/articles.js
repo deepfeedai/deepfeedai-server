@@ -143,7 +143,9 @@ router.get('/export', auth, requirePermission('articles.read'), asyncHandler(asy
 
   function csvCell(val) {
     if (val === null || val === undefined) return '';
-    const s = String(val);
+    let s = String(val);
+    // Prevent CSV formula injection — prefix dangerous leading characters with a tab
+    if (/^[=+\-@\t\r]/.test(s)) s = '\t' + s;
     if (s.includes(',') || s.includes('"') || s.includes('\n')) {
       return '"' + s.replace(/"/g, '""') + '"';
     }

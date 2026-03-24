@@ -22,6 +22,24 @@ router.post('/preview-feed', auth, requirePermission('sources.create'), asyncHan
   const { url } = req.body || {};
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'URL is required' });
 
+  // SSRF protection: validate URL does not resolve to private/internal IP
+  const dns = require('dns').promises;
+  const PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.0\.0\.0|::1|fc|fd)/;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http and https URLs are allowed' });
+    }
+    const resolved = await dns.lookup(parsed.hostname);
+    if (PRIVATE_IP_RE.test(resolved.address)) {
+      return res.status(400).json({ error: 'Private/internal URLs are not allowed' });
+    }
+  } catch (err) {
+    if (err.code === 'ENOTFOUND') return res.status(400).json({ error: 'Unable to resolve hostname' });
+    if (err.message?.includes('Invalid URL')) return res.status(400).json({ error: 'Invalid URL' });
+    // Don't block on DNS failures for other reasons — let rss-parser handle it
+  }
+
   const maxAttempts = 2;
   let lastErr;
 

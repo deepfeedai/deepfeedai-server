@@ -31,10 +31,11 @@ const { getSecrets } = require('../lib/secrets');
 
 function safeCompare(a, b) {
   if (!a || !b) return false;
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  // Use HMAC comparison to avoid leaking secret length via timing
+  const crypto = require('crypto');
+  const macA = crypto.createHmac('sha256', 'safeCompare').update(a).digest();
+  const macB = crypto.createHmac('sha256', 'safeCompare').update(b).digest();
+  return timingSafeEqual(macA, macB);
 }
 
 // Auth: admin JWT OR cron secret

@@ -122,6 +122,15 @@ router.post('/upload', auth, requirePermission('media.create'), imageUpload.sing
     return res.status(400).json({ error: 'No valid image file provided. Accepted: PNG, JPEG, WebP, GIF (max 10MB)' });
   }
 
+  // Validate actual file content via magic bytes — don't trust client-reported MIME
+  const fileType = require('file-type');
+  const detected = await fileType.fromBuffer(req.file.buffer);
+  if (!detected || !ALLOWED_MIMES.has(detected.mime)) {
+    return res.status(400).json({ error: 'Invalid file type. File content does not match an allowed image format.' });
+  }
+  // Override client-reported MIME with detected MIME for storage
+  req.file.mimetype = detected.mime;
+
   const quota = await checkPlanLimit(req.tenantId, 'storage');
   if (!quota.allowed) {
     return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: quota.current, max: quota.max });
