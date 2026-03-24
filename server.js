@@ -154,6 +154,9 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── Stripe Webhook (raw body — must be BEFORE json parser) ─────────
+app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
+
 // ── Body Parsers ───────────────────────────────────────────────────
 // Default: small limit for public endpoints (DoS mitigation)
 app.use(express.json({ limit: '64kb' }));
@@ -285,6 +288,8 @@ app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
+app.use('/api/promo',    auth, require('./routes/promo'));
+app.use('/api/credits',  auth, require('./routes/credit-purchases'));
 app.use('/api/synthesis', auth, largeBodyParser, require('./routes/synthesis'));
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');

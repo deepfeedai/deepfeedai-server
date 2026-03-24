@@ -10,8 +10,11 @@ const db      = require('../db');
 const { getPool } = require('../db');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
-const { getTodaySpend, getMonthlySpend } = require('../lib/ai-usage');
+const { getTodaySpend, getMonthlySpend, getTodayCredits, getMonthlyCredits } = require('../lib/ai-usage');
 const { getAppConfig } = require('../lib/app-config');
+const { getBonusCredits } = require('../lib/promo');
+const { getPurchasedCreditsBalance } = require('../lib/credits');
+const { getPlanInfo } = require('../lib/plan-limits');
 
 // GET /api/ai-usage/summary?range=7d|30d|90d
 router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
@@ -107,6 +110,18 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
   const monthlySpend = await getMonthlySpend(tenantId);
   const todaySpend = await getTodaySpend(tenantId);
 
+  // Credit data
+  const [creditsUsedToday, creditsUsedMonth, bonusCredits, purchasedBalance, planInfo] = await Promise.all([
+    getTodayCredits(tenantId),
+    getMonthlyCredits(tenantId),
+    getBonusCredits(tenantId),
+    getPurchasedCreditsBalance(tenantId),
+    getPlanInfo(tenantId),
+  ]);
+  const planCreditsMonth = planInfo?.limits?.max_credits_month || 0;
+  const planCreditsDay = planInfo?.limits?.max_credits_day || 0;
+  const effectiveCreditsLimit = planCreditsMonth + bonusCredits;
+
   // Project monthly spend based on daily average
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const dayOfMonth = new Date().getDate();
@@ -137,6 +152,14 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
       current_spend: monthlySpend,
       percent_used: monthlyBudget > 0 ? Math.round((monthlySpend / monthlyBudget) * 1000) / 10 : 0,
       projected_monthly: Math.round(projectedMonthly * 100) / 100,
+      credits_used_today: creditsUsedToday,
+      credits_used_month: creditsUsedMonth,
+      credits_limit_day: planCreditsDay,
+      credits_limit_month: effectiveCreditsLimit,
+      credits_bonus: bonusCredits,
+      credits_purchased_balance: purchasedBalance,
+      credits_percent_used: effectiveCreditsLimit > 0
+        ? Math.round((creditsUsedMonth / effectiveCreditsLimit) * 1000) / 10 : 0,
     },
     efficiency: {
       cost_per_article: costPerArticle,

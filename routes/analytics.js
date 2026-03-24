@@ -10,6 +10,10 @@ const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
 const { requirePermission }          = require('../middleware/permissions');
 const { asyncHandler }               = require('../lib/utils');
+const { getMonthlyCredits }         = require('../lib/ai-usage');
+const { getBonusCredits }            = require('../lib/promo');
+const { getPurchasedCreditsBalance } = require('../lib/credits');
+const { getPlanInfo }                = require('../lib/plan-limits');
 
 const VALID_TYPES   = new Set(['view', 'audio_play', 'share']);
 const RATE_LIMIT_MS = 60 * 60 * 1000; // 1 hour per slug+type
@@ -236,6 +240,17 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
   const storageMbUsed  = (parseInt(q.storage_bytes) || 0) / (1024 * 1024);
   const storageMbLimit = parseInt(q.max_storage_mb) || 0;
 
+  // Credit quota
+  const [creditsUsed, bonus, purchased, planInfo] = await Promise.all([
+    getMonthlyCredits(tenantId),
+    getBonusCredits(tenantId),
+    getPurchasedCreditsBalance(tenantId),
+    getPlanInfo(tenantId),
+  ]);
+  const planCredits = planInfo?.limits?.max_credits_month || 0;
+  const creditsLimit = planCredits + bonus;
+  const creditsPct = creditsLimit > 0 ? Math.round((creditsUsed / creditsLimit) * 1000) / 10 : 0;
+
   res.json({
     range: req.query.range || '30d',
     totals: {
@@ -252,9 +267,10 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
       share_rate:  viewsPeriod > 0 ? Math.round((sharesPeriod / viewsPeriod) * 1000) / 10 : 0,
     },
     quota: {
-      articles:  { used: articlesUsed,  limit: articlesLimit,  pct: articlesLimit  > 0 ? Math.round((articlesUsed / articlesLimit) * 1000) / 10   : 0 },
-      ai_spend:  { used: Math.round(aiSpendUsed * 100) / 100, limit: aiSpendLimit, pct: aiSpendLimit  > 0 ? Math.round((aiSpendUsed / aiSpendLimit) * 1000) / 10 : 0 },
-      storage:   { used: Math.round(storageMbUsed * 10) / 10, limit: storageMbLimit, pct: storageMbLimit > 0 ? Math.round((storageMbUsed / storageMbLimit) * 1000) / 10 : 0 },
+      articles:    { used: articlesUsed,  limit: articlesLimit,  pct: articlesLimit  > 0 ? Math.round((articlesUsed / articlesLimit) * 1000) / 10   : 0 },
+      ai_spend:    { used: Math.round(aiSpendUsed * 100) / 100, limit: aiSpendLimit, pct: aiSpendLimit  > 0 ? Math.round((aiSpendUsed / aiSpendLimit) * 1000) / 10 : 0 },
+      ai_credits:  { used: creditsUsed, limit: creditsLimit, bonus: bonus, purchased: purchased, pct: creditsPct },
+      storage:     { used: Math.round(storageMbUsed * 10) / 10, limit: storageMbLimit, pct: storageMbLimit > 0 ? Math.round((storageMbUsed / storageMbLimit) * 1000) / 10 : 0 },
     },
     by_day:       byDay.rows.map(r => ({ day: r.day, views: parseInt(r.views) })),
     top_articles: topArticles.rows.map(r => ({

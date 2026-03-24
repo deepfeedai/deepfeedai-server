@@ -13,6 +13,9 @@ const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { bustPlanCache } = require('../lib/plan-limits');
 const { getPlatformTenantId } = require('../lib/platform-tenant');
+const { getMonthlyCredits } = require('../lib/ai-usage');
+const { getBonusCredits } = require('../lib/promo');
+const { getPurchasedCreditsBalance } = require('../lib/credits');
 const storage = require('../lib/storage');
 const dns = require('dns').promises;
 const crypto = require('crypto');
@@ -93,11 +96,164 @@ const DEFAULT_SETTINGS = [
 router.get('/plan-limits', asyncHandler(async (req, res) => {
   const limits = await db.prepare(
     `SELECT plan, max_sources, max_writers, max_articles_month, max_ai_cost_month,
-            max_storage_mb, audio_enabled, custom_domain_enabled
+            max_credits_month, max_credits_day, max_storage_mb, audio_enabled, custom_domain_enabled
      FROM plan_limits
-     ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 ELSE 99 END`
+     ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 WHEN 'internal' THEN 5 ELSE 99 END`
   ).all();
   res.json({ limits });
+}));
+
+// PUT /plan-limits — update credit allocations per plan
+router.put('/plan-limits', asyncHandler(async (req, res) => {
+  const { plan, max_credits_month, max_credits_day } = req.body || {};
+  if (!plan) return res.status(400).json({ error: 'plan is required' });
+
+  const updates = [];
+  const params = [];
+  let paramIdx = 1;
+
+  if (max_credits_month !== undefined) {
+    updates.push(`max_credits_month = $${paramIdx++}`);
+    params.push(parseInt(max_credits_month));
+  }
+  if (max_credits_day !== undefined) {
+    updates.push(`max_credits_day = $${paramIdx++}`);
+    params.push(parseInt(max_credits_day));
+  }
+  if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  params.push(plan);
+  await db.prepare(`UPDATE plan_limits SET ${updates.join(', ')} WHERE plan = $${paramIdx}`).run(...params);
+  bustPlanCache();
+  res.json({ success: true });
+}));
+
+// ── Promo Code CRUD (platform admin) ─────────────────────────────
+router.get('/promo-codes', asyncHandler(async (req, res) => {
+  const codes = await db.prepare(
+    'SELECT * FROM promo_codes ORDER BY created_at DESC'
+  ).all();
+  res.json({ codes });
+}));
+
+router.post('/promo-codes', asyncHandler(async (req, res) => {
+  const { code, description, type, value, max_redemptions, expires_at } = req.body || {};
+  if (!code || !value) return res.status(400).json({ error: 'code and value are required' });
+
+  const validTypes = ['flat', 'percentage', 'multiplier'];
+  const promoType = validTypes.includes(type) ? type : 'flat';
+
+  const row = await db.prepare(`
+    INSERT INTO promo_codes (code, description, type, value, max_redemptions, expires_at, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING *
+  `).get(
+    code.trim().toUpperCase(),
+    description || null,
+    promoType,
+    parseFloat(value),
+    max_redemptions ? parseInt(max_redemptions) : null,
+    expires_at || null,
+    req.user?.sub || null,
+  );
+  res.status(201).json(row);
+}));
+
+router.put('/promo-codes/:id', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { description, is_active, max_redemptions, expires_at } = req.body || {};
+
+  const updates = [];
+  const params = [];
+  let idx = 1;
+
+  if (description !== undefined) { updates.push(`description = $${idx++}`); params.push(description); }
+  if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(!!is_active); }
+  if (max_redemptions !== undefined) { updates.push(`max_redemptions = $${idx++}`); params.push(max_redemptions ? parseInt(max_redemptions) : null); }
+  if (expires_at !== undefined) { updates.push(`expires_at = $${idx++}`); params.push(expires_at || null); }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  params.push(parseInt(id));
+  await db.prepare(`UPDATE promo_codes SET ${updates.join(', ')} WHERE id = $${idx}`).run(...params);
+  res.json({ success: true });
+}));
+
+router.delete('/promo-codes/:id', asyncHandler(async (req, res) => {
+  await db.prepare('UPDATE promo_codes SET is_active = false WHERE id = $1').run(parseInt(req.params.id));
+  res.json({ success: true });
+}));
+
+router.get('/promo-codes/:id/redemptions', asyncHandler(async (req, res) => {
+  const redemptions = await db.prepare(`
+    SELECT pr.id, pr.tenant_id, pr.bonus_credits, pr.redeemed_at, pr.expires_at,
+           t.slug AS tenant_slug, t.display_name AS tenant_name
+    FROM promo_redemptions pr
+    JOIN tenants t ON t.id = pr.tenant_id
+    WHERE pr.promo_code_id = $1
+    ORDER BY pr.redeemed_at DESC
+  `).all(parseInt(req.params.id));
+  res.json({ redemptions });
+}));
+
+// ── Credit Pack CRUD (platform admin) ─────────────────────────────
+router.get('/credit-packs', asyncHandler(async (req, res) => {
+  const packs = await db.prepare('SELECT * FROM credit_packs ORDER BY sort_order, id').all();
+  res.json({ packs });
+}));
+
+router.post('/credit-packs', asyncHandler(async (req, res) => {
+  const { name, credits, price_cents, sort_order } = req.body || {};
+  if (!name || !credits || !price_cents) {
+    return res.status(400).json({ error: 'name, credits, and price_cents are required' });
+  }
+  const row = await db.prepare(`
+    INSERT INTO credit_packs (name, credits, price_cents, sort_order) VALUES ($1, $2, $3, $4) RETURNING *
+  `).get(name, parseInt(credits), parseInt(price_cents), parseInt(sort_order) || 0);
+  res.status(201).json(row);
+}));
+
+router.put('/credit-packs/:id', asyncHandler(async (req, res) => {
+  const { name, credits, price_cents, is_active, sort_order } = req.body || {};
+  const updates = [];
+  const params = [];
+  let idx = 1;
+
+  if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
+  if (credits !== undefined) { updates.push(`credits = $${idx++}`); params.push(parseInt(credits)); }
+  if (price_cents !== undefined) { updates.push(`price_cents = $${idx++}`); params.push(parseInt(price_cents)); }
+  if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(!!is_active); }
+  if (sort_order !== undefined) { updates.push(`sort_order = $${idx++}`); params.push(parseInt(sort_order)); }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+  params.push(parseInt(req.params.id));
+  await db.prepare(`UPDATE credit_packs SET ${updates.join(', ')} WHERE id = $${idx}`).run(...params);
+  res.json({ success: true });
+}));
+
+router.delete('/credit-packs/:id', asyncHandler(async (req, res) => {
+  await db.prepare('UPDATE credit_packs SET is_active = false WHERE id = $1').run(parseInt(req.params.id));
+  res.json({ success: true });
+}));
+
+// POST /:id/grant-credits — manually grant credits to a tenant (no Stripe)
+router.post('/:id/grant-credits', asyncHandler(async (req, res) => {
+  const tenantId = await resolveTenantParam(req.params.id);
+  if (!tenantId) return res.status(404).json({ error: 'Tenant not found' });
+
+  const { credits, reason } = req.body || {};
+  if (!credits || parseInt(credits) <= 0) {
+    return res.status(400).json({ error: 'credits must be a positive integer' });
+  }
+
+  await db.prepare(`
+    INSERT INTO credit_purchases (tenant_id, credits, amount_cents, status, purchased_by, completed_at)
+    VALUES ($1, $2, 0, 'completed', $3, NOW())
+  `).run(tenantId, parseInt(credits), req.user?.sub || null);
+
+  logAudit(req, 'grant_credits', 'tenant', tenantId, { credits: parseInt(credits), reason });
+  res.json({ success: true, credits: parseInt(credits) });
 }));
 
 // POST / — create a new tenant (platform admin)
@@ -130,7 +286,7 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Validate plan
-  const validPlans = ['free', 'starter', 'pro', 'business'];
+  const validPlans = ['free', 'starter', 'pro', 'business', 'internal'];
   const tenantPlan = validPlans.includes(plan) ? plan : 'free';
 
   // Optional trial period
@@ -373,7 +529,7 @@ router.get('/:id/usage', asyncHandler(async (req, res) => {
   const exists = await db.prepare("SELECT id FROM tenants WHERE id = $1").get(id);
   if (!exists) return res.status(404).json({ error: 'Tenant not found' });
 
-  const [articles, aiUsage, cronRuns, storageSize] = await Promise.all([
+  const [articles, aiUsage, cronRuns, storageSize, creditsUsed, bonus, purchased] = await Promise.all([
     db.prepare(`
       SELECT COUNT(*) AS cnt FROM articles
       WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())
@@ -393,6 +549,9 @@ router.get('/:id/usage', asyncHandler(async (req, res) => {
     db.prepare(`
       SELECT COALESCE(SUM(size), 0) AS total_bytes FROM file_storage WHERE tenant_id = $1
     `).get(id),
+    getMonthlyCredits(id),
+    getBonusCredits(id),
+    getPurchasedCreditsBalance(id),
   ]);
 
   res.json({
@@ -400,6 +559,11 @@ router.get('/:id/usage', asyncHandler(async (req, res) => {
     aiUsage: {
       totalCost: parseFloat(aiUsage.total_cost),
       totalCalls: parseInt(aiUsage.total_calls),
+    },
+    credits: {
+      usedThisMonth: creditsUsed,
+      bonusCredits: bonus,
+      purchasedBalance: purchased,
     },
     cronRuns,
     storageSizeBytes: parseInt(storageSize.total_bytes),
@@ -428,7 +592,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     params.push(display_name.trim());
   }
   if (plan !== undefined) {
-    const validPlans = ['free', 'starter', 'pro', 'business'];
+    const validPlans = ['free', 'starter', 'pro', 'business', 'internal'];
     if (!validPlans.includes(plan)) {
       return res.status(400).json({ error: `plan must be one of: ${validPlans.join(', ')}` });
     }

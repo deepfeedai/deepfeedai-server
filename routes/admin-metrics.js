@@ -59,16 +59,18 @@ router.get('/health', asyncHandler(async (req, res) => {
   for (const t of tenants) {
     const limits = limitsMap[t.plan] || {};
 
-    // Quota: articles this month, AI spend, storage
-    const [artCount, aiSpend, storage] = await Promise.all([
+    // Quota: articles this month, AI spend, credits, storage
+    const [artCount, aiSpend, creditsRow, storage] = await Promise.all([
       db.prepare("SELECT COUNT(*) AS cnt FROM articles WHERE tenant_id = $1 AND published_at >= date_trunc('month', NOW())").get(t.id),
       db.prepare("SELECT COALESCE(SUM(estimated_cost), 0) AS cost FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(t.id),
+      db.prepare("SELECT COALESCE(SUM(credits_used), 0) AS used FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(t.id),
       db.prepare("SELECT bytes_used FROM tenant_storage_usage WHERE tenant_id = $1").get(t.id),
     ]);
 
     const quotas = [];
     if (limits.max_articles_month) quotas.push(parseInt(artCount.cnt) / limits.max_articles_month * 100);
     if (limits.max_ai_cost_month && parseFloat(limits.max_ai_cost_month) > 0) quotas.push(parseFloat(aiSpend.cost) / parseFloat(limits.max_ai_cost_month) * 100);
+    if (limits.max_credits_month && parseInt(limits.max_credits_month) > 0) quotas.push(parseInt(creditsRow.used) / parseInt(limits.max_credits_month) * 100);
     if (limits.max_storage_mb) quotas.push((parseInt(storage?.bytes_used || 0) / (limits.max_storage_mb * 1024 * 1024)) * 100);
     const quotaPct = quotas.length > 0 ? Math.max(...quotas) : 0;
 
@@ -210,7 +212,9 @@ router.get('/ai-costs', asyncHandler(async (req, res) => {
     `).all(interval),
     db.prepare(`
       SELECT t.uuid, t.slug, t.display_name, t.plan,
-             COALESCE(SUM(u.estimated_cost), 0) AS cost, COUNT(*) AS calls,
+             COALESCE(SUM(u.estimated_cost), 0) AS cost,
+             COALESCE(SUM(u.credits_used), 0) AS credits_used,
+             COUNT(*) AS calls,
              COUNT(*) FILTER (WHERE u.success = true) AS successes
       FROM ai_usage u
       JOIN tenants t ON t.id = u.tenant_id
@@ -241,7 +245,8 @@ router.get('/ai-costs', asyncHandler(async (req, res) => {
     by_day: byDay.map(r => ({ day: r.day, cost: parseFloat(r.cost), calls: parseInt(r.calls) })),
     by_tenant: byTenant.map(r => ({
       uuid: r.uuid, slug: r.slug, display_name: r.display_name, plan: r.plan,
-      cost: parseFloat(r.cost), calls: parseInt(r.calls),
+      cost: parseFloat(r.cost), credits_used: parseInt(r.credits_used) || 0,
+      calls: parseInt(r.calls),
       success_rate: parseInt(r.calls) > 0 ? Math.round(parseInt(r.successes) / parseInt(r.calls) * 1000) / 10 : 100,
     })),
     recent_errors: recentErrors,
