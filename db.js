@@ -808,10 +808,29 @@ async function initDb() {
     // Phase 13: Stripe subscription checkout — store price IDs and display prices per plan
     `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS stripe_price_id TEXT`,
     `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS price_cents INTEGER DEFAULT 0`,
+    // Phase 14: Slug index + backfill + composite indexes for performance
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant_slug ON articles (tenant_id, slug)`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant_source_url ON articles (tenant_id, source_url)`,
+    `CREATE INDEX IF NOT EXISTS idx_analytics_events_tenant_type_created ON analytics_events (tenant_id, event_type, created_at DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
   }
+
+  // Backfill: populate slug column for articles that don't have one
+  try {
+    const { toSlug } = require('./lib/utils');
+    const unsluggedCount = await prepare("SELECT COUNT(*) AS cnt FROM articles WHERE slug IS NULL OR slug = ''").get();
+    if (parseInt(unsluggedCount.cnt) > 0) {
+      const unslugged = await prepare("SELECT id, title FROM articles WHERE slug IS NULL OR slug = ''").all();
+      for (const a of unslugged) {
+        if (!a.title) continue;
+        const slug = toSlug(a.title);
+        if (slug) await p.query('UPDATE articles SET slug = $1 WHERE id = $2', [slug, a.id]);
+      }
+      console.log(`[DB] Backfilled slug for ${unslugged.length} articles`);
+    }
+  } catch (err) { console.error('[DB] Slug backfill error:', err.message); }
 
   // Backfill: set admin user role to 'owner' if not already set
   try {

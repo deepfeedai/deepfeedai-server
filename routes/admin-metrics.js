@@ -55,35 +55,61 @@ router.get('/health', asyncHandler(async (req, res) => {
   const planLimits = await db.prepare('SELECT * FROM plan_limits').all();
   const limitsMap = Object.fromEntries(planLimits.map(p => [p.plan, p]));
 
+  // Batch all per-tenant metrics in parallel instead of N+1 sequential queries
+  const tenantIds = tenants.map(t => t.id);
+  const tidPlaceholders = tenantIds.map((_, i) => `$${i + 1}`).join(', ');
+
+  const [artCounts, aiSpends, storageRows, cronRows, activityRows] = await Promise.all([
+    db.prepare(`
+      SELECT tenant_id, COUNT(*) AS cnt FROM articles
+      WHERE tenant_id IN (${tidPlaceholders}) AND published_at >= date_trunc('month', NOW())
+      GROUP BY tenant_id
+    `).all(...tenantIds),
+    db.prepare(`
+      SELECT tenant_id, COALESCE(SUM(estimated_cost), 0) AS cost, COALESCE(SUM(credits_used), 0) AS used
+      FROM ai_usage
+      WHERE tenant_id IN (${tidPlaceholders}) AND created_at >= date_trunc('month', NOW())
+      GROUP BY tenant_id
+    `).all(...tenantIds),
+    db.prepare(`
+      SELECT tenant_id, bytes_used FROM tenant_storage_usage
+      WHERE tenant_id IN (${tidPlaceholders})
+    `).all(...tenantIds),
+    db.prepare(`
+      SELECT DISTINCT ON (tenant_id) tenant_id, status
+      FROM cron_runs
+      WHERE tenant_id IN (${tidPlaceholders})
+      ORDER BY tenant_id, started_at DESC
+    `).all(...tenantIds),
+    db.prepare(`
+      SELECT DISTINCT ON (tenant_id) tenant_id, created_at
+      FROM analytics_events
+      WHERE tenant_id IN (${tidPlaceholders})
+      ORDER BY tenant_id, created_at DESC
+    `).all(...tenantIds),
+  ]);
+
+  // Build lookup maps
+  const artMap = Object.fromEntries(artCounts.map(r => [r.tenant_id, parseInt(r.cnt)]));
+  const aiMap = Object.fromEntries(aiSpends.map(r => [r.tenant_id, { cost: parseFloat(r.cost), used: parseInt(r.used) }]));
+  const storageMap = Object.fromEntries(storageRows.map(r => [r.tenant_id, parseInt(r.bytes_used || 0)]));
+  const cronMap = Object.fromEntries(cronRows.map(r => [r.tenant_id, r.status]));
+  const activityMap = Object.fromEntries(activityRows.map(r => [r.tenant_id, r.created_at]));
+
   const health = [];
   for (const t of tenants) {
     const limits = limitsMap[t.plan] || {};
-
-    // Quota: articles this month, AI spend, credits, storage
-    const [artCount, aiSpend, creditsRow, storage] = await Promise.all([
-      db.prepare("SELECT COUNT(*) AS cnt FROM articles WHERE tenant_id = $1 AND published_at >= date_trunc('month', NOW())").get(t.id),
-      db.prepare("SELECT COALESCE(SUM(estimated_cost), 0) AS cost FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(t.id),
-      db.prepare("SELECT COALESCE(SUM(credits_used), 0) AS used FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(t.id),
-      db.prepare("SELECT bytes_used FROM tenant_storage_usage WHERE tenant_id = $1").get(t.id),
-    ]);
+    const ai = aiMap[t.id] || { cost: 0, used: 0 };
+    const storageBytes = storageMap[t.id] || 0;
 
     const quotas = [];
-    if (limits.max_ai_cost_month && parseFloat(limits.max_ai_cost_month) > 0) quotas.push(parseFloat(aiSpend.cost) / parseFloat(limits.max_ai_cost_month) * 100);
-    if (limits.max_credits_month && parseInt(limits.max_credits_month) > 0) quotas.push(parseInt(creditsRow.used) / parseInt(limits.max_credits_month) * 100);
-    if (limits.max_storage_mb) quotas.push((parseInt(storage?.bytes_used || 0) / (limits.max_storage_mb * 1024 * 1024)) * 100);
+    if (limits.max_ai_cost_month && parseFloat(limits.max_ai_cost_month) > 0) quotas.push(ai.cost / parseFloat(limits.max_ai_cost_month) * 100);
+    if (limits.max_credits_month && parseInt(limits.max_credits_month) > 0) quotas.push(ai.used / parseInt(limits.max_credits_month) * 100);
+    if (limits.max_storage_mb) quotas.push((storageBytes / (limits.max_storage_mb * 1024 * 1024)) * 100);
     const quotaPct = quotas.length > 0 ? Math.max(...quotas) : 0;
 
-    // Last cron status
-    const lastCron = await db.prepare(
-      "SELECT status FROM cron_runs WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 1"
-    ).get(t.id);
-    const cronOk = !lastCron || lastCron.status === 'success';
-
-    // Last activity
-    const lastEvent = await db.prepare(
-      "SELECT created_at FROM analytics_events WHERE tenant_id = $1 ORDER BY created_at DESC LIMIT 1"
-    ).get(t.id);
-    const lastActivity = lastEvent?.created_at || null;
+    const cronOk = !cronMap[t.id] || cronMap[t.id] === 'success';
+    const lastActivity = activityMap[t.id] || null;
     const hoursSinceActivity = lastActivity ? (Date.now() - new Date(lastActivity).getTime()) / 3600000 : 999;
 
     let status = 'green';

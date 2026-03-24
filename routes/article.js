@@ -11,16 +11,28 @@ router.get('/', asyncHandler(async (req, res) => {
   const { slug } = req.query;
   if (!slug) return res.status(400).json({ error: 'slug param required' });
 
-  const articles = await db.prepare(
+  // Direct slug lookup using indexed column (fast path)
+  let match = await db.prepare(
     `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
             w.avatar_url AS writer_avatar_url,
             (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
      FROM articles a
      LEFT JOIN writers w ON w.id = a.writer_id
-     WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
-  ).all(req.tenantId);
+     WHERE a.tenant_id = $1 AND a.slug = $2 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
+  ).get(req.tenantId, slug);
 
-  const match = articles.find(a => toSlug(a.title) === slug);
+  // Fallback: compute slug from title for articles not yet backfilled
+  if (!match) {
+    const articles = await db.prepare(
+      `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
+              w.avatar_url AS writer_avatar_url,
+              (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
+       FROM articles a
+       LEFT JOIN writers w ON w.id = a.writer_id
+       WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL) AND (a.slug IS NULL OR a.slug = '')`
+    ).all(req.tenantId);
+    match = articles.find(a => toSlug(a.title) === slug);
+  }
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
   // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
