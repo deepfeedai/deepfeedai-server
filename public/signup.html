@@ -96,6 +96,7 @@
       margin-bottom: 20px;
     }
     .plan-option {
+      position: relative;
       background: var(--bg);
       border: 2px solid var(--border);
       border-radius: 10px;
@@ -110,8 +111,8 @@
     .plan-price { color: var(--accent); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
     .plan-features { font-size: 12px; color: var(--muted); line-height: 1.6; text-align: left; }
     .plan-features li { list-style: none; padding-left: 16px; position: relative; }
-    .plan-features li::before { content: "\\2713"; position: absolute; left: 0; color: var(--success); font-size: 11px; }
-    .plan-badge { display: inline-block; background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-bottom: 6px; }
+    .plan-features li::before { content: "\2713"; position: absolute; left: 0; color: var(--success); font-size: 11px; }
+    .plan-badge { position: absolute; top: 8px; right: 8px; background: var(--accent-dim); color: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
 
     /* Slug input */
     .slug-row {

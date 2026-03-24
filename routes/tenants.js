@@ -409,15 +409,16 @@ async function fetchStripeProducts() {
 
   try {
     const stripe = require('stripe')(secretKey);
-    const products = await stripe.products.list({ active: true, limit: 100 });
+    const products = await stripe.products.list({ active: true, limit: 100, expand: ['data.default_price'] });
     const deepfeedProducts = products.data.filter(p => p.metadata?.app === 'deepfeed' && p.metadata?.plan);
 
     // Build map: plan name → { product_id, name, description, features, default_price }
     const map = {};
     for (const prod of deepfeedProducts) {
+      const planKey = prod.metadata.plan;
       const entry = {
         product_id: prod.id,
-        name: prod.name,
+        name: planKey.charAt(0).toUpperCase() + planKey.slice(1),
         description: prod.description || null,
         features: (prod.features || []).map(f => f.name),
       };
