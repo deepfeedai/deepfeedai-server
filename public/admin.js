@@ -5,11 +5,25 @@ const API = '/api';
 // ── Site URL helper (tenant-aware) ───────────────────────
 function getSiteBase() {
   const host = window.location.hostname;
-  if (host === 'portal-staging.deepfeedai.com') return 'https://staging.deepfeedai.com';
-  if (host === 'portal.deepfeedai.com') return 'https://deepfeedai.com';
   if (host === 'localhost' || host === '127.0.0.1') return 'http://localhost:3000';
+
   // Tenant subdomain — admin portal shares hostname with the public site
-  return window.location.origin;
+  if (host !== 'portal-staging.deepfeedai.com' && host !== 'portal.deepfeedai.com') {
+    return window.location.origin;
+  }
+
+  // Platform admin host — resolve tenant slug from JWT
+  const base = host === 'portal-staging.deepfeedai.com' ? 'staging.deepfeedai.com' : 'deepfeedai.com';
+  try {
+    const token = localStorage.getItem('deepfeedai_token');
+    if (token) {
+      const slug = JSON.parse(atob(token.split('.')[1])).tenantSlug;
+      if (slug) return 'https://' + slug + '.' + base;
+    }
+  } catch (_) {}
+
+  // Fallback — platform root
+  return 'https://' + base;
 }
 
 function escHtml(s) {
@@ -650,3 +664,4 @@ function onReady(fn) {
   if (document.readyState !== 'loading') fn();
   else document.addEventListener('DOMContentLoaded', fn);
 }
+
