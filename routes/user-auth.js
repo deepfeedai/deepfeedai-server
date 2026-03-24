@@ -651,4 +651,57 @@ router.get('/activity', async (req, res) => {
   }
 });
 
+/* ── DELETE /api/user-auth/account ─────────────────────────────────
+   Delete the current user's account and all associated data.
+   CASCADE constraints handle: comments, favorites, reactions,
+   notifications, auth_codes, writer_follows, comment_reports.
+   Requires confirmation body: { confirm: "DELETE" }
+ ─────────────────────────────────────────────────────────────────── */
+router.delete('/account', async (req, res) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'No token' });
+
+  try {
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(auth.slice(7), userJwtSecret);
+    const userId  = payload.sub;
+
+    const { confirm } = req.body || {};
+    if (confirm !== 'DELETE') {
+      return res.status(400).json({ error: 'Send { confirm: "DELETE" } to confirm account deletion' });
+    }
+
+    // Check if user owns any tenants — require ownership transfer first
+    const ownedTenants = await db.prepare(
+      "SELECT t.slug FROM tenants t WHERE t.owner_user_id = $1 AND t.status = 'active'"
+    ).all(userId);
+    if (ownedTenants.length > 0) {
+      return res.status(409).json({
+        error: 'You own active tenants. Transfer ownership before deleting your account.',
+        tenants: ownedTenants.map(t => t.slug),
+      });
+    }
+
+    // Verify user exists
+    const user = await db.prepare('SELECT id FROM public_users WHERE id = $1').get(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // CASCADE handles: comments (soft-delete body first for audit trail),
+    // article_favorites, article_reactions, notifications, auth_codes,
+    // writer_follows, comment_reports, tenant_admins
+    // Soft-delete comment bodies before hard-deleting user (preserves thread structure)
+    await db.prepare(
+      "UPDATE comments SET body = '[deleted]', is_deleted = 1 WHERE user_id = $1"
+    ).run(userId);
+
+    // Hard-delete the user (CASCADE cleans up FK references)
+    await db.prepare('DELETE FROM public_users WHERE id = $1').run(userId);
+
+    res.json({ success: true, message: 'Account deleted' });
+  } catch (err) {
+    console.error('[user-auth/delete-account]', err.message);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 module.exports = router;

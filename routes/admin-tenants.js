@@ -927,13 +927,15 @@ router.post('/:id/purge', asyncHandler(async (req, res) => {
 
   // Hard delete in dependency order
   const tables = [
-    'comment_reactions', 'article_reactions', 'article_favorites',
+    'comment_reports', 'comment_reactions', 'article_reactions', 'article_favorites',
+    'writer_follows', 'writer_beats',
     'comments', 'articles', 'sources', 'writers', 'categories', 'voices',
     'settings', 'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
     'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
     'synthesis_forecasts', 'synthesis_watchlist', 'tenant_domains',
     'tenant_storage_usage',
     'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
+    'auth_codes',
     'roles', 'users',
     'tenant_admins',
   ];
