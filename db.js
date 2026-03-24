@@ -787,6 +787,17 @@ async function initDb() {
       ('Growth Pack',   20000,  1800, 2),
       ('Power Pack',    50000,  4000, 3)
      ON CONFLICT DO NOTHING`,
+    // Phase 10: Plan limit tuning — fill gaps + rebalance storage/credits
+    // 10a: Set missing Business/Internal storage and tenant caps
+    `UPDATE plan_limits SET max_storage_mb = 51200 WHERE plan = 'business' AND max_storage_mb IS NULL`,
+    `UPDATE plan_limits SET max_tenants = 10     WHERE plan = 'business' AND max_tenants IS NULL`,
+    `UPDATE plan_limits SET max_storage_mb = NULL WHERE plan = 'internal' AND max_storage_mb IS NOT NULL`,
+    `UPDATE plan_limits SET max_tenants = NULL    WHERE plan = 'internal' AND max_tenants IS NOT NULL`,
+    // 10b: Rebalance storage — Starter 500→1024 MB, Pro 5000→10240 MB
+    `UPDATE plan_limits SET max_storage_mb = 1024  WHERE plan = 'starter' AND max_storage_mb = 500`,
+    `UPDATE plan_limits SET max_storage_mb = 10240 WHERE plan = 'pro'     AND max_storage_mb = 5000`,
+    // 10c: Give Free plan taster credits (250/month, 25/day)
+    `UPDATE plan_limits SET max_credits_month = 250, max_credits_day = 25 WHERE plan = 'free' AND max_credits_month = 0`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
