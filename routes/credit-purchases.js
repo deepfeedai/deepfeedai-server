@@ -8,6 +8,7 @@ const router  = express.Router();
 const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { getAvailableCredits } = require('../lib/credits');
+const { getStripeConfig } = require('../lib/stripe-config');
 
 // GET /api/credits/packs — list available credit packs
 router.get('/packs', asyncHandler(async (req, res) => {
@@ -34,7 +35,7 @@ router.post('/checkout', asyncHandler(async (req, res) => {
   if (!pack) return res.status(404).json({ error: 'Credit pack not found' });
 
   // Check Stripe configuration
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const { secretKey: stripeKey } = await getStripeConfig();
   if (!stripeKey) {
     return res.status(503).json({ error: 'Payment processing is not configured' });
   }

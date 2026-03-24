@@ -15,14 +15,15 @@ onReady(async () => {
   const error = params.get('error');
 
   if (error) showError(error === 'unauthorized' ? 'OAuth error. Please try again.' : 'Sign-in failed.');
+  if (params.get('cancelled') === 'true') showError('Payment was cancelled. You can choose a different plan or try again.');
   if (code) await exchangeOAuthCode(code);
 
-  // ── Plan data ──
+  // ── Plan data (public endpoint, no auth required) ──
   try {
-    const res = await fetch('/api/admin/tenants/plan-limits');
+    const res = await fetch('/api/tenants/plans');
     if (res.ok) {
       const data = await res.json();
-      planLimits = data.limits || [];
+      planLimits = data.plans || [];
     }
   } catch { /* use defaults */ }
   renderPlans();
@@ -166,6 +167,25 @@ onReady(async () => {
     goToStep(2);
   }
 
+  function formatPrice(cents) {
+    if (!cents || cents === 0) return '$0/mo';
+    const dollars = cents / 100;
+    return dollars % 1 === 0 ? `$${dollars}/mo` : `$${dollars.toFixed(2)}/mo`;
+  }
+
+  function buildFeaturesFromLimits(limit) {
+    const features = [];
+    if (limit.max_sources) features.push(`${limit.max_sources} sources`);
+    else features.push('Unlimited sources');
+    if (limit.max_writers) features.push(`${limit.max_writers} writers`);
+    else features.push('Unlimited writers');
+    if (limit.max_credits_month) features.push(`${limit.max_credits_month.toLocaleString()} AI credits/mo`);
+    else features.push('Unlimited AI credits');
+    if (limit.custom_domain_enabled) features.push('Custom domain');
+    if (limit.audio_enabled) features.push('Audio generation');
+    return features;
+  }
+
   function renderPlans() {
     const grid = document.getElementById('planGrid');
     const plans = [
@@ -179,15 +199,20 @@ onReady(async () => {
     for (const p of plans) {
       const limit = planLimits.find(l => l.plan === p.id);
       if (limit) {
-        p.features = [];
-        if (limit.max_sources) p.features.push(`${limit.max_sources} sources`);
-        else p.features.push('Unlimited sources');
-        if (limit.max_writers) p.features.push(`${limit.max_writers} writers`);
-        else p.features.push('Unlimited writers');
-        if (limit.max_credits_month) p.features.push(`${limit.max_credits_month.toLocaleString()} AI credits/mo`);
-        else p.features.push('Unlimited AI credits');
-        if (limit.custom_domain_enabled) p.features.push('Custom domain');
-        if (limit.audio_enabled) p.features.push('Audio generation');
+        // Prefer Stripe product data when available
+        if (limit.stripe) {
+          if (limit.stripe.name) p.name = limit.stripe.name;
+          if (limit.stripe.price_cents != null) p.price = formatPrice(limit.stripe.price_cents);
+          else if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
+          if (limit.stripe.features && limit.stripe.features.length) {
+            p.features = limit.stripe.features;
+          } else {
+            p.features = buildFeaturesFromLimits(limit);
+          }
+        } else {
+          if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
+          p.features = buildFeaturesFromLimits(limit);
+        }
       }
     }
 
@@ -255,6 +280,23 @@ onReady(async () => {
       setToken(data.token);
       localStorage.setItem('deepfeedai_user', name);
       localStorage.setItem('deepfeedai_tenant', data.tenant.slug);
+
+      // Paid plans require Stripe checkout before activation
+      if (data.requires_payment) {
+        btn.innerHTML = 'Redirecting to payment...';
+        // Save user token so checkout-success page can poll status
+        sessionStorage.setItem('deepfeedai_user_token', userToken);
+        const checkoutRes = await fetch('/api/tenants/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + userToken },
+          body: JSON.stringify({ tenantId: data.tenant.id }),
+        });
+        const checkoutData = await checkoutRes.json();
+        if (!checkoutRes.ok) throw new Error(checkoutData.error || 'Failed to start checkout');
+        window.location.href = checkoutData.checkout_url;
+        return;
+      }
+
       window.location.replace('/wizard.html');
     } catch (err) {
       showError(err.message);

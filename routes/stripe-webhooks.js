@@ -1,6 +1,6 @@
 /**
  * Deep Feed AI — /api/webhooks/stripe
- * Stripe webhook handler for credit purchase fulfillment.
+ * Stripe webhook handler for credit purchase fulfillment and subscription management.
  * No auth middleware — uses Stripe signature verification.
  * IMPORTANT: Must be mounted BEFORE express.json() body parser,
  * or use express.raw() middleware on this route.
@@ -8,14 +8,17 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { bustPlanCache } = require('../lib/plan-limits');
+const { getStripeConfig } = require('../lib/stripe-config');
 
 // Use raw body for Stripe signature verification
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripeConfig = await getStripeConfig();
+  const stripeKey = stripeConfig.secretKey;
+  const webhookSecret = stripeConfig.webhookSecret;
 
   if (!stripeKey || !webhookSecret) {
-    console.error('[Stripe Webhook] Missing STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET');
+    console.error('[Stripe Webhook] Missing Stripe secret key or webhook secret');
     return res.status(500).json({ error: 'Stripe not configured' });
   }
 
@@ -35,7 +38,29 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       case 'checkout.session.completed': {
         const session = event.data.object;
 
-        // Only fulfill if payment is confirmed
+        // ── Subscription checkout (signup flow) ──
+        if (session.mode === 'subscription' && session.metadata?.signup === 'true') {
+          const tenantId = parseInt(session.metadata.tenant_id);
+          if (!tenantId) {
+            console.warn('[Stripe Webhook] Subscription checkout missing tenant_id metadata');
+            break;
+          }
+
+          // Activate tenant and store subscription info
+          await db.prepare(`
+            UPDATE tenants
+            SET status = 'active',
+                stripe_subscription_id = $1,
+                stripe_customer_id = COALESCE(stripe_customer_id, $2)
+            WHERE id = $3 AND status = 'pending_payment'
+          `).run(session.subscription || null, session.customer || null, tenantId);
+
+          bustPlanCache(tenantId);
+          console.log(`[Stripe Webhook] Subscription activated for tenant ${tenantId} (subscription: ${session.subscription})`);
+          break;
+        }
+
+        // ── One-time credit purchase checkout ──
         if (session.payment_status !== 'paid') {
           console.log(`[Stripe Webhook] Session ${session.id} not yet paid (${session.payment_status}), skipping`);
           break;
@@ -70,6 +95,47 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         }
 
         console.log(`[Stripe Webhook] Credit purchase completed: ${purchase.credits} credits for tenant ${purchase.tenant_id}`);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        // Subscription cancelled — downgrade tenant to free plan
+        const sub = event.data.object;
+        const result = await db.prepare(`
+          UPDATE tenants SET plan = 'free', stripe_subscription_id = NULL
+          WHERE stripe_subscription_id = $1
+        `).run(sub.id);
+
+        if (result.changes > 0) {
+          bustPlanCache();
+          console.log(`[Stripe Webhook] Subscription ${sub.id} deleted — tenant downgraded to free`);
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        // Subscription changed (e.g. plan upgrade/downgrade)
+        const sub = event.data.object;
+        if (sub.status === 'active' && sub.items?.data?.[0]?.price?.id) {
+          const priceId = sub.items.data[0].price.id;
+          // Look up which plan this price belongs to
+          const planRow = await db.prepare('SELECT plan FROM plan_limits WHERE stripe_price_id = $1').get(priceId);
+          if (planRow) {
+            await db.prepare(
+              'UPDATE tenants SET plan = $1 WHERE stripe_subscription_id = $2'
+            ).run(planRow.plan, sub.id);
+            bustPlanCache();
+            console.log(`[Stripe Webhook] Subscription ${sub.id} updated — plan changed to ${planRow.plan}`);
+          }
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          console.warn(`[Stripe Webhook] Payment failed for subscription ${invoice.subscription}`);
+        }
         break;
       }
 

@@ -13,6 +13,7 @@ const { logAudit } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { getSecrets } = require('../lib/secrets');
 const { getPlatformTenantId, isPlatformTenant } = require('../lib/platform-tenant');
+const { getStripeConfig } = require('../lib/stripe-config');
 
 // Middleware that accepts either a public user JWT or an admin JWT.
 // Needed for /mine and /switch which are called from the admin panel
@@ -149,18 +150,31 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     return res.status(409).json({ error: 'This subdomain is already taken' });
   }
 
-  // Check tenant creation limit based on plan_limits
-  const ownedCount = await db.prepare(
-    'SELECT COUNT(*) AS cnt FROM tenant_admins WHERE user_id = $1 AND role = $2'
-  ).get(req.user.sub, 'owner');
+  // Check tenant creation limit based on plan_limits (only count active tenants)
+  // Delete any stale pending_payment tenants for this user (abandoned checkouts)
+  await db.prepare(`
+    DELETE FROM tenants WHERE id IN (
+      SELECT t.id FROM tenants t
+      JOIN tenant_admins ta ON ta.tenant_id = t.id
+      WHERE ta.user_id = $1 AND ta.role = 'owner'
+        AND t.status = 'pending_payment'
+        AND t.created_at < NOW() - INTERVAL '2 hours'
+    )
+  `).run(req.user.sub);
+
+  const ownedCount = await db.prepare(`
+    SELECT COUNT(*) AS cnt FROM tenant_admins ta
+    JOIN tenants t ON t.id = ta.tenant_id
+    WHERE ta.user_id = $1 AND ta.role = $2 AND t.status = 'active'
+  `).get(req.user.sub, 'owner');
   const owned = parseInt(ownedCount.cnt);
 
-  // Find the user's highest plan by looking at tenants they own
+  // Find the user's highest plan by looking at active tenants they own
   const highestPlan = await db.prepare(`
     SELECT pl.max_tenants, pl.plan FROM tenant_admins ta
     JOIN tenants t ON t.id = ta.tenant_id
     JOIN plan_limits pl ON pl.plan = t.plan
-    WHERE ta.user_id = $1 AND ta.role = 'owner'
+    WHERE ta.user_id = $1 AND ta.role = 'owner' AND t.status = 'active'
     ORDER BY pl.max_tenants DESC NULLS FIRST
     LIMIT 1
   `).get(req.user.sub);
@@ -179,10 +193,22 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
   const VALID_PLANS = ['free', 'starter', 'pro', 'business'];
   const plan = VALID_PLANS.includes(req.body.plan) ? req.body.plan : 'free';
 
+  // For paid plans, check if Stripe price is configured before creating
+  const requiresPayment = plan !== 'free';
+  if (requiresPayment) {
+    const planRow = await db.prepare('SELECT stripe_price_id FROM plan_limits WHERE plan = $1').get(plan);
+    if (!planRow?.stripe_price_id) {
+      return res.status(400).json({ error: `The ${plan} plan is not yet available for purchase` });
+    }
+  }
+
+  // Paid plans start as pending_payment until Stripe checkout completes
+  const status = requiresPayment ? 'pending_payment' : 'active';
+
   // Create tenant
   const tenant = await db.prepare(
-    'INSERT INTO tenants (slug, display_name, owner_user_id, plan) VALUES ($1, $2, $3, $4) RETURNING *'
-  ).get(cleanSlug, display_name.trim(), req.user.sub, plan);
+    'INSERT INTO tenants (slug, display_name, owner_user_id, plan, status) VALUES ($1, $2, $3, $4, $5) RETURNING *'
+  ).get(cleanSlug, display_name.trim(), req.user.sub, plan, status);
 
   // Create tenant_admin entry
   await db.prepare(
@@ -242,7 +268,7 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
 
   logAudit(req, 'tenant.create', 'tenants', tenant.id, { slug: cleanSlug });
 
-  res.status(201).json({ tenant, token });
+  res.status(201).json({ tenant, token, requires_payment: requiresPayment });
 }));
 
 // POST /api/tenants/login — exchange a public user JWT for a tenant-admin JWT
@@ -370,6 +396,76 @@ router.post('/cancel', requireUser, asyncHandler(async (req, res) => {
   res.json({ success: true, status: 'cancelled' });
 }));
 
+// ── Stripe product cache (5 min TTL) ──────────────────────────────
+let _stripeProductCache = null;
+const STRIPE_CACHE_TTL = 5 * 60 * 1000;
+
+async function fetchStripeProducts() {
+  if (_stripeProductCache && Date.now() - _stripeProductCache.ts < STRIPE_CACHE_TTL) {
+    return _stripeProductCache.data;
+  }
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return null;
+
+  try {
+    const stripe = require('stripe')(secretKey);
+    const products = await stripe.products.list({ active: true, limit: 100, expand: ['data.default_price'] });
+    const deepfeedProducts = products.data.filter(p => p.metadata?.app === 'deepfeed' && p.metadata?.plan);
+
+    // Build map: plan name → { product_id, name, description, features, default_price }
+    const map = {};
+    for (const prod of deepfeedProducts) {
+      const planKey = prod.metadata.plan;
+      const entry = {
+        product_id: prod.id,
+        name: planKey.charAt(0).toUpperCase() + planKey.slice(1),
+        description: prod.description || null,
+        features: (prod.features || []).map(f => f.name),
+      };
+
+      // Resolve default price for interval + amount
+      if (prod.default_price) {
+        try {
+          const price = typeof prod.default_price === 'string'
+            ? await stripe.prices.retrieve(prod.default_price)
+            : prod.default_price;
+          entry.price_id = price.id;
+          entry.price_cents = price.unit_amount;
+          entry.interval = price.recurring?.interval || null;
+        } catch { /* price lookup failed — skip pricing info */ }
+      }
+
+      map[prod.metadata.plan] = entry;
+    }
+
+    _stripeProductCache = { data: map, ts: Date.now() };
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+// GET /api/tenants/plans — public plan info for signup page (no auth required)
+router.get('/plans', asyncHandler(async (req, res) => {
+  const [dbPlans, stripeMap] = await Promise.all([
+    db.prepare(`
+      SELECT plan, max_sources, max_writers, max_credits_month,
+             audio_enabled, custom_domain_enabled, COALESCE(price_cents, 0) AS price_cents
+      FROM plan_limits
+      WHERE plan IN ('free', 'starter', 'pro', 'business')
+      ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 END
+    `).all(),
+    fetchStripeProducts(),
+  ]);
+
+  const plans = dbPlans.map(p => ({
+    ...p,
+    stripe: stripeMap?.[p.plan] || null,
+  }));
+
+  res.json({ plans });
+}));
+
 // GET /api/tenants/check-slug?slug= — check if slug is available (public)
 router.get('/check-slug', asyncHandler(async (req, res) => {
   const slug = (req.query.slug || '').toLowerCase().trim();
@@ -410,6 +506,95 @@ router.get('/onboarding-status', authMiddleware, asyncHandler(async (req, res) =
   const completionPct = required.length > 0 ? Math.round((doneCount / required.length) * 100) : 100;
 
   res.json({ steps, completionPct });
+}));
+
+// POST /api/tenants/checkout — create Stripe Checkout Session for a pending tenant's subscription
+router.post('/checkout', requireUser, asyncHandler(async (req, res) => {
+  const { tenantId } = req.body || {};
+  if (!tenantId || typeof tenantId !== 'number') {
+    return res.status(400).json({ error: 'tenantId is required' });
+  }
+
+  // Verify user owns the tenant and it's pending payment
+  const tenant = await db.prepare(`
+    SELECT t.id, t.slug, t.display_name, t.plan, t.status, t.stripe_customer_id
+    FROM tenants t
+    JOIN tenant_admins ta ON ta.tenant_id = t.id
+    WHERE t.id = $1 AND ta.user_id = $2 AND ta.role = 'owner'
+  `).get(tenantId, req.user.sub);
+
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  if (tenant.status !== 'pending_payment') {
+    return res.status(400).json({ error: 'Tenant does not require payment' });
+  }
+
+  // Look up Stripe price for the plan
+  const planRow = await db.prepare('SELECT stripe_price_id FROM plan_limits WHERE plan = $1').get(tenant.plan);
+  if (!planRow?.stripe_price_id) {
+    return res.status(400).json({ error: 'Plan pricing is not configured' });
+  }
+
+  const { secretKey: stripeKey } = await getStripeConfig();
+  if (!stripeKey) {
+    return res.status(503).json({ error: 'Payment processing is not configured' });
+  }
+
+  const stripe = require('stripe')(stripeKey);
+
+  // Get or create Stripe customer
+  let customerId = tenant.stripe_customer_id;
+  if (!customerId) {
+    const user = await db.prepare('SELECT email, display_name FROM public_users WHERE id = $1').get(req.user.sub);
+    const customer = await stripe.customers.create({
+      email: user?.email || req.user.email,
+      name: user?.display_name || req.user.displayName,
+      metadata: { tenant_id: String(tenant.id), tenant_slug: tenant.slug },
+    });
+    customerId = customer.id;
+    await db.prepare('UPDATE tenants SET stripe_customer_id = $1 WHERE id = $2').run(customerId, tenant.id);
+  }
+
+  // Validate origin against known portal hosts to prevent open redirect
+  const ALLOWED_ORIGINS = [
+    'https://portal.deepfeedai.com',
+    'https://portal-staging.deepfeedai.com',
+    'http://localhost:4000',
+  ];
+  const rawOrigin = req.headers.origin || req.headers.referer?.replace(/\/[^/]*$/, '') || '';
+  const origin = ALLOWED_ORIGINS.includes(rawOrigin) ? rawOrigin : 'https://portal.deepfeedai.com';
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'subscription',
+    line_items: [{
+      price: planRow.stripe_price_id,
+      quantity: 1,
+    }],
+    metadata: {
+      tenant_id: String(tenant.id),
+      signup: 'true',
+    },
+    success_url: `${origin}/checkout-success.html?tenant_id=${tenant.id}`,
+    cancel_url: `${origin}/signup.html?cancelled=true&tenant_id=${tenant.id}`,
+  });
+
+  res.json({ checkout_url: session.url });
+}));
+
+// GET /api/tenants/checkout-status — poll tenant activation status after Stripe checkout
+// Uses requireAnyAuth because after signup the stored token is a tenant-admin JWT, not a public user JWT
+router.get('/checkout-status', requireAnyAuth, asyncHandler(async (req, res) => {
+  const tenantId = parseInt(req.query.tenantId);
+  if (!tenantId) return res.status(400).json({ error: 'tenantId is required' });
+
+  const tenant = await db.prepare(`
+    SELECT t.status FROM tenants t
+    JOIN tenant_admins ta ON ta.tenant_id = t.id
+    WHERE t.id = $1 AND ta.user_id = $2
+  `).get(tenantId, req.user.sub);
+
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  res.json({ status: tenant.status });
 }));
 
 module.exports = router;

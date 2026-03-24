@@ -863,10 +863,7 @@ let articles = [];
     const liveLink = document.getElementById('previewLiveLink');
     const sourceLink = document.getElementById('previewSourceLink');
 
-    const host = window.location.hostname;
-    const siteBase = host === 'portal-staging.deepfeedai.com' ? 'https://staging.deepfeedai.com'
-      : host === 'portal.deepfeedai.com' ? 'https://deepfeedai.com'
-      : 'http://localhost:3000';
+    const siteBase = getSiteBase();
     if (a.is_published && slug) {
       liveLink.href = `${siteBase}/article/${slug}`;
       liveLink.style.display = '';

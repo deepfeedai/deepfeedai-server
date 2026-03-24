@@ -21,7 +21,8 @@ const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secr
 // Platform-level keys in multi-tenant mode — managed via platform dashboard
 const R2_KEYS = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
 const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model'];
-const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS];
+const STRIPE_KEYS = ['stripe_secret_key', 'stripe_webhook_secret'];
+const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS, ...STRIPE_KEYS];
 const { extFromMime } = require('../lib/r2');
 const storage = require('../lib/storage');
 const { logAudit } = require('../middleware/audit');
@@ -125,6 +126,7 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
 // In multi-tenant mode, R2/S3 credentials and AI API keys are platform-wide.
 // These endpoints read/write from tenant_id=1 regardless of the caller's tenant.
 const { bustGeminiKeyCache } = require('../lib/gemini-config');
+const { bustStripeConfigCache } = require('../lib/stripe-config');
 
 // GET /api/settings/platform-storage — platform admin reads platform config
 router.get('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler(async (req, res) => {
@@ -167,6 +169,7 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
   // Bust relevant caches
   if (savedKeys.some(k => R2_KEYS.includes(k))) storage.bustR2ConfigCache();
   if (savedKeys.some(k => AI_KEYS.includes(k))) bustGeminiKeyCache();
+  if (savedKeys.some(k => STRIPE_KEYS.includes(k))) bustStripeConfigCache();
 
   logAudit(req, 'settings.platform-config', 'settings', null, { keys: savedKeys });
 
