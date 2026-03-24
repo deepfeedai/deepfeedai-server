@@ -237,7 +237,16 @@ function renderSidebar() {
 }
 
 // ── Credit widget (topbar donut ring) ────────────────────
-const CREDIT_CACHE_KEY = 'dfa_credit_cache';
+function getCreditCacheKey() {
+  try {
+    var token = localStorage.getItem('deepfeedai_token');
+    if (token) {
+      var tid = JSON.parse(atob(token.split('.')[1])).tenantId;
+      if (tid) return 'dfa_credit_cache_' + tid;
+    }
+  } catch (_) {}
+  return 'dfa_credit_cache';
+}
 const CREDIT_CACHE_TTL = 60000;
 const CW_CIRCUMFERENCE = 2 * Math.PI * 8; // r=8 → ~50.27
 
@@ -314,7 +323,7 @@ function updateCreditWidget(data) {
 async function loadCreditData() {
   // Check sessionStorage cache
   try {
-    var cached = JSON.parse(sessionStorage.getItem(CREDIT_CACHE_KEY));
+    var cached = JSON.parse(sessionStorage.getItem(getCreditCacheKey()));
     if (cached && Date.now() - cached.ts < CREDIT_CACHE_TTL) {
       updateCreditWidget(cached.data);
       return;
@@ -334,7 +343,7 @@ async function loadCreditData() {
       percentUsed: percentUsed,
     };
 
-    sessionStorage.setItem(CREDIT_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+    sessionStorage.setItem(getCreditCacheKey(), JSON.stringify({ ts: Date.now(), data: data }));
     updateCreditWidget(data);
   } catch (err) {
     // Widget shows neutral placeholder — non-fatal
