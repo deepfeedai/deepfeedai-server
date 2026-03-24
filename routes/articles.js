@@ -76,18 +76,16 @@ router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHan
   }
   const deleted = await db.prepare(deleteSql).all(req.tenantId);
 
-  // Clean up analytics events and AI usage for purged articles
+  // Clean up analytics events for purged articles (preserve ai_usage for credit history)
   if (type === 'all') {
     await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1').run(req.tenantId);
-    await db.prepare('DELETE FROM ai_usage WHERE tenant_id = $1').run(req.tenantId);
   } else {
-    const slugs = articles.map(a => a.title).filter(Boolean);
     const { toSlug } = require('../lib/utils');
-    for (const title of slugs) {
-      const slug = toSlug(title);
+    for (const a of articles) {
+      if (!a.title) continue;
+      const slug = toSlug(a.title);
       if (slug) {
         await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
-        await db.prepare('DELETE FROM ai_usage WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
       }
     }
   }
@@ -398,13 +396,12 @@ router.delete('/:id/purge', auth, requirePermission('articles.delete'), asyncHan
 
   await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
 
-  // Clean up analytics events and AI usage for this article
+  // Clean up analytics events for this article (preserve ai_usage for credit history)
   if (existing.title) {
     const { toSlug } = require('../lib/utils');
     const slug = toSlug(existing.title);
     if (slug) {
       await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
-      await db.prepare('DELETE FROM ai_usage WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
     }
   }
 
