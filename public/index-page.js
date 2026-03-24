@@ -241,13 +241,24 @@ onReady(async () => {
           return `
             <tr>
               <td style="text-align:center;">${imgTag}</td>
-              <td class="td-title" title="${escHtml(a.title)}">${escHtml(a.title)}</td>
+              <td class="td-title"><a href="#" class="dash-preview-link" data-id="${a.id}"
+                style="color:var(--accent);text-decoration:none;cursor:pointer;"
+                title="${escHtml(a.title)}">${escHtml(a.title)}</a></td>
               <td><span class="badge badge-muted">${escHtml(a.category || '—')}</span></td>
               <td>${badgePublished(a.is_published)}</td>
               <td>${audioTag}</td>
               <td class="text-muted text-sm"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
             </tr>`;
         }).join('');
+
+        // Wire preview links
+        tbody.querySelectorAll('.dash-preview-link').forEach(link => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const article = articles.find(x => x.id === parseInt(link.dataset.id));
+            if (article) showArticlePreview(article, null);
+          });
+        });
       }
 
     } catch (err) {

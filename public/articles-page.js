@@ -57,6 +57,12 @@ let articles = [];
 
   function applyFilters({ preservePage = false } = {}) {
     // Update draft + review count badges regardless of active tab
+    const publishedCountEl = document.getElementById('publishedCount');
+    if (publishedCountEl) {
+      const publishedCount = allArticles.filter(a => a.is_published && !a.is_archived).length;
+      publishedCountEl.textContent = publishedCount || '';
+      publishedCountEl.style.display = publishedCount ? 'inline-flex' : 'none';
+    }
     const draftCountEl = document.getElementById('draftCount');
     if (draftCountEl) {
       const draftCount = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published)).length;
@@ -68,6 +74,29 @@ let articles = [];
       const reviewCount = allArticles.filter(a => a.status === 'review').length;
       reviewCountEl.textContent = reviewCount || '';
       reviewCountEl.style.display = reviewCount ? 'inline-flex' : 'none';
+    }
+
+    // Published tab — show published, non-archived articles
+    if (activeTab === 'published') {
+      let filtered = allArticles.filter(a => a.is_published && !a.is_archived);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a =>
+          (a.title   && a.title.toLowerCase().includes(q)) ||
+          (a.summary && a.summary.toLowerCase().includes(q))
+        );
+      }
+      filtered.sort((a, b) => new Date(b.published_at || b.created_at) - new Date(a.published_at || a.created_at));
+      articles = filtered;
+      if (!preservePage) artPage = 1;
+      else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
+      const countEl = document.getElementById('filterCount');
+      if (countEl) {
+        countEl.textContent = `${filtered.length} published`;
+        countEl.classList.remove('filter-count-active');
+      }
+      renderTable();
+      return;
     }
 
     // Review tab — show articles pending review
@@ -1685,7 +1714,7 @@ let articles = [];
         selectedIds.clear();
         // Show/hide "Show archived" — only relevant in All tab
         const archivedWrap = document.getElementById('showArchivedWrap');
-        if (archivedWrap) archivedWrap.style.display = (activeTab === 'drafts' || activeTab === 'review') ? 'none' : 'flex';
+        if (archivedWrap) archivedWrap.style.display = (activeTab === 'published' || activeTab === 'drafts' || activeTab === 'review') ? 'none' : 'flex';
         // Reset search when switching tabs
         searchQuery = '';
         document.getElementById('articleSearch').value = '';
@@ -1755,13 +1784,13 @@ let articles = [];
 
     // Activate tab from URL hash (e.g. #review, #drafts)
     const hashTab = location.hash.replace('#', '');
-    if (hashTab && ['all', 'review', 'drafts'].includes(hashTab)) {
+    if (hashTab && ['all', 'published', 'drafts', 'review'].includes(hashTab)) {
       activeTab = hashTab;
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === hashTab);
       });
       const archivedWrap = document.getElementById('showArchivedWrap');
-      if (archivedWrap) archivedWrap.style.display = (hashTab === 'drafts' || hashTab === 'review') ? 'none' : 'flex';
+      if (archivedWrap) archivedWrap.style.display = (hashTab === 'published' || hashTab === 'drafts' || hashTab === 'review') ? 'none' : 'flex';
       applyFilters();
     }
 

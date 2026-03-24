@@ -207,8 +207,8 @@
       <tr>
         <td class="text-muted text-sm">${i + 1}</td>
         <td class="title-cell">
-          <a href="/article/${escHtml(a.slug)}" target="_blank" rel="noopener"
-             style="color:var(--accent);text-decoration:none;"
+          <a href="#" class="article-preview-link" data-slug="${escHtml(a.slug)}"
+             style="color:var(--accent);text-decoration:none;cursor:pointer;"
              title="${escHtml(a.title)}">${escHtml(a.title)}</a>
         </td>
         <td><span class="badge badge-muted">${escHtml(a.category)}</span></td>
@@ -217,6 +217,14 @@
         <td class="text-muted text-sm">${fmt(a.audio_plays)}</td>
         <td class="text-muted text-sm">${fmt(a.shares)}</td>
       </tr>`).join('');
+
+    // Wire preview links
+    tbody.querySelectorAll('.article-preview-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        showArticlePreviewBySlug(link.dataset.slug);
+      });
+    });
 
     // Render mini sparkline charts after DOM is updated
     articles.forEach((a, i) => renderMiniSparkline(`miniTrend${i}`, a.mini_trend || []));
@@ -439,67 +447,6 @@
     }
   }
 
-  /* ── Promo & Credits ─────────────────────────────────────── */
-
-  async function loadCreditsSection() {
-    try {
-      // Load active promos
-      const promos = await apiFetch('/promo/active');
-      const promoEl = document.getElementById('activePromos');
-      if (promoEl && promos.redemptions?.length > 0) {
-        promoEl.innerHTML = promos.redemptions.map(r =>
-          `<div style="margin-bottom:4px;">✓ <strong>${escHtml(r.code)}</strong> — ${fmt(r.bonus_credits)} bonus credits${r.expires_at ? ' (expires ' + new Date(r.expires_at).toLocaleDateString() + ')' : ''}</div>`
-        ).join('');
-      } else if (promoEl) {
-        promoEl.textContent = '';
-      }
-
-      // Load credit packs
-      const packsData = await apiFetch('/credits/packs');
-      const packsEl = document.getElementById('creditPacks');
-      if (packsEl && packsData.packs?.length > 0) {
-        packsEl.innerHTML = `
-          <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#aaa;">Buy More Credits</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            ${packsData.packs.map(p => `
-              <button class="btn btn-sm buy-pack-btn" data-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;padding:8px 16px;line-height:1.4;">
-                <span style="font-weight:600">${fmt(p.credits)} credits</span>
-                <span style="font-size:11px;color:#888;">$${(p.price_cents / 100).toFixed(2)}</span>
-              </button>
-            `).join('')}
-          </div>`;
-        packsEl.querySelectorAll('.buy-pack-btn').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            btn.textContent = 'Redirecting...';
-            try {
-              const res = await apiFetch('/credits/checkout', {
-                method: 'POST',
-                body: JSON.stringify({ packId: parseInt(btn.dataset.id) }),
-              });
-              if (res.checkout_url) window.location.href = res.checkout_url;
-            } catch (err) {
-              showAlert(err.message, 'error');
-              btn.disabled = false;
-            }
-          });
-        });
-      }
-
-      // Show purchase success/cancelled from URL params
-      const params = new URLSearchParams(location.search);
-      if (params.get('credits') === 'purchased') {
-        showAlert('Credits purchased successfully!', 'success');
-        history.replaceState({}, '', location.pathname);
-      } else if (params.get('credits') === 'cancelled') {
-        showAlert('Credit purchase cancelled', 'error');
-        history.replaceState({}, '', location.pathname);
-      }
-    } catch {
-      // Credits section is optional — don't block analytics
-    }
-  }
-
   /* ── Init ───────────────────────────────────────────────── */
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -509,27 +456,7 @@
     renderRangeTabs('rangeTabs', ['7d', '30d', '90d'], '30d', loadAnalytics);
     document.getElementById('refreshBtn')?.addEventListener('click', () => loadAnalytics());
 
-    // Promo code redemption
-    document.getElementById('redeemPromoBtn')?.addEventListener('click', async () => {
-      const input = document.getElementById('promoCodeInput');
-      const code = input?.value?.trim();
-      if (!code) return;
-      try {
-        const res = await apiFetch('/promo/redeem', {
-          method: 'POST',
-          body: JSON.stringify({ code }),
-        });
-        showAlert(`Redeemed! +${fmt(res.bonus_credits)} bonus credits`, 'success');
-        input.value = '';
-        await loadCreditsSection();
-        await loadAnalytics(); // refresh quota gauges
-      } catch (err) {
-        showAlert(err.message, 'error');
-      }
-    });
-
     loadAnalytics();
-    loadCreditsSection();
     initLiveFeed();
   });
 })();

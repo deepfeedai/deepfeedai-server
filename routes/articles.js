@@ -25,6 +25,10 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
     params.push(req.query.category);
     query += ` AND category = $${params.length}`;
   }
+  if (req.query.search) {
+    params.push('%' + req.query.search + '%');
+    query += ` AND LOWER(title) LIKE LOWER($${params.length})`;
+  }
   query += ' ORDER BY created_at DESC';
   const result = await getPool().query(query, params.length ? params : undefined);
   res.json(result.rows.map(serializeRow));
@@ -71,6 +75,21 @@ router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHan
     deleteSql = `DELETE FROM articles WHERE tenant_id = $1 RETURNING id`;
   }
   const deleted = await db.prepare(deleteSql).all(req.tenantId);
+
+  // Clean up analytics events for purged articles (preserve ai_usage for credit history)
+  if (type === 'all') {
+    await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1').run(req.tenantId);
+  } else {
+    const { toSlug } = require('../lib/utils');
+    for (const a of articles) {
+      if (!a.title) continue;
+      const slug = toSlug(a.title);
+      if (slug) {
+        await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
+      }
+    }
+  }
+
   res.json({ deleted: deleted.length, type });
 }));
 
@@ -186,6 +205,37 @@ router.get('/review-queue', auth, requirePermission('articles.read'), asyncHandl
     [req.tenantId, 'review']
   );
   res.json({ articles: result.rows.map(serializeRow), count: result.rows.length });
+}));
+
+// GET /api/articles/preview-by-slug?slug=...  (search current tenant, fallback to all)
+router.get('/preview-by-slug', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const { slug } = req.query;
+  if (!slug) return res.status(400).json({ error: 'slug param required' });
+
+  const { toSlug } = require('../lib/utils');
+  // Search current tenant first
+  let articles = await db.prepare(
+    'SELECT * FROM articles WHERE tenant_id = $1 AND is_published = 1 ORDER BY published_at DESC'
+  ).all(req.tenantId);
+  let match = articles.find(a => toSlug(a.title) === slug);
+
+  // Fallback: search all tenants this admin can access
+  if (!match) {
+    const allArticles = await db.prepare(
+      'SELECT * FROM articles WHERE is_published = 1 ORDER BY published_at DESC'
+    ).all();
+    match = allArticles.find(a => toSlug(a.title) === slug);
+  }
+
+  if (!match) return res.status(404).json({ error: 'Article not found' });
+
+  // Include writer info
+  let writer = null;
+  if (match.writer_id) {
+    writer = await db.prepare('SELECT id, name, slug, avatar_url FROM writers WHERE id = $1').get(match.writer_id);
+  }
+
+  res.json({ article: serializeRow(match), writer: writer || null });
 }));
 
 // GET /api/articles/:id
@@ -332,7 +382,7 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
 
 // DELETE /api/articles/:id/purge — hard delete
 router.delete('/:id/purge', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id, image_url, audio_url, inline_images FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  const existing = await db.prepare('SELECT id, title, image_url, audio_url, inline_images FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
 
   // Clean up stored media files
@@ -345,6 +395,16 @@ router.delete('/:id/purge', auth, requirePermission('articles.delete'), asyncHan
   }
 
   await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
+
+  // Clean up analytics events for this article (preserve ai_usage for credit history)
+  if (existing.title) {
+    const { toSlug } = require('../lib/utils');
+    const slug = toSlug(existing.title);
+    if (slug) {
+      await db.prepare('DELETE FROM analytics_events WHERE tenant_id = $1 AND article_slug = $2').run(req.tenantId, slug);
+    }
+  }
+
   logAudit(req, 'article.purge', 'article', parseInt(req.params.id));
   res.json({ message: 'Article permanently deleted' });
 }));

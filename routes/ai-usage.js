@@ -1,6 +1,6 @@
 /**
  * Deep Feed AI Admin — GET /api/ai-usage
- * Dashboard API for AI cost tracking and budget monitoring.
+ * Dashboard API for AI credit and token usage tracking.
  * All endpoints require admin auth.
  */
 const express = require('express');
@@ -28,6 +28,7 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
     pool.query(`
       SELECT
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,2) AS estimated_cost,
+        COALESCE(SUM(credits_used), 0)::INTEGER AS total_credits,
         COUNT(*)::INTEGER AS api_calls,
         COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens,
         CASE WHEN COUNT(*) > 0
@@ -39,22 +40,25 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
     pool.query(`
       SELECT provider,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
+        COALESCE(SUM(credits_used), 0)::INTEGER AS credits,
         COUNT(*)::INTEGER AS calls
       FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
-      GROUP BY provider ORDER BY cost DESC
+      GROUP BY provider ORDER BY credits DESC
     `, [tenantId, interval]),
 
     pool.query(`
       SELECT operation,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
+        COALESCE(SUM(credits_used), 0)::INTEGER AS credits,
         COUNT(*)::INTEGER AS calls
       FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
-      GROUP BY operation ORDER BY cost DESC
+      GROUP BY operation ORDER BY credits DESC
     `, [tenantId, interval]),
 
     pool.query(`
       SELECT DATE(created_at) AS day,
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
+        COALESCE(SUM(credits_used), 0)::INTEGER AS credits,
         COUNT(*)::INTEGER AS calls
       FROM ai_usage WHERE tenant_id = $1 AND created_at > NOW() - $2::INTERVAL
       GROUP BY DATE(created_at) ORDER BY day
@@ -72,7 +76,7 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
       WHERE tenant_id = $1 AND key IN ('ai_daily_budget', 'ai_monthly_budget', 'ai_budget_warn_pct')
     `, [tenantId]),
 
-    // Cost efficiency: cost per article, cost per 1k views, top expensive articles
+    // Credit efficiency: credits per article, top articles by credit usage
     (async () => {
       const [articleCount, viewCount, topExpensive] = await Promise.all([
         pool.query(`
@@ -88,11 +92,12 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
         pool.query(`
           SELECT article_slug AS slug,
             COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
+            COALESCE(SUM(credits_used), 0)::INTEGER AS credits,
             COUNT(*)::INTEGER AS calls
           FROM ai_usage
           WHERE tenant_id = $1 AND article_slug IS NOT NULL
             AND created_at > NOW() - $2::INTERVAL
-          GROUP BY article_slug ORDER BY cost DESC LIMIT 5
+          GROUP BY article_slug ORDER BY credits DESC LIMIT 5
         `, [tenantId, interval]),
       ]);
       return {
@@ -127,12 +132,13 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
   const dayOfMonth = new Date().getDate();
   const projectedMonthly = dayOfMonth > 0 ? (monthlySpend / dayOfMonth) * daysInMonth : 0;
 
-  // Cost efficiency
+  // Cost & credit efficiency
   const totalCost = parseFloat(totals.rows[0].estimated_cost) || 0;
+  const totalCredits = parseInt(totals.rows[0].total_credits) || 0;
   const costPerArticle = efficiency.published_articles > 0
     ? Math.round((totalCost / efficiency.published_articles) * 10000) / 10000 : 0;
-  const costPer1kViews = efficiency.total_views > 0
-    ? Math.round((totalCost / (efficiency.total_views / 1000)) * 10000) / 10000 : 0;
+  const creditsPerArticle = efficiency.published_articles > 0
+    ? Math.round(totalCredits / efficiency.published_articles) : 0;
 
   res.json({
     period: {
@@ -163,7 +169,7 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
     },
     efficiency: {
       cost_per_article: costPerArticle,
-      cost_per_1k_views: costPer1kViews,
+      credits_per_article: creditsPerArticle,
       published_articles: efficiency.published_articles,
       total_views: efficiency.total_views,
       top_expensive_articles: efficiency.top_expensive_articles,

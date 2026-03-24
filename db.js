@@ -786,7 +786,7 @@ async function initDb() {
       ('Starter Pack',  5000,   500,  1),
       ('Growth Pack',   20000,  1800, 2),
       ('Power Pack',    50000,  4000, 3)
-     ON CONFLICT DO NOTHING`,
+     ON CONFLICT (name) WHERE is_active = true DO NOTHING`,
     // Phase 10: Plan limit tuning — fill gaps + rebalance storage/credits
     // 10a: Set missing Business/Internal storage and tenant caps
     `UPDATE plan_limits SET max_storage_mb = 51200 WHERE plan = 'business' AND max_storage_mb IS NULL`,
@@ -798,6 +798,9 @@ async function initDb() {
     `UPDATE plan_limits SET max_storage_mb = 10240 WHERE plan = 'pro'     AND max_storage_mb = 5000`,
     // 10c: Give Free plan taster credits (250/month, 25/day)
     `UPDATE plan_limits SET max_credits_month = 250, max_credits_day = 25 WHERE plan = 'free' AND max_credits_month = 0`,
+    // Phase 11: Fix duplicate credit packs (ON CONFLICT DO NOTHING had no unique constraint)
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_packs_name ON credit_packs (name) WHERE is_active = true`,
+    `DELETE FROM credit_packs WHERE id NOT IN (SELECT MIN(id) FROM credit_packs GROUP BY name)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
