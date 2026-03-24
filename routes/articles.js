@@ -219,14 +219,6 @@ router.get('/preview-by-slug', auth, requirePermission('articles.read'), asyncHa
   ).all(req.tenantId);
   let match = articles.find(a => toSlug(a.title) === slug);
 
-  // Fallback: search all tenants this admin can access
-  if (!match) {
-    const allArticles = await db.prepare(
-      'SELECT * FROM articles WHERE is_published = 1 ORDER BY published_at DESC'
-    ).all();
-    match = allArticles.find(a => toSlug(a.title) === slug);
-  }
-
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
   // Include writer info

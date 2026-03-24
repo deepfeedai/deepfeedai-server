@@ -231,4 +231,4 @@ function invalidateUuidCache(uuid) {
   if (uuid) uuidCache.delete(uuid);
 }
 
-module.exports = { tenantContext, invalidateSlugCache, invalidateDomainCache, invalidateUuidCache, UUID_RE };
+module.exports = { tenantContext, invalidateSlugCache, invalidateDomainCache, invalidateUuidCache, resolveUuidToId, UUID_RE };

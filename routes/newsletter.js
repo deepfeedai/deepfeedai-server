@@ -40,7 +40,7 @@ function safeCompare(a, b) {
 // Auth: admin JWT OR cron secret
 async function cronOrAdmin(req, res, next) {
   const { cronSecret } = await getSecrets();
-  const provided = req.headers['x-cron-secret'] || req.body?.secret;
+  const provided = req.headers['x-cron-secret'];
   if (cronSecret && safeCompare(provided, cronSecret)) {
     // Cron jobs get full permissions
     req.user = { permissions: ['*'], type: 'cron' };

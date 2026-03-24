@@ -596,24 +596,24 @@ router.get('/activity', async (req, res) => {
     const commentRows = await db.prepare(`
       SELECT c.id, c.body, c.article_slug, c.parent_id, c.created_at, c.updated_at
       FROM comments c
-      WHERE c.user_id = $1 AND c.is_deleted = 0 AND c.is_approved = 1
+      WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.is_deleted = 0 AND c.is_approved = 1
       ORDER BY c.created_at DESC
-      LIMIT $2 OFFSET $3
-    `).all(userId, limit, offset);
+      LIMIT $3 OFFSET $4
+    `).all(userId, req.tenantId, limit, offset);
 
     // Fetch total count
     const countRow = await db.prepare(`
       SELECT COUNT(*) AS cnt FROM comments
-      WHERE user_id = $1 AND is_deleted = 0 AND is_approved = 1
-    `).get(userId);
+      WHERE user_id = $1 AND tenant_id = $2 AND is_deleted = 0 AND is_approved = 1
+    `).get(userId, req.tenantId);
     const total = parseInt(countRow?.cnt ?? 0, 10);
 
-    // Fetch all articles to match slugs → titles (mirrors /api/article approach)
+    // Fetch tenant-scoped articles to match slugs → titles
     let articleTitleMap = {};
     if (commentRows.length > 0) {
       const allArticles = await db.prepare(
-        'SELECT title FROM articles WHERE is_published = 1'
-      ).all();
+        'SELECT title FROM articles WHERE tenant_id = $1 AND is_published = 1'
+      ).all(req.tenantId);
       const { toSlug } = require('../lib/utils');
       for (const a of allArticles) {
         articleTitleMap[toSlug(a.title)] = a.title;
