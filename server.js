@@ -751,14 +751,13 @@ registerJob({
       db.prepare("SELECT COUNT(*)::int AS cnt FROM sources WHERE tenant_id = $1").get(tenantId),
       db.prepare("SELECT COUNT(*)::int AS cnt FROM writers WHERE tenant_id = $1").get(tenantId),
       db.prepare("SELECT COALESCE(SUM(estimated_cost), 0) AS total FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())").get(tenantId),
-      db.prepare("SELECT t.plan, pl.max_articles_month, pl.max_ai_cost_month FROM tenants t LEFT JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1").get(tenantId),
+      db.prepare("SELECT t.plan, pl.max_ai_cost_month FROM tenants t LEFT JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1").get(tenantId),
       db.prepare("SELECT status, finished_at FROM cron_runs WHERE tenant_id = $1 ORDER BY finished_at DESC LIMIT 1").get(tenantId),
       db.prepare("SELECT COALESCE(SUM(size), 0)::bigint AS total FROM file_storage WHERE tenant_id = $1").get(tenantId),
     ]);
 
     const metrics = {
       articles_month: parseInt(articleCount.cnt),
-      articles_limit: planInfo?.max_articles_month || null,
       ai_spend_month: parseFloat(aiSpend.total),
       ai_limit: planInfo?.max_ai_cost_month ? parseFloat(planInfo.max_ai_cost_month) : null,
       sources: parseInt(sourceCount.cnt),
@@ -775,9 +774,6 @@ registerJob({
 
     // Log warnings for tenants approaching limits
     const warnings = [];
-    if (metrics.articles_limit && metrics.articles_month >= metrics.articles_limit * 0.9) {
-      warnings.push(`articles at ${Math.round(metrics.articles_month / metrics.articles_limit * 100)}% of limit`);
-    }
     if (metrics.ai_limit && metrics.ai_spend_month >= metrics.ai_limit * 0.9) {
       warnings.push(`AI spend at ${Math.round(metrics.ai_spend_month / metrics.ai_limit * 100)}% of limit`);
     }

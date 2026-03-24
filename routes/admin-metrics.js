@@ -68,7 +68,6 @@ router.get('/health', asyncHandler(async (req, res) => {
     ]);
 
     const quotas = [];
-    if (limits.max_articles_month) quotas.push(parseInt(artCount.cnt) / limits.max_articles_month * 100);
     if (limits.max_ai_cost_month && parseFloat(limits.max_ai_cost_month) > 0) quotas.push(parseFloat(aiSpend.cost) / parseFloat(limits.max_ai_cost_month) * 100);
     if (limits.max_credits_month && parseInt(limits.max_credits_month) > 0) quotas.push(parseInt(creditsRow.used) / parseInt(limits.max_credits_month) * 100);
     if (limits.max_storage_mb) quotas.push((parseInt(storage?.bytes_used || 0) / (limits.max_storage_mb * 1024 * 1024)) * 100);

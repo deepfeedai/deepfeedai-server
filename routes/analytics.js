@@ -182,8 +182,6 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
       SELECT
         (SELECT COUNT(*) FROM articles WHERE tenant_id = $1
           AND created_at >= DATE_TRUNC('month', NOW())) AS articles_this_month,
-        (SELECT pl.max_articles_month FROM tenants t
-          JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1) AS max_articles,
         (SELECT pl.max_ai_cost_month FROM tenants t
           JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1) AS max_ai_cost,
         (SELECT pl.max_storage_mb FROM tenants t
@@ -234,7 +232,6 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
   // Quota
   const q = quotaData.rows[0] || {};
   const articlesUsed   = parseInt(q.articles_this_month) || 0;
-  const articlesLimit  = parseInt(q.max_articles) || 0;
   const aiSpendUsed    = parseFloat(q.ai_spend_this_month) || 0;
   const aiSpendLimit   = parseFloat(q.max_ai_cost) || 0;
   const storageMbUsed  = (parseInt(q.storage_bytes) || 0) / (1024 * 1024);
@@ -267,7 +264,7 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
       share_rate:  viewsPeriod > 0 ? Math.round((sharesPeriod / viewsPeriod) * 1000) / 10 : 0,
     },
     quota: {
-      articles:    { used: articlesUsed,  limit: articlesLimit,  pct: articlesLimit  > 0 ? Math.round((articlesUsed / articlesLimit) * 1000) / 10   : 0 },
+      articles:    { used: articlesUsed },  // no limit enforced — credits are the throttle
       ai_spend:    { used: Math.round(aiSpendUsed * 100) / 100, limit: aiSpendLimit, pct: aiSpendLimit  > 0 ? Math.round((aiSpendUsed / aiSpendLimit) * 1000) / 10 : 0 },
       ai_credits:  { used: creditsUsed, limit: creditsLimit, bonus: bonus, purchased: purchased, pct: creditsPct },
       storage:     { used: Math.round(storageMbUsed * 10) / 10, limit: storageMbLimit, pct: storageMbLimit > 0 ? Math.round((storageMbUsed / storageMbLimit) * 1000) / 10 : 0 },

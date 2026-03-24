@@ -95,8 +95,9 @@ const DEFAULT_SETTINGS = [
 // NOTE: Must stay above GET /:id to avoid being matched as a tenant ID.
 router.get('/plan-limits', asyncHandler(async (req, res) => {
   const limits = await db.prepare(
-    `SELECT plan, max_sources, max_writers, max_articles_month, max_ai_cost_month,
-            max_credits_month, max_credits_day, max_storage_mb, audio_enabled, custom_domain_enabled
+    `SELECT plan, max_sources, max_writers, max_ai_cost_month,
+            max_credits_month, max_credits_day, max_storage_mb,
+            audio_enabled, custom_domain_enabled, COALESCE(seo_titles_enabled, false) AS seo_titles_enabled
      FROM plan_limits
      ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 WHEN 'internal' THEN 5 ELSE 99 END`
   ).all();

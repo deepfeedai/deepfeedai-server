@@ -10,7 +10,7 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { db, initTestDb, createTestTenant, cleanupTestData } = require('../helpers');
-const { checkPlanLimit, getPlanInfo, bustPlanCache } = require('../../lib/plan-limits');
+const { checkPlanLimit, checkFeatureEnabled, getPlanInfo, bustPlanCache } = require('../../lib/plan-limits');
 
 let starterTenant, businessTenant, freeTenant, trialTenant;
 let starterMaxSources, freeMaxSources;
@@ -143,6 +143,30 @@ describe('plan limits — trial override', () => {
     const result = await checkPlanLimit(trialTenant.id, 'sources');
     assert.equal(result.allowed, false, 'Should be blocked under free limits after trial expiry');
     assert.equal(result.max, freeMaxSources);
+  });
+});
+
+describe('plan limits — articles_month no longer enforced', () => {
+  it('rejects articles_month as unknown resource', async () => {
+    await assert.rejects(
+      () => checkPlanLimit(starterTenant.id, 'articles_month'),
+      { message: /Unknown resource/ },
+      'articles_month should no longer be a valid resource'
+    );
+  });
+});
+
+describe('plan limits — seo_titles_enabled feature flag', () => {
+  it('blocks SEO titles on free plan', async () => {
+    const enabled = await checkFeatureEnabled(freeTenant.id, 'seo_titles_enabled');
+    assert.equal(enabled, false, 'Free plan should not have SEO titles');
+  });
+
+  it('allows SEO titles on pro plan', async () => {
+    // Use a pro tenant — the trial tenant had its trial expired, so create a fresh check
+    const proTenant = await createTestTenant('pro');
+    const enabled = await checkFeatureEnabled(proTenant.id, 'seo_titles_enabled');
+    assert.equal(enabled, true, 'Pro plan should have SEO titles enabled');
   });
 });
 

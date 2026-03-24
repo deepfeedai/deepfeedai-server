@@ -801,6 +801,10 @@ async function initDb() {
     // Phase 11: Fix duplicate credit packs (ON CONFLICT DO NOTHING had no unique constraint)
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_packs_name ON credit_packs (name) WHERE is_active = true`,
     `DELETE FROM credit_packs WHERE id NOT IN (SELECT MIN(id) FROM credit_packs GROUP BY name)`,
+    // Phase 12: Plan simplification — remove daily credit limits for paid plans, add seo_titles_enabled
+    `UPDATE plan_limits SET max_credits_day = NULL WHERE plan IN ('starter', 'pro', 'business') AND max_credits_day IS NOT NULL`,
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS seo_titles_enabled BOOLEAN DEFAULT false`,
+    `UPDATE plan_limits SET seo_titles_enabled = true WHERE plan IN ('pro', 'business', 'internal')`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
