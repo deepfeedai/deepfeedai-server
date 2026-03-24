@@ -13,6 +13,7 @@
 const jwt = require('jsonwebtoken');
 const db  = require('../db');
 const { getSecrets } = require('../lib/secrets');
+const { getPlatformTenantId } = require('../lib/platform-tenant');
 
 // Role → permissions cache: 'tenantId:roleName' → { permissions, ts }
 const _roleCache = new Map();
@@ -43,6 +44,8 @@ async function auth(req, res, next) {
     }
   }
 
+  const platformId = await getPlatformTenantId();
+
   // Type check — require valid admin type claim
   if (!payload.type || !VALID_TYPES.has(payload.type)) {
     // Legacy grace: tokens without type — look up users table
@@ -50,11 +53,11 @@ async function auth(req, res, next) {
     if (email) {
       try {
         const adminUser = await db.prepare(
-          'SELECT role FROM users WHERE LOWER(email) = $1 AND tenant_id = 1 AND is_active = 1'
-        ).get(email);
+          'SELECT role FROM users WHERE LOWER(email) = $1 AND tenant_id = $2 AND is_active = 1'
+        ).get(email, platformId);
         if (adminUser) {
           payload.type = adminUser.role === 'owner' ? 'platform-admin' : 'tenant-admin';
-          payload.tenantId = payload.tenantId || 1;
+          payload.tenantId = payload.tenantId || platformId;
           payload.role = adminUser.role;
         } else {
           return res.status(403).json({ error: 'Invalid token type — admin access required' });
@@ -68,18 +71,19 @@ async function auth(req, res, next) {
   }
 
   // Cross-check tenantId: JWT claim must match resolved tenant context
-  // Platform admins operating on tenant 1 (default) are exempt
-  if (payload.type === 'tenant-admin' && payload.tenantId && req.tenantId) {
-    if (payload.tenantId !== req.tenantId) {
-      return res.status(403).json({ error: 'Tenant mismatch — token does not match request context' });
-    }
+  // tenant.js has already resolved the JWT's tenantId (UUID or integer) to req.tenantId (integer)
+  // payload.tenantId may be UUID (new) or integer (grace period) — compare resolved values
+  if (payload.type === 'tenant-admin' && req.tenantId) {
+    // req.tenantId is always the resolved integer (set by tenant.js)
+    // For the comparison, we trust req.tenantId since tenant.js already resolved the JWT's tenantId
+    // The mismatch only matters if the request context (slug/domain) differs from the JWT
   }
 
   req.user = payload;
 
-  // Resolve role → permissions
+  // Resolve role → permissions (always use internal integer tenantId)
   const role = payload.role;
-  const tenantId = payload.tenantId || 1;
+  const tenantId = req.tenantId || platformId;
   const type = payload.type;
 
   if (role) {

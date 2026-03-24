@@ -7,9 +7,9 @@
  *   2. X-Tenant-Id header — for internal cron requests (requires x-cron-secret)
  *   3. X-Tenant-Slug header — for frontend requests
  *   4. Origin/Referer — subdomain (*.deepfeedai.com) or custom domain lookup
- *   5. Fallback to tenant_id = 1 (original site)
+ *   5. Fallback to platform tenant
  *
- * Attaches req.tenantId to every request.
+ * Attaches req.tenantId (internal integer) to every request.
  * Caches verified JWT payload on req._verifiedAdminPayload for auth.js reuse.
  */
 'use strict';
@@ -18,9 +18,15 @@ const jwt = require('jsonwebtoken');
 const { timingSafeEqual } = require('crypto');
 const db  = require('../db');
 const { getSecrets } = require('../lib/secrets');
+const { getPlatformTenantId } = require('../lib/platform-tenant');
+
+// UUID v4 validation regex
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Cache slug → id lookups (5-min TTL)
 const slugCache = new Map();
+// Cache uuid → id lookups (5-min TTL)
+const uuidCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 
 function safeCompare(a, b) {
@@ -77,12 +83,38 @@ async function resolveCustomDomain(hostname) {
 }
 
 /**
+ * Resolve a tenant UUID to internal integer ID.
+ * Cached with 5-min TTL (same as slug/domain caches).
+ * Returns { id, suspended } — same pattern as other resolvers.
+ */
+async function resolveUuidToId(uuid) {
+  const cached = uuidCache.get(uuid);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached;
+
+  const row = await db.prepare(
+    "SELECT id, status FROM tenants WHERE uuid = $1"
+  ).get(uuid);
+
+  let result;
+  if (!row) {
+    result = { id: null, suspended: false };
+  } else if (row.status !== 'active') {
+    result = { id: null, suspended: true };
+  } else {
+    result = { id: row.id, suspended: false };
+  }
+  uuidCache.set(uuid, { ...result, ts: Date.now() });
+  return result;
+}
+
+/**
  * Express middleware — attaches req.tenantId to every request.
  * Verifies JWT to extract tenantId (not just base64 peek).
- * Does NOT block requests if tenant can't be resolved — falls back to 1.
+ * Does NOT block requests if tenant can't be resolved — falls back to platform tenant.
  */
 async function tenantContext(req, res, next) {
   const { jwtSecret, jwtSecretPrevious, cronSecret } = await getSecrets();
+  const platformId = await getPlatformTenantId();
 
   // 1. Try to extract tenantId from Bearer JWT (fully verified)
   const authHeader = req.headers.authorization || '';
@@ -100,8 +132,21 @@ async function tenantContext(req, res, next) {
       if (payload) {
         req._verifiedAdminPayload = payload;
         if (payload.tenantId) {
-          req.tenantId = payload.tenantId;
-          return next();
+          // UUID tenantId: resolve to internal integer
+          if (typeof payload.tenantId === 'string' && UUID_RE.test(payload.tenantId)) {
+            try {
+              const resolved = await resolveUuidToId(payload.tenantId);
+              if (resolved.id) {
+                req.tenantId = resolved.id;
+                return next();
+              }
+            } catch { /* fall through */ }
+          }
+          // Grace period: accept integer tenantId from old JWTs
+          if (typeof payload.tenantId === 'number' && payload.tenantId > 0) {
+            req.tenantId = payload.tenantId;
+            return next();
+          }
         }
       }
     } catch { /* not a valid admin JWT — may be a user JWT, continue */ }
@@ -110,6 +155,17 @@ async function tenantContext(req, res, next) {
   // 2. Check X-Tenant-Id header (internal cron requests — validate cron secret)
   const tenantIdHeader = req.headers['x-tenant-id'];
   if (tenantIdHeader && cronSecret && safeCompare(req.headers['x-cron-secret'], cronSecret)) {
+    // Accept UUID format
+    if (UUID_RE.test(tenantIdHeader)) {
+      try {
+        const resolved = await resolveUuidToId(tenantIdHeader);
+        if (resolved.id) {
+          req.tenantId = resolved.id;
+          return next();
+        }
+      } catch { /* fall through */ }
+    }
+    // Grace period: accept integer format from old cron callers
     const parsed = parseInt(tenantIdHeader, 10);
     if (parsed > 0) {
       req.tenantId = parsed;
@@ -122,7 +178,7 @@ async function tenantContext(req, res, next) {
     if (result.suspended) {
       return res.status(403).json({ error: 'This site has been suspended' });
     }
-    req.tenantId = result.id || 1;
+    req.tenantId = result.id || platformId;
     next();
   }
 
@@ -131,7 +187,7 @@ async function tenantContext(req, res, next) {
   if (slug) {
     resolveTenantId(slug)
       .then(handleResolved)
-      .catch(() => { req.tenantId = 1; next(); });
+      .catch(() => { req.tenantId = platformId; next(); });
     return;
   }
 
@@ -145,21 +201,21 @@ async function tenantContext(req, res, next) {
       if (subMatch && subMatch[1] !== 'www' && subMatch[1] !== 'staging' && subMatch[1] !== 'portal' && subMatch[1] !== 'portal-staging' && subMatch[1] !== 'platform' && subMatch[1] !== 'platform-staging') {
         resolveTenantId(subMatch[1])
           .then(handleResolved)
-          .catch(() => { req.tenantId = 1; next(); });
+          .catch(() => { req.tenantId = platformId; next(); });
         return;
       }
       // Check custom domains
       if (!hostname.includes('deepfeedai.com') && !hostname.includes('localhost') && !hostname.match(/^(127\.|192\.168\.|10\.)/)) {
         resolveCustomDomain(hostname)
           .then(handleResolved)
-          .catch(() => { req.tenantId = 1; next(); });
+          .catch(() => { req.tenantId = platformId; next(); });
         return;
       }
     } catch { /* invalid URL, ignore */ }
   }
 
-  // 5. Fallback to original site
-  req.tenantId = 1;
+  // 5. Fallback to platform tenant
+  req.tenantId = platformId;
   next();
 }
 
@@ -171,4 +227,8 @@ function invalidateDomainCache(domain) {
   if (domain) domainCache.delete(domain);
 }
 
-module.exports = { tenantContext, invalidateSlugCache, invalidateDomainCache };
+function invalidateUuidCache(uuid) {
+  if (uuid) uuidCache.delete(uuid);
+}
+
+module.exports = { tenantContext, invalidateSlugCache, invalidateDomainCache, invalidateUuidCache, UUID_RE };

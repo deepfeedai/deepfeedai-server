@@ -517,9 +517,9 @@ async function initDb() {
       ('business', NULL, NULL, NULL, 50.00, true, true)
      ON CONFLICT (plan) DO NOTHING`,
     // Seed the original site as tenant_id=1 so existing data (DEFAULT 1) maps correctly
-    `INSERT INTO tenants (id, slug, display_name, plan, status)
-     VALUES (1, 'deepfeedai', 'Deep Feed AI', 'business', 'active')
-     ON CONFLICT (id) DO NOTHING`,
+    `INSERT INTO tenants (id, slug, display_name, plan, status, is_platform)
+     VALUES (1, 'deepfeedai', 'Deep Feed AI', 'business', 'active', true)
+     ON CONFLICT (id) DO UPDATE SET is_platform = true`,
     // Fix cache table PKs: cache_key alone → (tenant_id, cache_key) compound PK
     `ALTER TABLE summary_cache DROP CONSTRAINT IF EXISTS summary_cache_pkey`,
     `DO $$ BEGIN
@@ -714,6 +714,13 @@ async function initDb() {
      ON CONFLICT (plan) DO NOTHING`,
     `UPDATE plan_limits SET max_sources = 10, max_writers = 4, max_articles_month = 250 WHERE plan = 'starter'`,
     `DELETE FROM plan_limits WHERE plan IN ('demo', 'trial')`,
+    // Phase 7: Tenant UUID + is_platform for IDOR prevention
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS uuid UUID DEFAULT gen_random_uuid()`,
+    `UPDATE tenants SET uuid = gen_random_uuid() WHERE uuid IS NULL`,
+    `ALTER TABLE tenants ALTER COLUMN uuid SET NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_uuid ON tenants(uuid)`,
+    `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_platform BOOLEAN DEFAULT false`,
+    `UPDATE tenants SET is_platform = true WHERE id = 1`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

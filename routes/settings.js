@@ -13,6 +13,7 @@ const { settingsUpdate, validate } = require('../lib/schemas');
 const { encryptSetting, decryptSetting, SENSITIVE_KEYS } = require('../lib/crypto');
 const { bustSiteConfigCache } = require('../lib/site-config');
 const { bustAppConfigCache } = require('../lib/app-config');
+const { getPlatformTenantId } = require('../lib/platform-tenant');
 const { requirePlatformAdmin } = require('../middleware/permissions');
 
 // Keys that are managed by lib/secrets.js and must never be returned to the frontend
@@ -127,10 +128,11 @@ const { bustGeminiKeyCache } = require('../lib/gemini-config');
 
 // GET /api/settings/platform-storage — platform admin reads platform config
 router.get('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler(async (req, res) => {
-  const placeholders = PLATFORM_KEYS.map((_, i) => `$${i + 1}`).join(', ');
+  const platformId = await getPlatformTenantId();
+  const placeholders = PLATFORM_KEYS.map((_, i) => `$${i + 2}`).join(', ');
   const rows = await db.prepare(
-    `SELECT key, value FROM settings WHERE tenant_id = 1 AND key IN (${placeholders})`
-  ).all(...PLATFORM_KEYS);
+    `SELECT key, value FROM settings WHERE tenant_id = $1 AND key IN (${placeholders})`
+  ).all(platformId, ...PLATFORM_KEYS);
 
   const result = { backend: storage.backendName };
   for (const row of rows) {
@@ -152,11 +154,12 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
   for (const [key, value] of Object.entries(body)) {
     if (!PLATFORM_KEYS.includes(key)) continue;
     const stored = SENSITIVE_KEYS.has(key) && value ? encryptSetting(value) : value;
+    const platformId = await getPlatformTenantId();
     await pool.query(
       `INSERT INTO settings (tenant_id, key, value, updated_at)
-       VALUES (1, $1, $2, NOW())
+       VALUES ($1, $2, $3, NOW())
        ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [key, stored]
+      [platformId, key, stored]
     );
     savedKeys.push(key);
   }
@@ -173,10 +176,11 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
 // GET /api/settings/storage-status — any admin reads storage status (no credentials)
 router.get('/storage-status', requireAdmin, asyncHandler(async (req, res) => {
   const backend = storage.backendName;
-  // Check if R2 is configured (platform-level, tenant_id=1)
+  // Check if R2 is configured (platform-level)
+  const platformId = await getPlatformTenantId();
   const r2Row = await db.prepare(
-    `SELECT value FROM settings WHERE tenant_id = 1 AND key = 'r2_bucket_name'`
-  ).get();
+    `SELECT value FROM settings WHERE tenant_id = $1 AND key = 'r2_bucket_name'`
+  ).get(platformId);
   const r2Configured = !!(r2Row && r2Row.value);
 
   // Get tenant storage usage

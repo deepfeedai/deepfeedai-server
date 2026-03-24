@@ -44,7 +44,7 @@ const summaryLimiter = rateLimit({
   max:            30,
   standardHeaders: true,
   legacyHeaders:   false,
-  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
+  keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many summary requests. Please try again later.' },
   validate:       false,
 });
@@ -54,7 +54,7 @@ const publicApiLimiter = rateLimit({
   max:            120,
   standardHeaders: true,
   legacyHeaders:   false,
-  keyGenerator:   (req) => `${req.tenantId || 1}:${req.ip}`,
+  keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
   validate:       false,
 });
@@ -172,8 +172,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
 const { tenantContext } = require('./middleware/tenant');
+const { getPlatformTenantId } = require('./lib/platform-tenant');
 if (SINGLE_TENANT) {
-  app.use('/api', (req, _res, next) => { req.tenantId = 1; next(); });
+  app.use('/api', async (req, _res, next) => {
+    req.tenantId = await getPlatformTenantId();
+    next();
+  });
 } else {
   app.use('/api', tenantContext);
 }
@@ -474,12 +478,15 @@ registerJob({
     if (!resendKey || !audienceId) return { skipped: 'Resend not configured' };
     console.log(`[Cron] Sending weekly newsletter (tenant ${tenantId})...`);
     const { cronSecret } = await getSecrets();
+    // Look up tenant UUID for the X-Tenant-Id header
+    const tenantRow = await db.prepare('SELECT uuid FROM tenants WHERE id = $1').get(tenantId);
+    const tenantIdHeader = tenantRow?.uuid || String(tenantId); // grace fallback
     const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
       method:  'POST',
       headers: {
         'Content-Type':   'application/json',
         'x-cron-secret':  cronSecret || '',
-        'X-Tenant-Id':    String(tenantId),
+        'X-Tenant-Id':    tenantIdHeader,
       },
       body: JSON.stringify({}),
     });
