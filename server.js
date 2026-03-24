@@ -164,7 +164,7 @@ const largeBodyParser = express.json({ limit: '2mb' });
 
 // ── Signup subdomain routing ────────────────────────────────────────
 // Must be BEFORE express.static so index.html doesn't get served for '/'.
-// When accessed via signup.deepfeedai.com or signup-staging.deepfeedai.com,
+// When accessed via signup.deepfeedai.com or signup.staging.deepfeedai.com,
 // serve signup.html as the default page instead of index.html.
 const SIGNUP_HOSTS = new Set([
   'signup.deepfeedai.com',
@@ -172,12 +172,6 @@ const SIGNUP_HOSTS = new Set([
 ]);
 app.use((req, res, next) => {
   const host = (req.hostname || '').toLowerCase();
-  const rawHost = (req.headers.host || '').toLowerCase();
-  const fwdHost = (req.headers['x-forwarded-host'] || '').toLowerCase();
-  // Debug: log hostname resolution for signup requests
-  if (rawHost.includes('signup') || fwdHost.includes('signup') || host.includes('signup')) {
-    console.log(`[signup-route] hostname=${host} rawHost=${rawHost} fwdHost=${fwdHost} path=${req.path} match=${SIGNUP_HOSTS.has(host)}`);
-  }
   if (SIGNUP_HOSTS.has(host) && !req.path.startsWith('/api') && !req.path.includes('.')) {
     return res.sendFile(path.join(__dirname, 'public', 'signup.html'));
   }
