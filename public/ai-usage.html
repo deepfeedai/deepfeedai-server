@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — AI Usage & Costs</title>
+  <title>DeepFeedAI Admin — AI Usage</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
     .spark-chart {
@@ -114,158 +114,164 @@
 <div class="admin-layout">
   <!-- Main -->
   <main class="main-content">
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">AI Usage & Costs</h1>
-        <p class="page-subtitle">Track API spend across all providers</p>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <div class="range-tabs" id="rangeTabs">
-          <button class="range-tab" data-range="7d">7d</button>
-          <button class="range-tab active" data-range="30d">30d</button>
-          <button class="range-tab" data-range="90d">90d</button>
-        </div>
-        <button class="btn btn-primary" id="refreshBtn">Refresh</button>
-      </div>
-    </div>
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <div class="topbar-title">AI Usage</div>
+      <span id="topbarUser" class="topbar-user"></span>
+    </header>
+    <div class="page-body">
 
-    <!-- Stat cards -->
-    <div class="stats-grid" id="statCards">
-      <div class="stat-card">
-        <div class="stat-label">Period Spend</div>
-        <div class="stat-value" id="statCost">--</div>
-        <div class="stat-delta" id="statBudgetBar"></div>
+      <!-- Controls -->
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:var(--space-4);">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div class="range-tabs" id="rangeTabs">
+            <button class="range-tab" data-range="7d">7d</button>
+            <button class="range-tab active" data-range="30d">30d</button>
+            <button class="range-tab" data-range="90d">90d</button>
+          </div>
+          <button class="btn btn-primary" id="refreshBtn">Refresh</button>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">API Calls</div>
-        <div class="stat-value" id="statCalls">--</div>
-        <div class="stat-delta" id="statCallsDelta"></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Total Tokens</div>
-        <div class="stat-value" id="statTokens">--</div>
-        <div class="stat-delta">input + output</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Success Rate</div>
-        <div class="stat-value" id="statSuccess">--</div>
-        <div class="stat-delta" id="statSuccessDelta"></div>
-      </div>
-    </div>
 
-    <!-- Cost efficiency -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px;">
-      <div class="stat-card" style="text-align:center;">
-        <div class="stat-label">Cost per Article</div>
-        <div class="stat-value" id="statCostPerArticle">--</div>
-        <div class="stat-delta" id="statArticleCount"></div>
+      <!-- Stat cards -->
+      <div class="dash-section-label">Overview</div>
+      <div class="stat-grid" id="statCards">
+        <div class="stat-card">
+          <div class="stat-label">Credits Used</div>
+          <div class="stat-value" id="statCredits">--</div>
+          <div class="stat-delta" id="statCreditsDelta"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">API Calls</div>
+          <div class="stat-value" id="statCalls">--</div>
+          <div class="stat-delta" id="statCallsDelta"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Tokens</div>
+          <div class="stat-value" id="statTokens">--</div>
+          <div class="stat-delta">input + output</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Success Rate</div>
+          <div class="stat-value" id="statSuccess">--</div>
+          <div class="stat-delta" id="statSuccessDelta"></div>
+        </div>
       </div>
-      <div class="stat-card" style="text-align:center;">
-        <div class="stat-label">Cost per 1K Views</div>
-        <div class="stat-value" id="statCostPerViews">--</div>
-        <div class="stat-delta" id="statViewCount"></div>
-      </div>
-      <div class="stat-card" style="text-align:center;">
-        <div class="stat-label">Most Expensive Article</div>
-        <div class="stat-value" id="statTopExpensiveCost">--</div>
-        <div class="stat-delta" id="statTopExpensiveSlug" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px auto 0;"></div>
-      </div>
-    </div>
 
-    <!-- Budget card -->
-    <div class="card-section" style="margin-top:20px;">
-      <div class="section-header">
-        <h2 class="section-title">Monthly Budget</h2>
-        <span class="text-muted text-sm" id="budgetLabel">--</span>
-      </div>
-      <div class="card-body" style="padding:16px 20px;">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-          <span id="budgetSpent">$0.00 spent</span>
-          <span id="budgetLimit">$50.00 limit</span>
+      <!-- Credit efficiency -->
+      <div class="dash-section-label">Efficiency</div>
+      <div class="stat-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="stat-card" style="text-align:center;">
+          <div class="stat-label">Credits per Article</div>
+          <div class="stat-value" id="statCreditsPerArticle">--</div>
+          <div class="stat-delta" id="statArticleCount"></div>
         </div>
-        <div class="budget-meter">
-          <div class="budget-fill" id="budgetFill" style="width:0%;background:#22c55e;"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-          <span id="budgetToday">Today: $0.00</span>
-          <span id="budgetProjected">Projected: $0.00/mo</span>
+        <div class="stat-card" style="text-align:center;">
+          <div class="stat-label">Most Active Article</div>
+          <div class="stat-value" id="statTopArticleCredits">--</div>
+          <div class="stat-delta" id="statTopArticleSlug" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px auto 0;"></div>
         </div>
       </div>
-    </div>
 
-    <!-- ElevenLabs usage -->
-    <div class="card-section" style="margin-top:20px;" id="elCard" hidden>
-      <div class="section-header">
-        <h2 class="section-title">ElevenLabs Usage</h2>
-        <span class="text-muted text-sm" id="elTier">--</span>
-      </div>
-      <div class="card-body" style="padding:16px 20px;">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-          <span id="elUsed">0 / 0 characters</span>
-          <span id="elPct">0%</span>
-        </div>
-        <div class="budget-meter">
-          <div class="budget-fill" id="elFill" style="width:0%;background:#8B5CF6;"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-          <span id="elVoices">Voices: --</span>
-          <span id="elReset">Resets: --</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Daily spend chart -->
-    <div class="card-section" style="margin-top:20px;">
-      <div class="section-header">
-        <h2 class="section-title">Daily Spend</h2>
-      </div>
-      <div class="card-body" style="padding:16px 20px 12px;">
-        <div class="spark-chart" id="sparkChart">
-          <div style="color:var(--text-muted);font-size:13px;align-self:center;">Loading...</div>
-        </div>
-        <div class="spark-x-labels" id="sparkLabels"></div>
-      </div>
-    </div>
-
-    <!-- Two-column: by provider + by operation -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
-      <div class="card-section">
+      <!-- Credits card -->
+      <div class="dash-section-label">Budget</div>
+      <div class="card-section" style="margin-bottom:28px;">
         <div class="section-header">
-          <h2 class="section-title">By Provider</h2>
+          <h2 class="section-title">Monthly Credits</h2>
+          <span class="text-muted text-sm" id="creditsLabel">--</span>
         </div>
-        <div style="padding:16px;" id="providerBars">
-          <div class="text-muted text-sm">Loading...</div>
+        <div class="card-body" style="padding:16px 20px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+            <span id="creditsUsed">0 used</span>
+            <span id="creditsLimit">0 limit</span>
+          </div>
+          <div class="budget-meter">
+            <div class="budget-fill" id="creditsFill" style="width:0%;background:#22c55e;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+            <span id="creditsToday">Today: 0 cr</span>
+            <span id="creditsRemaining">Remaining: 0 cr</span>
+          </div>
         </div>
       </div>
-      <div class="card-section">
-        <div class="section-header">
-          <h2 class="section-title">By Operation</h2>
-        </div>
-        <div style="padding:16px;" id="operationBars">
-          <div class="text-muted text-sm">Loading...</div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Recent errors -->
-    <div class="card-section" style="margin-top:20px;">
-      <div class="section-header">
-        <h2 class="section-title">Recent Errors</h2>
-        <span class="text-muted text-sm" id="errorCount">--</span>
+      <!-- ElevenLabs usage -->
+      <div class="card-section" style="margin-bottom:28px;" id="elCard" hidden>
+        <div class="section-header">
+          <h2 class="section-title">ElevenLabs Usage</h2>
+          <span class="text-muted text-sm" id="elTier">--</span>
+        </div>
+        <div class="card-body" style="padding:16px 20px;">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+            <span id="elUsed">0 / 0 characters</span>
+            <span id="elPct">0%</span>
+          </div>
+          <div class="budget-meter">
+            <div class="budget-fill" id="elFill" style="width:0%;background:#8B5CF6;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+            <span id="elVoices">Voices: --</span>
+            <span id="elReset">Resets: --</span>
+          </div>
+        </div>
       </div>
-      <div style="overflow-x:auto;">
-        <table class="data-table" id="errorsTable">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Operation</th>
-              <th>Error</th>
-            </tr>
-          </thead>
-          <tbody id="errorsTbody">
-            <tr><td colspan="3" class="text-muted text-center" style="padding:24px;">Loading...</td></tr>
-          </tbody>
-        </table>
+
+      <!-- Daily usage chart -->
+      <div class="dash-section-label">Trends</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Daily Usage</h2>
+        </div>
+        <div class="card-body" style="padding:16px 20px 12px;">
+          <div class="spark-chart" id="sparkChart">
+            <div style="color:var(--text-muted);font-size:13px;align-self:center;">Loading...</div>
+          </div>
+          <div class="spark-x-labels" id="sparkLabels"></div>
+        </div>
+      </div>
+
+      <!-- Two-column: by provider + by operation -->
+      <div class="dash-section-label">Breakdown</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:28px;">
+        <div class="card-section">
+          <div class="section-header">
+            <h2 class="section-title">By Provider</h2>
+          </div>
+          <div style="padding:16px;" id="providerBars">
+            <div class="text-muted text-sm">Loading...</div>
+          </div>
+        </div>
+        <div class="card-section">
+          <div class="section-header">
+            <h2 class="section-title">By Operation</h2>
+          </div>
+          <div style="padding:16px;" id="operationBars">
+            <div class="text-muted text-sm">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent errors -->
+      <div class="dash-section-label">Errors</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Recent Errors</h2>
+          <span class="text-muted text-sm" id="errorCount">--</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="errorsTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Operation</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="errorsTbody">
+              <tr><td colspan="3" class="text-muted text-center" style="padding:24px;">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </main>

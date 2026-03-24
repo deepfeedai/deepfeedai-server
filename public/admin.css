@@ -274,6 +274,29 @@ code {
   font-size: 13px;
 }
 
+/* ── Credit widget (topbar pill) ─────────────── */
+.credit-widget {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  background: rgba(136,136,136,0.12);
+  color: var(--muted);
+}
+.credit-widget:hover { opacity: 0.8; }
+.cw-ring { width: 22px; height: 22px; flex-shrink: 0; }
+.credit-widget-pct { font-variant-numeric: tabular-nums; }
+.credit-widget.credit-ok   { background: var(--success-dim); color: var(--success); }
+.credit-widget.credit-warn { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.credit-widget.credit-crit { background: var(--danger-dim); color: var(--danger); }
+
 .hamburger {
   display: none;
   background: none;
@@ -368,6 +391,13 @@ code {
   margin-bottom: var(--space-4);
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
+}
+
+.card-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-5);
 }
 
 .section-header {
@@ -1520,6 +1550,10 @@ kbd {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
 
   .topbar { padding: 0 var(--space-4); }
+
+  .credit-widget-credits { display: none; }
+  .credit-widget-dot { display: none; }
+  .credit-widget { padding: 4px 8px; font-size: var(--text-xs); }
 
   .td-title { max-width: 140px; }
 

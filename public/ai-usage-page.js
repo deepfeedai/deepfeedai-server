@@ -1,4 +1,4 @@
-/* Deep Feed AI Admin — AI Usage & Costs page */
+/* Deep Feed AI Admin — AI Usage page */
 (function () {
   'use strict';
 
@@ -93,42 +93,46 @@
     const b = data.budget || {};
 
     // Stat cards
-    document.getElementById('statCost').textContent = '$' + parseFloat(t.estimated_cost || 0).toFixed(2);
+    const totalCredits = parseInt(t.total_credits) || 0;
+    document.getElementById('statCredits').textContent = fmt(totalCredits) + ' cr';
+    document.getElementById('statCreditsDelta').textContent = 'this period';
     document.getElementById('statCalls').textContent = fmt(parseInt(t.api_calls) || 0);
     document.getElementById('statTokens').textContent = fmt(parseInt(t.total_tokens) || 0);
     document.getElementById('statSuccess').textContent = (parseFloat(t.success_rate) || 0) + '%';
 
-    // Cost efficiency
+    // Credit efficiency
     const eff = data.efficiency || {};
-    document.getElementById('statCostPerArticle').textContent = '$' + parseFloat(eff.cost_per_article || 0).toFixed(4);
-    document.getElementById('statCostPerViews').textContent = '$' + parseFloat(eff.cost_per_1k_views || 0).toFixed(4);
+    document.getElementById('statCreditsPerArticle').textContent = fmt(eff.credits_per_article || 0) + ' cr';
     document.getElementById('statArticleCount').textContent = (eff.published_articles || 0) + ' articles published';
-    document.getElementById('statViewCount').textContent = fmt(eff.total_views || 0) + ' views';
 
-    const topExp = (eff.top_expensive_articles || [])[0];
-    if (topExp) {
-      document.getElementById('statTopExpensiveCost').textContent = '$' + parseFloat(topExp.cost).toFixed(4);
-      const title = topExp.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      document.getElementById('statTopExpensiveSlug').textContent = title;
-      document.getElementById('statTopExpensiveSlug').title = title;
+    const topArt = (eff.top_expensive_articles || [])[0];
+    if (topArt) {
+      document.getElementById('statTopArticleCredits').textContent = fmt(parseInt(topArt.credits) || 0) + ' cr';
+      const title = topArt.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      document.getElementById('statTopArticleSlug').textContent = title;
+      document.getElementById('statTopArticleSlug').title = title;
     } else {
-      document.getElementById('statTopExpensiveCost').textContent = '--';
-      document.getElementById('statTopExpensiveSlug').textContent = 'no data';
+      document.getElementById('statTopArticleCredits').textContent = '--';
+      document.getElementById('statTopArticleSlug').textContent = 'no data';
     }
 
-    // Budget
-    const pct = Math.min(b.percent_used || 0, 100);
-    document.getElementById('budgetSpent').textContent = '$' + parseFloat(b.current_spend || 0).toFixed(2) + ' spent';
-    document.getElementById('budgetLimit').textContent = '$' + parseFloat(b.monthly_limit || 50).toFixed(2) + ' limit';
-    document.getElementById('budgetToday').textContent = 'Today: $' + parseFloat(b.today_spend || 0).toFixed(2);
-    document.getElementById('budgetProjected').textContent = 'Projected: $' + parseFloat(b.projected_monthly || 0).toFixed(2) + '/mo';
-    document.getElementById('budgetLabel').textContent = pct + '% used this month';
+    // Monthly credits
+    const creditsUsed = parseInt(b.credits_used_month) || 0;
+    const creditsLimit = parseInt(b.credits_limit_month) || 0;
+    const creditsPct = Math.min(b.credits_percent_used || 0, 100);
+    const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
 
-    const fill = document.getElementById('budgetFill');
-    fill.style.width = pct + '%';
-    fill.style.background = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#22c55e';
+    document.getElementById('creditsUsed').textContent = fmt(creditsUsed) + ' used';
+    document.getElementById('creditsLimit').textContent = fmt(creditsLimit) + ' limit';
+    document.getElementById('creditsToday').textContent = 'Today: ' + fmt(parseInt(b.credits_used_today) || 0) + ' cr';
+    document.getElementById('creditsRemaining').textContent = 'Remaining: ' + fmt(creditsRemaining) + ' cr';
+    document.getElementById('creditsLabel').textContent = Math.round(creditsPct) + '% used this month';
 
-    // Daily spend sparkline
+    const fill = document.getElementById('creditsFill');
+    fill.style.width = creditsPct + '%';
+    fill.style.background = creditsPct >= 90 ? '#ef4444' : creditsPct >= 70 ? '#f59e0b' : '#22c55e';
+
+    // Daily usage sparkline
     renderSparkline(data.by_day || []);
 
     // Provider bars
@@ -158,13 +162,13 @@
       d.setUTCDate(d.getUTCDate() - i);
       const key = d.toISOString().slice(0, 10);
       const match = byDay.find(r => r.day && r.day.slice(0, 10) === key);
-      filled.push({ day: key, cost: match ? parseFloat(match.cost) : 0 });
+      filled.push({ day: key, credits: match ? parseInt(match.credits) || 0 : 0 });
     }
 
-    const max = Math.max(...filled.map(r => r.cost), 0.01);
+    const max = Math.max(...filled.map(r => r.credits), 1);
     chart.innerHTML = filled.map(r => {
-      const pct = Math.max(Math.round((r.cost / max) * 100), 2);
-      return `<div class="spark-bar" style="height:${pct}%" title="${shortDate(r.day)}: $${r.cost.toFixed(4)}"></div>`;
+      const pct = Math.max(Math.round((r.credits / max) * 100), 2);
+      return `<div class="spark-bar" style="height:${pct}%" title="${shortDate(r.day)}: ${fmt(r.credits)} cr"></div>`;
     }).join('');
 
     const mid = Math.floor(filled.length / 2);
@@ -178,10 +182,10 @@
       return;
     }
 
-    const maxCost = Math.max(...items.map(i => parseFloat(i.cost)), 0.01);
+    const maxCredits = Math.max(...items.map(i => parseInt(i.credits) || 0), 1);
     container.innerHTML = items.map(item => {
-      const cost = parseFloat(item.cost);
-      const pct = Math.round((cost / maxCost) * 100);
+      const credits = parseInt(item.credits) || 0;
+      const pct = Math.round((credits / maxCredits) * 100);
       const name = item[nameKey] || 'unknown';
       const color = PROVIDER_COLORS[name] || '#4F8EF7';
       return `
@@ -190,7 +194,7 @@
           <div class="bar-track">
             <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
           </div>
-          <div class="bar-value">$${cost.toFixed(4)}</div>
+          <div class="bar-value">${fmt(credits)} cr</div>
         </div>`;
     }).join('');
   }

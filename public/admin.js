@@ -231,6 +231,115 @@ function renderSidebar() {
       }
     } catch (e) { /* ignore */ }
   }
+
+  // Inject credit widget into topbar
+  renderCreditWidget();
+}
+
+// ── Credit widget (topbar donut ring) ────────────────────
+const CREDIT_CACHE_KEY = 'dfa_credit_cache';
+const CREDIT_CACHE_TTL = 60000;
+const CW_CIRCUMFERENCE = 2 * Math.PI * 8; // r=8 → ~50.27
+
+function cwRingSvg() {
+  return '<svg class="cw-ring" width="22" height="22" viewBox="0 0 22 22">'
+    + '<circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="3" opacity="0.2" />'
+    + '<circle class="cw-arc" cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="3"'
+    + ' stroke-dasharray="' + CW_CIRCUMFERENCE.toFixed(2) + '"'
+    + ' stroke-dashoffset="' + CW_CIRCUMFERENCE.toFixed(2) + '"'
+    + ' stroke-linecap="round" transform="rotate(-90 11 11)" />'
+    + '</svg>';
+}
+
+function renderCreditWidget() {
+  if (document.getElementById('creditWidget')) return;
+  var topbar = document.querySelector('.topbar');
+  if (!topbar) return;
+  var userEl = document.getElementById('topbarUser');
+
+  var widget = document.createElement('a');
+  widget.id = 'creditWidget';
+  widget.href = '/ai-usage.html';
+  widget.className = 'credit-widget';
+  widget.title = 'AI Credits';
+  widget.innerHTML = cwRingSvg()
+    + '<span class="credit-widget-pct">--%</span>'
+    + '<span class="credit-widget-dot">&middot;</span>'
+    + '<span class="credit-widget-credits">--</span>';
+
+  if (userEl) topbar.insertBefore(widget, userEl);
+  else topbar.appendChild(widget);
+
+  loadCreditData();
+}
+
+function formatCredits(n) {
+  if (n >= 10000) return (n / 1000).toFixed(1) + 'k';
+  return n.toLocaleString();
+}
+
+function updateCreditWidget(data) {
+  var widget = document.getElementById('creditWidget');
+  if (!widget) return;
+
+  // Hide if plan has no credit allocation at all
+  if (data.monthlyAllocation <= 0 && data.totalAvailable <= 0) {
+    widget.style.display = 'none';
+    return;
+  }
+
+  widget.style.display = '';
+
+  // Update donut arc
+  var pct = Math.min(data.percentUsed, 100);
+  var offset = CW_CIRCUMFERENCE * (1 - pct / 100);
+  var arc = widget.querySelector('.cw-arc');
+  if (arc) arc.setAttribute('stroke-dashoffset', offset.toFixed(2));
+
+  // Update text
+  widget.querySelector('.credit-widget-pct').textContent = Math.round(pct) + '%';
+  widget.querySelector('.credit-widget-credits').textContent = formatCredits(data.totalAvailable) + ' cr';
+
+  // Color coding
+  widget.classList.remove('credit-ok', 'credit-warn', 'credit-crit');
+  if (pct >= 90) widget.classList.add('credit-crit');
+  else if (pct >= 70) widget.classList.add('credit-warn');
+  else widget.classList.add('credit-ok');
+
+  widget.title = data.totalAvailable.toLocaleString() + ' of '
+    + data.monthlyAllocation.toLocaleString() + ' credits remaining ('
+    + Math.round(pct) + '% used)\nClick for details';
+}
+
+async function loadCreditData() {
+  // Check sessionStorage cache
+  try {
+    var cached = JSON.parse(sessionStorage.getItem(CREDIT_CACHE_KEY));
+    if (cached && Date.now() - cached.ts < CREDIT_CACHE_TTL) {
+      updateCreditWidget(cached.data);
+      return;
+    }
+  } catch (_) {}
+
+  try {
+    var balance = await apiFetch('/credits/balance');
+    var percentUsed = balance.monthlyAllocation > 0
+      ? Math.round((balance.usedThisMonth / balance.monthlyAllocation) * 100)
+      : 0;
+
+    var data = {
+      totalAvailable: balance.totalAvailable || 0,
+      monthlyAllocation: balance.monthlyAllocation || 0,
+      usedThisMonth: balance.usedThisMonth || 0,
+      percentUsed: percentUsed,
+    };
+
+    sessionStorage.setItem(CREDIT_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+    updateCreditWidget(data);
+  } catch (err) {
+    // Widget shows neutral placeholder — non-fatal
+    console.warn('[credit-widget]', err.message);
+  }
 }
 
 function initSidebar() {
