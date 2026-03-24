@@ -75,6 +75,7 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
     prevViews,
     prevAudio,
     prevShares,
+    quotaData,
   ] = await Promise.all([
     // Views for current range
     pool.query(`
@@ -162,18 +163,56 @@ router.get('/summary', auth, requirePermission('analytics.read'), asyncHandler(a
         AND created_at >= NOW() - INTERVAL '${prevInterval}'
         AND created_at < NOW() - INTERVAL '${rangeInterval}'
     `, [tenantId]),
+
+    // Quota usage: articles this month, plan limits, storage
+    pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM articles WHERE tenant_id = $1
+          AND created_at >= DATE_TRUNC('month', NOW())) AS articles_this_month,
+        (SELECT pl.max_articles_month FROM tenants t
+          JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1) AS max_articles,
+        (SELECT pl.max_ai_cost_month FROM tenants t
+          JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1) AS max_ai_cost,
+        (SELECT pl.max_storage_mb FROM tenants t
+          JOIN plan_limits pl ON pl.plan = t.plan WHERE t.id = $1) AS max_storage_mb,
+        (SELECT COALESCE(SUM(estimated_cost), 0) FROM ai_usage WHERE tenant_id = $1
+          AND created_at >= DATE_TRUNC('month', NOW())) AS ai_spend_this_month,
+        (SELECT COALESCE(bytes_used, 0) FROM tenant_storage_usage WHERE tenant_id = $1) AS storage_bytes
+    `, [tenantId]),
   ]);
+
+  const viewsPeriod = parseInt(totals.rows[0].views_period) || 0;
+  const audioPeriod = parseInt(periodAudio.rows[0].total)   || 0;
+  const sharesPeriod = parseInt(periodShares.rows[0].total) || 0;
+
+  // Quota
+  const q = quotaData.rows[0] || {};
+  const articlesUsed   = parseInt(q.articles_this_month) || 0;
+  const articlesLimit  = parseInt(q.max_articles) || 0;
+  const aiSpendUsed    = parseFloat(q.ai_spend_this_month) || 0;
+  const aiSpendLimit   = parseFloat(q.max_ai_cost) || 0;
+  const storageMbUsed  = (parseInt(q.storage_bytes) || 0) / (1024 * 1024);
+  const storageMbLimit = parseInt(q.max_storage_mb) || 0;
 
   res.json({
     range: req.query.range || '30d',
     totals: {
-      views:           parseInt(totals.rows[0].total_views)   || 0,
-      views_period:    parseInt(totals.rows[0].views_period)  || 0,
-      audio_plays:     parseInt(periodAudio.rows[0].total)    || 0,
-      shares:          parseInt(periodShares.rows[0].total)   || 0,
-      views_prev:      parseInt(prevViews.rows[0].total)      || 0,
-      audio_plays_prev: parseInt(prevAudio.rows[0].total)     || 0,
-      shares_prev:     parseInt(prevShares.rows[0].total)     || 0,
+      views:           parseInt(totals.rows[0].total_views) || 0,
+      views_period:    viewsPeriod,
+      audio_plays:     audioPeriod,
+      shares:          sharesPeriod,
+      views_prev:      parseInt(prevViews.rows[0].total)  || 0,
+      audio_plays_prev: parseInt(prevAudio.rows[0].total) || 0,
+      shares_prev:     parseInt(prevShares.rows[0].total) || 0,
+    },
+    engagement: {
+      listen_rate: viewsPeriod > 0 ? Math.round((audioPeriod / viewsPeriod) * 1000) / 10 : 0,
+      share_rate:  viewsPeriod > 0 ? Math.round((sharesPeriod / viewsPeriod) * 1000) / 10 : 0,
+    },
+    quota: {
+      articles:  { used: articlesUsed,  limit: articlesLimit,  pct: articlesLimit  > 0 ? Math.round((articlesUsed / articlesLimit) * 1000) / 10   : 0 },
+      ai_spend:  { used: Math.round(aiSpendUsed * 100) / 100, limit: aiSpendLimit, pct: aiSpendLimit  > 0 ? Math.round((aiSpendUsed / aiSpendLimit) * 1000) / 10 : 0 },
+      storage:   { used: Math.round(storageMbUsed * 10) / 10, limit: storageMbLimit, pct: storageMbLimit > 0 ? Math.round((storageMbUsed / storageMbLimit) * 1000) / 10 : 0 },
     },
     by_day:       byDay.rows.map(r => ({ day: r.day, views: parseInt(r.views) })),
     top_articles: topArticles.rows.map(r => ({

@@ -89,6 +89,44 @@
     }
   }
 
+  /* ── Engagement ratios ──────────────────────────────────── */
+
+  function renderEngagement(engagement) {
+    document.getElementById('listenRate').textContent = engagement.listen_rate + '%';
+    document.getElementById('shareRate').textContent = engagement.share_rate + '%';
+  }
+
+  /* ── Quota gauges ──────────────────────────────────────── */
+
+  function renderQuota(quota) {
+    const el = document.getElementById('quotaGauges');
+    if (!el) return;
+
+    function gaugeColor(pct) {
+      if (pct >= 90) return '#ef4444';
+      if (pct >= 70) return '#f59e0b';
+      return '#4ade80';
+    }
+
+    function gaugeRow(label, used, limit, unit, pct) {
+      const safePct = Math.min(pct, 100);
+      return `
+        <div class="quota-row">
+          <div class="quota-label">${label}</div>
+          <div class="quota-track">
+            <div class="quota-fill" style="width:${safePct}%;background:${gaugeColor(pct)};"></div>
+          </div>
+          <div class="quota-detail">${used}${unit} / ${limit}${unit} (${pct}%)</div>
+        </div>`;
+    }
+
+    const q = quota;
+    el.innerHTML =
+      gaugeRow('Articles', q.articles.used, q.articles.limit, '', q.articles.pct) +
+      gaugeRow('AI Spend', '$' + q.ai_spend.used, '$' + q.ai_spend.limit, '', q.ai_spend.pct) +
+      gaugeRow('Storage', q.storage.used, q.storage.limit, ' MB', q.storage.pct);
+  }
+
   /* ── Charts ────────────────────────────────────────────── */
 
   let viewsChart = null;
@@ -197,6 +235,10 @@
       document.getElementById('chartTitle').textContent = `Daily Views — ${currentRange}`;
       document.getElementById('topArticlesRange').textContent = `by views, ${currentRange}`;
       document.getElementById('categoryRange').textContent = `views, ${currentRange}`;
+
+      // Engagement ratios & quota
+      renderEngagement(data.engagement || { listen_rate: 0, share_rate: 0 });
+      renderQuota(data.quota || { articles: {}, ai_spend: {}, storage: {} });
 
       // Charts
       renderViewsChart(data.by_day);

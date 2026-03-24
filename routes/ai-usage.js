@@ -21,7 +21,7 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
   const interval = `${days} days`;
 
   const tenantId = req.tenantId;
-  const [totals, byProvider, byOperation, byDay, recentErrors, budgetSettings] = await Promise.all([
+  const [totals, byProvider, byOperation, byDay, recentErrors, budgetSettings, efficiency] = await Promise.all([
     pool.query(`
       SELECT
         COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,2) AS estimated_cost,
@@ -68,6 +68,36 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
       SELECT key, value FROM settings
       WHERE tenant_id = $1 AND key IN ('ai_daily_budget', 'ai_monthly_budget', 'ai_budget_warn_pct')
     `, [tenantId]),
+
+    // Cost efficiency: cost per article, cost per 1k views, top expensive articles
+    (async () => {
+      const [articleCount, viewCount, topExpensive] = await Promise.all([
+        pool.query(`
+          SELECT COUNT(*)::INTEGER AS total FROM articles
+          WHERE tenant_id = $1 AND status = 'published'
+            AND created_at > NOW() - $2::INTERVAL
+        `, [tenantId, interval]),
+        pool.query(`
+          SELECT COUNT(*)::INTEGER AS total FROM analytics_events
+          WHERE tenant_id = $1 AND event_type = 'view'
+            AND created_at > NOW() - $2::INTERVAL
+        `, [tenantId, interval]),
+        pool.query(`
+          SELECT article_slug AS slug,
+            COALESCE(SUM(estimated_cost), 0)::NUMERIC(10,4) AS cost,
+            COUNT(*)::INTEGER AS calls
+          FROM ai_usage
+          WHERE tenant_id = $1 AND article_slug IS NOT NULL
+            AND created_at > NOW() - $2::INTERVAL
+          GROUP BY article_slug ORDER BY cost DESC LIMIT 5
+        `, [tenantId, interval]),
+      ]);
+      return {
+        published_articles: parseInt(articleCount.rows[0].total) || 0,
+        total_views: parseInt(viewCount.rows[0].total) || 0,
+        top_expensive_articles: topExpensive.rows,
+      };
+    })(),
   ]);
 
   // Parse budget settings
@@ -81,6 +111,13 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
   const dayOfMonth = new Date().getDate();
   const projectedMonthly = dayOfMonth > 0 ? (monthlySpend / dayOfMonth) * daysInMonth : 0;
+
+  // Cost efficiency
+  const totalCost = parseFloat(totals.rows[0].estimated_cost) || 0;
+  const costPerArticle = efficiency.published_articles > 0
+    ? Math.round((totalCost / efficiency.published_articles) * 10000) / 10000 : 0;
+  const costPer1kViews = efficiency.total_views > 0
+    ? Math.round((totalCost / (efficiency.total_views / 1000)) * 10000) / 10000 : 0;
 
   res.json({
     period: {
@@ -100,6 +137,13 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
       current_spend: monthlySpend,
       percent_used: monthlyBudget > 0 ? Math.round((monthlySpend / monthlyBudget) * 1000) / 10 : 0,
       projected_monthly: Math.round(projectedMonthly * 100) / 100,
+    },
+    efficiency: {
+      cost_per_article: costPerArticle,
+      cost_per_1k_views: costPer1kViews,
+      published_articles: efficiency.published_articles,
+      total_views: efficiency.total_views,
+      top_expensive_articles: efficiency.top_expensive_articles,
     },
   });
 }));
