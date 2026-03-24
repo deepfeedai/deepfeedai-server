@@ -396,15 +396,72 @@ router.post('/cancel', requireUser, asyncHandler(async (req, res) => {
   res.json({ success: true, status: 'cancelled' });
 }));
 
+// ── Stripe product cache (5 min TTL) ──────────────────────────────
+let _stripeProductCache = null;
+const STRIPE_CACHE_TTL = 5 * 60 * 1000;
+
+async function fetchStripeProducts() {
+  if (_stripeProductCache && Date.now() - _stripeProductCache.ts < STRIPE_CACHE_TTL) {
+    return _stripeProductCache.data;
+  }
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return null;
+
+  try {
+    const stripe = require('stripe')(secretKey);
+    const products = await stripe.products.list({ active: true, limit: 100 });
+    const deepfeedProducts = products.data.filter(p => p.metadata?.app === 'deepfeed' && p.metadata?.plan);
+
+    // Build map: plan name → { product_id, name, description, features, default_price }
+    const map = {};
+    for (const prod of deepfeedProducts) {
+      const entry = {
+        product_id: prod.id,
+        name: prod.name,
+        description: prod.description || null,
+        features: (prod.features || []).map(f => f.name),
+      };
+
+      // Resolve default price for interval + amount
+      if (prod.default_price) {
+        try {
+          const price = typeof prod.default_price === 'string'
+            ? await stripe.prices.retrieve(prod.default_price)
+            : prod.default_price;
+          entry.price_id = price.id;
+          entry.price_cents = price.unit_amount;
+          entry.interval = price.recurring?.interval || null;
+        } catch { /* price lookup failed — skip pricing info */ }
+      }
+
+      map[prod.metadata.plan] = entry;
+    }
+
+    _stripeProductCache = { data: map, ts: Date.now() };
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/tenants/plans — public plan info for signup page (no auth required)
 router.get('/plans', asyncHandler(async (req, res) => {
-  const plans = await db.prepare(`
-    SELECT plan, max_sources, max_writers, max_credits_month,
-           audio_enabled, custom_domain_enabled, COALESCE(price_cents, 0) AS price_cents
-    FROM plan_limits
-    WHERE plan IN ('free', 'starter', 'pro', 'business')
-    ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 END
-  `).all();
+  const [dbPlans, stripeMap] = await Promise.all([
+    db.prepare(`
+      SELECT plan, max_sources, max_writers, max_credits_month,
+             audio_enabled, custom_domain_enabled, COALESCE(price_cents, 0) AS price_cents
+      FROM plan_limits
+      WHERE plan IN ('free', 'starter', 'pro', 'business')
+      ORDER BY CASE plan WHEN 'free' THEN 1 WHEN 'starter' THEN 2 WHEN 'pro' THEN 3 WHEN 'business' THEN 4 END
+    `).all(),
+    fetchStripeProducts(),
+  ]);
+
+  const plans = dbPlans.map(p => ({
+    ...p,
+    stripe: stripeMap?.[p.plan] || null,
+  }));
+
   res.json({ plans });
 }));
 

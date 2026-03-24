@@ -173,6 +173,19 @@ onReady(async () => {
     return dollars % 1 === 0 ? `$${dollars}/mo` : `$${dollars.toFixed(2)}/mo`;
   }
 
+  function buildFeaturesFromLimits(limit) {
+    const features = [];
+    if (limit.max_sources) features.push(`${limit.max_sources} sources`);
+    else features.push('Unlimited sources');
+    if (limit.max_writers) features.push(`${limit.max_writers} writers`);
+    else features.push('Unlimited writers');
+    if (limit.max_credits_month) features.push(`${limit.max_credits_month.toLocaleString()} AI credits/mo`);
+    else features.push('Unlimited AI credits');
+    if (limit.custom_domain_enabled) features.push('Custom domain');
+    if (limit.audio_enabled) features.push('Audio generation');
+    return features;
+  }
+
   function renderPlans() {
     const grid = document.getElementById('planGrid');
     const plans = [
@@ -186,16 +199,20 @@ onReady(async () => {
     for (const p of plans) {
       const limit = planLimits.find(l => l.plan === p.id);
       if (limit) {
-        if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
-        p.features = [];
-        if (limit.max_sources) p.features.push(`${limit.max_sources} sources`);
-        else p.features.push('Unlimited sources');
-        if (limit.max_writers) p.features.push(`${limit.max_writers} writers`);
-        else p.features.push('Unlimited writers');
-        if (limit.max_credits_month) p.features.push(`${limit.max_credits_month.toLocaleString()} AI credits/mo`);
-        else p.features.push('Unlimited AI credits');
-        if (limit.custom_domain_enabled) p.features.push('Custom domain');
-        if (limit.audio_enabled) p.features.push('Audio generation');
+        // Prefer Stripe product data when available
+        if (limit.stripe) {
+          if (limit.stripe.name) p.name = limit.stripe.name;
+          if (limit.stripe.price_cents != null) p.price = formatPrice(limit.stripe.price_cents);
+          else if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
+          if (limit.stripe.features && limit.stripe.features.length) {
+            p.features = limit.stripe.features;
+          } else {
+            p.features = buildFeaturesFromLimits(limit);
+          }
+        } else {
+          if (limit.price_cents !== undefined) p.price = formatPrice(limit.price_cents);
+          p.features = buildFeaturesFromLimits(limit);
+        }
       }
     }
 
