@@ -175,10 +175,14 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     });
   }
 
+  // Validate plan selection (default to free for self-service)
+  const VALID_PLANS = ['free', 'starter', 'pro', 'business'];
+  const plan = VALID_PLANS.includes(req.body.plan) ? req.body.plan : 'free';
+
   // Create tenant
   const tenant = await db.prepare(
-    'INSERT INTO tenants (slug, display_name, owner_user_id) VALUES ($1, $2, $3) RETURNING *'
-  ).get(cleanSlug, display_name.trim(), req.user.sub);
+    'INSERT INTO tenants (slug, display_name, owner_user_id, plan) VALUES ($1, $2, $3, $4) RETURNING *'
+  ).get(cleanSlug, display_name.trim(), req.user.sub, plan);
 
   // Create tenant_admin entry
   await db.prepare(
@@ -226,7 +230,7 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
       email: req.user.email,
       displayName: req.user.displayName,
       avatarUrl: req.user.avatarUrl,
-      tenantId: tenant.id,
+      tenantId: tenant.uuid,
       tenantSlug: tenant.slug,
       role: 'owner',
       type: 'tenant-admin',

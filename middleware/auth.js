@@ -103,8 +103,8 @@ async function auth(req, res, next) {
           req.user.permissions = perms;
           _roleCache.set(cacheKey, { permissions: perms, ts: Date.now() });
         } else {
-          // No role row found — platform-admin gets full access, others get empty
-          req.user.permissions = type === 'platform-admin' ? ['*'] : [];
+          // No role row found — platform-admin and owners get full access, others get empty
+          req.user.permissions = (type === 'platform-admin' || role === 'owner') ? ['*'] : [];
         }
       } catch {
         // DB error — graceful fallback
