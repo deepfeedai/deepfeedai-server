@@ -4,6 +4,16 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0-beta.4] — 2026-03-24
+
+### Changed — Plan Limit Tuning
+- **Business plan**: set storage cap to 50 GB (was unlimited/unset), max tenants to 10 (was unset)
+- **Starter plan**: storage bumped from 500 MB to 1 GB to support ~250 articles/mo of thumbnails
+- **Pro plan**: storage bumped from 5 GB to 10 GB to accommodate audio generation
+- **Free plan**: granted 250 credits/month (25/day) so new users can preview AI features
+
+---
+
 ## [3.0.0-beta.3] — 2026-03-24
 
 ### Changed — Plan Restructure

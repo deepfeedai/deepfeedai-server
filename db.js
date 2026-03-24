@@ -514,7 +514,8 @@ async function initDb() {
       ('free', 3, 1, 25, 0.00, false, false),
       ('starter', 10, 4, 250, 5.00, false, false),
       ('pro', 50, 20, 2000, 20.00, true, true),
-      ('business', NULL, NULL, NULL, 50.00, true, true)
+      ('business', NULL, NULL, NULL, 50.00, true, true),
+      ('internal', NULL, NULL, NULL, NULL, true, true)
      ON CONFLICT (plan) DO NOTHING`,
     // Seed the original site as tenant_id=1 so existing data (DEFAULT 1) maps correctly
     `INSERT INTO tenants (id, slug, display_name, plan, status, is_platform)
@@ -724,6 +725,79 @@ async function initDb() {
     // Phase 8: Email/password registration for public users
     `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS password_hash TEXT`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_public_users_email_local ON public_users(LOWER(email)) WHERE provider = 'local'`,
+    // Phase 9: AI Credit System
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS max_credits_month INTEGER`,
+    `ALTER TABLE plan_limits ADD COLUMN IF NOT EXISTS max_credits_day INTEGER`,
+    `UPDATE plan_limits SET max_credits_month = 0,     max_credits_day = 0    WHERE plan = 'free'     AND max_credits_month IS NULL`,
+    `UPDATE plan_limits SET max_credits_month = 5000,  max_credits_day = 500  WHERE plan = 'starter'  AND max_credits_month IS NULL`,
+    `UPDATE plan_limits SET max_credits_month = 20000, max_credits_day = 2000 WHERE plan = 'pro'      AND max_credits_month IS NULL`,
+    `UPDATE plan_limits SET max_credits_month = 50000, max_credits_day = 5000 WHERE plan = 'business'  AND max_credits_month IS NULL`,
+    `UPDATE plan_limits SET max_credits_month = NULL,  max_credits_day = NULL WHERE plan = 'internal'  AND max_credits_month IS NULL`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS credits_used INTEGER DEFAULT 0`,
+    // Backfill: 1000 = CREDIT_RATE from lib/ai-usage.js (1 credit = $0.001)
+    `UPDATE ai_usage SET credits_used = ROUND(estimated_cost * 1000) WHERE credits_used = 0 AND estimated_cost > 0`,
+    `CREATE TABLE IF NOT EXISTS promo_codes (
+      id               SERIAL PRIMARY KEY,
+      code             TEXT NOT NULL UNIQUE,
+      description      TEXT,
+      type             TEXT NOT NULL DEFAULT 'flat',
+      value            NUMERIC(10,2) NOT NULL,
+      max_redemptions  INTEGER,
+      redemption_count INTEGER DEFAULT 0,
+      expires_at       TIMESTAMPTZ,
+      is_active        BOOLEAN DEFAULT true,
+      created_by       INTEGER,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS promo_redemptions (
+      id            SERIAL PRIMARY KEY,
+      tenant_id     INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      promo_code_id INTEGER NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+      bonus_credits INTEGER NOT NULL,
+      redeemed_at   TIMESTAMPTZ DEFAULT NOW(),
+      expires_at    TIMESTAMPTZ,
+      UNIQUE(tenant_id, promo_code_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_promo_redemptions_tenant ON promo_redemptions (tenant_id)`,
+    `CREATE TABLE IF NOT EXISTS credit_purchases (
+      id                    SERIAL PRIMARY KEY,
+      tenant_id             INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      credits               INTEGER NOT NULL,
+      amount_cents          INTEGER NOT NULL,
+      stripe_session_id     TEXT UNIQUE,
+      stripe_payment_intent TEXT,
+      status                TEXT NOT NULL DEFAULT 'pending',
+      purchased_by          INTEGER,
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      completed_at          TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_credit_purchases_tenant ON credit_purchases (tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_credit_purchases_session ON credit_purchases (stripe_session_id)`,
+    `CREATE TABLE IF NOT EXISTS credit_packs (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      credits     INTEGER NOT NULL,
+      price_cents INTEGER NOT NULL,
+      is_active   BOOLEAN DEFAULT true,
+      sort_order  INTEGER DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `INSERT INTO credit_packs (name, credits, price_cents, sort_order) VALUES
+      ('Starter Pack',  5000,   500,  1),
+      ('Growth Pack',   20000,  1800, 2),
+      ('Power Pack',    50000,  4000, 3)
+     ON CONFLICT DO NOTHING`,
+    // Phase 10: Plan limit tuning — fill gaps + rebalance storage/credits
+    // 10a: Set missing Business/Internal storage and tenant caps
+    `UPDATE plan_limits SET max_storage_mb = 51200 WHERE plan = 'business' AND max_storage_mb IS NULL`,
+    `UPDATE plan_limits SET max_tenants = 10     WHERE plan = 'business' AND max_tenants IS NULL`,
+    `UPDATE plan_limits SET max_storage_mb = NULL WHERE plan = 'internal' AND max_storage_mb IS NOT NULL`,
+    `UPDATE plan_limits SET max_tenants = NULL    WHERE plan = 'internal' AND max_tenants IS NOT NULL`,
+    // 10b: Rebalance storage — Starter 500→1024 MB, Pro 5000→10240 MB
+    `UPDATE plan_limits SET max_storage_mb = 1024  WHERE plan = 'starter' AND max_storage_mb = 500`,
+    `UPDATE plan_limits SET max_storage_mb = 10240 WHERE plan = 'pro'     AND max_storage_mb = 5000`,
+    // 10c: Give Free plan taster credits (250/month, 25/day)
+    `UPDATE plan_limits SET max_credits_month = 250, max_credits_day = 25 WHERE plan = 'free' AND max_credits_month = 0`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
