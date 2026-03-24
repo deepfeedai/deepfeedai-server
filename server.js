@@ -168,7 +168,7 @@ const largeBodyParser = express.json({ limit: '2mb' });
 // serve signup.html as the default page instead of index.html.
 const SIGNUP_HOSTS = new Set([
   'signup.deepfeedai.com',
-  'signup-staging.deepfeedai.com',
+  'signup.staging.deepfeedai.com',
 ]);
 app.use((req, res, next) => {
   const host = (req.hostname || '').toLowerCase();
