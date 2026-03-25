@@ -164,6 +164,61 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHan
   return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
 }));
 
+// GET /api/newsletter/preview — public preview of latest newsletter HTML
+let _previewCache = { html: null, ts: 0 };
+const PREVIEW_TTL = 30 * 60 * 1000; // 30 minutes
+
+router.get('/preview', asyncHandler(async (req, res) => {
+  const now = Date.now();
+  if (_previewCache.html && (now - _previewCache.ts) < PREVIEW_TTL) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(_previewCache.html);
+  }
+
+  const dbResult = await getPool().query(
+    `SELECT * FROM articles
+     WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
+     ORDER BY
+       CASE WHEN content_type = 'deep-dive' THEN 0 ELSE 1 END,
+       published_at DESC
+     LIMIT 50`,
+    [req.tenantId]
+  );
+  const raw = dbResult.rows.map(serializeRow);
+  const appCfg = await getAppConfig(req.tenantId);
+
+  const articles = raw
+    .filter(a => a.title && (a.source_url || a.content_type === 'deep-dive' || a.content_type === 'original') && a.category !== 'Uncategorized')
+    .sort((a, b) => {
+      const aDD = a.content_type === 'deep-dive' ? 0 : 1;
+      const bDD = b.content_type === 'deep-dive' ? 0 : 1;
+      if (aDD !== bDD) return aDD - bDD;
+      return new Date(b.published_at) - new Date(a.published_at);
+    })
+    .slice(0, TOP_N)
+    .map(a => ({
+      title:       a.title,
+      description: a.summary || '',
+      url:         a.source_url || `https://${appCfg.domain || 'deepfeedai.com'}/article/${a.slug}`,
+      source:      a.source || '',
+      publishedAt: a.published_at,
+      category:    a.category || 'Industry',
+      imageUrl:    a.image_url || null,
+      contentType: a.content_type || null,
+    }));
+
+  if (articles.length === 0) {
+    return res.status(200).send('<p style="color:#94a3b8;text-align:center;padding:2rem;">No newsletter preview available yet.</p>');
+  }
+
+  const site = await getSiteConfig(req.tenantId);
+  const html = buildEmail(articles, site);
+
+  _previewCache = { html, ts: now };
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(html);
+}));
+
 // GET /api/newsletter/history — last 20 sends
 router.get('/history', auth, requirePermission('newsletter.read'), asyncHandler(async (req, res) => {
   const result = await getPool().query(
