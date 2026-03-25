@@ -19,7 +19,7 @@ router.post('/', asyncHandler(async (req, res) => {
   const audienceId = appCfg.resend_audience_id;
 
   if (!apiKey || !audienceId) {
-    return res.status(500).json({ error: 'Newsletter service not configured.' });
+    return res.status(422).json({ error: 'Newsletter service not configured.' });
   }
 
   const email = (req.body?.email || '').trim().toLowerCase();
