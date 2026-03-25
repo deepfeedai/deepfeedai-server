@@ -179,6 +179,8 @@
         <div class="signup-step" data-step="2">2</div>
         <div class="signup-step-line"></div>
         <div class="signup-step" data-step="3">3</div>
+        <div class="signup-step-line"></div>
+        <div class="signup-step" data-step="4">4</div>
       </div>
 
       <div class="login-error" id="signupError" style="display:none;margin-bottom:16px;"></div>
@@ -199,7 +201,7 @@
 
         <div class="auth-divider">or</div>
 
-        <div class="email-form">
+        <div class="email-form" id="registerForm">
           <div class="form-group">
             <label class="form-label">Name</label>
             <input type="text" class="form-control" id="regName" placeholder="Your name" maxlength="60" />
@@ -215,11 +217,53 @@
           <button class="btn btn-primary" id="registerBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
             Create Account
           </button>
+          <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);">
+            Already have an account? <a href="#" id="showLoginLink" style="color:var(--accent);">Sign in</a>
+          </p>
+        </div>
+
+        <div class="email-form" id="loginForm" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" id="loginEmail" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" id="loginPassword" placeholder="Your password" />
+          </div>
+          <button class="btn btn-primary" id="loginBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
+            Sign In
+          </button>
+          <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);">
+            New here? <a href="#" id="showRegisterLink" style="color:var(--accent);">Create an account</a>
+          </p>
         </div>
       </div>
 
-      <!-- Step 2: Choose Plan -->
+      <!-- Step 2: Verify Email (local registration only, skipped for OAuth) -->
       <div class="step-panel" id="step2">
+        <h2 style="text-align:center;font-size:18px;margin-bottom:4px;">Verify your email</h2>
+        <p style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px;">We sent a 6-digit code to <strong id="verifyEmailAddr"></strong></p>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <input type="text" class="form-control" id="verifyCode" maxlength="6" pattern="[0-9]{6}"
+                 inputmode="numeric" placeholder="000000" autocomplete="one-time-code"
+                 style="text-align:center;font-size:24px;letter-spacing:8px;font-family:monospace;font-weight:700;" />
+        </div>
+        <button class="btn btn-primary" id="verifyBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
+          Verify
+        </button>
+        <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--muted);">
+          Didn't get it? <button class="btn-back" id="resendBtn">Resend code</button>
+          <span id="resendStatus" style="margin-left:6px;"></span>
+        </p>
+        <div style="text-align:center;margin-top:12px;">
+          <button class="btn-back" id="backToStep1FromVerify">&larr; Back</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Choose Plan -->
+      <div class="step-panel" id="step3">
         <h2 style="text-align:center;font-size:18px;margin-bottom:4px;">Choose your plan</h2>
         <p style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px;">You can upgrade or change plans anytime</p>
 
@@ -227,12 +271,12 @@
 
         <div class="step-nav">
           <button class="btn-back" id="backToStep1">&larr; Back</button>
-          <button class="btn btn-primary" id="toStep3" style="padding:10px 24px;font-size:14px;">Continue</button>
+          <button class="btn btn-primary" id="toStep4" style="padding:10px 24px;font-size:14px;">Continue</button>
         </div>
       </div>
 
-      <!-- Step 3: Create Site -->
-      <div class="step-panel" id="step3">
+      <!-- Step 4: Create Site -->
+      <div class="step-panel" id="step4">
         <h2 style="text-align:center;font-size:18px;margin-bottom:4px;">Name your site</h2>
         <p style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px;">Pick a name and subdomain for your news site</p>
 
@@ -250,7 +294,7 @@
         </div>
 
         <div class="step-nav">
-          <button class="btn-back" id="backToStep2">&larr; Back</button>
+          <button class="btn-back" id="backToStep3">&larr; Back</button>
           <button class="btn btn-primary" id="createBtn" style="padding:10px 24px;font-size:14px;" disabled>
             Create Site &rarr;
           </button>
@@ -260,6 +304,7 @@
 
     <div class="signup-footer">
       Already have a site? <a href="/login.html">Sign in</a>
+      &middot; <a href="/forgot-password.html">Forgot password?</a>
     </div>
   </div>
 </div>

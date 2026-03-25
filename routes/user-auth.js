@@ -148,6 +148,7 @@ async function issueJwt(user) {
       displayName: user.display_name,
       avatarUrl:   user.avatar_url,
       provider:    user.provider,
+      emailVerified: !!user.email_verified,
     },
     userJwtSecret,
     { expiresIn: '7d' }
@@ -312,6 +313,8 @@ router.get('/github/callback', async (req, res) => {
 /* ── Email/Password Registration (POST /api/user-auth/register) ─── */
 const bcrypt   = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
+const requireUser = require('../middleware/user-jwt');
+const { sendVerificationEmail } = require('../lib/notify');
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -343,7 +346,7 @@ router.post('/register', registerLimiter, async (req, res) => {
       "SELECT id FROM public_users WHERE LOWER(email) = $1 AND provider = 'local'"
     ).get(cleanEmail);
     if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
+      return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead — you can create a new site after logging in.' });
     }
 
     // Check for OAuth user with same email — they should use OAuth instead
@@ -351,7 +354,7 @@ router.post('/register', registerLimiter, async (req, res) => {
       "SELECT provider FROM public_users WHERE LOWER(email) = $1 AND provider != 'local' AND provider != 'platform'"
     ).get(cleanEmail);
     if (oauthUser) {
-      return res.status(409).json({ error: `This email is registered via ${oauthUser.provider}. Please sign in with ${oauthUser.provider} instead.` });
+      return res.status(409).json({ error: 'An account with this email already exists. Please sign in instead — you can create a new site after logging in.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -382,8 +385,21 @@ router.post('/register', registerLimiter, async (req, res) => {
     }
 
     const token = await issueJwt(user);
+
+    // Generate 6-digit verification code and send email
+    const verifyCode = String(crypto.randomInt(100000, 1000000));
+    const verifyExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await db.prepare(
+      "INSERT INTO auth_codes (code, user_id, expires_at, type) VALUES ($1, $2, $3, 'email_verify')"
+    ).run(verifyCode, user.id, verifyExpires);
+
+    // Send verification email (non-blocking — don't fail registration if email fails)
+    sendVerificationEmail({ toEmail: cleanEmail, toName: safeName, code: verifyCode })
+      .catch(err => console.error('[user-auth/register] verification email failed:', err.message));
+
     res.status(201).json({
       token,
+      email_verified: false,
       user: {
         id: user.id,
         displayName: user.display_name,
@@ -431,6 +447,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const token = await issueJwt(user);
     res.json({
       token,
+      email_verified: !!user.email_verified,
       user: {
         id: user.id,
         displayName: user.display_name,
@@ -444,6 +461,196 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+/* ── Email Verification (POST /api/user-auth/verify-email) ──────── */
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: 'Too many verification attempts. Please try again later.' },
+  validate: false,
+});
+
+router.post('/verify-email', requireUser, verifyLimiter, async (req, res) => {
+  const { code } = req.body || {};
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: 'Verification code is required' });
+  }
+
+  try {
+    // Already verified?
+    const pu = await db.prepare('SELECT email_verified FROM public_users WHERE id = $1').get(req.user.sub);
+    if (pu && pu.email_verified) {
+      const freshUser = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(req.user.sub);
+      const token = await issueJwt(freshUser);
+      return res.json({ verified: true, already: true, token });
+    }
+
+    const row = await db.prepare(`
+      SELECT code FROM auth_codes
+      WHERE code = $1 AND user_id = $2 AND type = 'email_verify' AND used = 0 AND expires_at > NOW()
+    `).get(code.trim(), req.user.sub);
+
+    if (!row) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+
+    await db.prepare('UPDATE auth_codes SET used = 1 WHERE code = $1').run(row.code);
+    await db.prepare('UPDATE public_users SET email_verified = 1, updated_at = NOW() WHERE id = $1').run(req.user.sub);
+
+    const freshUser = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(req.user.sub);
+    const token = await issueJwt(freshUser);
+    res.json({ verified: true, token });
+  } catch (err) {
+    console.error('[user-auth/verify-email]', err.message);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+/* ── Resend Verification Code (POST /api/user-auth/resend-verification) ── */
+const resendVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: 'Too many resend attempts. Please try again later.' },
+  validate: false,
+});
+
+router.post('/resend-verification', requireUser, resendVerifyLimiter, async (req, res) => {
+  try {
+    const user = await db.prepare(
+      "SELECT * FROM public_users WHERE id = $1 AND provider = 'local'"
+    ).get(req.user.sub);
+
+    if (!user) {
+      return res.status(400).json({ error: 'Only email accounts require verification' });
+    }
+    if (user.email_verified) {
+      return res.json({ sent: false, already_verified: true });
+    }
+
+    // Invalidate any previous unused codes
+    await db.prepare(
+      "UPDATE auth_codes SET used = 1 WHERE user_id = $1 AND type = 'email_verify' AND used = 0"
+    ).run(user.id);
+
+    // Generate new code
+    const verifyCode = String(crypto.randomInt(100000, 1000000));
+    const verifyExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await db.prepare(
+      "INSERT INTO auth_codes (code, user_id, expires_at, type) VALUES ($1, $2, $3, 'email_verify')"
+    ).run(verifyCode, user.id, verifyExpires);
+
+    try {
+      await sendVerificationEmail({ toEmail: user.email, toName: user.display_name, code: verifyCode });
+    } catch (emailErr) {
+      console.error('[user-auth/resend-verification] email delivery failed:', emailErr.message);
+      return res.json({ sent: false, error: 'Email delivery failed. Please try again.' });
+    }
+
+    res.json({ sent: true });
+  } catch (err) {
+    console.error('[user-auth/resend-verification]', err.message);
+    res.status(500).json({ error: 'Failed to resend verification code' });
+  }
+});
+
+/* ── Forgot Password (POST /api/user-auth/forgot-password) ───────── */
+const { sendPasswordResetEmail } = require('../lib/notify');
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many attempts. Please try again later.' },
+  validate: false,
+});
+
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  const successMsg = { message: 'If an account with that email exists, we sent a reset link.' };
+
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'Valid email is required' });
+  }
+
+  try {
+    const user = await db.prepare(
+      "SELECT * FROM public_users WHERE LOWER(email) = LOWER($1) AND provider = 'local'"
+    ).get(email.toLowerCase().trim());
+
+    // Always return success to prevent email enumeration
+    if (!user) return res.json(successMsg);
+
+    // Invalidate previous unused reset tokens
+    await db.prepare(
+      "UPDATE auth_codes SET used = 1 WHERE user_id = $1 AND type = 'password_reset' AND used = 0"
+    ).run(user.id);
+
+    // Generate secure reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    await db.prepare(
+      "INSERT INTO auth_codes (code, user_id, expires_at, type) VALUES ($1, $2, $3, 'password_reset')"
+    ).run(resetToken, user.id, expires);
+
+    // Build reset URL from trusted server config (never from request headers)
+    const { getPlatformTenantId } = require('../lib/platform-tenant');
+    const platformId = await getPlatformTenantId();
+    const appCfg = await getAppConfig(platformId);
+    const baseUrl = (appCfg.base_url || 'https://portal.deepfeedai.com').replace(/\/$/, '');
+    const resetUrl = `${baseUrl}/reset-password.html?token=${resetToken}`;
+
+    sendPasswordResetEmail({ toEmail: user.email, toName: user.display_name, resetUrl })
+      .catch(err => console.error('[user-auth/forgot-password] email failed:', err.message));
+
+    res.json(successMsg);
+  } catch (err) {
+    console.error('[user-auth/forgot-password]', err.message);
+    res.status(500).json({ error: 'Something went wrong' });
+  }
+});
+
+/* ── Reset Password (POST /api/user-auth/reset-password) ─────────── */
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many attempts. Please try again later.' },
+  validate: false,
+});
+
+router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
+  const { token, password } = req.body || {};
+
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: 'Reset token is required' });
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  try {
+    const row = await db.prepare(`
+      SELECT * FROM auth_codes
+      WHERE code = $1 AND type = 'password_reset' AND used = 0 AND expires_at > NOW()
+    `).get(token);
+
+    if (!row) {
+      return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
+
+    // Hash password first (CPU-bound), then atomically mark token used + update password
+    const passwordHash = await bcrypt.hash(password, 12);
+    await db.prepare('UPDATE auth_codes SET used = 1 WHERE code = $1').run(token);
+    await db.prepare(
+      'UPDATE public_users SET password_hash = $1, updated_at = NOW() WHERE id = $2'
+    ).run(passwordHash, row.user_id);
+
+    res.json({ success: true, message: 'Password updated. You can now sign in.' });
+  } catch (err) {
+    console.error('[user-auth/reset-password]', err.message);
+    res.status(500).json({ error: 'Reset failed' });
+  }
+});
+
 /* ── Token exchange (POST /api/user-auth/token) ─────────────────── */
 // Main site calls this after receiving the one-time code from the callback URL.
 router.post('/token', async (req, res) => {
@@ -453,7 +660,7 @@ router.post('/token', async (req, res) => {
   try {
     const row = await db.prepare(`
       SELECT * FROM auth_codes
-      WHERE code = $1 AND used = 0 AND expires_at > NOW()
+      WHERE code = $1 AND used = 0 AND expires_at > NOW() AND (type IS NULL OR type = 'oauth')
     `).get(code);
 
     if (!row) return res.status(400).json({ error: 'Invalid or expired code' });

@@ -812,6 +812,12 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_slug ON articles (tenant_id, slug)`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_source_url ON articles (tenant_id, source_url)`,
     `CREATE INDEX IF NOT EXISTS idx_analytics_events_tenant_type_created ON analytics_events (tenant_id, event_type, created_at DESC)`,
+    // Phase 15: Email verification for local registration
+    `ALTER TABLE public_users ADD COLUMN IF NOT EXISTS email_verified INTEGER DEFAULT 0`,
+    `ALTER TABLE auth_codes ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'oauth'`,
+    // Backfill: OAuth/platform users are always verified; existing local users grandfathered
+    `UPDATE public_users SET email_verified = 1 WHERE email_verified = 0 AND provider != 'local'`,
+    `UPDATE public_users SET email_verified = 1 WHERE email_verified = 0 AND provider = 'local' AND created_at < '2026-03-25'`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

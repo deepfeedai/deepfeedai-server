@@ -126,6 +126,14 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
 
 // POST /api/tenants — create a new tenant (requires public user JWT)
 router.post('/', requireUser, asyncHandler(async (req, res) => {
+  // Block unverified local users from creating tenants
+  if (req.user.provider === 'local') {
+    const pu = await db.prepare('SELECT email_verified FROM public_users WHERE id = $1').get(req.user.sub);
+    if (!pu || !pu.email_verified) {
+      return res.status(403).json({ error: 'Please verify your email before creating a site' });
+    }
+  }
+
   const { slug, display_name } = req.body || {};
 
   if (!slug || typeof slug !== 'string') {
