@@ -35,7 +35,10 @@
         body: JSON.stringify({}),
       });
       if (!res.ok) throw new Error(await res.text());
-      const html = await res.text();
+      let html = await res.text();
+
+      // Inject <base target="_blank"> so links open in a new tab instead of inside the iframe
+      html = html.replace('<head>', '<head><base target="_blank">');
 
       frame.srcdoc = html;
       frame.style.display = 'block';
