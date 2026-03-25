@@ -90,7 +90,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -279,6 +279,7 @@ app.use('/api/newsletter',        require('./routes/newsletter'));           // 
 app.use('/api/favorites',         require('./routes/favorites'));            // user — article bookmarks
 app.use('/api/article-reactions', require('./routes/article-reactions'));    // user — article 👍❤️ reactions
 app.use('/api/notifications',     require('./routes/notifications').router); // user — in-app notifications
+app.use('/api/banners',           require('./routes/banners').router);         // public active + tenant admin CRUD
 
 const { auth } = require('./middleware/auth');
 app.use('/api/admin/users',   adminWriteLimiter, require('./routes/admin-users'));
@@ -291,6 +292,7 @@ app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/promo',    auth, require('./routes/promo'));
 app.use('/api/credits',  auth, require('./routes/credit-purchases'));
 app.use('/api/synthesis', auth, largeBodyParser, require('./routes/synthesis'));
+app.use('/api/platform/banners', auth, require('./routes/platform-banners')); // platform admin — global banners
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');
@@ -719,6 +721,7 @@ registerJob({
       'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
       'synthesis_forecasts', 'synthesis_watchlist', 'tenant_domains',
       'tenant_storage_usage',
+      'banners',
       'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
       'roles', 'users',
       'tenant_admins',
