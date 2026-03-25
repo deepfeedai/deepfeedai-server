@@ -201,7 +201,7 @@
 
         <div class="auth-divider">or</div>
 
-        <div class="email-form">
+        <div class="email-form" id="registerForm">
           <div class="form-group">
             <label class="form-label">Name</label>
             <input type="text" class="form-control" id="regName" placeholder="Your name" maxlength="60" />
@@ -217,6 +217,26 @@
           <button class="btn btn-primary" id="registerBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
             Create Account
           </button>
+          <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);">
+            Already have an account? <a href="#" id="showLoginLink" style="color:var(--accent);">Sign in</a>
+          </p>
+        </div>
+
+        <div class="email-form" id="loginForm" style="display:none;">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" id="loginEmail" placeholder="you@example.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" id="loginPassword" placeholder="Your password" />
+          </div>
+          <button class="btn btn-primary" id="loginBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
+            Sign In
+          </button>
+          <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--muted);">
+            New here? <a href="#" id="showRegisterLink" style="color:var(--accent);">Create an account</a>
+          </p>
         </div>
       </div>
 
@@ -237,6 +257,9 @@
           Didn't get it? <button class="btn-back" id="resendBtn">Resend code</button>
           <span id="resendStatus" style="margin-left:6px;"></span>
         </p>
+        <div style="text-align:center;margin-top:12px;">
+          <button class="btn-back" id="backToStep1FromVerify">&larr; Back</button>
+        </div>
       </div>
 
       <!-- Step 3: Choose Plan -->
@@ -281,6 +304,7 @@
 
     <div class="signup-footer">
       Already have a site? <a href="/login.html">Sign in</a>
+      &middot; <a href="/forgot-password.html">Forgot password?</a>
     </div>
   </div>
 </div>

@@ -1,11 +1,9 @@
 /* ===== DeepFeedAI Admin — Login Page =====
  *
  * Unified login flow for all admin panel users:
- *   1. Google/GitHub OAuth → public user JWT
- *   2. POST /api/tenants/login → tenant-admin JWT (with tenantId)
- *      - Tenant admins: looked up from tenant_admins table
- *      - Platform admins: auto-provisioned for tenant_id=1 via ADMIN_EMAILS
- *   3. Neither: redirect to signup
+ *   1. Email/password → public user JWT → tenant-admin JWT (primary)
+ *   2. Google/GitHub OAuth → public user JWT → tenant-admin JWT
+ *   3. Username/password → admin JWT (legacy, hidden behind "Admin login" link)
  */
 
 onReady(async () => {
@@ -14,12 +12,16 @@ onReady(async () => {
     return;
   }
 
-  const googleBtn    = document.getElementById('googleBtn');
-  const errEl        = document.getElementById('loginError');
-  const localSection = document.getElementById('localLoginSection');
-  const oauthSection = document.getElementById('oauthSection');
-  const authDivider  = document.getElementById('authDivider');
+  const googleBtn      = document.getElementById('googleBtn');
+  const errEl          = document.getElementById('loginError');
+  const emailSection   = document.getElementById('emailLoginSection');
+  const localSection   = document.getElementById('localLoginSection');
+  const oauthSection   = document.getElementById('oauthSection');
+  const authDivider    = document.getElementById('authDivider');
+  const emailLoginError = document.getElementById('emailLoginError');
   const localLoginError = document.getElementById('localLoginError');
+  const adminToggle    = document.getElementById('adminLoginToggle');
+  const adminLink      = document.getElementById('adminLoginLink');
 
   const params = new URLSearchParams(window.location.search);
   const code   = params.get('code');
@@ -31,40 +33,118 @@ onReady(async () => {
     showLoginError('Sign-in failed. Please try again.');
   }
 
-  // Exchange one-time code after OAuth redirect
   if (code) {
     await exchangeCode(code);
   }
 
+  // Show divider between email form and OAuth
+  authDivider.style.display = '';
+
   // Detect available auth methods
+  let hasLocal = false;
   try {
     const res = await fetch('/api/auth/methods');
     if (res.ok) {
       const methods = await res.json();
-      const hasLocal  = methods.local === true;
+      hasLocal = methods.local === true;
       const hasGoogle = methods.google === true;
-      const hasGithub = methods.github === true;
-      const hasOAuth  = hasGoogle || hasGithub;
 
-      if (hasLocal)  localSection.style.display = '';
-      if (!hasGoogle) googleBtn.style.display = 'none';
-      if (!hasOAuth)  oauthSection.style.display = 'none';
-      if (hasLocal && hasOAuth) authDivider.style.display = '';
+      if (!hasGoogle) {
+        googleBtn.style.display = 'none';
+        oauthSection.style.display = 'none';
+        authDivider.style.display = 'none';
+      }
+
+      // Show "Admin login" toggle only when legacy local auth is available
+      if (hasLocal) adminToggle.style.display = '';
     }
-  } catch (_) {
-    // If /api/auth/methods fails, fall back to showing OAuth only
-  }
+  } catch (_) { /* fall back to email + OAuth */ }
 
-  // OAuth: Google sign-in (uses public user OAuth → tenant login exchange)
+  // Toggle between email login and legacy admin login
+  adminLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    const showingAdmin = localSection.style.display !== 'none';
+    if (showingAdmin) {
+      // Switch back to email login
+      localSection.style.display = 'none';
+      emailSection.style.display = '';
+      adminLink.textContent = 'Admin login';
+    } else {
+      // Switch to legacy admin login
+      emailSection.style.display = 'none';
+      localSection.style.display = '';
+      adminLink.textContent = 'Email login';
+    }
+  });
+
+  // ── OAuth ──
   googleBtn.addEventListener('click', () => {
     window.location.href = '/api/user-auth/google?return_to=login';
   });
 
-  // Local login
+  // ── Email/password login ──
+  const emailLoginBtn = document.getElementById('emailLoginBtn');
+  emailLoginBtn.addEventListener('click', doEmailLogin);
+
+  document.getElementById('loginEmailPassword').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doEmailLogin();
+  });
+  document.getElementById('loginEmail').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginEmailPassword').focus();
+  });
+
+  async function doEmailLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginEmailPassword').value;
+    if (!email || !password) {
+      showEmailError('Please enter email and password');
+      return;
+    }
+    try {
+      emailLoginBtn.disabled = true;
+      emailLoginBtn.textContent = 'Signing in\u2026';
+      hideEmailError();
+
+      // Step 1: Authenticate as public user
+      const res = await fetch('/api/user-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.status === 429) throw new Error('Too many login attempts. Please try again later.');
+      if (!res.ok) throw new Error(data.error || 'Login failed');
+
+      // Step 2: Exchange public user JWT for tenant-admin JWT
+      const loginRes = await fetch('/api/tenants/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + data.token,
+        },
+      });
+      const loginData = await loginRes.json();
+
+      if (loginRes.status === 404 && loginData.signup) {
+        sessionStorage.setItem('signup_token', data.token);
+        window.location.href = '/signup.html';
+        return;
+      }
+      if (!loginRes.ok) throw new Error(loginData.error || 'No site found for this account');
+
+      localStorage.setItem('deepfeedai_token', loginData.token);
+      window.location.replace('/index.html');
+    } catch (err) {
+      showEmailError(err.message);
+      emailLoginBtn.disabled = false;
+      emailLoginBtn.textContent = 'Sign In';
+    }
+  }
+
+  // ── Legacy admin login ──
   const localLoginBtn = document.getElementById('localLoginBtn');
   localLoginBtn.addEventListener('click', doLocalLogin);
 
-  // Enter key on password field triggers login
   document.getElementById('loginPassword').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doLocalLogin();
   });
@@ -99,15 +179,21 @@ onReady(async () => {
     }
   }
 
+  // ── Helpers ──
+  function showEmailError(msg) {
+    emailLoginError.textContent = msg;
+    emailLoginError.style.display = 'block';
+  }
+  function hideEmailError() {
+    emailLoginError.style.display = 'none';
+  }
   function showLocalError(msg) {
     localLoginError.textContent = msg;
     localLoginError.style.display = 'block';
   }
-
   function hideLocalError() {
     localLoginError.style.display = 'none';
   }
-
   function showLoginError(msg) {
     errEl.textContent = msg;
     errEl.style.display = 'block';
@@ -117,7 +203,6 @@ onReady(async () => {
     googleBtn.disabled = true;
     googleBtn.innerHTML = '<span class="spinner"></span> Signing in\u2026';
     try {
-      // Step 1: Exchange one-time code for public user JWT
       const tokenRes = await fetch('/api/user-auth/token', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,7 +211,6 @@ onReady(async () => {
       const tokenData = await tokenRes.json();
       if (!tokenRes.ok) throw new Error(tokenData.error || 'Code exchange failed');
 
-      // Step 2: Exchange public user JWT for tenant-admin JWT
       const loginRes = await fetch('/api/tenants/login', {
         method:  'POST',
         headers: {
@@ -137,7 +221,6 @@ onReady(async () => {
       const loginData = await loginRes.json();
 
       if (loginRes.status === 404 && loginData.signup) {
-        // No tenant found — redirect to signup
         window.location.href = '/signup.html?token=' + encodeURIComponent(tokenData.token);
         return;
       }

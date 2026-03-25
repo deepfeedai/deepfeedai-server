@@ -328,7 +328,8 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   // Seed default settings (derive URLs from slug + environment)
-  const tenantDomain = `${cleanSlug}.deepfeedai.com`;
+  const tenantBaseDomain = process.env.TENANT_BASE_DOMAIN || 'deepfeedai.com';
+  const tenantDomain = `${cleanSlug}.${tenantBaseDomain}`;
   const tenantSiteUrl = `https://${tenantDomain}`;
   const adminServerUrl = process.env.BASE_URL || 'https://portal.deepfeedai.com';
   const allSettings = [
@@ -485,6 +486,137 @@ router.get('/storage-usage', requirePlatformAdmin, asyncHandler(async (req, res)
     ORDER BY su.bytes_used DESC
   `).all();
   res.json({ usage });
+}));
+
+// ── Public Users Management ──────────────────────────────────────
+
+// GET /public-users — list public users with search/filter/pagination
+router.get('/public-users', asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 25));
+  const offset = (page - 1) * limit;
+  const search = (req.query.search || '').trim();
+  const provider = (req.query.provider || '').trim();
+  const banned = req.query.banned;
+
+  const conditions = [];
+  const params = [];
+  let paramIdx = 1;
+
+  if (search) {
+    conditions.push(`(LOWER(pu.email) LIKE $${paramIdx} OR LOWER(pu.display_name) LIKE $${paramIdx})`);
+    params.push(`%${search.toLowerCase()}%`);
+    paramIdx++;
+  }
+  if (provider) {
+    conditions.push(`pu.provider = $${paramIdx}`);
+    params.push(provider);
+    paramIdx++;
+  }
+  if (banned === '1' || banned === '0') {
+    conditions.push(`pu.is_banned = $${paramIdx}`);
+    params.push(parseInt(banned));
+    paramIdx++;
+  }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  const countRow = await db.prepare(
+    `SELECT COUNT(DISTINCT pu.id)::int AS total FROM public_users pu ${where}`
+  ).get(...params);
+  const total = countRow.total;
+
+  const users = await db.prepare(`
+    SELECT pu.id, pu.provider, pu.email, pu.display_name, pu.avatar_url,
+           pu.is_banned, pu.email_verified, pu.created_at,
+           COUNT(ta.id)::int AS tenant_count
+    FROM public_users pu
+    LEFT JOIN tenant_admins ta ON ta.user_id = pu.id
+    ${where}
+    GROUP BY pu.id
+    ORDER BY pu.created_at DESC
+    LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+  `).all(...params, limit, offset);
+
+  res.json({
+    users,
+    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+  });
+}));
+
+// GET /public-users/:id — single user detail
+router.get('/public-users/:id', asyncHandler(async (req, res) => {
+  const userId = parseInt(req.params.id);
+  if (!userId || userId < 1) return res.status(400).json({ error: 'Invalid user ID' });
+
+  const user = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(userId);
+  if (!user) return res.status(404).json({ error: 'Public user not found' });
+
+  delete user.password_hash;
+  delete user.notify_token;
+
+  const tenants = await db.prepare(`
+    SELECT ta.role, t.id, t.uuid, t.slug, t.display_name, t.status, t.plan
+    FROM tenant_admins ta
+    JOIN tenants t ON t.id = ta.tenant_id
+    WHERE ta.user_id = $1
+    ORDER BY ta.created_at ASC
+  `).all(userId);
+
+  const recentComments = await db.prepare(`
+    SELECT c.id, c.body, c.created_at, c.is_deleted, c.tenant_id,
+           a.slug AS article_slug, a.title AS article_title
+    FROM comments c
+    LEFT JOIN articles a ON a.id = c.article_id
+    WHERE c.user_id = $1
+    ORDER BY c.created_at DESC
+    LIMIT 10
+  `).all(userId);
+
+  res.json({ user, tenants, recentComments });
+}));
+
+// PUT /public-users/:id/ban — toggle ban status
+router.put('/public-users/:id/ban', asyncHandler(async (req, res) => {
+  const userId = parseInt(req.params.id);
+  if (!userId || userId < 1) return res.status(400).json({ error: 'Invalid user ID' });
+
+  const user = await db.prepare('SELECT id, email, is_banned FROM public_users WHERE id = $1').get(userId);
+  if (!user) return res.status(404).json({ error: 'Public user not found' });
+
+  const newBanned = user.is_banned ? 0 : 1;
+  await db.prepare('UPDATE public_users SET is_banned = $1, updated_at = NOW() WHERE id = $2').run(newBanned, userId);
+
+  await logAudit(req, newBanned ? 'public_user.ban' : 'public_user.unban', 'public_users', userId, { email: user.email });
+  res.json({ success: true, is_banned: newBanned });
+}));
+
+// DELETE /public-users/:id — permanently delete a public_users record
+router.delete('/public-users/:id', asyncHandler(async (req, res) => {
+  const userId = parseInt(req.params.id);
+  if (!userId || userId < 1) return res.status(400).json({ error: 'Invalid user ID' });
+
+  const user = await db.prepare('SELECT id, email, display_name, provider FROM public_users WHERE id = $1').get(userId);
+  if (!user) return res.status(404).json({ error: 'Public user not found' });
+
+  const ownedTenants = await db.prepare(`
+    SELECT t.id, t.slug FROM tenant_admins ta
+    JOIN tenants t ON t.id = ta.tenant_id
+    WHERE ta.user_id = $1 AND ta.role = 'owner' AND t.status = 'active'
+  `).all(userId);
+
+  if (ownedTenants.length > 0) {
+    return res.status(409).json({
+      error: `User owns ${ownedTenants.length} active tenant(s). Cancel or transfer ownership first.`,
+      tenants: ownedTenants.map(t => t.slug),
+    });
+  }
+
+  await db.prepare("UPDATE comments SET body = '[deleted]', is_deleted = 1 WHERE user_id = $1").run(userId);
+  await db.prepare('DELETE FROM public_users WHERE id = $1').run(userId);
+
+  await logAudit(req, 'public_user.delete', 'public_users', userId, { email: user.email, provider: user.provider });
+  res.json({ success: true, message: `Deleted public user ${user.email || user.display_name}` });
 }));
 
 // GET /:id — tenant detail

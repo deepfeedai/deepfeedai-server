@@ -14,21 +14,24 @@
 
     <div class="login-error" id="loginError"></div>
 
-    <!-- Local Login Section (shown/hidden based on /api/auth/methods) -->
-    <div id="localLoginSection" style="display:none">
+    <!-- Email/password login (primary — for self-service signups) -->
+    <div id="emailLoginSection">
       <div class="form-group">
-        <label class="form-label">Username</label>
-        <input type="text" class="form-control" id="loginUsername" placeholder="admin" autocomplete="username" />
+        <label class="form-label">Email</label>
+        <input type="email" class="form-control" id="loginEmail" placeholder="you@example.com" autocomplete="email" />
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
-        <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" autocomplete="current-password" />
+        <input type="password" class="form-control" id="loginEmailPassword" placeholder="••••••••" autocomplete="current-password" />
       </div>
-      <div id="localLoginError" class="text-danger text-sm" style="display:none; margin-bottom: 12px;"></div>
-      <button class="btn btn-primary" id="localLoginBtn" style="width:100%">Sign In</button>
+      <div id="emailLoginError" class="text-danger text-sm" style="display:none; margin-bottom: 12px;"></div>
+      <button class="btn btn-primary" id="emailLoginBtn" style="width:100%">Sign In</button>
+      <div style="text-align:right;margin-top:8px;">
+        <a href="/forgot-password.html" style="font-size:12px;color:var(--accent);">Forgot password?</a>
+      </div>
     </div>
 
-    <!-- Divider (shown when both local and OAuth are available) -->
+    <!-- Divider -->
     <div id="authDivider" style="display:none" class="auth-divider">
       <span>or continue with</span>
     </div>
@@ -46,8 +49,25 @@
       </button>
     </div>
 
+    <!-- Legacy admin login (hidden by default, toggled via link) -->
+    <div id="localLoginSection" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" class="form-control" id="loginUsername" placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control" id="loginPassword" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+      <div id="localLoginError" class="text-danger text-sm" style="display:none; margin-bottom: 12px;"></div>
+      <button class="btn btn-primary" id="localLoginBtn" style="width:100%">Sign In</button>
+    </div>
+
     <div style="text-align:center;margin-top:20px;font-size:13px;color:var(--muted);">
       Don't have a site yet? <a href="/signup.html" style="color:var(--accent);">Create one</a>
+      <span id="adminLoginToggle" style="display:none">
+        &middot; <a href="#" id="adminLoginLink" style="color:var(--accent);">Admin login</a>
+      </span>
     </div>
   </div>
 </div>

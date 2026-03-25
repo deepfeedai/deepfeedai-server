@@ -4,12 +4,27 @@ onReady(async () => {
   const errEl = document.getElementById('signupError');
 
   let currentStep = 1;
-  let userToken = null;
-  let registeredEmail = null;
-  let selectedPlan = 'free';
+  let userToken = sessionStorage.getItem('signup_token') || null;
+  let registeredEmail = sessionStorage.getItem('signup_email') || null;
+  let selectedPlan = sessionStorage.getItem('signup_plan') || 'free';
   let slugOk = false;
   let slugTimer = null;
   let planLimits = [];
+
+  function persistState() {
+    if (userToken) sessionStorage.setItem('signup_token', userToken);
+    else sessionStorage.removeItem('signup_token');
+    if (registeredEmail) sessionStorage.setItem('signup_email', registeredEmail);
+    else sessionStorage.removeItem('signup_email');
+    sessionStorage.setItem('signup_plan', selectedPlan);
+    sessionStorage.setItem('signup_step', String(currentStep));
+  }
+  function clearSignupState() {
+    sessionStorage.removeItem('signup_token');
+    sessionStorage.removeItem('signup_email');
+    sessionStorage.removeItem('signup_plan');
+    sessionStorage.removeItem('signup_step');
+  }
 
   const params = new URLSearchParams(window.location.search);
   const code = params.get('code');
@@ -18,6 +33,34 @@ onReady(async () => {
   if (error) showError(error === 'unauthorized' ? 'OAuth error. Please try again.' : 'Sign-in failed.');
   if (params.get('cancelled') === 'true') showError('Payment was cancelled. You can choose a different plan or try again.');
   if (code) await exchangeOAuthCode(code);
+
+  // Restore signup progress after page refresh or redirect from login
+  if (!code && userToken) {
+    // Validate the token is still good before trusting it
+    try {
+      const meRes = await fetch('/api/user-auth/me', {
+        headers: { Authorization: 'Bearer ' + userToken },
+      });
+      if (!meRes.ok) throw new Error('Invalid token');
+    } catch {
+      // Token is stale or user was deleted — clear and start fresh
+      userToken = null;
+      registeredEmail = null;
+      clearSignupState();
+    }
+  }
+
+  if (!code && userToken) {
+    const savedStep = parseInt(sessionStorage.getItem('signup_step'));
+    if (savedStep > 1) {
+      if (savedStep === 2 && registeredEmail) {
+        document.getElementById('verifyEmailAddr').textContent = registeredEmail;
+      }
+      goToStep(savedStep);
+    } else {
+      await checkExistingTenant();
+    }
+  }
 
   // ── Plan data (public endpoint, no auth required) ──
   try {
@@ -63,6 +106,7 @@ onReady(async () => {
 
       userToken = data.token;
       registeredEmail = data.user.email || email;
+      persistState();
 
       if (data.email_verified === false) {
         // Show verification step
@@ -78,7 +122,67 @@ onReady(async () => {
     }
   });
 
-  // ── Email login link (for users who already have an account) ──
+  // ── Toggle between register and login forms ──
+  document.getElementById('showLoginLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('registerForm').style.display = 'none';
+    document.getElementById('loginForm').style.display = '';
+    clearError();
+  });
+  document.getElementById('showRegisterLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('registerForm').style.display = '';
+    clearError();
+  });
+
+  // ── Email login (returning users) ──
+  document.getElementById('loginBtn').addEventListener('click', async () => {
+    clearError();
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    if (!email) return showError('Email is required');
+    if (!password) return showError('Password is required');
+
+    const btn = document.getElementById('loginBtn');
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+
+    try {
+      const res = await fetch('/api/user-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Login failed');
+
+      userToken = data.token;
+      registeredEmail = data.user.email || email;
+      persistState();
+
+      if (data.email_verified === false) {
+        document.getElementById('verifyEmailAddr').textContent = registeredEmail;
+        goToStep(2);
+      } else {
+        await checkExistingTenant();
+      }
+    } catch (err) {
+      showError(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Sign In';
+    }
+  });
+
+  document.getElementById('loginPassword')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginBtn').click();
+  });
+  document.getElementById('loginEmail')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+  });
+
+  // ── Registration form keyboard shortcuts ──
   document.getElementById('regEmail')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('registerBtn').click();
   });
@@ -95,6 +199,13 @@ onReady(async () => {
 
   // ── Navigation ──
   document.getElementById('backToStep1').addEventListener('click', () => goToStep(1));
+  document.getElementById('backToStep1FromVerify').addEventListener('click', () => {
+    userToken = null;
+    registeredEmail = null;
+    clearSignupState();
+    document.getElementById('verifyCode').value = '';
+    goToStep(1);
+  });
   document.getElementById('backToStep3').addEventListener('click', () => goToStep(3));
   document.getElementById('toStep4').addEventListener('click', () => goToStep(4));
   document.getElementById('createBtn').addEventListener('click', createTenant);
@@ -116,6 +227,7 @@ onReady(async () => {
     const card = e.target.closest('.plan-option');
     if (!card) return;
     selectedPlan = card.dataset.plan;
+    persistState();
     document.querySelectorAll('.plan-option').forEach(c => c.classList.toggle('selected', c.dataset.plan === selectedPlan));
   });
 
@@ -144,6 +256,7 @@ onReady(async () => {
       l.classList.toggle('done', i + 1 < step);
     });
     clearError();
+    persistState();
 
     if (step === 2) document.getElementById('verifyCode').focus();
     if (step === 4) document.getElementById('siteName').focus();
@@ -169,6 +282,7 @@ onReady(async () => {
 
       // Update token with emailVerified claim
       if (data.token) userToken = data.token;
+      persistState();
       await checkExistingTenant();
     } catch (err) {
       showError(err.message);
@@ -226,6 +340,7 @@ onReady(async () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Code exchange failed');
       userToken = data.token;
+      persistState();
       // OAuth users are already verified — skip verification step
       await checkExistingTenant();
     } catch (err) {
@@ -234,6 +349,18 @@ onReady(async () => {
   }
 
   async function checkExistingTenant() {
+    // Check if email verification is needed (local provider, not yet verified)
+    try {
+      const payload = JSON.parse(atob(userToken.split('.')[1]));
+      if (payload.provider === 'local' && !payload.emailVerified) {
+        registeredEmail = payload.email;
+        persistState();
+        document.getElementById('verifyEmailAddr').textContent = registeredEmail;
+        goToStep(2);
+        return;
+      }
+    } catch { /* token parse failed — continue */ }
+
     try {
       const loginRes = await fetch('/api/tenants/login', {
         method: 'POST',
@@ -241,6 +368,7 @@ onReady(async () => {
       });
       if (loginRes.ok) {
         const loginData = await loginRes.json();
+        clearSignupState();
         setToken(loginData.token);
         localStorage.setItem('deepfeedai_user', loginData.tenant.display_name);
         localStorage.setItem('deepfeedai_tenant', loginData.tenant.slug);
@@ -334,7 +462,11 @@ onReady(async () => {
           slugOk = true;
           document.getElementById('createBtn').disabled = false;
         } else {
-          status.innerHTML = '<span style="color:var(--danger);">' + (data.reason || 'Taken') + '</span>';
+          const span = document.createElement('span');
+          span.style.color = 'var(--danger)';
+          span.textContent = data.reason || 'Taken';
+          status.innerHTML = '';
+          status.appendChild(span);
         }
       } catch {
         status.innerHTML = '<span style="color:var(--danger);">Could not check</span>';
@@ -362,6 +494,7 @@ onReady(async () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create site');
 
+      clearSignupState();
       setToken(data.token);
       localStorage.setItem('deepfeedai_user', name);
       localStorage.setItem('deepfeedai_tenant', data.tenant.slug);
