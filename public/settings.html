@@ -746,6 +746,69 @@
 
       <!-- ═══ Automation Tab ═══ -->
       <div class="tab-panel" data-tab="automation">
+
+        <!-- Featured Rotation -->
+        <div class="settings-card" style="margin-bottom:var(--space-5);">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🔄</div>
+            <div>
+              <div class="settings-card-title">Featured Article Rotation</div>
+              <div class="settings-card-subtitle">Automatically rotate featured articles on a schedule. Pinned articles stay in place; open slots are filled by top-scoring content.</div>
+            </div>
+          </div>
+
+          <div style="padding:0 20px 20px;">
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="toggle-row" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="featRotationEnabled" />
+                <span class="form-label" style="margin:0;">Enable auto-rotation</span>
+              </label>
+            </div>
+
+            <div id="featRotationFields">
+              <div class="form-grid-2" style="margin-bottom:12px;">
+                <div class="form-group">
+                  <label class="form-label" for="featRotationInterval">Rotation Interval (hours)</label>
+                  <input type="number" class="form-control" id="featRotationInterval" min="1" max="168" value="12" />
+                  <p class="form-help">How often to rotate (checked hourly)</p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="featRotationStrategy">Strategy</label>
+                  <select class="form-control" id="featRotationStrategy">
+                    <option value="score">Score-based (views + quality + recency)</option>
+                    <option value="category-balanced">Category-balanced</option>
+                    <option value="recency">Recency-weighted</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-grid-2" style="margin-bottom:12px;">
+                <div class="form-group">
+                  <label class="form-label" for="featRotationPoolDays">Pool Window (days)</label>
+                  <input type="number" class="form-control" id="featRotationPoolDays" min="1" max="30" value="7" />
+                  <p class="form-help">Only consider articles published within this window</p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="featRotationCooldown">Cooldown (days)</label>
+                  <input type="number" class="form-control" id="featRotationCooldown" min="0" max="30" value="3" />
+                  <p class="form-help">Min days before an article can be re-featured</p>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+              <button class="btn btn-primary" id="saveFeatRotationBtn">Save Settings</button>
+              <button class="btn btn-outline" id="rotateNowBtn">Rotate Now</button>
+              <span id="featRotationStatus" style="font-size:13px;color:var(--muted);"></span>
+            </div>
+
+            <!-- Rotation status display -->
+            <div id="featRotationInfo" style="font-size:13px;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;display:none;">
+              <div id="featRotationStatusText"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">⏰</div>

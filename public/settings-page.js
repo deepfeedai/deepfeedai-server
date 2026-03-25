@@ -1536,6 +1536,136 @@ let apiKeyVisible = false;
   window.runCronJob = runCronJob;
   window.viewCronHistory = viewCronHistory;
 
+  // ── Featured Rotation Settings ─────────────────────────────────────
+
+  function loadFeaturedRotationSettings(settings) {
+    var enabledEl   = document.getElementById('featRotationEnabled');
+    var intervalEl  = document.getElementById('featRotationInterval');
+    var strategyEl  = document.getElementById('featRotationStrategy');
+    var poolEl      = document.getElementById('featRotationPoolDays');
+    var cooldownEl  = document.getElementById('featRotationCooldown');
+    if (!enabledEl) return;
+    enabledEl.checked  = settings.featured_rotation_enabled === '1';
+    intervalEl.value   = settings.featured_rotation_interval_hours || '12';
+    strategyEl.value   = settings.featured_rotation_strategy || 'score';
+    poolEl.value       = settings.featured_rotation_pool_days || '7';
+    cooldownEl.value   = settings.featured_rotation_cooldown_days || '3';
+    toggleFeatRotationFields();
+  }
+
+  function toggleFeatRotationFields() {
+    var enabled = document.getElementById('featRotationEnabled');
+    var fields  = document.getElementById('featRotationFields');
+    if (enabled && fields) fields.style.opacity = enabled.checked ? '1' : '0.5';
+  }
+
+  var featEnabledEl = document.getElementById('featRotationEnabled');
+  if (featEnabledEl) featEnabledEl.addEventListener('change', toggleFeatRotationFields);
+
+  var saveFeatBtn = document.getElementById('saveFeatRotationBtn');
+  if (saveFeatBtn) {
+    saveFeatBtn.addEventListener('click', async function() {
+      var payload = {
+        featured_rotation_enabled:        document.getElementById('featRotationEnabled').checked ? '1' : '0',
+        featured_rotation_interval_hours: String(Math.max(parseInt(document.getElementById('featRotationInterval').value) || 12, 1)),
+        featured_rotation_strategy:       document.getElementById('featRotationStrategy').value,
+        featured_rotation_pool_days:      String(Math.max(parseInt(document.getElementById('featRotationPoolDays').value) || 7, 1)),
+        featured_rotation_cooldown_days:  String(Math.max(parseInt(document.getElementById('featRotationCooldown').value) || 3, 0)),
+      };
+      try {
+        this.disabled = true; this.textContent = 'Saving...';
+        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+        document.getElementById('featRotationStatus').textContent = 'Saved';
+        showToast('Featured rotation settings saved');
+        setTimeout(function() { document.getElementById('featRotationStatus').textContent = ''; }, 3000);
+      } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Save Settings';
+      }
+    });
+  }
+
+  var rotateNowBtn = document.getElementById('rotateNowBtn');
+  if (rotateNowBtn) {
+    rotateNowBtn.addEventListener('click', async function() {
+      try {
+        this.disabled = true; this.textContent = 'Rotating...';
+        var result = await apiFetch('/articles/rotate-featured', { method: 'POST' });
+        if (result.rotated) {
+          showToast('Rotation complete: ' + (result.slotsFilled || 0) + ' slot(s) filled');
+        } else {
+          showToast(result.reason || 'No rotation needed', 'info');
+        }
+        loadFeaturedRotationStatus();
+      } catch (err) {
+        showToast('Rotation failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Rotate Now';
+      }
+    });
+  }
+
+  async function loadFeaturedRotationStatus() {
+    var infoEl = document.getElementById('featRotationInfo');
+    var textEl = document.getElementById('featRotationStatusText');
+    if (!infoEl || !textEl) return;
+    try {
+      var status = await apiFetch('/articles/rotation-status');
+      infoEl.style.display = '';
+      var lines = [];
+      if (status.featured && status.featured.length) {
+        lines.push('<strong>Currently featured (' + status.featured.length + '/5):</strong>');
+        status.featured.forEach(function(a) {
+          var badges = [];
+          if (a.is_pinned) badges.push('<span class="badge badge-info">Pinned</span>');
+          if (a.featured_source === 'auto') badges.push('<span class="badge badge-muted">Auto</span>');
+          if (a.featured_source === 'manual') badges.push('<span class="badge badge-success">Manual</span>');
+          if (a.featured_until) badges.push('<span class="text-muted">expires ' + new Date(a.featured_until).toLocaleString() + '</span>');
+          lines.push('&nbsp;&nbsp;#' + (a.featured_priority || '?') + ' — ' + escHtml(a.title || 'Untitled') + ' ' + badges.join(' '));
+        });
+      } else {
+        lines.push('No articles currently featured.');
+      }
+      if (status.nextRotationAt) {
+        lines.push('<br>Next rotation: <strong>' + new Date(status.nextRotationAt).toLocaleString() + '</strong>');
+      }
+      if (status.lastRotation) {
+        lines.push('Last rotation: ' + new Date(status.lastRotation.rotated_at).toLocaleString()
+          + ' — ' + (status.lastRotation.slots_filled || 0) + ' slot(s) filled (' + (status.lastRotation.strategy_used || 'n/a') + ')');
+      }
+      textEl.innerHTML = lines.join('<br>');
+    } catch (err) {
+      infoEl.style.display = '';
+      textEl.textContent = 'Could not load rotation status.';
+    }
+  }
+
+  // Load rotation settings + status when automation tab is activated
+  (function() {
+    var tabBar = document.getElementById('settingsTabs');
+    if (!tabBar) return;
+    tabBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('.tab-btn');
+      if (btn && btn.dataset.tab === 'automation') {
+        loadFeaturedRotationStatus();
+      }
+    });
+    if (sessionStorage.getItem('dfa_settings_tab') === 'automation') {
+      setTimeout(loadFeaturedRotationStatus, 100);
+    }
+  })();
+
+  // Hook featured rotation loading into the main loadSettings flow
+  var _origLoadSettingsForRotation = loadSettings;
+  loadSettings = async function() {
+    await _origLoadSettingsForRotation();
+    try {
+      var settings = await apiFetch('/settings');
+      loadFeaturedRotationSettings(settings);
+    } catch (e) { /* ignore — main loadSettings already shows error */ }
+  };
+
   renderSidebar();
   initModals();
 

@@ -93,6 +93,10 @@ router.get('/', asyncHandler(async (req, res) => {
   if (featured !== undefined) {
     params.push(parseInt(featured));
     conditions.push(`a.is_featured = $${params.length}`);
+    // Exclude expired featured articles (featured_until has passed)
+    if (parseInt(featured) === 1) {
+      conditions.push(`(a.featured_until IS NULL OR a.featured_until > NOW())`);
+    }
   }
   if (writer) {
     params.push(writer);
@@ -120,7 +124,10 @@ router.get('/', asyncHandler(async (req, res) => {
                LEFT JOIN writers w ON w.id = a.writer_id
                ${whereClause}`;
 
-  query += ' ORDER BY a.is_featured DESC, COALESCE(a.featured_priority, 99) ASC, a.published_at DESC';
+  query += ` ORDER BY
+    CASE WHEN a.is_featured = 1 AND (a.featured_until IS NULL OR a.featured_until > NOW()) THEN 1 ELSE 0 END DESC,
+    COALESCE(a.featured_priority, 99) ASC,
+    a.published_at DESC`;
 
   const defaultLimit = 30;
   const limit  = parseInt(lim) || defaultLimit;

@@ -835,6 +835,30 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_banners_active ON banners (is_active, starts_at, expires_at) WHERE is_active = true`,
     `CREATE INDEX IF NOT EXISTS idx_banners_tenant ON banners (tenant_id)`,
+    // Phase 17: Featured article rotation
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS last_featured_at TIMESTAMPTZ DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured_until TIMESTAMPTZ DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS is_pinned INTEGER DEFAULT 0`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS featured_source TEXT DEFAULT NULL`,
+    `CREATE TABLE IF NOT EXISTS featured_rotation_log (
+      id                  SERIAL PRIMARY KEY,
+      tenant_id           INTEGER NOT NULL DEFAULT 1,
+      rotated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      slots_filled        INTEGER NOT NULL DEFAULT 0,
+      articles_featured   JSONB DEFAULT '[]',
+      articles_unfeatured JSONB DEFAULT '[]',
+      strategy_used       TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_featured_rotation_log_tenant ON featured_rotation_log(tenant_id, rotated_at DESC)`,
+    // Backfill: existing manually featured articles get featured_source = 'manual'
+    `UPDATE articles SET featured_source = 'manual' WHERE is_featured = 1 AND featured_source IS NULL`,
+    // Featured rotation settings defaults
+    `INSERT INTO settings (key, value) VALUES ('featured_rotation_enabled', '0')        ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('featured_rotation_interval_hours', '12') ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('featured_rotation_strategy', 'score')    ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('featured_rotation_pool_days', '7')       ON CONFLICT (tenant_id, key) DO NOTHING`,
+    `INSERT INTO settings (key, value) VALUES ('featured_rotation_cooldown_days', '3')   ON CONFLICT (tenant_id, key) DO NOTHING`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
