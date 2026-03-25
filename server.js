@@ -90,7 +90,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
