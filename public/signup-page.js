@@ -5,6 +5,7 @@ onReady(async () => {
 
   let currentStep = 1;
   let userToken = null;
+  let registeredEmail = null;
   let selectedPlan = 'free';
   let slugOk = false;
   let slugTimer = null;
@@ -61,7 +62,15 @@ onReady(async () => {
       if (!res.ok) throw new Error(data.error || 'Registration failed');
 
       userToken = data.token;
-      await checkExistingTenant();
+      registeredEmail = data.user.email || email;
+
+      if (data.email_verified === false) {
+        // Show verification step
+        document.getElementById('verifyEmailAddr').textContent = registeredEmail;
+        goToStep(2);
+      } else {
+        await checkExistingTenant();
+      }
     } catch (err) {
       showError(err.message);
       btn.disabled = false;
@@ -77,10 +86,17 @@ onReady(async () => {
     if (e.key === 'Enter') document.getElementById('registerBtn').click();
   });
 
+  // ── Verification handlers ──
+  document.getElementById('verifyBtn').addEventListener('click', verifyEmail);
+  document.getElementById('verifyCode').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') verifyEmail();
+  });
+  document.getElementById('resendBtn').addEventListener('click', resendVerification);
+
   // ── Navigation ──
   document.getElementById('backToStep1').addEventListener('click', () => goToStep(1));
-  document.getElementById('backToStep2').addEventListener('click', () => goToStep(2));
-  document.getElementById('toStep3').addEventListener('click', () => goToStep(3));
+  document.getElementById('backToStep3').addEventListener('click', () => goToStep(3));
+  document.getElementById('toStep4').addEventListener('click', () => goToStep(4));
   document.getElementById('createBtn').addEventListener('click', createTenant);
 
   // ── Slug auto-generation ──
@@ -129,7 +145,74 @@ onReady(async () => {
     });
     clearError();
 
-    if (step === 3) document.getElementById('siteName').focus();
+    if (step === 2) document.getElementById('verifyCode').focus();
+    if (step === 4) document.getElementById('siteName').focus();
+  }
+
+  async function verifyEmail() {
+    clearError();
+    const code = document.getElementById('verifyCode').value.replace(/\s/g, '');
+    if (!code || !/^\d{6}$/.test(code)) return showError('Enter the 6-digit code');
+
+    const btn = document.getElementById('verifyBtn');
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+
+    try {
+      const res = await fetch('/api/user-auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + userToken },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+
+      // Update token with emailVerified claim
+      if (data.token) userToken = data.token;
+      await checkExistingTenant();
+    } catch (err) {
+      showError(err.message);
+      btn.disabled = false;
+      btn.textContent = 'Verify';
+    }
+  }
+
+  async function resendVerification() {
+    const btn = document.getElementById('resendBtn');
+    const status = document.getElementById('resendStatus');
+    btn.disabled = true;
+
+    try {
+      const res = await fetch('/api/user-auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + userToken },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to resend');
+      if (data.sent === false) throw new Error(data.error || 'Email delivery failed');
+
+      status.innerHTML = '<span style="color:var(--success);">Code sent!</span>';
+      document.getElementById('verifyCode').value = '';
+      document.getElementById('verifyCode').focus();
+
+      // 60-second cooldown
+      let cooldown = 60;
+      btn.textContent = `Resend (${cooldown}s)`;
+      const timer = setInterval(() => {
+        cooldown--;
+        if (cooldown <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.textContent = 'Resend code';
+          status.innerHTML = '';
+        } else {
+          btn.textContent = `Resend (${cooldown}s)`;
+        }
+      }, 1000);
+    } catch (err) {
+      status.innerHTML = `<span style="color:var(--danger);">${err.message}</span>`;
+      btn.disabled = false;
+    }
   }
 
   async function exchangeOAuthCode(oauthCode) {
@@ -143,6 +226,7 @@ onReady(async () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Code exchange failed');
       userToken = data.token;
+      // OAuth users are already verified — skip verification step
       await checkExistingTenant();
     } catch (err) {
       showError(err.message);
@@ -164,7 +248,8 @@ onReady(async () => {
         return;
       }
     } catch { /* no existing tenant */ }
-    goToStep(2);
+    // Skip to plan selection (step 3) — verification already done or not needed
+    goToStep(3);
   }
 
   function formatPrice(cents) {

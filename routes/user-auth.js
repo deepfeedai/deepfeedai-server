@@ -148,6 +148,7 @@ async function issueJwt(user) {
       displayName: user.display_name,
       avatarUrl:   user.avatar_url,
       provider:    user.provider,
+      emailVerified: !!user.email_verified,
     },
     userJwtSecret,
     { expiresIn: '7d' }
@@ -312,6 +313,8 @@ router.get('/github/callback', async (req, res) => {
 /* ── Email/Password Registration (POST /api/user-auth/register) ─── */
 const bcrypt   = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
+const requireUser = require('../middleware/user-jwt');
+const { sendVerificationEmail } = require('../lib/notify');
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -382,8 +385,21 @@ router.post('/register', registerLimiter, async (req, res) => {
     }
 
     const token = await issueJwt(user);
+
+    // Generate 6-digit verification code and send email
+    const verifyCode = String(crypto.randomInt(100000, 1000000));
+    const verifyExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await db.prepare(
+      "INSERT INTO auth_codes (code, user_id, expires_at, type) VALUES ($1, $2, $3, 'email_verify')"
+    ).run(verifyCode, user.id, verifyExpires);
+
+    // Send verification email (non-blocking — don't fail registration if email fails)
+    sendVerificationEmail({ toEmail: cleanEmail, toName: safeName, code: verifyCode })
+      .catch(err => console.error('[user-auth/register] verification email failed:', err.message));
+
     res.status(201).json({
       token,
+      email_verified: false,
       user: {
         id: user.id,
         displayName: user.display_name,
@@ -431,6 +447,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const token = await issueJwt(user);
     res.json({
       token,
+      email_verified: !!user.email_verified,
       user: {
         id: user.id,
         displayName: user.display_name,
@@ -444,6 +461,97 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+/* ── Email Verification (POST /api/user-auth/verify-email) ──────── */
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: 'Too many verification attempts. Please try again later.' },
+});
+
+router.post('/verify-email', requireUser, verifyLimiter, async (req, res) => {
+  const { code } = req.body || {};
+  if (!code || typeof code !== 'string') {
+    return res.status(400).json({ error: 'Verification code is required' });
+  }
+
+  try {
+    // Already verified?
+    const pu = await db.prepare('SELECT email_verified FROM public_users WHERE id = $1').get(req.user.sub);
+    if (pu && pu.email_verified) {
+      const freshUser = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(req.user.sub);
+      const token = await issueJwt(freshUser);
+      return res.json({ verified: true, already: true, token });
+    }
+
+    const row = await db.prepare(`
+      SELECT id FROM auth_codes
+      WHERE code = $1 AND user_id = $2 AND type = 'email_verify' AND used = 0 AND expires_at > NOW()
+    `).get(code.trim(), req.user.sub);
+
+    if (!row) {
+      return res.status(400).json({ error: 'Invalid or expired code' });
+    }
+
+    await db.prepare('UPDATE auth_codes SET used = 1 WHERE id = $1').run(row.id);
+    await db.prepare('UPDATE public_users SET email_verified = 1, updated_at = NOW() WHERE id = $1').run(req.user.sub);
+
+    const freshUser = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(req.user.sub);
+    const token = await issueJwt(freshUser);
+    res.json({ verified: true, token });
+  } catch (err) {
+    console.error('[user-auth/verify-email]', err.message);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+/* ── Resend Verification Code (POST /api/user-auth/resend-verification) ── */
+const resendVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  keyGenerator: (req) => req.user?.sub || req.ip,
+  message: { error: 'Too many resend attempts. Please try again later.' },
+});
+
+router.post('/resend-verification', requireUser, resendVerifyLimiter, async (req, res) => {
+  try {
+    const user = await db.prepare(
+      "SELECT * FROM public_users WHERE id = $1 AND provider = 'local'"
+    ).get(req.user.sub);
+
+    if (!user) {
+      return res.status(400).json({ error: 'Only email accounts require verification' });
+    }
+    if (user.email_verified) {
+      return res.json({ sent: false, already_verified: true });
+    }
+
+    // Invalidate any previous unused codes
+    await db.prepare(
+      "UPDATE auth_codes SET used = 1 WHERE user_id = $1 AND type = 'email_verify' AND used = 0"
+    ).run(user.id);
+
+    // Generate new code
+    const verifyCode = String(crypto.randomInt(100000, 1000000));
+    const verifyExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await db.prepare(
+      "INSERT INTO auth_codes (code, user_id, expires_at, type) VALUES ($1, $2, $3, 'email_verify')"
+    ).run(verifyCode, user.id, verifyExpires);
+
+    try {
+      await sendVerificationEmail({ toEmail: user.email, toName: user.display_name, code: verifyCode });
+    } catch (emailErr) {
+      console.error('[user-auth/resend-verification] email delivery failed:', emailErr.message);
+      return res.json({ sent: false, error: 'Email delivery failed. Please try again.' });
+    }
+
+    res.json({ sent: true });
+  } catch (err) {
+    console.error('[user-auth/resend-verification]', err.message);
+    res.status(500).json({ error: 'Failed to resend verification code' });
+  }
+});
+
 /* ── Token exchange (POST /api/user-auth/token) ─────────────────── */
 // Main site calls this after receiving the one-time code from the callback URL.
 router.post('/token', async (req, res) => {
@@ -453,7 +561,7 @@ router.post('/token', async (req, res) => {
   try {
     const row = await db.prepare(`
       SELECT * FROM auth_codes
-      WHERE code = $1 AND used = 0 AND expires_at > NOW()
+      WHERE code = $1 AND used = 0 AND expires_at > NOW() AND (type IS NULL OR type = 'oauth')
     `).get(code);
 
     if (!row) return res.status(400).json({ error: 'Invalid or expired code' });
