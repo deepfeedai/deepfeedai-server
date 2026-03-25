@@ -15,8 +15,25 @@ onReady(async () => {
     if (recentBodyEl) recentBodyEl.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-md'], 5);
 
     try {
-      const [articlesData, sources, settings, commentsData, queueData] = await Promise.all([
-        apiFetch('/articles'),
+      // Fetch all articles by paginating through the API (max 500 per request)
+      async function fetchAllArticles() {
+        const PAGE_SIZE = 500;
+        let all = [];
+        let offset = 0;
+        let hasMore = true;
+        while (hasMore) {
+          const data = await apiFetch(`/articles?limit=${PAGE_SIZE}&offset=${offset}`);
+          const batch = Array.isArray(data) ? data : (data.articles || []);
+          all = all.concat(batch);
+          hasMore = data.hasMore === true;
+          offset += batch.length;
+          if (!batch.length) break;
+        }
+        return all;
+      }
+
+      const [articlesRaw, sources, settings, commentsData, queueData] = await Promise.all([
+        fetchAllArticles(),
         apiFetch('/sources'),
         apiFetch('/settings').catch(() => ({})),
         apiFetch('/comments/admin').catch(() => ({ comments: [] })),
@@ -29,7 +46,7 @@ onReady(async () => {
         if (banner) banner.style.display = 'block';
       }
 
-      const articles  = Array.isArray(articlesData) ? articlesData : (articlesData.articles || []);
+      const articles  = articlesRaw;
       const now       = Date.now();
       const DAY_MS    = 86400000;
       const WEEK_MS   = 7 * DAY_MS;

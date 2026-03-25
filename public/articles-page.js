@@ -1212,8 +1212,20 @@ let articles = [];
     if (!preservePage && tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       await loadWriters();
-      const data = await apiFetch('/articles');
-      allArticles = Array.isArray(data) ? data : (data.articles || []);
+      // Fetch all articles by paginating through the API (max 500 per request)
+      const PAGE_SIZE = 500;
+      let all = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const data = await apiFetch(`/articles?limit=${PAGE_SIZE}&offset=${offset}`);
+        const batch = Array.isArray(data) ? data : (data.articles || []);
+        all = all.concat(batch);
+        hasMore = data.hasMore === true;
+        offset += batch.length;
+        if (!batch.length) break;
+      }
+      allArticles = all;
       applyFilters({ preservePage });
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
