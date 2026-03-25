@@ -324,6 +324,63 @@ router.post('/generate-image', auth, requirePermission('media.create'), asyncHan
   }
 }));
 
+// POST /api/media/regenerate-local-images — find articles with local image paths and re-generate via R2
+router.post('/regenerate-local-images', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
+  const { generateAndStoreImage } = require('../lib/media-helpers');
+  const limit = Math.min(parseInt(req.body.limit) || 20, 50);
+  const dryRun = req.body.dry_run === true;
+
+  // Find articles with local filesystem image paths (lost on Railway redeploy)
+  const articles = await db.prepare(`
+    SELECT id, title, image_url FROM articles
+    WHERE tenant_id = $1
+      AND image_url IS NOT NULL
+      AND image_url LIKE '/media/%'
+      AND (is_archived = 0 OR is_archived IS NULL)
+    ORDER BY is_featured DESC, is_published DESC, created_at DESC
+    LIMIT $2
+  `).all(req.tenantId, limit);
+
+  if (dryRun) {
+    return res.json({
+      dry_run: true,
+      count: articles.length,
+      articles: articles.map(a => ({ id: a.id, title: a.title, image_url: a.image_url })),
+    });
+  }
+
+  let regenerated = 0, failed = 0;
+  const results = [];
+
+  for (const article of articles) {
+    try {
+      // Clear local image_url so generateAndStoreImage will process it
+      await db.prepare('UPDATE articles SET image_url = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2')
+        .run(article.id, req.tenantId);
+
+      const newUrl = await generateAndStoreImage(article.id, req.tenantId);
+      if (newUrl) {
+        regenerated++;
+        results.push({ id: article.id, title: article.title, old_url: article.image_url, new_url: newUrl, status: 'ok' });
+      } else {
+        // Restore old URL if generation failed (better than nothing for non-ephemeral hosts)
+        await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
+          .run(article.image_url, article.id, req.tenantId);
+        failed++;
+        results.push({ id: article.id, title: article.title, status: 'failed' });
+      }
+    } catch (err) {
+      await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
+        .run(article.image_url, article.id, req.tenantId).catch(() => {});
+      failed++;
+      results.push({ id: article.id, title: article.title, status: 'error', error: err.message });
+    }
+  }
+
+  await logAudit(req, 'media.regenerate-local-images', 'articles', null, { regenerated, failed, total: articles.length });
+  res.json({ regenerated, failed, total: articles.length, results });
+}));
+
 // DELETE /api/media/audio/:id
 router.delete('/audio/:id', auth, requirePermission('media.delete'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);

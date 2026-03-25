@@ -786,6 +786,21 @@ registerJob({
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
   await startAll();
+
+  // ── Storage health check ─────────────────────────────────────
+  try {
+    const storage = require('./lib/storage');
+    const health = await storage.healthCheck();
+    if (health.ok) {
+      console.log(`[storage] Health check passed: ${health.message}`);
+    } else {
+      console.error(`[storage] Health check FAILED: ${health.message}`);
+      console.error('[storage] Image uploads will fail until R2/S3 connectivity is restored. Check SETTINGS_ENCRYPTION_KEY and R2 credentials in Platform Settings.');
+    }
+  } catch (err) {
+    console.error(`[storage] Health check error: ${err.message}`);
+  }
+
   app.listen(PORT, () => {
     console.log(`🤖 DeepFeedAI Admin running at http://localhost:${PORT}`);
   });
