@@ -4,6 +4,30 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0-beta.5] — 2026-03-25
+
+### Added — Featured Article Rotation
+
+- **Automated featured rotation** — new cron job (`featured-rotation`, hourly check) automatically cycles the featured article carousel using a configurable scoring strategy; actual rotation interval is controlled by the `featured_rotation_interval_hours` setting
+- **3 rotation strategies** — `score` (composite: 40% views + 30% quality + 20% recency + 10% diversity bonus), `category-balanced` (30% views + 25% quality + 25% recency + 0.2 diversity bonus, tracks categories assigned in-cycle to maximise variety), `recency` (pure recency-decay score)
+- **Pinning** — `PUT /api/articles/:id/pin` toggles `is_pinned` on a featured article; pinned articles are never rotated out; pinning an unfeatured article auto-features it in the next open slot
+- **Manual trigger** — `POST /api/articles/rotate-featured` forces an immediate rotation cycle (bypasses interval check); requires `articles.update` permission
+- **Rotation status** — `GET /api/articles/rotation-status` returns current config, all featured articles with their source/pin/expiry state, and the last 10 log entries
+- **Rotation log** — `GET /api/articles/rotation-log` returns paginated rotation history (default 20, max 100 rows)
+- **Expiry support** — `PUT /api/articles/:id/feature` now accepts `featured_until` (ISO 8601 timestamp); expired featured articles are filtered from the public API and cleaned up at the next rotation cycle
+- **`featured_source` tracking** — featured articles are tagged `'auto'` (cron-rotated) or `'manual'` (admin-set); this governs which slots the rotation cron is allowed to reclaim
+
+### Added — Database (Phase 17)
+
+- `articles.last_featured_at TIMESTAMPTZ` — when the article was last promoted to featured by auto-rotation
+- `articles.featured_until TIMESTAMPTZ` — optional expiry; auto-rotation sets this to the next expected rotation time
+- `articles.is_pinned INTEGER DEFAULT 0` — pin flag; pinned slots are never reclaimed by rotation
+- `articles.featured_source TEXT` — `'auto'` or `'manual'`; existing featured articles backfilled to `'manual'`
+- `featured_rotation_log` table — per-tenant rotation audit log (slots filled, articles in/out, strategy used)
+- New settings defaults: `featured_rotation_enabled` (`0`), `featured_rotation_interval_hours` (`12`), `featured_rotation_strategy` (`score`), `featured_rotation_pool_days` (`7`), `featured_rotation_cooldown_days` (`3`)
+
+---
+
 ## [3.0.0-beta.4] — 2026-03-24
 
 ### Changed — Plan Limit Tuning

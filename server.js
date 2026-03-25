@@ -526,6 +526,21 @@ registerJob({
 });
 
 registerJob({
+  name: 'featured-rotation',
+  description: 'Featured article rotation',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',  // hourly check; actual interval controlled by settings
+  handler: async (tenantId) => {
+    const { rotateFeatured } = require('./lib/featured-rotation');
+    const result = await rotateFeatured(tenantId);
+    if (result.rotated && result.slotsFilled > 0) {
+      console.log(`[Cron] Featured rotation (tenant ${tenantId}): ${result.slotsFilled} slots filled (${result.strategy})`);
+    }
+    return result;
+  },
+});
+
+registerJob({
   name: 'auto-archive',
   description: 'Auto-archive articles',
   category: 'Maintenance',
@@ -572,6 +587,7 @@ registerJob({
       if (protectEngaged && engagedSlugs.has(toSlug(row.title))) continue;
       await db.prepare(`
         UPDATE articles SET is_archived = 1, is_published = 0, is_featured = 0,
+          featured_priority = NULL, is_pinned = 0, featured_source = NULL, featured_until = NULL,
           archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2
       `).run(row.id, tenantId);
       purged++;

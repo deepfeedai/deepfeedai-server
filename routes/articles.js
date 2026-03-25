@@ -264,6 +264,31 @@ router.get('/preview-by-slug', auth, requirePermission('articles.read'), asyncHa
   res.json({ article: serializeRow(match), writer: writer || null });
 }));
 
+// ── Featured rotation endpoints (must be before /:id) ────────────────
+const { rotateFeatured, getRotationStatus } = require('../lib/featured-rotation');
+
+// POST /api/articles/rotate-featured — manual trigger
+router.post('/rotate-featured', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const result = await rotateFeatured(req.tenantId, { force: true });
+  logAudit(req, 'article.rotate-featured', 'articles', null, { ...result });
+  res.json(result);
+}));
+
+// GET /api/articles/rotation-status
+router.get('/rotation-status', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const status = await getRotationStatus(req.tenantId);
+  res.json(status);
+}));
+
+// GET /api/articles/rotation-log
+router.get('/rotation-log', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const logs = await db.prepare(
+    'SELECT * FROM featured_rotation_log WHERE tenant_id = $1 ORDER BY rotated_at DESC LIMIT $2'
+  ).all(req.tenantId, limit);
+  res.json(logs);
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
@@ -396,6 +421,7 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
   await db.prepare(`
     UPDATE articles
     SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
+        is_pinned = 0, featured_source = NULL, featured_until = NULL,
         status = 'archived', archived_at = NOW(), updated_at = NOW()
     WHERE id = $1 AND tenant_id = $2
   `).run(req.params.id, req.tenantId);
@@ -454,10 +480,12 @@ router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHand
   const MAX_FEATURED = 5;
   const { priority } = req.body || {};
 
+  const { featured_until } = req.body || {};
+
   // Unfeature: no priority supplied, or priority === 0/null
   if (!priority) {
     await db.prepare(
-      'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, is_pinned = 0, featured_source = NULL, featured_until = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
     ).run(req.params.id, req.tenantId);
     return res.json({ id: article.id, is_featured: 0, featured_priority: null });
   }
@@ -480,10 +508,50 @@ router.put('/:id/feature', auth, requirePermission('articles.update'), asyncHand
   }
 
   await db.prepare(
-    'UPDATE articles SET is_featured = 1, featured_priority = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
-  ).run(slot, req.params.id, req.tenantId);
+    'UPDATE articles SET is_featured = 1, featured_priority = $1, featured_source = $2, featured_until = $3, updated_at = NOW() WHERE id = $4 AND tenant_id = $5'
+  ).run(slot, 'manual', featured_until || null, req.params.id, req.tenantId);
 
-  res.json({ id: article.id, is_featured: 1, featured_priority: slot });
+  res.json({ id: article.id, is_featured: 1, featured_priority: slot, featured_source: 'manual', featured_until: featured_until || null });
+}));
+
+// PUT /api/articles/:id/pin — toggle pin on a featured article
+router.put('/:id/pin', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { pinned } = req.body || {};
+  const newPinned = pinned ? 1 : 0;
+
+  if (newPinned && !article.is_featured) {
+    // Auto-feature when pinning an unfeatured article — assign next open slot
+    const { count } = await db.prepare(
+      'SELECT COUNT(*) AS count FROM articles WHERE is_featured = 1 AND tenant_id = $1'
+    ).get(req.tenantId);
+    if (count >= 5) return res.status(400).json({ error: 'All 5 featured slots are full — unfeature one first' });
+
+    const used = await db.prepare(
+      'SELECT featured_priority FROM articles WHERE is_featured = 1 AND tenant_id = $1'
+    ).all(req.tenantId);
+    const usedSlots = new Set(used.map(r => r.featured_priority));
+    let slot = 1;
+    while (usedSlots.has(slot) && slot <= 5) slot++;
+
+    await db.prepare(`
+      UPDATE articles
+      SET is_featured = 1, featured_priority = $1, is_pinned = 1,
+          featured_source = 'manual', updated_at = NOW()
+      WHERE id = $2 AND tenant_id = $3
+    `).run(slot, req.params.id, req.tenantId);
+    logAudit(req, 'article.pin', 'article', parseInt(req.params.id));
+    return res.json({ id: article.id, is_featured: 1, featured_priority: slot, is_pinned: 1 });
+  }
+
+  await db.prepare(
+    'UPDATE articles SET is_pinned = $1, featured_source = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
+  ).run(newPinned, newPinned ? 'manual' : article.featured_source, req.params.id, req.tenantId);
+
+  logAudit(req, newPinned ? 'article.pin' : 'article.unpin', 'article', parseInt(req.params.id));
+  res.json({ id: article.id, is_pinned: newPinned });
 }));
 
 // Status ↔ legacy field sync helper
@@ -604,6 +672,7 @@ router.post('/purge-old', auth, requirePermission('articles.delete'), asyncHandl
     await db.prepare(`
       UPDATE articles
       SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
+          is_pinned = 0, featured_source = NULL, featured_until = NULL,
           status = 'archived', archived_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND tenant_id = $2
     `).run(row.id, req.tenantId);
