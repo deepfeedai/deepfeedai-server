@@ -818,6 +818,23 @@ async function initDb() {
     // Backfill: OAuth/platform users are always verified; existing local users grandfathered
     `UPDATE public_users SET email_verified = 1 WHERE email_verified = 0 AND provider != 'local'`,
     `UPDATE public_users SET email_verified = 1 WHERE email_verified = 0 AND provider = 'local' AND created_at < '2026-03-25'`,
+    // Phase 16: Banner notification system (global + tenant)
+    `CREATE TABLE IF NOT EXISTS banners (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
+      message     TEXT NOT NULL,
+      type        TEXT NOT NULL DEFAULT 'info',
+      link_text   TEXT,
+      link_url    TEXT,
+      dismissible BOOLEAN NOT NULL DEFAULT true,
+      is_active   BOOLEAN NOT NULL DEFAULT true,
+      starts_at   TIMESTAMPTZ,
+      expires_at  TIMESTAMPTZ,
+      priority    INTEGER NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_banners_active ON banners (is_active, starts_at, expires_at) WHERE is_active = true`,
+    `CREATE INDEX IF NOT EXISTS idx_banners_tenant ON banners (tenant_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
