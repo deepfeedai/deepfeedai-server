@@ -9,10 +9,11 @@
  */
 const express = require('express');
 const router  = express.Router();
+const { asyncHandler } = require('../lib/utils');
 const { getSiteConfig } = require('../lib/site-config');
 const { getAppConfig } = require('../lib/app-config');
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const appCfg     = await getAppConfig(req.tenantId);
   const apiKey     = appCfg.resend_api_key;
   const audienceId = appCfg.resend_audience_id;
@@ -68,6 +69,6 @@ router.post('/', async (req, res) => {
     console.error('[subscribe] error:', err);
     return res.status(502).json({ error: 'Could not connect to newsletter service.' });
   }
-});
+}));
 
 module.exports = router;
