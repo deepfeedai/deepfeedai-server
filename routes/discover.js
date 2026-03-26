@@ -13,6 +13,7 @@ const { scrapeOgImage }  = require('../lib/scrape');
 const { findBestWriter } = require('../lib/writer-assign');
 const { logAudit }       = require('../middleware/audit');
 const { getCuratedScore } = require('../lib/quality-gate');
+const { requireFeature } = require('../middleware/feature-gate');
 
 // ── Date range helper ───────────────────────────────────────────────────────
 
@@ -349,7 +350,7 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
 // ── Saved Searches ──────────────────────────────────────────────────────────
 
 // GET /saved — list saved searches
-router.get('/saved', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+router.get('/saved', auth, requirePermission('fetch.execute'), requireFeature('saved_searches'), asyncHandler(async (req, res) => {
   const rows = await db.prepare(
     'SELECT * FROM saved_searches WHERE tenant_id = $1 ORDER BY name'
   ).all(req.tenantId);
@@ -357,7 +358,7 @@ router.get('/saved', auth, requirePermission('fetch.execute'), asyncHandler(asyn
 }));
 
 // POST /saved — save a search with current results
-router.post('/saved', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+router.post('/saved', auth, requirePermission('fetch.execute'), requireFeature('saved_searches'), asyncHandler(async (req, res) => {
   const { name, query, sources, period, from_date, to_date, results } = req.body;
   if (!name || !query) return res.status(400).json({ error: 'name and query are required' });
 
@@ -379,7 +380,7 @@ router.post('/saved', auth, requirePermission('fetch.execute'), asyncHandler(asy
 }));
 
 // GET /saved/:id — get saved search with cached results
-router.get('/saved/:id', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+router.get('/saved/:id', auth, requirePermission('fetch.execute'), requireFeature('saved_searches'), asyncHandler(async (req, res) => {
   const search = await db.prepare(
     'SELECT * FROM saved_searches WHERE id = $1 AND tenant_id = $2'
   ).get(req.params.id, req.tenantId);
@@ -411,7 +412,7 @@ router.get('/saved/:id', auth, requirePermission('fetch.execute'), asyncHandler(
 }));
 
 // DELETE /saved/:id — delete a saved search
-router.delete('/saved/:id', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+router.delete('/saved/:id', auth, requirePermission('fetch.execute'), requireFeature('saved_searches'), asyncHandler(async (req, res) => {
   await db.prepare(
     'DELETE FROM saved_searches WHERE id = $1 AND tenant_id = $2'
   ).run(req.params.id, req.tenantId);
@@ -419,7 +420,7 @@ router.delete('/saved/:id', auth, requirePermission('fetch.execute'), asyncHandl
 }));
 
 // POST /saved/:id/refresh — re-run search and update cached results
-router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
+router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), requireFeature('saved_searches'), asyncHandler(async (req, res) => {
   const search = await db.prepare(
     'SELECT * FROM saved_searches WHERE id = $1 AND tenant_id = $2'
   ).get(req.params.id, req.tenantId);

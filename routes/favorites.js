@@ -15,6 +15,7 @@ const express  = require('express');
 const jwt      = require('jsonwebtoken');
 const db       = require('../db');
 const { toSlug } = require('../lib/utils');
+const { requireFeature } = require('../middleware/feature-gate');
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ async function getUserId(req) {
 /* ── POST /api/favorites ─────────────────────────────────────────── */
 // Toggle: adds the favorite if absent, removes it if present.
 // Returns { saved: true|false, slug } so the client knows the new state.
-router.post('/', async (req, res) => {
+router.post('/', requireFeature('favorites'), async (req, res) => {
   const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 

@@ -99,9 +99,25 @@
   }
 
   /* ── Init ────────────────────────────────────────────────── */
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     if (!requireAuth()) return;
     renderSidebar();
+
+    // Load feature flags and gate newsletter controls
+    await loadAdminFeatures();
+    if (!isFeatureOn('newsletter')) {
+      var mainContent = document.querySelector('.main-content') || document.querySelector('.content');
+      if (mainContent) {
+        mainContent.insertAdjacentHTML('afterbegin', featureGateBanner('Newsletter'));
+      }
+      var sendBtn = document.getElementById('sendBtn');
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('feature-locked');
+        sendBtn.title = 'Newsletter is not available on your current plan';
+      }
+    }
+
     document.getElementById('previewBtn')?.addEventListener('click', loadPreview);
     document.getElementById('refreshPreviewBtn')?.addEventListener('click', loadPreview);
     document.getElementById('sendBtn')?.addEventListener('click', sendNewsletter);

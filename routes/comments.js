@@ -452,7 +452,7 @@ router.post('/:id/report', requireUser, asyncHandler(async (req, res) => {
 // Toggle a reaction on a comment. If the user already reacted with the same
 // emoji, it's removed (unlike). If they reacted with a different emoji, it's
 // swapped. Passing no emoji or an empty string removes any existing reaction.
-router.post('/:id/react', requireUser, asyncHandler(async (req, res) => {
+router.post('/:id/react', requireUser, requireFeature('reactions'), asyncHandler(async (req, res) => {
   const id    = parseInt(req.params.id, 10);
   const emoji = (req.body.emoji || '').trim();
 
