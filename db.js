@@ -898,6 +898,8 @@ async function initDb() {
       PRIMARY KEY (tenant_id, feature_key)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_tenant_feature_overrides_tenant ON tenant_feature_overrides(tenant_id)`,
+    // Block editor: structured content storage
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_blocks JSONB DEFAULT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

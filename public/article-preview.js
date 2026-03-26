@@ -274,8 +274,75 @@ function showArticlePreview(a, writer) {
     html += '<div class="ap-tldr-text">' + escHtml(a.tldr_overview) + '</div></div>';
   }
 
-  // Content based on type
-  if (a.content_type === 'deep-dive' && a.full_content) {
+  // Content based on type — block content takes priority
+  var blocks = a.content_blocks;
+  if (blocks && typeof blocks === 'string') try { blocks = JSON.parse(blocks); } catch(e) { blocks = null; }
+  if (blocks && blocks.blocks && blocks.blocks.length) {
+    // Sanitize inline HTML — allow only safe formatting tags
+    var _apSanitize = function(html) {
+      if (!html) return '';
+      var div = document.createElement('div');
+      div.innerHTML = html;
+      var allowed = { B: 1, STRONG: 1, I: 1, EM: 1, A: 1, CODE: 1, BR: 1, U: 1, MARK: 1, SUP: 1 };
+      var els = div.querySelectorAll('*');
+      for (var ei = els.length - 1; ei >= 0; ei--) {
+        var el = els[ei];
+        if (!allowed[el.tagName]) {
+          el.replaceWith(document.createTextNode(el.textContent));
+        } else if (el.tagName === 'A') {
+          var href = el.getAttribute('href') || '';
+          if (!/^(https?:\/\/|\/[^\/])/.test(href)) {
+            el.replaceWith(document.createTextNode(el.textContent));
+          } else {
+            var safeHref = el.getAttribute('href');
+            while (el.attributes.length) el.removeAttribute(el.attributes[0].name);
+            el.setAttribute('href', safeHref);
+            el.setAttribute('target', '_blank');
+            el.setAttribute('rel', 'noopener');
+          }
+        } else {
+          while (el.attributes.length) el.removeAttribute(el.attributes[0].name);
+        }
+      }
+      return div.innerHTML;
+    };
+
+    html += '<div class="ap-content">';
+    blocks.blocks.forEach(function(block) {
+      switch (block.type) {
+        case 'paragraph':
+          html += '<p>' + _apSanitize(block.data.text || '') + '</p>';
+          break;
+        case 'header':
+          var lvl = block.data.level || 2;
+          html += '<h' + lvl + '>' + escHtml(block.data.text || '').replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>').replace(/&lt;i&gt;/g,'<i>').replace(/&lt;\/i&gt;/g,'</i>') + '</h' + lvl + '>';
+          break;
+        case 'list':
+          var tag = block.data.style === 'ordered' ? 'ol' : 'ul';
+          html += '<' + tag + '>';
+          (block.data.items || []).forEach(function(item) {
+            var t = typeof item === 'string' ? item : (item.content || '');
+            html += '<li>' + _apSanitize(t) + '</li>';
+          });
+          html += '</' + tag + '>';
+          break;
+        case 'quote':
+          html += '<blockquote>' + _apSanitize(block.data.text || '') + (block.data.caption ? '<footer style="font-size:0.85em;color:var(--muted);margin-top:4px;">— ' + escHtml(block.data.caption) + '</footer>' : '') + '</blockquote>';
+          break;
+        case 'image':
+          var imgUrl = (block.data.file && block.data.file.url) || block.data.url || '';
+          if (imgUrl && /^(https?:\/\/|\/[^\/])/.test(imgUrl)) html += '<figure style="margin:16px 0;"><img src="' + escHtml(imgUrl) + '" alt="" style="max-width:100%;border-radius:8px;" onerror="this.style.display=\'none\'" />' + (block.data.caption ? '<figcaption style="font-size:0.82rem;color:var(--muted);margin-top:6px;text-align:center;">' + escHtml(block.data.caption) + '</figcaption>' : '') + '</figure>';
+          break;
+        case 'code':
+          html += '<pre style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:12px 16px;overflow-x:auto;font-size:0.85rem;"><code>' + escHtml(block.data.code || '') + '</code></pre>';
+          break;
+        case 'delimiter':
+          html += '<hr style="border:none;border-top:1px solid var(--border);margin:24px 0;" />';
+          break;
+      }
+    });
+    html += '</div>';
+  } else if (a.content_type === 'deep-dive' && a.full_content) {
     var refs = [];
     try { var raw = a.source_article_ids; if (typeof raw === 'string') raw = JSON.parse(raw); if (Array.isArray(raw)) refs = raw; } catch(e) {}
     var meta = a.synthesis_meta;

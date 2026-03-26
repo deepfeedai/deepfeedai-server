@@ -74,6 +74,7 @@ router.get('/', asyncHandler(async (req, res) => {
     writer_beats:           match.writer_beats           || [],
     content_type:           match.content_type           || 'curated',
     full_content:           match.full_content           || null,
+    content_blocks:         match.content_blocks         || null,
     source_article_ids:     match.source_article_ids     || null,
     slug:                   match.slug                   || null,
     embed_url:              match.embed_url              || null,
