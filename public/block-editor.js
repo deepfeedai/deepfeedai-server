@@ -21,6 +21,15 @@
       return;
     }
 
+    // Permission check — need articles.create (new) or articles.update (edit)
+    var params = new URLSearchParams(window.location.search);
+    var requiredPerm = params.get('id') ? 'articles.update' : 'articles.create';
+    if (!hasPermission(requiredPerm)) {
+      showAlert('You don\'t have permission to use the article editor', 'error');
+      setTimeout(function() { window.location.href = '/articles.html'; }, 1500);
+      return;
+    }
+
     // Wire up ALL UI listeners immediately — before any async work.
     // This ensures buttons work even if data loading fails.
     document.getElementById('editorSaveBtn').addEventListener('click', saveArticle);
