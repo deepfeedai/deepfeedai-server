@@ -660,6 +660,53 @@ function skeletonStats(count = 4) {
     </div>`).join('');
 }
 
+// ── Feature Flags ─────────────────────────────────────────
+window.AdminFeatures = null;
+var _adminFeaturesPromise = null;
+var FEATURES_CACHE_KEY = 'dfa_admin_features';
+var FEATURES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function loadAdminFeatures() {
+  if (_adminFeaturesPromise) return _adminFeaturesPromise;
+  _adminFeaturesPromise = (async function () {
+    // Check sessionStorage cache
+    try {
+      var cached = JSON.parse(sessionStorage.getItem(FEATURES_CACHE_KEY));
+      if (cached && Date.now() - cached.ts < FEATURES_CACHE_TTL) {
+        window.AdminFeatures = cached.data;
+        return cached.data;
+      }
+    } catch (_) {}
+
+    try {
+      var features = await apiFetch('/features');
+      window.AdminFeatures = features;
+      sessionStorage.setItem(FEATURES_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: features }));
+      return features;
+    } catch (err) {
+      console.warn('[feature-flags]', err.message);
+      // Default to empty object — treat all features as enabled when flags unavailable
+      window.AdminFeatures = {};
+      return {};
+    }
+  })();
+  return _adminFeaturesPromise;
+}
+
+function isFeatureOn(key) {
+  if (!window.AdminFeatures) return true; // not loaded yet — default to enabled
+  var val = window.AdminFeatures[key];
+  if (val === undefined) return true; // unknown feature — default to enabled
+  return val === true || val === 'true';
+}
+
+function featureGateBanner(featureName) {
+  return '<div class="feature-gate-banner">'
+    + '<span class="badge badge-muted" style="background:rgba(234,179,8,0.15);color:#eab308;">Upgrade</span>'
+    + '<span>' + escHtml(featureName) + ' is not available on your current plan.</span>'
+    + '</div>';
+}
+
 // ── DOM ready helper ──────────────────────────────────────
 function onReady(fn) {
   if (document.readyState !== 'loading') fn();

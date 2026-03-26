@@ -1678,4 +1678,55 @@ let apiKeyVisible = false;
     });
   }
 
+  // ── Feature-gate settings sections ────────────────────────────
+  loadAdminFeatures().then(function() {
+    // Featured Rotation
+    if (!isFeatureOn('featured_rotation')) {
+      var featRotationCard = document.getElementById('featRotationEnabled');
+      if (featRotationCard) {
+        var card = featRotationCard.closest('.settings-card');
+        if (card) {
+          card.classList.add('feature-locked');
+          card.insertAdjacentHTML('afterbegin',
+            '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Featured Rotation') + '</div>');
+        }
+      }
+    }
+
+    // Spam Detection
+    if (!isFeatureOn('spam_detection')) {
+      var spamPanel = document.getElementById('spamBlocklist');
+      if (spamPanel) {
+        var panel = spamPanel.closest('.dash-panel');
+        if (panel) {
+          panel.classList.add('feature-locked');
+          panel.insertAdjacentHTML('afterbegin',
+            '<div style="pointer-events:auto;">' + featureGateBanner('Spam Detection') + '</div>');
+        }
+      }
+    }
+
+    // SEO Titles — show upgrade badge next to the Description (SEO) label
+    if (!isFeatureOn('seo_titles')) {
+      var seoLabel = document.querySelector('label[for="siteDescription"]');
+      if (seoLabel) {
+        seoLabel.insertAdjacentHTML('beforeend',
+          ' <span class="badge badge-muted" style="background:rgba(234,179,8,0.15);color:#eab308;font-size:10px;vertical-align:middle;">Upgrade</span>');
+      }
+    }
+
+    // BYOK — gate API key cards (ElevenLabs, Gemini, Perspective, etc.)
+    if (!isFeatureOn('byok')) {
+      var integrationCards = document.querySelectorAll('.tab-panel[data-tab="integrations"] .settings-card');
+      integrationCards.forEach(function(card) {
+        // Only lock cards that have API key inputs
+        if (card.querySelector('input[type="password"], input[id*="ApiKey"], input[id*="apiKey"]')) {
+          card.classList.add('feature-locked');
+          card.insertAdjacentHTML('afterbegin',
+            '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Bring Your Own Key') + '</div>');
+        }
+      });
+    }
+  });
+
   loadSettings();

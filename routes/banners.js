@@ -14,6 +14,7 @@ const { auth: requireAdmin }    = require('../middleware/auth');
 const { requirePermission }     = require('../middleware/permissions');
 const { asyncHandler }          = require('../lib/utils');
 const { logAudit }              = require('../middleware/audit');
+const { requireFeature }        = require('../middleware/feature-gate');
 
 // ── In-memory cache ──────────────────────────────────────────────
 const _cache = new Map();   // tenantId -> { banners, ts }
@@ -75,7 +76,7 @@ router.get('/active', asyncHandler(async (req, res) => {
 }));
 
 // ── POST /api/banners — create tenant banner ─────────────────────
-router.post('/', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+router.post('/', requireAdmin, requirePermission('settings.update'), requireFeature('banners'), asyncHandler(async (req, res) => {
   const { message, type, linkText, linkUrl, dismissible, priority, startsAt, expiresAt } = req.body;
   if (!message || !message.trim()) {
     return res.status(400).json({ error: 'message is required' });
@@ -106,7 +107,7 @@ router.post('/', requireAdmin, requirePermission('settings.update'), asyncHandle
 }));
 
 // ── PUT /api/banners/:id — update tenant banner ─────────────────
-router.put('/:id', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+router.put('/:id', requireAdmin, requirePermission('settings.update'), requireFeature('banners'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { message, type, linkText, linkUrl, dismissible, isActive, priority, startsAt, expiresAt } = req.body;
 
@@ -146,7 +147,7 @@ router.put('/:id', requireAdmin, requirePermission('settings.update'), asyncHand
 }));
 
 // ── DELETE /api/banners/:id — delete tenant banner ───────────────
-router.delete('/:id', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+router.delete('/:id', requireAdmin, requirePermission('settings.update'), requireFeature('banners'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const existing = await db.prepare('SELECT id, message FROM banners WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Banner not found' });

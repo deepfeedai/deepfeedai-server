@@ -361,9 +361,18 @@ document.getElementById('searchPeriod').addEventListener('change', function() {
   document.getElementById('customDateRange').style.display = this.value === 'custom' ? '' : 'none';
 });
 
-onReady(function() {
+onReady(async function() {
   if (!requireAuth()) return;
   renderSidebar();
+
+  // Load feature flags and gate saved searches
+  await loadAdminFeatures();
+  if (!isFeatureOn('saved_searches')) {
+    var saveBtn = document.getElementById('saveSearchBtn');
+    if (saveBtn) saveBtn.style.display = 'none';
+    var savedSection = document.getElementById('savedSearches');
+    if (savedSection) savedSection.style.display = 'none';
+  }
 
   // Generate year options dynamically (current year down to 2020)
   var select = document.getElementById('searchPeriod');
@@ -383,5 +392,7 @@ onReady(function() {
   document.getElementById('dateFrom').value = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
   document.getElementById('emptyState').style.display = '';
-  loadSavedSearches();
+  if (isFeatureOn('saved_searches')) {
+    loadSavedSearches();
+  }
 });

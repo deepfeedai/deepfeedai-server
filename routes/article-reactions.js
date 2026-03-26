@@ -11,6 +11,7 @@
 const express = require('express');
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
+const { requireFeature } = require('../middleware/feature-gate');
 
 const router = express.Router();
 
@@ -37,7 +38,7 @@ async function getUserId(req) {
 //   • Same emoji → DELETE (toggle off)
 //   • Different emoji → UPDATE to new emoji (swap)
 // Returns updated counts + viewer's current reaction (null if removed).
-router.post('/', async (req, res) => {
+router.post('/', requireFeature('reactions'), async (req, res) => {
   const userId = await getUserId(req);
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 

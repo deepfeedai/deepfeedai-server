@@ -3,6 +3,20 @@ onReady(async () => {
   if (!requireAuth()) return;
   renderSidebar();
 
+  // Load feature flags and gate synthesis controls
+  await loadAdminFeatures();
+  if (!isFeatureOn('auto_synthesis')) {
+    var synthControls = document.querySelector('.main-content') || document.querySelector('.content');
+    if (synthControls) {
+      synthControls.insertAdjacentHTML('afterbegin', featureGateBanner('Auto Synthesis'));
+    }
+    document.querySelectorAll('#runBtn, #runAllBtn, #dryRunBtn, #previewBtn').forEach(function(btn) {
+      btn.disabled = true;
+      btn.classList.add('feature-locked');
+      btn.title = 'Auto Synthesis is not available on your current plan';
+    });
+  }
+
   const writerSelect = document.getElementById('writerSelect');
   const previewBtn   = document.getElementById('previewBtn');
   const dryRunBtn    = document.getElementById('dryRunBtn');
