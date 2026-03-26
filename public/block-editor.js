@@ -180,13 +180,14 @@
       tools.delimiter = { class: window.Delimiter };
     }
     if (window.Embed) {
+      var origin = encodeURIComponent(window.location.origin);
       tools.embed = {
         class: window.Embed,
         config: {
           services: {
             youtube: {
               regex: /(?:https?:\/\/)?(?:www\.)?(?:(?:youtu\.be\/)|(?:youtube\.com)\/(?:v\/|u\/\w\/|embed\/|watch))(?:(?:\?v=)?([^#&?=]*))?((?:[?&]\w*=\w*)*)/,
-              embedUrl: 'https://www.youtube.com/embed/<%= remote_id %>',
+              embedUrl: 'https://www.youtube-nocookie.com/embed/<%= remote_id %>?origin=' + origin,
               html: '<iframe style="width:100%;" height="320" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>',
               height: 320,
               width: 580,
@@ -201,7 +202,7 @@
                   if (!map[parts[0]]) return null;
                   return map[parts[0]] + '=' + parts[1];
                 }).filter(Boolean);
-                return videoId + (extra.length ? '?' + extra.join('&') : '');
+                return videoId + (extra.length ? '&' + extra.join('&') : '');
               }
             }
           }
