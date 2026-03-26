@@ -92,9 +92,10 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
       if (roleRow) {
         switchPermissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
       } else {
-        switchPermissions = [];
+        // No roles row — owners still get full access; others get empty
+        switchPermissions = admin.role === 'owner' ? ['*'] : [];
       }
-    } catch { switchPermissions = []; }
+    } catch { switchPermissions = admin.role === 'owner' ? ['*'] : []; }
   }
 
   // Get full user info from public_users
@@ -257,6 +258,21 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     } catch { /* skip */ }
   }
 
+  // Seed default roles for the new tenant
+  const DEFAULT_ROLES = [
+    ['owner', 'Full access', '["*"]', true],
+    ['admin', 'Full administrative access', '["*"]', true],
+    ['editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true],
+    ['viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]', true],
+  ];
+  for (const [name, desc, perms, isSystem] of DEFAULT_ROLES) {
+    try {
+      await db.prepare(
+        'INSERT INTO roles (tenant_id, name, description, permissions, is_system) VALUES ($1, $2, $3, $4::jsonb, $5) ON CONFLICT DO NOTHING'
+      ).run(tenant.id, name, desc, perms, isSystem);
+    } catch { /* skip */ }
+  }
+
   // Issue a tenant-admin JWT (same secret as admin, but with tenantId claim)
   const token = jwt.sign(
     {
@@ -344,9 +360,10 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
       if (roleRow) {
         permissions = typeof roleRow.permissions === 'string' ? JSON.parse(roleRow.permissions) : roleRow.permissions;
       } else {
-        permissions = [];
+        // No roles row — owners still get full access; others get empty
+        permissions = admin.role === 'owner' ? ['*'] : [];
       }
-    } catch { permissions = []; }
+    } catch { permissions = admin.role === 'owner' ? ['*'] : []; }
   }
 
   const token = jwt.sign(

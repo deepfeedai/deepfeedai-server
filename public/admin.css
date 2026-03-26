@@ -427,6 +427,7 @@ code {
 
 .btn:hover { opacity: 0.85; }
 .btn:active { opacity: 0.7; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-primary {
   background: var(--accent);

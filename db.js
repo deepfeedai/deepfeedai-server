@@ -581,6 +581,17 @@ async function initDb() {
       (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
       (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]', true)
      ON CONFLICT (tenant_id, name) DO NOTHING`,
+    // Backfill: seed default roles for any tenant that is missing them
+    `INSERT INTO roles (tenant_id, name, description, permissions, is_system)
+     SELECT t.id, r.name, r.description, r.permissions::jsonb, true
+     FROM tenants t
+     CROSS JOIN (VALUES
+       ('owner', 'Full access', '["*"]'),
+       ('admin', 'Full administrative access', '["*"]'),
+       ('editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]'),
+       ('viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]')
+     ) AS r(name, description, permissions)
+     WHERE NOT EXISTS (SELECT 1 FROM roles WHERE roles.tenant_id = t.id AND roles.name = r.name)`,
     // 1c. Add local_user_id column to tenant_admins
     `ALTER TABLE tenant_admins ADD COLUMN IF NOT EXISTS local_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`,
     `CREATE UNIQUE INDEX IF NOT EXISTS tenant_admins_tenant_local ON tenant_admins(tenant_id, local_user_id) WHERE local_user_id IS NOT NULL`,
