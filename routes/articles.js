@@ -12,6 +12,7 @@ const { findBestWriter } = require('../lib/writer-assign');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
 const { deleteImage, deleteAudio } = require('../lib/media-helpers');
+const { validateBlocks, blocksToMarkdown } = require('../lib/blocks');
 
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
@@ -301,8 +302,18 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
   const body = validate(articleCreate, req.body, res);
   if (!body) return;
 
-  const { title, summary, content, category, source, source_url,
+  const { title, summary, content, content_blocks, category, source, source_url,
           image_url, author, is_featured, featured_priority: fp, is_published, published_at } = body;
+
+  // Validate content_blocks if provided
+  let blocksJson = null;
+  let derivedContent = content || null;
+  if (content_blocks && content_blocks.blocks && content_blocks.blocks.length) {
+    const v = validateBlocks(content_blocks);
+    if (!v.valid) return res.status(400).json({ error: 'Invalid content_blocks', details: v.errors });
+    blocksJson = content_blocks;
+    derivedContent = blocksToMarkdown(content_blocks);
+  }
 
   const newPriority = fp ? parseInt(fp) : null;
 
@@ -318,15 +329,17 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
   const initStatus = pubVal ? 'published' : 'draft';
   const article = await db.prepare(`
     INSERT INTO articles
-      (title, slug, summary, content, category, source, source_url, image_url, author,
+      (title, slug, summary, content, content_blocks, full_content, category, source, source_url, image_url, author,
        is_featured, featured_priority, is_published, published_at, status, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     RETURNING *
   `).get(
     title,
     toSlug(title),
     summary    || null,
-    content    || null,
+    derivedContent,
+    blocksJson ? JSON.stringify(blocksJson) : null,
+    blocksJson ? derivedContent : null,
     category   || 'Industry',
     source     || null,
     source_url || null,
@@ -359,8 +372,23 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
   const body = validate(articleUpdate, req.body, res);
   if (!body) return;
 
-  const { title, summary, content, category, source, source_url,
+  const { title, summary, content, content_blocks, category, source, source_url,
           image_url, author, is_featured, featured_priority, is_published, published_at } = body;
+
+  // Handle content_blocks: validate and derive full_content
+  let blocksJson = undefined; // undefined = not sent, don't update
+  let derivedFullContent = undefined;
+  if (content_blocks !== undefined) {
+    if (content_blocks && content_blocks.blocks && content_blocks.blocks.length) {
+      const v = validateBlocks(content_blocks);
+      if (!v.valid) return res.status(400).json({ error: 'Invalid content_blocks', details: v.errors });
+      blocksJson = content_blocks;
+      derivedFullContent = blocksToMarkdown(content_blocks);
+    } else {
+      blocksJson = null;
+      derivedFullContent = null;
+    }
+  }
 
   const newFeatured = is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured;
   const newPriority = featured_priority !== undefined ? (featured_priority || null) : existing.featured_priority;
@@ -381,15 +409,22 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
   const pubChanged = pubExplicit && newIsPublished !== existing.is_published;
   const newStatus = pubChanged ? (newIsPublished ? 'published' : 'draft') : (existing.status || 'draft');
 
+  // Recompute slug when title changes
+  const { toSlug } = require('../lib/utils');
+  const newTitle = title !== undefined ? title : existing.title;
+  const newSlug = title !== undefined ? toSlug(title) : existing.slug;
+
   const updated = await db.prepare(`
     UPDATE articles SET
-      title = $1, summary = $2, content = $3, category = $4, source = $5,
-      source_url = $6, image_url = $7, author = $8, is_featured = $9,
-      featured_priority = $10, is_published = $11, published_at = $12, status = $13, updated_at = NOW()
-    WHERE id = $14 AND tenant_id = $15
+      title = $1, slug = $2, summary = $3, content = $4, category = $5, source = $6,
+      source_url = $7, image_url = $8, author = $9, is_featured = $10,
+      featured_priority = $11, is_published = $12, published_at = $13, status = $14,
+      content_blocks = $15, full_content = $16, updated_at = NOW()
+    WHERE id = $17 AND tenant_id = $18
     RETURNING *
   `).get(
-    title        !== undefined ? title        : existing.title,
+    newTitle,
+    newSlug,
     summary      !== undefined ? summary      : existing.summary,
     content      !== undefined ? content      : existing.content,
     category     !== undefined ? category     : existing.category,
@@ -402,6 +437,8 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     newIsPublished,
     published_at !== undefined ? published_at : existing.published_at,
     newStatus,
+    blocksJson !== undefined ? (blocksJson ? JSON.stringify(blocksJson) : null) : (existing.content_blocks || null),
+    derivedFullContent !== undefined ? derivedFullContent : (existing.full_content || null),
     req.params.id,
     req.tenantId
   );

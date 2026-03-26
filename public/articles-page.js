@@ -325,6 +325,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+            <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
           `}
@@ -375,6 +376,7 @@ let articles = [];
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
+          <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
         `}
