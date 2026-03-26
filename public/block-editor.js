@@ -184,7 +184,26 @@
         class: window.Embed,
         config: {
           services: {
-            youtube: true,
+            youtube: {
+              regex: /(?:https?:\/\/)?(?:www\.)?(?:(?:youtu\.be\/)|(?:youtube\.com)\/(?:v\/|u\/\w\/|embed\/|watch))(?:(?:\?v=)?([^#&?=]*))?((?:[?&]\w*=\w*)*)/,
+              embedUrl: 'https://www.youtube.com/embed/<%= remote_id %>',
+              html: '<iframe style="width:100%;" height="320" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>',
+              height: 320,
+              width: 580,
+              id: function(groups) {
+                var videoId = groups[0];
+                var params = groups[1];
+                if (!params && videoId) return videoId;
+                var map = { start: 'start', end: 'end', t: 'start', time_continue: 'start', list: 'list' };
+                var extra = (params || '').slice(1).split('&').map(function(s) {
+                  var parts = s.split('=');
+                  if (!videoId && parts[0] === 'v') { videoId = parts[1]; return null; }
+                  if (!map[parts[0]]) return null;
+                  return map[parts[0]] + '=' + parts[1];
+                }).filter(Boolean);
+                return videoId + (extra.length ? '?' + extra.join('&') : '');
+              }
+            }
           }
         }
       };
