@@ -5,6 +5,7 @@
 const express = require('express');
 const router  = express.Router();
 const jwt     = require('jsonwebtoken');
+const crypto  = require('crypto');
 const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const requireUser = require('../middleware/user-jwt');
@@ -219,10 +220,17 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     'INSERT INTO tenants (slug, display_name, owner_user_id, plan, status) VALUES ($1, $2, $3, $4, $5) RETURNING *'
   ).get(cleanSlug, display_name.trim(), req.user.sub, plan, status);
 
-  // Create tenant_admin entry
+  // Create local admin user for the tenant owner
+  const ownerUsername = (req.user.email || '').split('@')[0] || 'owner';
+  const unusableHash = '$2a$12$' + crypto.randomBytes(40).toString('base64').slice(0, 53);
+  const localUser = await db.prepare(
+    'INSERT INTO users (username, password_hash, email, display_name, role, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id'
+  ).get(ownerUsername, unusableHash, req.user.email, req.user.displayName || ownerUsername, 'owner', tenant.id);
+
+  // Create tenant_admin entry (link to both public user and local user)
   await db.prepare(
-    'INSERT INTO tenant_admins (tenant_id, user_id, email, role) VALUES ($1, $2, $3, $4)'
-  ).run(tenant.id, req.user.sub, req.user.email, 'owner');
+    'INSERT INTO tenant_admins (tenant_id, user_id, email, role, local_user_id) VALUES ($1, $2, $3, $4, $5)'
+  ).run(tenant.id, req.user.sub, req.user.email, 'owner', localUser?.id || null);
 
   // Seed default categories for the new tenant
   const DEFAULT_CATEGORIES = [
@@ -344,6 +352,28 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
 
   if (!admin) {
     return res.status(404).json({ error: 'No site found for this account', signup: true });
+  }
+
+  // Auto-provision local user record if missing (backfill for OAuth tenant owners)
+  const userEmail = (req.user.email || '').toLowerCase();
+  if (userEmail && admin.tenant_id !== platformId) {
+    const existingLocal = await db.prepare(
+      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2'
+    ).get(userEmail, admin.tenant_id);
+    if (!existingLocal) {
+      try {
+        const ownerUsername = userEmail.split('@')[0] || 'owner';
+        const unusableHash = '$2a$12$' + crypto.randomBytes(40).toString('base64').slice(0, 53);
+        const newUser = await db.prepare(
+          'INSERT INTO users (username, password_hash, email, display_name, role, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id'
+        ).get(ownerUsername, unusableHash, userEmail, req.user.displayName || ownerUsername, admin.role, admin.tenant_id);
+        if (newUser) {
+          await db.prepare(
+            'UPDATE tenant_admins SET local_user_id = $1 WHERE tenant_id = $2 AND user_id = $3'
+          ).run(newUser.id, admin.tenant_id, req.user.sub);
+        }
+      } catch { /* skip — username conflict or other constraint */ }
+    }
   }
 
   // Determine JWT type: users table owners on platform tenant get platform-admin
