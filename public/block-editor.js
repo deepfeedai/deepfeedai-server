@@ -26,15 +26,17 @@
     document.getElementById('editorSaveBtn').addEventListener('click', saveArticle);
     document.getElementById('editorPreviewBtn').addEventListener('click', openPreview);
     document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
-    document.getElementById('editorTitle').addEventListener('input', () => { isDirty = true; updateTopbarTitle(); });
+    const titleEl = document.getElementById('editorTitle');
+    titleEl.addEventListener('input', () => { isDirty = true; updateTopbarTitle(); autoResizeTitle(); });
 
-    // Enter/Tab on title → focus editor
-    document.getElementById('editorTitle').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        focusEditor();
-      }
+    // Enter on title → focus editor (no newlines in title); Tab also moves to editor
+    titleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); focusEditor(); }
+      if (e.key === 'Tab') { e.preventDefault(); focusEditor(); }
     });
+
+    // Auto-resize title textarea on load
+    autoResizeTitle();
 
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
@@ -96,6 +98,7 @@
 
     document.getElementById('editorLabel').textContent = 'Edit Article';
     updateTopbarTitle();
+    autoResizeTitle();
 
     // Load content blocks or convert markdown
     let blockData = null;
@@ -106,6 +109,26 @@
     } else if (articleData.full_content) {
       // Lazy convert markdown → blocks
       blockData = markdownToBlocks(articleData.full_content);
+
+      // Splice inline images into block data at their original positions
+      var inlineImages = articleData.inline_images;
+      if (inlineImages && typeof inlineImages === 'string') {
+        try { inlineImages = JSON.parse(inlineImages); } catch (e) { inlineImages = []; }
+      }
+      if (Array.isArray(inlineImages) && inlineImages.length && blockData.blocks.length) {
+        // Sort by position descending so splicing doesn't shift indices
+        var readyImages = inlineImages
+          .filter(function (img) { return img.status === 'ready' && img.url; })
+          .sort(function (a, b) { return (b.position || 0) - (a.position || 0); });
+        readyImages.forEach(function (img) {
+          var pos = (img.position || 0) + 1; // insert after the target paragraph
+          if (pos > blockData.blocks.length) pos = blockData.blocks.length;
+          blockData.blocks.splice(pos, 0, {
+            type: 'image',
+            data: { file: { url: img.url }, caption: img.alt || '' }
+          });
+        });
+      }
     }
 
     await initEditorInstance(blockData);
@@ -205,7 +228,7 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
-      return { success: 1, file: { url: data.url } };
+      return { success: 1, file: { url: data.imageUrl } };
     } catch (err) {
       showAlert('Image upload failed: ' + err.message, 'error');
       return { success: 0 };
@@ -405,6 +428,12 @@
   function updateTopbarTitle() {
     const title = document.getElementById('editorTitle').value.trim();
     document.getElementById('editorLabel').textContent = title || (articleId ? 'Edit Article' : 'New Article');
+  }
+
+  function autoResizeTitle() {
+    const el = document.getElementById('editorTitle');
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
   }
 
   function updateStatus(text) {

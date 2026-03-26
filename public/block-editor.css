@@ -120,6 +120,9 @@ body.editor-page {
   outline: none;
   padding: 0;
   font-family: inherit;
+  resize: none;
+  overflow: hidden;
+  min-height: 40px;
 }
 .editor-title-input::placeholder {
   color: var(--muted);
