@@ -188,7 +188,7 @@
             youtube: {
               regex: /(?:https?:\/\/)?(?:www\.)?(?:(?:youtu\.be\/)|(?:youtube\.com)\/(?:v\/|u\/\w\/|embed\/|watch))(?:(?:\?v=)?([^#&?=]*))?((?:[?&]\w*=\w*)*)/,
               embedUrl: 'https://www.youtube-nocookie.com/embed/<%= remote_id %>?origin=' + origin,
-              html: '<iframe style="width:100%;" height="320" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>',
+              html: '<iframe style="width:100%;" height="320" frameborder="0" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"></iframe>',
               height: 320,
               width: 580,
               id: function(groups) {
