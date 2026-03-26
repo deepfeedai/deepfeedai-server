@@ -663,25 +663,13 @@ function skeletonStats(count = 4) {
 // ── Feature Flags ─────────────────────────────────────────
 window.AdminFeatures = null;
 var _adminFeaturesPromise = null;
-var FEATURES_CACHE_KEY = 'dfa_admin_features';
-var FEATURES_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function loadAdminFeatures() {
   if (_adminFeaturesPromise) return _adminFeaturesPromise;
   _adminFeaturesPromise = (async function () {
-    // Check sessionStorage cache
-    try {
-      var cached = JSON.parse(sessionStorage.getItem(FEATURES_CACHE_KEY));
-      if (cached && Date.now() - cached.ts < FEATURES_CACHE_TTL) {
-        window.AdminFeatures = cached.data;
-        return cached.data;
-      }
-    } catch (_) {}
-
     try {
       var features = await apiFetch('/features');
       window.AdminFeatures = features;
-      sessionStorage.setItem(FEATURES_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: features }));
       return features;
     } catch (err) {
       console.warn('[feature-flags]', err.message);
