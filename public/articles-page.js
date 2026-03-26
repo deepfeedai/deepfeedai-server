@@ -322,8 +322,8 @@ let articles = [];
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
               <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
             ` : ''}
-            <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
-            <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url || !isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
+            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url || !isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
@@ -372,8 +372,8 @@ let articles = [];
           ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
             <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
           ` : ''}
-          <button class="btn btn-ghost btn-sm" title="${a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url ? 'disabled' : ''}>🎨 Image</button>
-          <button class="btn btn-ghost btn-sm" title="${a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url ? 'disabled' : ''}>🎙️ Audio</button>
+          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url || !isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
+          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url || !isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
@@ -991,7 +991,7 @@ let articles = [];
     const status = a.audio_status;
     if (!status || status === 'error') {
       return `
-        <button class="btn btn-ghost btn-sm" title="Generate audio summary" onclick="generateAudio(${a.id})">
+        <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : 'Generate audio summary'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>
           🎙️ Generate
         </button>
         ${status === 'error' ? '<span class="badge badge-danger" style="font-size:10px;">Error</span>' : ''}`;
@@ -1593,6 +1593,9 @@ let articles = [];
     renderSidebar();
     initModals();
 
+    // Load feature flags so media buttons can be gated
+    await loadAdminFeatures();
+
     if (!hasPermission('articles.create')) {
       const addBtn = document.getElementById('addArticleBtn');
       if (addBtn) addBtn.style.display = 'none';
@@ -1705,6 +1708,10 @@ let articles = [];
     document.getElementById('bulkPublishBtn').addEventListener('click', () => bulkSetPublish(1));
     document.getElementById('bulkUnpublishBtn').addEventListener('click', () => bulkSetPublish(0));
     document.getElementById('bulkImagesBtn').addEventListener('click', bulkGenerateImages);
+    if (!isFeatureOn('image_generation')) {
+      var bulkImgBtn = document.getElementById('bulkImagesBtn');
+      if (bulkImgBtn) { bulkImgBtn.disabled = true; bulkImgBtn.title = 'Image generation not available on your plan'; }
+    }
     document.getElementById('bulkRecategorizeBtn').addEventListener('click', bulkRecategorize);
     document.getElementById('bulkDeleteBtn').addEventListener('click', bulkDelete);
     document.getElementById('bulkAssignWriterBtn').addEventListener('click', bulkAutoAssignWriters);
