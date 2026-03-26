@@ -322,8 +322,8 @@ let articles = [];
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
               <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
             ` : ''}
-            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url || !isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
-            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url || !isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
+            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
+            <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
@@ -372,8 +372,8 @@ let articles = [];
           ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
             <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
           ` : ''}
-          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Has image' : 'Generate image'}" onclick="generateImage(${a.id})" ${a.image_url || !isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
-          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Has audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${a.audio_url || !isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
+          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
+          <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
