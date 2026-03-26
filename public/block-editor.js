@@ -96,7 +96,7 @@
     // Populate metadata
     document.getElementById('editorTitle').value = articleData.title || '';
     document.getElementById('esSummary').value = articleData.summary || '';
-    document.getElementById('esCategory').value = articleData.category || 'Industry';
+    populateCategorySelect(articleData.category || 'Industry');
     document.getElementById('esAuthor').value = articleData.author || '';
     document.getElementById('esSource').value = articleData.source || '';
     document.getElementById('esSourceUrl').value = articleData.source_url || '';
@@ -338,15 +338,31 @@
   }
 
   // ── Categories ─────────────────────────────────────────
+  let categoryList = [];
   async function loadCategories() {
-    const categories = [
-      'Industry', 'Research', 'Business', 'Policy', 'Technical',
-      'Ethics', 'Startups', 'Applications', 'Hardware', 'Culture',
-    ];
+    try {
+      categoryList = await apiFetch('/categories');
+    } catch {
+      categoryList = [];
+    }
+    // Fallback if API returns empty
+    if (!categoryList.length) {
+      categoryList = [
+        { name: 'Industry' }, { name: 'Research' }, { name: 'Business' }, { name: 'Policy' }, { name: 'Technical' },
+        { name: 'Ethics' }, { name: 'Startups' }, { name: 'Applications' }, { name: 'Hardware' }, { name: 'Culture' },
+      ];
+    }
+    populateCategorySelect(null);
+  }
+
+  function populateCategorySelect(selected) {
     const select = document.getElementById('esCategory');
-    select.innerHTML = categories.map(c =>
-      '<option value="' + c + '">' + c + '</option>'
-    ).join('');
+    const names = categoryList.map(function(c) { return c.name || c; });
+    // Ensure current article's category is in the list even if custom
+    if (selected && !names.includes(selected)) names.push(selected);
+    select.innerHTML = names.map(function(name) {
+      return '<option value="' + escHtml(name) + '"' + (name === selected ? ' selected' : '') + '>' + escHtml(name) + '</option>';
+    }).join('');
   }
 
   // ── Writers ────────────────────────────────────────────
