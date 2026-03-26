@@ -43,6 +43,7 @@ const { logAudit }             = require('../middleware/audit');
 const { sendReplyNotification } = require('../lib/notify');
 const { createReplyNotification } = require('./notifications');
 const { decryptSetting }       = require('../lib/crypto');
+const { requireFeature }       = require('../middleware/feature-gate');
 
 const router = express.Router();
 
@@ -207,7 +208,7 @@ router.get('/leaderboard', asyncHandler(async (req, res) => {
 }));
 
 /* ── POST /api/comments — post a new comment ─────────────────────── */
-router.post('/', requireUser, commentRateLimit, asyncHandler(async (req, res) => {
+router.post('/', requireUser, requireFeature('comments'), commentRateLimit, asyncHandler(async (req, res) => {
   const { slug, body, parentId } = req.body;
   if (!slug) return res.status(400).json({ error: 'slug is required' });
 

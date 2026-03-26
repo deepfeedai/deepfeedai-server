@@ -18,7 +18,8 @@ const storage = require('../lib/storage');
 const { getGeminiKey, getImagenModel, getImagenUrl } = require('../lib/gemini-config');
 const { getAppConfig } = require('../lib/app-config');
 const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
-const { checkFeatureEnabled, checkPlanLimit } = require('../lib/plan-limits');
+const { checkPlanLimit } = require('../lib/plan-limits');
+const { requireFeature }               = require('../middleware/feature-gate');
 const { logAudit }                      = require('../middleware/audit');
 
 // Multer config for user image uploads
@@ -146,11 +147,7 @@ router.post('/upload', auth, requirePermission('media.create'), imageUpload.sing
 }));
 
 // POST /api/media/generate-audio  { articleId, voiceId? }
-router.post('/generate-audio', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
-  const audioEnabled = await checkFeatureEnabled(req.tenantId, 'audio_enabled');
-  if (!audioEnabled) {
-    return res.status(403).json({ error: 'Feature not available on your plan', feature: 'audio_enabled' });
-  }
+router.post('/generate-audio', auth, requirePermission('media.create'), requireFeature('audio'), asyncHandler(async (req, res) => {
   const storageQuota = await checkPlanLimit(req.tenantId, 'storage');
   if (!storageQuota.allowed) {
     return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: storageQuota.current, max: storageQuota.max });
@@ -229,7 +226,7 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
 const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
 const { getVisualConcept, buildImagePrompt, storeImage, deleteImage, deleteAudio: deleteAudioHelper } = require('../lib/media-helpers');
 
-router.post('/generate-image', auth, requirePermission('media.create'), asyncHandler(async (req, res) => {
+router.post('/generate-image', auth, requirePermission('media.create'), requireFeature('image_generation'), asyncHandler(async (req, res) => {
   const imgStorageQuota = await checkPlanLimit(req.tenantId, 'storage');
   if (!imgStorageQuota.allowed) {
     return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: imgStorageQuota.current, max: imgStorageQuota.max });

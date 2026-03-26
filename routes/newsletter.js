@@ -23,6 +23,7 @@ const { getSiteConfig } = require('../lib/site-config');
 const { logUsage } = require('../lib/ai-usage');
 const { getAppConfig } = require('../lib/app-config');
 const { logAudit } = require('../middleware/audit');
+const { requireFeature } = require('../middleware/feature-gate');
 
 const TOP_N = 8; // articles to include per newsletter
 
@@ -50,7 +51,7 @@ async function cronOrAdmin(req, res, next) {
   return auth(req, res, next);
 }
 
-router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), asyncHandler(async (req, res) => {
+router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
   const preview    = req.query.preview === 'true' || req.query.preview === '1';
   const appCfg     = await getAppConfig(req.tenantId);
   const resendKey  = appCfg.resend_api_key;

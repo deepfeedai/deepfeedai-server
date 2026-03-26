@@ -9,6 +9,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { bustPlanCache } = require('../lib/plan-limits');
+const { bustFeatureCache } = require('../lib/feature-registry');
 const { getStripeConfig } = require('../lib/stripe-config');
 
 // Use raw body for Stripe signature verification
@@ -56,6 +57,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
           `).run(session.subscription || null, session.customer || null, tenantId);
 
           bustPlanCache(tenantId);
+          bustFeatureCache(tenantId);
           console.log(`[Stripe Webhook] Subscription activated for tenant ${tenantId} (subscription: ${session.subscription})`);
           break;
         }
@@ -108,6 +110,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
         if (result.changes > 0) {
           bustPlanCache();
+          bustFeatureCache();
           console.log(`[Stripe Webhook] Subscription ${sub.id} deleted — tenant downgraded to free`);
         }
         break;
@@ -125,6 +128,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
               'UPDATE tenants SET plan = $1 WHERE stripe_subscription_id = $2'
             ).run(planRow.plan, sub.id);
             bustPlanCache();
+            bustFeatureCache();
             console.log(`[Stripe Webhook] Subscription ${sub.id} updated — plan changed to ${planRow.plan}`);
           }
         }
