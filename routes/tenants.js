@@ -221,11 +221,12 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
   ).get(cleanSlug, display_name.trim(), req.user.sub, plan, status);
 
   // Create local admin user for the tenant owner
-  const ownerUsername = (req.user.email || '').split('@')[0] || 'owner';
+  const ownerEmail = (req.user.email || '').toLowerCase();
+  const ownerUsername = ownerEmail || req.user.displayName || 'owner';
   const unusableHash = '$2a$12$' + crypto.randomBytes(40).toString('base64').slice(0, 53);
   const localUser = await db.prepare(
     'INSERT INTO users (username, password_hash, email, display_name, role, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id'
-  ).get(ownerUsername, unusableHash, req.user.email, req.user.displayName || ownerUsername, 'owner', tenant.id);
+  ).get(ownerUsername, unusableHash, ownerEmail || null, req.user.displayName || ownerUsername, 'owner', tenant.id);
 
   // Create tenant_admin entry (link to both public user and local user)
   await db.prepare(
@@ -356,23 +357,28 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
 
   // Auto-provision local user record if missing (backfill for OAuth tenant owners)
   const userEmail = (req.user.email || '').toLowerCase();
-  if (userEmail && admin.tenant_id !== platformId) {
-    const existingLocal = await db.prepare(
-      'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2'
-    ).get(userEmail, admin.tenant_id);
+  if (admin.tenant_id !== platformId) {
+    const existingLocal = userEmail
+      ? await db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2').get(userEmail, admin.tenant_id)
+      : await db.prepare('SELECT id FROM users WHERE tenant_id = $1 AND role = $2').get(admin.tenant_id, admin.role);
     if (!existingLocal) {
       try {
-        const ownerUsername = userEmail.split('@')[0] || 'owner';
+        const provUsername = userEmail || req.user.displayName || 'owner';
         const unusableHash = '$2a$12$' + crypto.randomBytes(40).toString('base64').slice(0, 53);
         const newUser = await db.prepare(
           'INSERT INTO users (username, password_hash, email, display_name, role, tenant_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id'
-        ).get(ownerUsername, unusableHash, userEmail, req.user.displayName || ownerUsername, admin.role, admin.tenant_id);
+        ).get(provUsername, unusableHash, userEmail || null, req.user.displayName || provUsername, admin.role, admin.tenant_id);
         if (newUser) {
           await db.prepare(
             'UPDATE tenant_admins SET local_user_id = $1 WHERE tenant_id = $2 AND user_id = $3'
           ).run(newUser.id, admin.tenant_id, req.user.sub);
         }
       } catch { /* skip — username conflict or other constraint */ }
+    } else if (userEmail) {
+      // Fix existing records missing email
+      await db.prepare(
+        'UPDATE users SET email = $1, display_name = COALESCE(NULLIF(display_name, username), $2, display_name) WHERE id = $3 AND (email IS NULL OR email = $4)'
+      ).run(userEmail, req.user.displayName, existingLocal.id, '').catch(() => {});
     }
   }
 
