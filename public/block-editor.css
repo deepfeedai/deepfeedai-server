@@ -364,6 +364,33 @@ h4.ce-header { font-size: 18px; margin-top: 12px; }
   display: none !important;
 }
 
+/* Embed (YouTube) */
+.embed-tool {
+  margin: 12px 0;
+}
+.embed-tool__content {
+  border-radius: 8px;
+  overflow: hidden;
+}
+.embed-tool__caption {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 8px 0 4px;
+}
+.embed-tool__caption[contenteditable] {
+  color: var(--muted);
+}
+.embed-tool__preloader {
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+.embed-tool__url {
+  color: var(--muted) !important;
+  background: rgba(255,255,255,0.04) !important;
+  border-color: var(--border) !important;
+}
+
 /* Image */
 .cdx-image-wrapper {
   border-radius: 8px;

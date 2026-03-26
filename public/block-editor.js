@@ -179,6 +179,16 @@
     if (window.Delimiter) {
       tools.delimiter = { class: window.Delimiter };
     }
+    if (window.Embed) {
+      tools.embed = {
+        class: window.Embed,
+        config: {
+          services: {
+            youtube: true,
+          }
+        }
+      };
+    }
 
     const config = {
       holder: 'editorjs',
