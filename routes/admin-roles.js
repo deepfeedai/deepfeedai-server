@@ -8,6 +8,7 @@ const { asyncHandler }    = require('../lib/utils');
 const { auth, bustRoleCache } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { logAudit }        = require('../middleware/audit');
+const { requireFeature }  = require('../middleware/feature-gate');
 const { validate, roleCreate, roleUpdate } = require('../lib/schemas');
 
 // GET / — list roles
@@ -55,7 +56,7 @@ router.get('/templates', auth, requirePermission('roles.read'), (_req, res) => {
 });
 
 // POST / — create custom role (owner only)
-router.post('/', auth, requirePermission('roles.create'), asyncHandler(async (req, res) => {
+router.post('/', auth, requirePermission('roles.create'), requireFeature('custom_roles'), asyncHandler(async (req, res) => {
   const body = validate(roleCreate, req.body, res);
   if (!body) return;
 

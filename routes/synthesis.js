@@ -6,6 +6,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { requirePermission } = require('../middleware/permissions');
+const { requireFeature } = require('../middleware/feature-gate');
 const { asyncHandler } = require('../lib/utils');
 const {
   clusterArticles, runSynthesisForWriter, generateDeepDive, runWeeklyDeepDives,
@@ -16,7 +17,7 @@ const {
 // ?force=true bypasses cooldown and dedup checks
 // ?dryRun=true evaluates pipeline without generating
 // Body: { clusterIndices: [0, 2] } — optional, only generate specific clusters
-router.post('/run/:writerId', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.post('/run/:writerId', requirePermission('synthesis.execute'), requireFeature('auto_synthesis'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const dryRun = req.query.dryRun === 'true';
   const clusterIndices = req.body?.clusterIndices;
@@ -25,14 +26,14 @@ router.post('/run/:writerId', requirePermission('synthesis.execute'), asyncHandl
 }));
 
 // GET /api/synthesis/dry-run/:writerId — convenience alias for dry-run (read-only)
-router.get('/dry-run/:writerId', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.get('/dry-run/:writerId', requirePermission('synthesis.execute'), requireFeature('auto_synthesis'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const result = await runSynthesisForWriter(req.params.writerId, { force, tenantId: req.tenantId, dryRun: true });
   res.json(result);
 }));
 
 // GET /api/synthesis/dry-run-all — dry-run for all auto-writers
-router.get('/dry-run-all', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.get('/dry-run-all', requirePermission('synthesis.execute'), requireFeature('auto_synthesis'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const writers = await db.prepare('SELECT * FROM writers WHERE tenant_id = $1 AND is_auto = true').all(req.tenantId);
   const results = [];
@@ -45,7 +46,7 @@ router.get('/dry-run-all', requirePermission('synthesis.execute'), asyncHandler(
 
 // POST /api/synthesis/run-all — run synthesis for all auto writers
 // ?force=true bypasses cooldown and dedup checks
-router.post('/run-all', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.post('/run-all', requirePermission('synthesis.execute'), requireFeature('auto_synthesis'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const writers = await db.prepare('SELECT * FROM writers WHERE tenant_id = $1 AND is_auto = true').all(req.tenantId);
   const results = [];
@@ -97,14 +98,14 @@ router.delete('/purge', requirePermission('synthesis.execute'), asyncHandler(asy
 }));
 
 // POST /api/synthesis/deep-dive/:category — generate deep dive for one category
-router.post('/deep-dive/:category', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.post('/deep-dive/:category', requirePermission('synthesis.execute'), requireFeature('deep_dives'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const result = await generateDeepDive(req.params.category, req.tenantId, { force });
   res.json(result);
 }));
 
 // POST /api/synthesis/deep-dive-all — generate deep dives for all qualifying categories
-router.post('/deep-dive-all', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+router.post('/deep-dive-all', requirePermission('synthesis.execute'), requireFeature('deep_dives'), asyncHandler(async (req, res) => {
   const force = req.query.force === 'true';
   const result = await runWeeklyDeepDives(req.tenantId, { force });
   res.json(result);

@@ -4,6 +4,35 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [3.0.0-beta.6] — 2026-03-26
+
+### Added — Feature Toggle System
+
+- **Centralized feature registry** — 23 toggleable features across 7 categories (content, AI, media, engagement, distribution, admin, discovery) managed via new `feature_definitions`, `plan_features`, and `tenant_feature_overrides` tables
+- **Per-tenant feature overrides** — platform admins can override any feature for a specific tenant with optional reason and expiry; useful for demos, trials, and custom arrangements
+- **`requireFeature()` middleware** — Express middleware for route-level feature gating; returns 403 with upgrade prompt when feature is disabled
+- **Feature enforcement on routes** — applied to audio generation (`audio`), image generation (`image_generation`), synthesis (`auto_synthesis`), deep dives (`deep_dives`), newsletter send (`newsletter`), comment posting (`comments`), and custom role creation (`custom_roles`)
+- **Admin API** — `GET/PUT /api/admin/features` for plan-level configuration; `GET/PUT/DELETE /api/admin/features/tenants/:id/features/:key` for per-tenant overrides
+- **Public features endpoint** — `GET /api/features` returns flat feature map for the current tenant (cached 60s server-side, 5min client-side)
+- **Self-hosted mode** — `DEPLOYMENT_MODE=single` enables all features by default; explicit overrides still respected
+- **Feature matrix UI** — platform admin Plans page now shows a full feature matrix with toggle switches per plan
+- **Tenant feature card** — tenant detail page shows all resolved features with override badges; click to override or reset
+- **Frontend feature awareness** — web frontend loads features on page init via sessionStorage-cached fetch; self-hosted sites get all features via Proxy
+
+### Added — Database (Phase 18)
+
+- `feature_definitions` table — registry of all toggleable features with name, description, category, type, default value
+- `plan_features` table — plan-level feature values (plan + feature_key composite PK)
+- `tenant_feature_overrides` table — per-tenant exceptions with reason, granted_by, and optional expiry
+
+### Changed
+
+- `lib/plan-limits.js` — `checkFeatureEnabled()` now delegates to feature registry with backward-compatible legacy column name mapping
+- `routes/media.js` — replaced inline `checkFeatureEnabled` call with `requireFeature('audio')` middleware
+- Existing `plan_limits` boolean columns (`audio_enabled`, `custom_domain_enabled`, `seo_titles_enabled`) preserved for backward compatibility; will be deprecated in next release
+
+---
+
 ## [3.0.0-beta.5] — 2026-03-25
 
 ### Added — Featured Article Rotation

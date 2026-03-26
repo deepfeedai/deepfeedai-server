@@ -90,7 +90,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -288,6 +288,8 @@ app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/admin/discover', require('./routes/discover'));
+app.use('/api/admin/features', require('./routes/admin-features'));
+app.use('/api/features',       require('./routes/features'));          // public — tenant feature flags
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/promo',    auth, require('./routes/promo'));
 app.use('/api/credits',  auth, require('./routes/credit-purchases'));

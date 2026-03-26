@@ -581,6 +581,17 @@ async function initDb() {
       (1, 'editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]', true),
       (1, 'viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]', true)
      ON CONFLICT (tenant_id, name) DO NOTHING`,
+    // Backfill: seed default roles for any tenant that is missing them
+    `INSERT INTO roles (tenant_id, name, description, permissions, is_system)
+     SELECT t.id, r.name, r.description, r.permissions::jsonb, true
+     FROM tenants t
+     CROSS JOIN (VALUES
+       ('owner', 'Full access', '["*"]'),
+       ('admin', 'Full administrative access', '["*"]'),
+       ('editor', 'Content management', '["articles.read","articles.create","articles.update","sources.read","sources.create","sources.update","writers.read","categories.read","media.create","media.read","comments.read","comments.moderate","analytics.read","fetch.execute","newsletter.read"]'),
+       ('viewer', 'Read-only access', '["articles.read","sources.read","writers.read","categories.read","analytics.read","comments.read","audit.read","newsletter.read","media.read"]')
+     ) AS r(name, description, permissions)
+     WHERE NOT EXISTS (SELECT 1 FROM roles WHERE roles.tenant_id = t.id AND roles.name = r.name)`,
     // 1c. Add local_user_id column to tenant_admins
     `ALTER TABLE tenant_admins ADD COLUMN IF NOT EXISTS local_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`,
     `CREATE UNIQUE INDEX IF NOT EXISTS tenant_admins_tenant_local ON tenant_admins(tenant_id, local_user_id) WHERE local_user_id IS NOT NULL`,
@@ -859,6 +870,34 @@ async function initDb() {
     `INSERT INTO settings (key, value) VALUES ('featured_rotation_strategy', 'score')    ON CONFLICT (tenant_id, key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('featured_rotation_pool_days', '7')       ON CONFLICT (tenant_id, key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('featured_rotation_cooldown_days', '3')   ON CONFLICT (tenant_id, key) DO NOTHING`,
+    // Phase 18: Feature toggle system — centralized feature registry with plan defaults + tenant overrides
+    `CREATE TABLE IF NOT EXISTS feature_definitions (
+      key           TEXT PRIMARY KEY,
+      name          TEXT NOT NULL,
+      description   TEXT,
+      category      TEXT NOT NULL,
+      value_type    TEXT NOT NULL DEFAULT 'boolean',
+      default_value TEXT NOT NULL DEFAULT 'false',
+      sort_order    INTEGER DEFAULT 0,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE TABLE IF NOT EXISTS plan_features (
+      plan        TEXT NOT NULL,
+      feature_key TEXT NOT NULL REFERENCES feature_definitions(key) ON DELETE CASCADE,
+      value       TEXT,
+      PRIMARY KEY (plan, feature_key)
+    )`,
+    `CREATE TABLE IF NOT EXISTS tenant_feature_overrides (
+      tenant_id   INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      feature_key TEXT NOT NULL REFERENCES feature_definitions(key) ON DELETE CASCADE,
+      value       TEXT,
+      reason      TEXT,
+      granted_by  INTEGER,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      expires_at  TIMESTAMPTZ,
+      PRIMARY KEY (tenant_id, feature_key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_tenant_feature_overrides_tenant ON tenant_feature_overrides(tenant_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
@@ -1044,6 +1083,35 @@ async function initDb() {
       try { await prepare('UPDATE writers SET slug = $1 WHERE id = $2').run(slug, w.id); } catch { /* slug conflict, skip */ }
     }
   } catch { /* non-fatal */ }
+
+  // ── Seed feature definitions + plan features ──────────────────────
+  try {
+    const { FEATURE_DEFINITIONS, PLAN_FEATURE_SEEDS } = require('./lib/feature-registry');
+    // Seed feature definitions (idempotent)
+    for (const fd of FEATURE_DEFINITIONS) {
+      await p.query(
+        `INSERT INTO feature_definitions (key, name, description, category, value_type, default_value, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (key) DO UPDATE SET name = $2, description = $3, category = $4, value_type = $5, default_value = $6, sort_order = $7`,
+        [fd.key, fd.name, fd.description, fd.category, fd.value_type, fd.default_value, fd.sort_order]
+      );
+    }
+    // Seed plan features — merge defaults with per-plan overrides
+    const plans = ['free', 'starter', 'pro', 'business', 'internal'];
+    for (const plan of plans) {
+      const planSeeds = PLAN_FEATURE_SEEDS[plan] || {};
+      for (const fd of FEATURE_DEFINITIONS) {
+        const value = planSeeds[fd.key] !== undefined ? planSeeds[fd.key] : fd.default_value;
+        const dbValue = value === null ? null : String(value);
+        await p.query(
+          `INSERT INTO plan_features (plan, feature_key, value) VALUES ($1, $2, $3)
+           ON CONFLICT (plan, feature_key) DO NOTHING`,
+          [plan, fd.key, dbValue]
+        );
+      }
+    }
+    console.log(`✅ Seeded ${FEATURE_DEFINITIONS.length} feature definitions across ${plans.length} plans`);
+  } catch (err) { console.error('[DB] Feature seed error:', err.message); }
 
   // Seed admin user
   const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');

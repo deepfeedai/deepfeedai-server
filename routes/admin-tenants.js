@@ -12,6 +12,7 @@ const { requirePlatformAdmin } = require('../middleware/permissions');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
 const { bustPlanCache } = require('../lib/plan-limits');
+const { bustFeatureCache } = require('../lib/feature-registry');
 const { getPlatformTenantId } = require('../lib/platform-tenant');
 const { getMonthlyCredits } = require('../lib/ai-usage');
 const { getBonusCredits } = require('../lib/promo');
@@ -135,6 +136,7 @@ router.put('/plan-limits', asyncHandler(async (req, res) => {
   params.push(plan);
   await db.prepare(`UPDATE plan_limits SET ${updates.join(', ')} WHERE plan = $${paramIdx}`).run(...params);
   bustPlanCache();
+  bustFeatureCache(); // feature cache depends on plan values
   res.json({ success: true });
 }));
 
@@ -787,9 +789,10 @@ router.put('/:id', asyncHandler(async (req, res) => {
     `UPDATE tenants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`
   ).get(...params);
 
-  // Bust plan cache if plan or trial changed
+  // Bust plan + feature cache if plan or trial changed
   if ((plan !== undefined && plan !== before.plan) || trial_days !== undefined || trial_ends_at !== undefined) {
     bustPlanCache(id);
+    bustFeatureCache(id);
   }
 
   await logAuditWithDiff(req, 'tenant.update', 'tenants', id, before, tenant);
@@ -1047,6 +1050,7 @@ router.post('/:id/purge', asyncHandler(async (req, res) => {
   invalidateSlugCache(tenant.slug);
   if (tenant.custom_domain) invalidateDomainCache(tenant.custom_domain);
   bustPlanCache(id);
+  bustFeatureCache(id);
 
   // Clean up storage (R2 / local filesystem) before DB so credentials remain accessible
   let storageResult = { deleted: 0 };
