@@ -47,6 +47,13 @@
     // Auto-resize title textarea on load
     autoResizeTitle();
 
+    // Sidebar metadata changes → mark dirty
+    ['esSummary', 'esCategory', 'esAuthor', 'esSource', 'esSourceUrl', 'esFeatured'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => { isDirty = true; });
+    });
+    document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; });
+    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; });
+
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
     document.getElementById('esImageClearBtn').addEventListener('click', () => setImageField(''));
