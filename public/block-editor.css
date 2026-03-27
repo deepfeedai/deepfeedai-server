@@ -597,6 +597,22 @@ h4.ce-header { font-size: 18px; margin-top: 12px; }
   width: 18px;
   height: 18px;
 }
+.ea-model-select {
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg, #111);
+  color: var(--text-muted, #999);
+  max-width: 130px;
+  cursor: pointer;
+  outline: none;
+  margin-left: auto;
+}
+.ea-model-select:focus {
+  border-color: var(--accent, #00d9ff);
+  color: var(--text, #eee);
+}
 
 /* Messages area */
 .ea-messages {

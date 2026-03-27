@@ -253,6 +253,222 @@ let apiKeyVisible = false;
     }
   });
 
+  // ── AI Providers (BYAI) ──────────────────────────────────────────
+  var aiProvidersInfo = null;
+
+  var OP_LABELS = {
+    categorize: 'Categorize', 'writer-tldr': 'Writer TLDR', summary: 'Summary',
+    'thumbnail-concept': 'Thumbnail', trends: 'Trends', 'category-suggest': 'Category Suggest',
+    'generate-keywords': 'Keywords', 'generate-writer-personas': 'Writers',
+    'audio-script': 'Audio Script', synthesis: 'Synthesis', chat: 'Chat',
+    'article-assist': 'Article Assist', 'deep-dive': 'Deep Dive',
+  };
+
+  async function populateModelDropdown(selectEl, provider, currentValue) {
+    selectEl.innerHTML = '<option value="">Default for tier</option>';
+    if (!provider) return;
+    try {
+      var data = await apiFetch('/settings/available-models?provider=' + encodeURIComponent(provider));
+      for (var m of (data.models || [])) {
+        var opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name;
+        if (currentValue && m.id === currentValue) opt.selected = true;
+        selectEl.appendChild(opt);
+      }
+    } catch (_) {}
+  }
+
+  async function loadAiProviders(settings) {
+    try {
+      aiProvidersInfo = await apiFetch('/settings/ai-providers');
+    } catch (err) {
+      console.warn('[AI Providers] Could not load:', err.message);
+      return;
+    }
+
+    var status = aiProvidersInfo.status || {};
+    var config = aiProvidersInfo.config;
+    var providers = aiProvidersInfo.providers || [];
+
+    // Key status indicators
+    if (settings.openai_api_key) {
+      document.getElementById('openaiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+      document.getElementById('openaiKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+    }
+    if (settings.anthropic_api_key) {
+      document.getElementById('anthropicApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+      document.getElementById('anthropicKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+    }
+    if (settings.ollama_base_url) {
+      document.getElementById('ollamaBaseUrlPortal').value = settings.ollama_base_url;
+      document.getElementById('ollamaUrlStatus').textContent = '✅ Ollama URL is configured';
+    }
+
+    // Populate default provider dropdown
+    var defProvEl = document.getElementById('defaultProviderPortal');
+    for (var p of providers) {
+      if (p === 'gemini') continue;
+      var opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p.charAt(0).toUpperCase() + p.slice(1);
+      if (config && config.default && config.default.provider === p) opt.selected = true;
+      defProvEl.appendChild(opt);
+    }
+
+    // Populate default model if config exists
+    if (config && config.default && config.default.provider) {
+      await populateModelDropdown(document.getElementById('defaultModelPortal'), config.default.provider, config.default.model);
+    }
+
+    // Dynamic model update on provider change
+    defProvEl.addEventListener('change', async function() {
+      await populateModelDropdown(document.getElementById('defaultModelPortal'), this.value, null);
+    });
+
+    // Per-operation overrides table
+    var opContainer = document.getElementById('operationOverridesPortal');
+    var opTiers = aiProvidersInfo.operationTiers || {};
+    var opKeys = Object.keys(opTiers);
+
+    var html = '<table style="width:100%;font-size:13px;"><thead><tr>'
+      + '<th style="text-align:left;padding:4px 6px;">Operation</th>'
+      + '<th style="text-align:left;padding:4px 6px;">Tier</th>'
+      + '<th style="text-align:left;padding:4px 6px;">Provider</th>'
+      + '<th style="text-align:left;padding:4px 6px;">Model</th>'
+      + '</tr></thead><tbody>';
+
+    for (var op of opKeys) {
+      var tier = opTiers[op];
+      var opCfg = (config && config.operations && config.operations[op]) || {};
+      html += '<tr>'
+        + '<td style="padding:4px 6px;">' + (OP_LABELS[op] || op) + '</td>'
+        + '<td style="padding:4px 6px;"><span class="badge badge-' + (tier === 'fast' ? 'success' : tier === 'powerful' ? 'warning' : 'muted') + '" style="font-size:10px;">' + tier + '</span></td>'
+        + '<td style="padding:4px 6px;"><select class="form-control portal-op-provider" data-op="' + op + '" style="font-size:12px;padding:2px 6px;">'
+        + '<option value="">Default</option>';
+      for (var pp of providers) {
+        html += '<option value="' + pp + '"' + (opCfg.provider === pp ? ' selected' : '') + '>' + pp.charAt(0).toUpperCase() + pp.slice(1) + '</option>';
+      }
+      html += '</select></td>'
+        + '<td style="padding:4px 6px;"><select class="form-control portal-op-model" data-op="' + op + '" style="font-size:12px;padding:2px 6px;">'
+        + '<option value="">Default</option></select></td></tr>';
+    }
+    html += '</tbody></table>';
+    opContainer.innerHTML = html;
+
+    // Pre-populate model dropdowns for saved overrides
+    for (var op of opKeys) {
+      var oCfg = (config && config.operations && config.operations[op]) || {};
+      if (oCfg.provider) {
+        var mSel = opContainer.querySelector('.portal-op-model[data-op="' + op + '"]');
+        await populateModelDropdown(mSel, oCfg.provider, oCfg.model);
+      }
+    }
+
+    // Wire per-operation provider → model dynamic loading
+    opContainer.addEventListener('change', async function(e) {
+      if (!e.target.classList.contains('portal-op-provider')) return;
+      var opKey = e.target.getAttribute('data-op');
+      var mSel = opContainer.querySelector('.portal-op-model[data-op="' + opKey + '"]');
+      await populateModelDropdown(mSel, e.target.value, null);
+    });
+  }
+
+  // Test connection buttons
+  function wirePortalTest(btnId, provider) {
+    document.getElementById(btnId).addEventListener('click', async function() {
+      var btn = this;
+      var orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Testing…';
+      try {
+        var result = await apiFetch('/settings/test-provider', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: provider }),
+        });
+        if (result.ok) {
+          showAlert(provider.charAt(0).toUpperCase() + provider.slice(1) + ' connection successful ✓');
+        } else {
+          showAlert('Connection failed: ' + (result.error || 'Unknown error'), 'error');
+        }
+      } catch (err) {
+        showAlert('Test failed: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+  }
+  wirePortalTest('testOpenaiPortal', 'openai');
+  wirePortalTest('testAnthropicPortal', 'anthropic');
+  wirePortalTest('testOllamaPortal', 'ollama');
+
+  // Save handler
+  document.getElementById('saveAiProvidersPortalBtn').addEventListener('click', async function() {
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    try {
+      var payload = {};
+
+      var openaiKey = document.getElementById('openaiApiKeyPortal').value.trim();
+      if (openaiKey) payload.openai_api_key = openaiKey;
+      var anthropicKey = document.getElementById('anthropicApiKeyPortal').value.trim();
+      if (anthropicKey) payload.anthropic_api_key = anthropicKey;
+      var ollamaUrl = document.getElementById('ollamaBaseUrlPortal').value.trim();
+      if (ollamaUrl) payload.ollama_base_url = ollamaUrl;
+
+      // Build ai_provider_config
+      var cfg = {};
+      var defProv = document.getElementById('defaultProviderPortal').value;
+      if (defProv) {
+        cfg.default = { provider: defProv };
+        var defModel = document.getElementById('defaultModelPortal').value;
+        if (defModel) cfg.default.model = defModel;
+      }
+      var ops = {};
+      var opSels = document.querySelectorAll('.portal-op-provider');
+      for (var sel of opSels) {
+        var opKey = sel.getAttribute('data-op');
+        if (!sel.value) continue;
+        var entry = { provider: sel.value };
+        var mSel = document.querySelector('.portal-op-model[data-op="' + opKey + '"]');
+        if (mSel && mSel.value) entry.model = mSel.value;
+        ops[opKey] = entry;
+      }
+      if (Object.keys(ops).length) cfg.operations = ops;
+      payload.ai_provider_config = Object.keys(cfg).length ? JSON.stringify(cfg) : '';
+
+      await apiFetch('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (openaiKey) {
+        document.getElementById('openaiApiKeyPortal').value = '';
+        document.getElementById('openaiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+        document.getElementById('openaiKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+      }
+      if (anthropicKey) {
+        document.getElementById('anthropicApiKeyPortal').value = '';
+        document.getElementById('anthropicApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+        document.getElementById('anthropicKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+      }
+      if (ollamaUrl) {
+        document.getElementById('ollamaUrlStatus').textContent = '✅ Ollama URL is configured';
+      }
+
+      showAlert('AI provider settings saved ✓');
+    } catch (err) {
+      showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save AI Provider Settings';
+    }
+  });
+
   async function loadSettings() {
     try {
       const settings = await apiFetch('/settings');
@@ -1016,6 +1232,7 @@ let apiKeyVisible = false;
         statusEl.textContent = '⚠️ No API key set — using ELEVENLABS_API_KEY environment variable';
       }
       loadImagenSettings(settings);
+      loadAiProviders(settings);
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);
@@ -1719,13 +1936,24 @@ let apiKeyVisible = false;
     if (!isFeatureOn('byok')) {
       var integrationCards = document.querySelectorAll('.tab-panel[data-tab="integrations"] .settings-card');
       integrationCards.forEach(function(card) {
-        // Only lock cards that have API key inputs
+        // Only lock cards that have API key inputs (but skip the AI Providers card — gated by byai)
+        if (card.id === 'aiProvidersCard') return;
         if (card.querySelector('input[type="password"], input[id*="ApiKey"], input[id*="apiKey"]')) {
           card.classList.add('feature-locked');
           card.insertAdjacentHTML('afterbegin',
             '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Bring Your Own Key') + '</div>');
         }
       });
+    }
+
+    // BYAI — gate the AI Providers card separately
+    if (!isFeatureOn('byai')) {
+      var aiCard = document.getElementById('aiProvidersCard');
+      if (aiCard) {
+        aiCard.classList.add('feature-locked');
+        aiCard.insertAdjacentHTML('afterbegin',
+          '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Bring Your Own AI') + '</div>');
+      }
     }
   });
 

@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: deepfeedai
-      POSTGRES_USER: deepfeedai
-      POSTGRES_PASSWORD: deepfeedai
+      POSTGRES_DB: ${POSTGRES_DB:-deepfeedai}
+      POSTGRES_USER: ${POSTGRES_USER:-deepfeedai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deepfeedai}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U deepfeedai"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deepfeedai}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -20,15 +20,15 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "${PORT:-4000}:4000"
     depends_on:
       postgres:
         condition: service_healthy
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://deepfeedai:deepfeedai@postgres:5432/deepfeedai
+      DATABASE_URL: postgresql://${POSTGRES_USER:-deepfeedai}:${POSTGRES_PASSWORD:-deepfeedai}@postgres:5432/${POSTGRES_DB:-deepfeedai}
     volumes:
-      - ./data/media:/app/public/media
+      - ${DATA_DIR:-./data}/media:/app/public/media
     networks:
       - deepfeed
 

@@ -10,14 +10,13 @@
  * Cache: Postgres trends_cache table, 2h TTL.
  * History: Postgres trends_history table, daily snapshots for sparklines.
  *
- * Env var required: GEMINI_API_KEY (company extraction)
+ * AI provider required for company extraction (configured via ai-router).
  */
 const express          = require('express');
 const router           = express.Router();
 const { getPool }      = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
-const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
-const { getGeminiKey } = require('../lib/gemini-config');
+const { complete: aiComplete } = require('../lib/ai-router');
 const { getCategories } = require('../lib/categories');
 
 const CACHE_TTL_HOURS = 2;
@@ -65,9 +64,6 @@ function extractKeywords(articles) {
 // ── Company extraction (parallel batched Gemini) ──────────────────────────────
 
 async function extractCompaniesParallel(articles, tenantId, categoryNames) {
-  const apiKey = await getGeminiKey(tenantId);
-  if (!apiKey) return {};
-
   const BATCH = 5;
   const batches = [];
   for (let i = 0; i < Math.min(articles.length, 40); i += BATCH) {
@@ -85,31 +81,21 @@ async function extractCompaniesParallel(articles, tenantId, categoryNames) {
     const prompt = `Extract the most notable proper nouns (people, companies, brands, organizations, products, events) from these article excerpts about ${topicCtx}. Return a comma-separated list of names. No explanations. If none, return "NONE".\n\n${texts}`;
 
     try {
-      const _start = Date.now();
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
-        {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents:         [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 150 },
-          }),
-          signal: AbortSignal.timeout(12000),
-        }
-      );
-      if (!resp.ok) {
-        logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', durationMs: Date.now() - _start, success: false, error: `${resp.status}`, tenantId }).catch(() => {});
-        return [];
-      }
-      const data = await resp.json();
-      const _tokens = extractGeminiTokens(data);
-      logUsage({ provider: 'gemini', model: 'gemini-2.5-flash-lite', operation: 'trends', trigger: 'page-load', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
-      const out = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (!out || out.toUpperCase().trim() === 'NONE') return [];
+      const result = await aiComplete({
+        operation: 'trends',
+        tenantId,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        maxTokens: 150,
+        trigger: 'page-load',
+      });
+
+      if (!result) return []; // budget denied
+      const out = (result.text || '').trim();
+      if (!out || out.toUpperCase() === 'NONE') return [];
       return out.split(',').map(c => c.trim()).filter(c => c.length > 1 && c.length < 60);
     } catch (e) {
-      console.warn('[trends] Gemini batch error:', e.message);
+      console.warn('[trends] AI batch error:', e.message);
       return [];
     }
   }));

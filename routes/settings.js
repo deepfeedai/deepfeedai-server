@@ -20,9 +20,12 @@ const { requirePlatformAdmin } = require('../middleware/permissions');
 const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secret', 'jwt_secret_previous']);
 // Platform-level keys in multi-tenant mode — managed via platform dashboard
 const R2_KEYS = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
-const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model'];
+const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model', 'openai_api_key', 'anthropic_api_key', 'ollama_base_url', 'ai_provider_config'];
+// Keys that tenants can save via PUT /api/settings (BYAI — tenant-level provider config)
+const TENANT_AI_KEYS = ['openai_api_key', 'anthropic_api_key', 'ollama_base_url', 'ai_provider_config'];
 const STRIPE_KEYS = ['stripe_secret_key', 'stripe_webhook_secret'];
-const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS, ...STRIPE_KEYS];
+// Platform-only keys exclude tenant-saveable AI keys
+const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS.filter(k => !TENANT_AI_KEYS.includes(k)), ...STRIPE_KEYS];
 const { extFromMime } = require('../lib/r2');
 const storage = require('../lib/storage');
 const { logAudit } = require('../middleware/audit');
@@ -97,6 +100,13 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   const r2Keys = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
   if (r2Keys.some(k => k in body)) storage.bustR2ConfigCache();
 
+  // Bust AI provider caches when relevant keys change
+  const AI_CACHE_KEYS = ['gemini_api_key', 'openai_api_key', 'anthropic_api_key', 'ollama_base_url', 'ai_provider_config', 'imagen_api_key'];
+  if (AI_CACHE_KEYS.some(k => k in body)) {
+    bustProviderConfigCache(req.tenantId);
+    bustKeyCache(req.tenantId);
+  }
+
   // Audit log with before/after diff
   const changes = {};
   for (const key of Object.keys(body)) {
@@ -168,7 +178,11 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
 
   // Bust relevant caches
   if (savedKeys.some(k => R2_KEYS.includes(k))) storage.bustR2ConfigCache();
-  if (savedKeys.some(k => AI_KEYS.includes(k))) bustGeminiKeyCache();
+  if (savedKeys.some(k => AI_KEYS.includes(k))) {
+    bustGeminiKeyCache();
+    bustProviderConfigCache();
+    bustKeyCache();
+  }
   if (savedKeys.some(k => STRIPE_KEYS.includes(k))) bustStripeConfigCache();
 
   logAudit(req, 'settings.platform-config', 'settings', null, { keys: savedKeys });
@@ -238,6 +252,121 @@ router.post('/logo', requireAdmin, requirePermission('settings.update'), asyncHa
 
   bustSiteConfigCache();
   res.json({ url, key: bt.settingKey });
+}));
+
+// ── AI Provider endpoints ────────────────────────────────────────────
+
+const { resolveKey, resolveOllamaBaseUrl } = require('../lib/ai-key-resolver');
+const { getSupportedProviders, DEFAULT_MODELS, MODEL_TIERS, OPERATION_TIERS } = require('../lib/chat-provider');
+const { listModels: ollamaListModels } = require('../lib/providers/ollama');
+const { bustProviderConfigCache } = require('../lib/ai-router');
+const { bustKeyCache } = require('../lib/ai-key-resolver');
+
+// GET /api/settings/ai-providers — list supported providers + current config
+router.get('/ai-providers', requireAdmin, requirePermission('settings.read'), asyncHandler(async (req, res) => {
+  const providers = getSupportedProviders();
+  const configRow = await db.prepare(
+    "SELECT value FROM settings WHERE key = 'ai_provider_config' AND tenant_id = $1"
+  ).get(req.tenantId);
+
+  let config = null;
+  try { if (configRow?.value) config = JSON.parse(configRow.value); } catch {}
+
+  // Check which providers have keys configured
+  const status = {};
+  for (const p of providers) {
+    if (p === 'ollama') {
+      const url = await resolveOllamaBaseUrl(req.tenantId);
+      status[p] = { configured: !!url, hasKey: true };
+    } else {
+      const key = await resolveKey(p, req.tenantId);
+      status[p] = { configured: !!key, hasKey: !!key };
+    }
+  }
+
+  res.json({
+    providers,
+    defaultModels: DEFAULT_MODELS,
+    modelTiers: MODEL_TIERS,
+    operationTiers: OPERATION_TIERS,
+    config,
+    status,
+  });
+}));
+
+// POST /api/settings/test-provider — test connection to a provider
+router.post('/test-provider', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { provider } = req.body;
+  if (!provider || !getSupportedProviders().includes(provider)) {
+    return res.status(400).json({ ok: false, error: 'Unsupported provider' });
+  }
+
+  try {
+    if (provider === 'ollama') {
+      const baseUrl = await resolveOllamaBaseUrl(req.tenantId);
+      if (!baseUrl) return res.json({ ok: false, error: 'No Ollama base URL configured' });
+      const models = await ollamaListModels(baseUrl);
+      return res.json({ ok: true, models: models.map(m => m.name) });
+    }
+
+    const apiKey = await resolveKey(provider, req.tenantId);
+    if (!apiKey) return res.json({ ok: false, error: `No API key configured for ${provider}` });
+
+    // Minimal test call
+    const { completeChat } = require('../lib/chat-provider');
+    const result = await completeChat({
+      provider,
+      model: DEFAULT_MODELS[provider],
+      apiKey,
+      messages: [{ role: 'user', content: 'Say "ok" and nothing else.' }],
+      temperature: 0,
+      maxTokens: 5,
+    });
+
+    res.json({ ok: true, response: result.text.slice(0, 50) });
+  } catch (err) {
+    res.json({ ok: false, error: err.message.slice(0, 200) });
+  }
+}));
+
+// GET /api/settings/available-models — list models for a provider
+router.get('/available-models', requireAdmin, requirePermission('settings.read'), asyncHandler(async (req, res) => {
+  const { provider } = req.query;
+  if (!provider || !getSupportedProviders().includes(provider)) {
+    return res.status(400).json({ error: 'Unsupported provider' });
+  }
+
+  if (provider === 'ollama') {
+    try {
+      const baseUrl = await resolveOllamaBaseUrl(req.tenantId);
+      if (!baseUrl) return res.json({ models: [] });
+      const models = await ollamaListModels(baseUrl);
+      return res.json({ models: models.map(m => ({ id: m.name, name: m.name })) });
+    } catch {
+      return res.json({ models: [] });
+    }
+  }
+
+  // For cloud providers, return curated static list
+  const CURATED_MODELS = {
+    gemini: [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
+    ],
+    openai: [
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'gpt-4.1', name: 'GPT-4.1' },
+      { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini' },
+      { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano' },
+    ],
+    anthropic: [
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
+      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+    ],
+  };
+
+  res.json({ models: CURATED_MODELS[provider] || [] });
 }));
 
 module.exports = router;

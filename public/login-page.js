@@ -40,12 +40,16 @@ onReady(async () => {
   // Show divider between email form and OAuth
   authDivider.style.display = '';
 
-  // Detect available auth methods
+  // Detect available auth methods and deployment mode
   let hasLocal = false;
+  let isSingleTenant = false;
   try {
-    const res = await fetch('/api/auth/methods');
-    if (res.ok) {
-      const methods = await res.json();
+    const [authRes, infoRes] = await Promise.all([
+      fetch('/api/auth/methods'),
+      fetch('/api/instance-info'),
+    ]);
+    if (authRes.ok) {
+      const methods = await authRes.json();
       hasLocal = methods.local === true;
       const hasGoogle = methods.google === true;
 
@@ -54,11 +58,26 @@ onReady(async () => {
         oauthSection.style.display = 'none';
         authDivider.style.display = 'none';
       }
-
-      // Show "Admin login" toggle only when legacy local auth is available
-      if (hasLocal) adminToggle.style.display = '';
     }
-  } catch (_) { /* fall back to email + OAuth */ }
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      isSingleTenant = info.mode === 'single';
+    }
+  } catch (_) { /* fall back to defaults */ }
+
+  // Single-tenant: show direct admin login by default, hide email/tenant flow
+  if (isSingleTenant && hasLocal) {
+    emailSection.style.display = 'none';
+    localSection.style.display = '';
+    oauthSection.style.display = 'none';
+    authDivider.style.display = 'none';
+    adminToggle.style.display = 'none';
+    var signupLink = document.getElementById('signupLink');
+    if (signupLink) signupLink.style.display = 'none';
+  } else {
+    // Multi-tenant: show "Admin login" toggle when local auth is available
+    if (hasLocal) adminToggle.style.display = '';
+  }
 
   // Toggle between email login and legacy admin login
   adminLink.addEventListener('click', (e) => {

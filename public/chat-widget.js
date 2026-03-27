@@ -22,6 +22,7 @@
   const ICON_LIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
   const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
   const ICON_BACK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+  const ICON_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
   // ── Initialization ────────────────────────────────────────
 
@@ -94,7 +95,11 @@
             <button class="chat-header-btn" id="chatListBtn" title="Conversations">${ICON_LIST}</button>
             <span class="chat-header-title" id="chatTitle">AI Assistant</span>
           </div>
+          <select class="chat-model-select" id="chatModelSelect" title="AI Model">
+            <option value="">Auto</option>
+          </select>
           <div class="chat-header-actions">
+            <button class="chat-header-btn" id="chatClearBtn" title="Clear chat &amp; context">${ICON_CLEAR}</button>
             <button class="chat-header-btn" id="chatNewBtn" title="New chat">${ICON_NEW}</button>
             <button class="chat-header-btn" id="chatCloseBtn" title="Close">${ICON_CLOSE}</button>
           </div>
@@ -127,10 +132,14 @@
     fab.addEventListener('click', togglePanel);
     overlay.addEventListener('click', closePanel);
     closeBtn.addEventListener('click', closePanel);
+    document.getElementById('chatClearBtn').addEventListener('click', clearChat);
     newBtn.addEventListener('click', startNewChat);
     listBtn.addEventListener('click', toggleSidebar);
     sidebarClose.addEventListener('click', closeSidebar);
     sendBtn.addEventListener('click', sendMessage);
+
+    // Populate model selector
+    loadModelSelector();
 
     input.addEventListener('input', () => {
       sendBtn.disabled = !input.value.trim() || isStreaming;
@@ -239,6 +248,24 @@
     document.getElementById('chatInput').focus();
   }
 
+  async function clearChat() {
+    if (isStreaming) return;
+    // Delete the current conversation from the backend (clears message history + AI context)
+    if (currentConversationId) {
+      try {
+        await apiFetch(`/chat/conversations/${currentConversationId}`, { method: 'DELETE' });
+      } catch { /* best effort */ }
+    }
+    // Reset UI to empty state
+    currentConversationId = null;
+    document.getElementById('chatTitle').textContent = 'AI Assistant';
+    document.getElementById('chatMessages').innerHTML =
+      `<div class="chat-empty">${EMPTY_TEXT}</div>`;
+    document.getElementById('chatInput').focus();
+    // Refresh sidebar if open
+    loadConversations().catch(() => {});
+  }
+
   async function loadConversation(id) {
     try {
       const data = await apiFetch(`/chat/conversations/${id}/messages`);
@@ -284,6 +311,46 @@
     }
   }
 
+  // ── Model Selector ────────────────────────────────────────
+
+  async function loadModelSelector() {
+    try {
+      const data = await apiFetch('/settings/ai-providers');
+      const select = document.getElementById('chatModelSelect');
+      if (!select || !data.providers) return;
+
+      const status = data.status || {};
+      for (const provider of data.providers) {
+        // Only show providers that are configured (have a key or are always available)
+        if (!status[provider]?.configured && provider !== 'gemini') continue;
+
+        // Fetch models for this provider
+        try {
+          const modelData = await apiFetch('/settings/available-models?provider=' + encodeURIComponent(provider));
+          if (!modelData.models?.length) continue;
+
+          // Add optgroup
+          const group = document.createElement('optgroup');
+          group.label = provider.charAt(0).toUpperCase() + provider.slice(1);
+          for (const m of modelData.models) {
+            const opt = document.createElement('option');
+            opt.value = provider + ':' + m.id;
+            opt.textContent = m.name;
+            group.appendChild(opt);
+          }
+          select.appendChild(group);
+        } catch { /* skip provider */ }
+      }
+    } catch { /* ai-providers not available — keep just "Auto" */ }
+  }
+
+  function getSelectedModel() {
+    const select = document.getElementById('chatModelSelect');
+    if (!select || !select.value) return {};
+    const [provider, ...modelParts] = select.value.split(':');
+    return { provider, model: modelParts.join(':') };
+  }
+
   // ── Send Message ──────────────────────────────────────────
 
   async function sendMessage() {
@@ -318,7 +385,7 @@
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...getSelectedModel() }),
       });
 
       if (!response.ok) {

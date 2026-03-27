@@ -35,15 +35,15 @@ function hotScore(commentCount, reactionCount, publishedAt) {
   return engagement / Math.pow(ageHours + 2, 1.5);
 }
 
-/** Batch-fetch comment counts and reaction counts for an array of slugs */
+/** Batch-fetch comment counts, reaction counts, and share counts for an array of slugs */
 async function fetchEngagement(slugs, tenantId) {
-  if (!slugs.length) return { countMap: {}, reactionMap: {} };
+  if (!slugs.length) return { countMap: {}, reactionMap: {}, shareMap: {} };
 
   const placeholders = slugs.map((_, i) => `$${i + 1}`).join(', ');
   const tenantParam = `$${slugs.length + 1}`;
   const allParams = [...slugs, tenantId];
 
-  const [commentResult, reactionResult] = await Promise.all([
+  const [commentResult, reactionResult, shareResult] = await Promise.all([
     getPool().query(
       `SELECT article_slug, COUNT(*) AS cnt
        FROM comments
@@ -59,14 +59,23 @@ async function fetchEngagement(slugs, tenantId) {
        GROUP BY c.article_slug`,
       allParams
     ),
+    getPool().query(
+      `SELECT article_slug, COUNT(*) AS cnt
+       FROM analytics_events
+       WHERE article_slug IN (${placeholders}) AND event_type = 'share' AND tenant_id = ${tenantParam}
+       GROUP BY article_slug`,
+      allParams
+    ),
   ]);
 
   const countMap    = {};
   const reactionMap = {};
+  const shareMap    = {};
   for (const row of commentResult.rows)  countMap[row.article_slug]    = parseInt(row.cnt, 10);
   for (const row of reactionResult.rows) reactionMap[row.article_slug] = parseInt(row.cnt, 10);
+  for (const row of shareResult.rows)    shareMap[row.article_slug]    = parseInt(row.cnt, 10);
 
-  return { countMap, reactionMap };
+  return { countMap, reactionMap, shareMap };
 }
 
 // GET /api/news
@@ -111,6 +120,13 @@ router.get('/', asyncHandler(async (req, res) => {
       const placeholders = types.map((_, i) => `$${params.length + i + 1}`).join(', ');
       types.forEach(t => params.push(t));
       conditions.push(`a.content_type IN (${placeholders})`);
+    }
+  }
+  if (req.query.since) {
+    const sinceMs = parseInt(req.query.since, 10);
+    if (!isNaN(sinceMs)) {
+      params.push(new Date(sinceMs).toISOString());
+      conditions.push(`a.published_at >= $${params.length}`);
     }
   }
 
@@ -159,7 +175,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
   // Batch-fetch comment + reaction counts
   const slugs = items.map(a => toSlug(a.title));
-  const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
+  const { countMap, reactionMap, shareMap } = await fetchEngagement(slugs, req.tenantId);
 
   const enriched = items.map(a => {
     const slug     = toSlug(a.title);
@@ -170,6 +186,7 @@ router.get('/', asyncHandler(async (req, res) => {
       slug,
       comment_count:  comments,
       reaction_count: reactions,
+      share_count:    shareMap[slug] ?? 0,
       hot_score:      hotScore(comments, reactions, a.published_at),
     };
   });
@@ -205,7 +222,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
 
   const slugs = items.map(a => toSlug(a.title));
 
-  const { countMap, reactionMap } = await fetchEngagement(slugs, req.tenantId);
+  const { countMap, reactionMap, shareMap } = await fetchEngagement(slugs, req.tenantId);
 
   const scored = items
     .map(a => {
@@ -213,7 +230,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
       const comments  = countMap[slug]    ?? 0;
       const reactions = reactionMap[slug] ?? 0;
       const score     = hotScore(comments, reactions, a.published_at);
-      return { ...a, slug, comment_count: comments, reaction_count: reactions, hot_score: score };
+      return { ...a, slug, comment_count: comments, reaction_count: reactions, share_count: shareMap[slug] ?? 0, hot_score: score };
     })
     .filter(a => a.hot_score > 0)           // only articles with engagement
     .sort((a, b) => b.hot_score - a.hot_score)
@@ -230,6 +247,87 @@ router.get('/updated-at', asyncHandler(async (req, res) => {
     [req.tenantId]
   );
   res.json({ updatedAt: result.rows[0]?.ts || null });
+}));
+
+// GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
+router.get('/brief', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId;
+
+  // Top 5 articles by editorial_score from last 24h
+  const topResult = await getPool().query(
+    `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+     FROM articles a
+     LEFT JOIN writers w ON a.writer_id = w.id
+     WHERE a.tenant_id = $1 AND a.is_published = 1 AND a.is_archived = 0
+       AND a.published_at >= NOW() - INTERVAL '24 hours'
+     ORDER BY a.editorial_score DESC NULLS LAST, a.published_at DESC
+     LIMIT 5`,
+    [tenantId]
+  );
+
+  // Category breakdown
+  const catResult = await getPool().query(
+    `SELECT category, COUNT(*)::int AS count
+     FROM articles
+     WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
+       AND published_at >= NOW() - INTERVAL '24 hours'
+     GROUP BY category ORDER BY count DESC`,
+    [tenantId]
+  );
+
+  // Featured synthesis
+  const synthResult = await getPool().query(
+    `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+     FROM articles a
+     LEFT JOIN writers w ON a.writer_id = w.id
+     WHERE a.tenant_id = $1 AND a.content_type = 'original' AND a.is_published = 1
+       AND a.published_at >= NOW() - INTERVAL '24 hours'
+     ORDER BY a.editorial_score DESC NULLS LAST
+     LIMIT 1`,
+    [tenantId]
+  );
+
+  // Top trending keyword from trends_cache
+  let topKeyword = null;
+  try {
+    const trendResult = await getPool().query(
+      `SELECT value FROM trends_cache WHERE tenant_id = $1 AND type = 'keywords' ORDER BY updated_at DESC LIMIT 1`,
+      [tenantId]
+    );
+    const trend = trendResult.rows[0];
+    if (trend && trend.value) {
+      const parsed = JSON.parse(trend.value);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        topKeyword = parsed[0].keyword || parsed[0].word || parsed[0];
+      }
+    }
+  } catch { /* trends not available */ }
+
+  // Serialize and resolve media URLs
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  function resolveMedia(items) {
+    return items.map(row => {
+      const item = serializeRow(row);
+      if (item.image_url && item.image_url.startsWith('/')) {
+        item.image_url = mediaBase + item.image_url;
+      }
+      if (item.audio_url && item.audio_url.startsWith('/')) {
+        item.audio_url = mediaBase + item.audio_url;
+      }
+      return item;
+    });
+  }
+
+  const topArticles = resolveMedia(topResult.rows);
+  const synthesis = synthResult.rows[0] ? resolveMedia([synthResult.rows[0]])[0] : null;
+
+  res.json({
+    status: 'ok',
+    top_articles: topArticles,
+    category_breakdown: catResult.rows,
+    top_keyword: topKeyword,
+    featured_synthesis: synthesis,
+  });
 }));
 
 module.exports = router;

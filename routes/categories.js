@@ -11,7 +11,7 @@ const { requirePermission }  = require('../middleware/permissions');
 const { asyncHandler }       = require('../lib/utils');
 const { getCategories, bustCategoryCache } = require('../lib/categories');
 const { bustSiteConfigCache } = require('../lib/site-config');
-const { getGeminiKey } = require('../lib/gemini-config');
+const { complete: aiComplete } = require('../lib/ai-router');
 
 // GET /api/categories — public (frontend filter bar needs this)
 router.get('/', asyncHandler(async (req, res) => {
@@ -102,14 +102,6 @@ router.post('/generate-keywords', requireAdmin, requirePermission('categories.up
   const { name, existingKeywords } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Category name is required' });
 
-  const apiKey = await getGeminiKey(req.tenantId);
-  if (!apiKey) return res.status(503).json({ error: 'Gemini API key not configured' });
-
-  const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
-
-  const GEMINI_MODEL = 'gemini-2.5-flash-lite';
-  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
   const existing = Array.isArray(existingKeywords) && existingKeywords.length
     ? `\nThe category currently has these keywords: ${existingKeywords.join(', ')}\nGenerate additional keywords that complement these — avoid duplicates.`
     : '';
@@ -138,29 +130,18 @@ router.post('/generate-keywords', requireAdmin, requirePermission('categories.up
     'Respond with ONLY a JSON array of strings, no markdown, no explanation. Example: ["keyword1", "keyword two", "three word phrase"]',
   ].filter(Boolean).join('\n');
 
-  const _start = Date.now();
-  const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
-    }),
-    signal: AbortSignal.timeout(15000),
+  const result = await aiComplete({
+    operation: 'generate-keywords',
+    tenantId: req.tenantId,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.4,
+    maxTokens: 2048,
+    trigger: 'admin',
   });
 
-  if (!upstream.ok) {
-    const errBody = await upstream.text().catch(() => '');
-    console.error('[generate-keywords] Gemini error:', upstream.status, errBody);
-    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-keywords', trigger: 'admin', durationMs: Date.now() - _start, success: false, error: `${upstream.status}` }).catch(() => {});
-    return res.status(502).json({ error: `Gemini API error: ${upstream.status}` });
-  }
+  if (!result) return res.status(503).json({ error: 'AI service unavailable or budget denied' });
 
-  const data = await upstream.json();
-  const _tokens = extractGeminiTokens(data);
-  logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-keywords', trigger: 'admin', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start }).catch(() => {});
-
-  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  const raw = result.text.trim();
   let keywords;
   try {
     // Strip markdown fences if present

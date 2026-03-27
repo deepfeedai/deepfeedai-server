@@ -17,7 +17,8 @@ const { toSlug, asyncHandler } = require('../lib/utils');
 const storage = require('../lib/storage');
 const { getGeminiKey, getImagenModel, getImagenUrl } = require('../lib/gemini-config');
 const { getAppConfig } = require('../lib/app-config');
-const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
+const { logUsage } = require('../lib/ai-usage');
+const { complete: aiComplete } = require('../lib/ai-router');
 const { checkPlanLimit } = require('../lib/plan-limits');
 const { requireFeature }               = require('../middleware/feature-gate');
 const { logAudit }                      = require('../middleware/audit');
@@ -32,14 +33,8 @@ const imageUpload = multer({
   },
 });
 const MAX_CHARS     = 900;
-const GEMINI_MODEL  = 'gemini-2.5-flash-lite';
-const GEMINI_URL    = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
-
 
 async function getAiSummary(title, rawSummary, tenantId) {
-  const apiKey = await getGeminiKey(tenantId);
-  if (!apiKey) return null;
   const prompt = `You are a professional news anchor. Write a concise 2-3 sentence spoken summary of this AI news article for a text-to-speech audio player. Use natural spoken language — no bullet points, no markdown, no hashtags. Sound engaging and informative.
 
 Article title: ${title}
@@ -48,20 +43,14 @@ Article summary: ${(rawSummary || '').replace(/<[^>]+>/g, '').slice(0, 800)}
 Spoken summary:`;
 
   try {
-    const _start = Date.now();
-    const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    const result = await aiComplete({
+      operation: 'audio-script',
+      tenantId,
+      messages: [{ role: 'user', content: prompt }],
+      trigger: 'manual',
     });
-    if (!res.ok) {
-      logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'audio-script', trigger: 'manual', durationMs: Date.now() - _start, success: false, error: `${res.status}`, tenantId }).catch(() => {});
-      return null;
-    }
-    const data = await res.json();
-    const _tokens = extractGeminiTokens(data);
-    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'audio-script', trigger: 'manual', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+    if (!result) return null; // budget denied or no API key
+    return result.text?.trim() || null;
   } catch { return null; }
 }
 

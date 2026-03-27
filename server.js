@@ -12,7 +12,8 @@ const app  = express();
 const PORT = process.env.PORT || 4000;
 
 // ── Deployment Mode ──────────────────────────────────────────────
-const SINGLE_TENANT = process.env.DEPLOYMENT_MODE === 'single';
+// Single-tenant is the default (self-hosted). Set DEPLOYMENT_MODE=multi for SaaS multi-tenant.
+const tenantUtils = require('./lib/tenant-utils');
 
 app.set('trust proxy', 1);
 
@@ -90,7 +91,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -187,19 +188,61 @@ app.use('/media', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
+
+// In setup mode, redirect HTML page requests to setup.html
+// (must come before express.static so index.html doesn't get served)
+const { isSetupMode: _isSetupMode } = require('./lib/setup-mode');
+app.use(async (req, res, next) => {
+  // Only intercept navigation requests (not JS, CSS, images, API calls)
+  if (req.method !== 'GET') return next();
+  if (req.path.startsWith('/api/')) return next();
+  if (req.path.startsWith('/media/')) return next();
+  // Let setup.html and its assets through
+  if (req.path === '/setup.html' || req.path === '/setup-page.js') return next();
+  // Let static assets through (has a file extension that isn't .html)
+  if (/\.\w+$/.test(req.path) && !req.path.endsWith('.html')) return next();
+
+  if (await _isSetupMode()) {
+    return res.sendFile(path.join(__dirname, 'public', 'setup.html'));
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
 const { tenantContext } = require('./middleware/tenant');
 const { getPlatformTenantId } = require('./lib/platform-tenant');
-if (SINGLE_TENANT) {
+if (tenantUtils.MULTI_TENANT) {
+  app.use('/api', tenantContext);
+} else {
   app.use('/api', async (req, _res, next) => {
     req.tenantId = await getPlatformTenantId();
     next();
   });
-} else {
-  app.use('/api', tenantContext);
 }
+
+// ── First-Boot Setup Mode ────────────────────────────────────────
+const { isSetupMode } = require('./lib/setup-mode');
+app.use('/api/setup', require('./routes/setup'));
+
+// ── Instance Info (public, no auth, available even in setup mode) ─
+app.get('/api/instance-info', (_req, res) => {
+  res.json({
+    name:    process.env.INSTANCE_NAME || 'default',
+    mode:    tenantUtils.MULTI_TENANT ? 'multi' : 'single',
+    version: require('./package.json').version,
+    tenant_base_domain: process.env.TENANT_BASE_DOMAIN || null,
+  });
+});
+
+// Gate all other API routes when in setup mode (no admin user yet)
+app.use('/api', async (req, res, next) => {
+  if (await isSetupMode()) {
+    return res.status(503).json({ error: 'Server is in setup mode. Please complete setup at /setup.' });
+  }
+  next();
+});
 
 // ── Per-tenant aggregate rate limiting ──────────────────────────────
 const tenantRateBuckets = new Map(); // tenantId → { count, windowStart }
@@ -266,7 +309,7 @@ app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
-if (!SINGLE_TENANT) {
+if (tenantUtils.MULTI_TENANT) {
   app.use('/api/tenants', require('./routes/tenants'));    // tenant signup + slug check
 }
 app.use('/api/comments',   require('./routes/comments'));    // public read, user write, admin mod
@@ -308,12 +351,15 @@ const { getActiveTenantIds } = require('./lib/tenant-utils');
 const { registerJob, startAll } = require('./lib/cron-registry');
 
 // ── SPA fallback ────────────────────────────────────────────────────
-app.get('*', (req, res) => {
-  if (!req.path.startsWith('/api/') && !req.path.startsWith('/media/')) {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  } else {
-    res.status(404).json({ error: 'Not found' });
+app.get('*', async (req, res) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/media/')) {
+    return res.status(404).json({ error: 'Not found' });
   }
+  // Redirect to setup page on first boot
+  if (await isSetupMode()) {
+    return res.sendFile(path.join(__dirname, 'public', 'setup.html'));
+  }
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ── Global error handler ────────────────────────────────────────────
@@ -808,11 +854,30 @@ registerJob({
 
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
-  await startAll();
+  // ── Load saved deployment mode from DB if env var not set ────
+  if (db.isDbReady() && !process.env.DEPLOYMENT_MODE) {
+    try {
+      const row = await db.prepare(
+        "SELECT value FROM settings WHERE key = 'deployment_mode' LIMIT 1"
+      ).get();
+      if (row && (row.value === 'single' || row.value === 'multi')) {
+        process.env.DEPLOYMENT_MODE = row.value;
+      }
+    } catch { /* ignore — table may not exist yet */ }
+  }
+
+  // Only start cron jobs if setup is complete (not in first-boot mode)
+  if (db.isDbReady() && !(await isSetupMode())) {
+    await startAll();
+  } else if (db.isDbReady()) {
+    console.log('[info] Cron jobs deferred — setup not yet complete');
+  }
 
   // ── Storage health check ─────────────────────────────────────
+  let storageBackend = 'unknown';
   try {
     const storage = require('./lib/storage');
+    storageBackend = storage.backendName || 'local';
     const health = await storage.healthCheck();
     if (health.ok) {
       console.log(`[storage] Health check passed: ${health.message}`);
@@ -824,8 +889,39 @@ db.init().then(async () => {
     console.error(`[storage] Health check error: ${err.message}`);
   }
 
+  // ── Config warnings ───────────────────────────────────────────
+  const { isKeyAutoGenerated: _isAutoKey } = require('./lib/crypto');
+  if (_isAutoKey()) {
+    console.warn('[warn] SETTINGS_ENCRYPTION_KEY not set — using auto-generated key. Set in .env for persistence across restarts.');
+  }
+  if (tenantUtils.MULTI_TENANT && !process.env.TENANT_BASE_DOMAIN) {
+    console.warn('[warn] Multi-tenant mode active but TENANT_BASE_DOMAIN not set — subdomain routing will not work.');
+  }
+  if (!tenantUtils.MULTI_TENANT && process.env.TENANT_BASE_DOMAIN) {
+    console.warn('[warn] TENANT_BASE_DOMAIN is set but running in single-tenant mode — this variable is ignored.');
+  }
+
+  // Check if setup is needed
+  const setupNeeded = await isSetupMode();
+  if (setupNeeded) {
+    console.log('[info] No admin user found — setup wizard available at /setup');
+  }
+
   app.listen(PORT, () => {
-    console.log(`🤖 DeepFeedAI Admin running at http://localhost:${PORT}`);
+    const version  = require('./package.json').version;
+    const mode     = tenantUtils.MULTI_TENANT ? 'MULTI-TENANT' : 'SINGLE-TENANT';
+    const instance = process.env.INSTANCE_NAME || 'default';
+    console.log('');
+    console.log('  ========================================');
+    console.log(`  Deep Feed AI v${version}`);
+    console.log(`  Mode:     ${mode}`);
+    console.log(`  Instance: ${instance}`);
+    console.log(`  Port:     ${PORT}`);
+    console.log(`  Database: ${db.isDbReady() ? 'connected' : 'NOT CONFIGURED'}`);
+    console.log(`  Storage:  ${storageBackend}`);
+    if (setupNeeded) console.log('  Status:   SETUP REQUIRED');
+    console.log('  ========================================');
+    console.log('');
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);

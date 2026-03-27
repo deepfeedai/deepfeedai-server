@@ -14,6 +14,7 @@
   const ICON_AI = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v1a3 3 0 0 1-3 3h-1v4a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2v-4H7a3 3 0 0 1-3-3v-1a3 3 0 0 1 3-3h1V6a4 4 0 0 1 4-4z"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/></svg>';
   const ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
   const ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+  const ICON_CLEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
 
   // ── Initialization ────────────────────────────────────────
 
@@ -48,6 +49,10 @@
     panel.innerHTML = `
       <div class="ea-header">
         <span class="ea-header-title">${ICON_AI} AI Assistant</span>
+        <select class="ea-model-select" id="eaModelSelect" title="AI Model">
+          <option value="">Auto</option>
+        </select>
+        <button class="ea-header-btn" id="eaClearBtn" title="Clear chat &amp; context">${ICON_CLEAR}</button>
         <button class="ea-header-btn" id="eaCloseBtn" title="Close">${ICON_CLOSE}</button>
       </div>
       <div class="ea-messages" id="eaMessages">
@@ -72,7 +77,11 @@
   function bindEvents() {
     document.getElementById('eaToggleBtn')?.addEventListener('click', togglePanel);
     document.getElementById('eaCloseBtn')?.addEventListener('click', closePanel);
+    document.getElementById('eaClearBtn')?.addEventListener('click', clearAssistChat);
     document.getElementById('eaSendBtn')?.addEventListener('click', sendMessage);
+
+    // Populate model selector
+    loadEaModelSelector();
 
     const input = document.getElementById('eaInput');
     if (input) {
@@ -115,6 +124,24 @@
     document.querySelector('.editor-canvas')?.classList.remove('ea-shifted');
   }
 
+  function clearAssistChat() {
+    if (isStreaming) return;
+    chatHistory = [];
+    const messagesEl = document.getElementById('eaMessages');
+    messagesEl.innerHTML = `
+      <div class="ea-empty">
+        I can help you write, edit, and improve this article. Try:
+        <ul>
+          <li>"Write an introduction about..."</li>
+          <li>"Rewrite in a more formal tone"</li>
+          <li>"Generate a summary"</li>
+          <li>"Add a section about..."</li>
+          <li>"Suggest a better title"</li>
+        </ul>
+      </div>`;
+    document.getElementById('eaInput').focus();
+  }
+
   // ── Get Article Context ───────────────────────────────────
 
   async function getArticleContext() {
@@ -135,6 +162,41 @@
     }
 
     return { title, summary, category, author, writerId, blocks };
+  }
+
+  // ── Model Selector ────────────────────────────────────────
+
+  async function loadEaModelSelector() {
+    try {
+      const data = await apiFetch('/settings/ai-providers');
+      const select = document.getElementById('eaModelSelect');
+      if (!select || !data.providers) return;
+
+      const status = data.status || {};
+      for (const provider of data.providers) {
+        if (!status[provider]?.configured && provider !== 'gemini') continue;
+        try {
+          const modelData = await apiFetch('/settings/available-models?provider=' + encodeURIComponent(provider));
+          if (!modelData.models?.length) continue;
+          const group = document.createElement('optgroup');
+          group.label = provider.charAt(0).toUpperCase() + provider.slice(1);
+          for (const m of modelData.models) {
+            const opt = document.createElement('option');
+            opt.value = provider + ':' + m.id;
+            opt.textContent = m.name;
+            group.appendChild(opt);
+          }
+          select.appendChild(group);
+        } catch { /* skip */ }
+      }
+    } catch { /* keep just "Auto" */ }
+  }
+
+  function getEaSelectedModel() {
+    const select = document.getElementById('eaModelSelect');
+    if (!select || !select.value) return {};
+    const [provider, ...modelParts] = select.value.split(':');
+    return { provider, model: modelParts.join(':') };
   }
 
   // ── Send Message ──────────────────────────────────────────
@@ -173,6 +235,7 @@
           message: content,
           articleContext,
           history: chatHistory.slice(-10),
+          ...getEaSelectedModel(),
         }),
       });
 

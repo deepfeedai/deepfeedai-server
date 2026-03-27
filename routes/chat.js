@@ -11,15 +11,12 @@ const router = express.Router();
 const db = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
-const { logUsage } = require('../lib/ai-usage');
-const { canSpend } = require('../lib/budget');
-const { getGeminiKey } = require('../lib/gemini-config');
 const { isFeatureEnabled } = require('../lib/feature-registry');
-const { streamChat, getDefaultModel } = require('../lib/chat-provider');
+const { stream: aiStream, resolveProvider } = require('../lib/ai-router');
+const { streamChat } = require('../lib/chat-provider');
 const { buildSystemPrompt, resolveQueries } = require('../lib/chat-system-prompt');
 
 const MAX_HISTORY_MESSAGES = 30;
-const PROVIDER = 'gemini';
 const VALID_SOURCES = ['portal', 'platform'];
 
 // ── Middleware: require platform-admin + feature flag ────────────────
@@ -130,6 +127,10 @@ router.post('/conversations/:id/messages', ...chatAuth, requireChatFeature, asyn
   if (!content) return res.status(400).json({ error: 'Message content required' });
   if (content.length > 10000) return res.status(400).json({ error: 'Message too long (max 10,000 characters)' });
 
+  // Optional per-request provider/model override (from UI model selector)
+  const providerOverride = req.body.provider || null;
+  const modelOverride = req.body.model || null;
+
   // Ownership check — also fetch source for context-aware prompting
   const conv = await db.prepare(
     'SELECT id, title, source FROM chat_conversations WHERE id = $1 AND tenant_id = $2 AND user_id = $3'
@@ -138,15 +139,8 @@ router.post('/conversations/:id/messages', ...chatAuth, requireChatFeature, asyn
 
   const source = conv.source || 'platform';
 
-  // Budget check
-  const budget = await canSpend('chat', req.tenantId);
-  if (!budget.allowed) {
-    return res.status(429).json({ error: budget.reason });
-  }
-
-  // API key check
-  const apiKey = await getGeminiKey(req.tenantId);
-  if (!apiKey) return res.status(500).json({ error: 'AI API key not configured' });
+  // Provider resolution (for re-generation calls via streamChat)
+  const resolved = await resolveProvider('chat', req.tenantId, providerOverride ? { provider: providerOverride, model: modelOverride } : undefined);
 
   // Save user message
   await db.prepare(`
@@ -192,21 +186,23 @@ router.post('/conversations/:id/messages', ...chatAuth, requireChatFeature, asyn
   });
 
   const startTime = Date.now();
-  const model = getDefaultModel(PROVIDER);
   let fullResponse = '';
   let usageData = null;
 
   try {
-    const stream = streamChat({
-      provider: PROVIDER,
-      model,
-      apiKey,
+    // Use ai-router for the primary stream (handles budget, key resolution, logging)
+    const chatStream = aiStream({
+      operation: 'chat',
+      tenantId: req.tenantId,
       messages,
       temperature: 0.7,
       maxTokens: 2048,
+      trigger: 'manual',
+      providerOverride,
+      modelOverride,
     });
 
-    for await (const chunk of stream) {
+    for await (const chunk of chatStream) {
       if (chunk.type === 'text') {
         fullResponse += chunk.content;
         res.write(`data: ${JSON.stringify({ type: 'text', content: chunk.content })}\n\n`);
@@ -230,14 +226,15 @@ router.post('/conversations/:id/messages', ...chatAuth, requireChatFeature, asyn
           { role: 'user', content: `Here is the data you requested:\n\n${queryData}\n\nNow provide your complete answer using this data. Do not include [QUERY:...] tags in your response.` },
         ];
 
-        // Stream the data-informed response
+        // Stream the data-informed response (use streamChat directly for the re-gen since ai-router already handled budget)
         fullResponse = '';
         res.write(`data: ${JSON.stringify({ type: 'clear' })}\n\n`);
 
         const dataStream = streamChat({
-          provider: PROVIDER,
-          model,
-          apiKey,
+          provider: resolved.provider,
+          model: resolved.model,
+          apiKey: resolved.apiKey,
+          baseUrl: resolved.baseUrl,
           messages: messagesWithData,
           temperature: 0.7,
           maxTokens: 2048,
@@ -276,18 +273,6 @@ router.post('/conversations/:id/messages', ...chatAuth, requireChatFeature, asyn
       usageData?.completionTokens || null,
       Date.now() - startTime,
     );
-
-    // Log AI usage (fire-and-forget)
-    logUsage({
-      provider: PROVIDER,
-      model,
-      operation: 'chat',
-      trigger: 'manual',
-      inputTokens: usageData?.promptTokens,
-      outputTokens: usageData?.completionTokens,
-      durationMs: Date.now() - startTime,
-      tenantId: req.tenantId,
-    }).catch(() => {});
 
     res.write(`data: ${JSON.stringify({ type: 'done', messageId: msgRow?.id })}\n\n`);
   } catch (err) {

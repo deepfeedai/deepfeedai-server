@@ -283,6 +283,71 @@
           <button class="btn btn-primary" id="saveImagenBtn">Save Gemini Settings</button>
         </div>
 
+        <!-- AI Providers (BYAI) card -->
+        <div class="settings-card" id="aiProvidersCard">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🤖</div>
+            <div>
+              <div class="settings-card-title">AI Providers</div>
+              <div class="settings-card-subtitle">Use OpenAI, Anthropic, or self-hosted Ollama instead of (or alongside) Gemini</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">OpenAI API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="openaiApiKeyPortal" placeholder="sk-..."
+                     autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOpenaiPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For GPT-4o, GPT-4.1, etc. Get a key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
+            <div id="openaiKeyStatus" class="settings-status"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Anthropic API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="anthropicApiKeyPortal" placeholder="sk-ant-..."
+                     autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testAnthropicPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For Claude Sonnet, Claude Haiku, etc. Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
+            <div id="anthropicKeyStatus" class="settings-status"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Ollama Base URL</label>
+            <div class="input-action-row">
+              <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434"
+                     autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOllamaPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For self-hosted AI with Ollama. Must be accessible from the server.</p>
+            <div id="ollamaUrlStatus" class="settings-status"></div>
+          </div>
+
+          <div class="form-group" style="margin-top:16px;">
+            <label class="form-label">Default AI Provider</label>
+            <div class="form-grid-2">
+              <select class="form-control" id="defaultProviderPortal">
+                <option value="">Gemini (default)</option>
+              </select>
+              <select class="form-control" id="defaultModelPortal">
+                <option value="">Default for tier</option>
+              </select>
+            </div>
+            <p class="form-help">Override the default AI provider for all operations. Requires a valid API key above.</p>
+          </div>
+
+          <details style="margin-top:12px;">
+            <summary style="cursor:pointer;font-weight:500;font-size:14px;user-select:none;">Per-operation overrides</summary>
+            <p class="form-help" style="margin:8px 0 12px;">Override the provider for specific operations. Leave blank to use the default.</p>
+            <div id="operationOverridesPortal"></div>
+          </details>
+
+          <button class="btn btn-primary" id="saveAiProvidersPortalBtn" style="margin-top:16px;">Save AI Provider Settings</button>
+        </div>
+
         <!-- Analytics IDs -->
         <div class="settings-card">
           <div class="settings-card-header">

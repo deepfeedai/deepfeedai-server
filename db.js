@@ -9,33 +9,78 @@ const crypto          = require('crypto');
 const bcrypt          = require('bcryptjs');
 const { serializeRow } = require('./lib/utils');
 
-if (!process.env.ADMIN_PASSWORD) {
-  console.error('FATAL: ADMIN_PASSWORD environment variable is not set. Refusing to start.');
-  process.exit(1);
-}
+// ADMIN_PASSWORD is optional — if not set, the first-boot setup wizard handles admin creation.
 
 let pool = null;
+let _dbReady = false; // true once initDb() has completed successfully
 
 function getPool() {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) throw new Error('DATABASE_URL environment variable is not set');
-    pool = new Pool({
-      connectionString,
-      ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
-        ? false
-        : { rejectUnauthorized: false }, // required for Neon / Railway Postgres
-      max: 10,
-      idleTimeoutMillis: 30000,  // release idle clients after 30s
-      connectionTimeoutMillis: 5000,
-      keepAlive: true,
-    });
-    // Swallow pool-level errors so one bad connection doesn't crash the process
-    pool.on('error', (err) => {
-      console.error('[DB] Pool client error:', err.message);
-    });
+    if (!connectionString) return null;
+    pool = _createPool(connectionString);
   }
   return pool;
+}
+
+function _createPool(connectionString) {
+  const p = new Pool({
+    connectionString,
+    ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
+      ? false
+      : { rejectUnauthorized: false }, // required for Neon / Railway Postgres
+    max: 10,
+    idleTimeoutMillis: 30000,  // release idle clients after 30s
+    connectionTimeoutMillis: 5000,
+    keepAlive: true,
+  });
+  // Swallow pool-level errors so one bad connection doesn't crash the process
+  p.on('error', (err) => {
+    console.error('[DB] Pool client error:', err.message);
+  });
+  return p;
+}
+
+/** Returns true if the database is connected and initialized. */
+function isDbReady() { return _dbReady; }
+
+/**
+ * Connect to a database at runtime (from setup wizard).
+ * Sets DATABASE_URL, creates the pool, runs initDb(), and writes to .env.
+ */
+async function connectAndInit(url) {
+  // Test the connection first
+  const testPool = _createPool(url);
+  try {
+    await testPool.query('SELECT 1');
+  } finally {
+    await testPool.end();
+  }
+
+  // Set the env var so getPool() and other modules pick it up
+  process.env.DATABASE_URL = url;
+  pool = _createPool(url);
+  await initDb();
+
+  // Write to .env for persistence
+  const fs = require('fs');
+  const path = require('path');
+  const envPath = path.join(__dirname, '.env');
+  try {
+    let content = '';
+    if (fs.existsSync(envPath)) {
+      content = fs.readFileSync(envPath, 'utf8');
+    }
+    // Replace existing DATABASE_URL or append
+    if (/^DATABASE_URL=/m.test(content)) {
+      content = content.replace(/^DATABASE_URL=.*/m, `DATABASE_URL="${url}"`);
+    } else {
+      content = `DATABASE_URL="${url}"\n` + content;
+    }
+    fs.writeFileSync(envPath, content, 'utf8');
+  } catch (err) {
+    console.warn('[DB] Could not write DATABASE_URL to .env:', err.message);
+  }
 }
 
 /**
@@ -46,15 +91,21 @@ function getPool() {
 function prepare(sql) {
   return {
     run: async function (...params) {
-      const result = await getPool().query(sql, params.length ? params : undefined);
+      const p = getPool();
+      if (!p) throw new Error('Database not connected');
+      const result = await p.query(sql, params.length ? params : undefined);
       return { changes: result.rowCount ?? 0 };
     },
     get: async function (...params) {
-      const result = await getPool().query(sql, params.length ? params : undefined);
+      const p = getPool();
+      if (!p) throw new Error('Database not connected');
+      const result = await p.query(sql, params.length ? params : undefined);
       return serializeRow(result.rows[0] || null);
     },
     all: async function (...params) {
-      const result = await getPool().query(sql, params.length ? params : undefined);
+      const p = getPool();
+      if (!p) throw new Error('Database not connected');
+      const result = await p.query(sql, params.length ? params : undefined);
       return result.rows.map(serializeRow);
     },
   };
@@ -62,6 +113,10 @@ function prepare(sql) {
 
 async function initDb() {
   const p = getPool();
+  if (!p) {
+    console.warn('[DB] DATABASE_URL not set — skipping initialization. Setup wizard will configure the database.');
+    return null;
+  }
 
   // Create tables (idempotent — all columns included upfront, no migrations needed)
   await p.query(`
@@ -166,9 +221,11 @@ async function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS settings (
-      key        TEXT PRIMARY KEY,
+      key        TEXT NOT NULL,
       value      TEXT,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      tenant_id  INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (tenant_id, key)
     );
 
     CREATE TABLE IF NOT EXISTS categories (
@@ -482,6 +539,7 @@ async function initDb() {
     // Multi-tenancy platform tables
     `CREATE TABLE IF NOT EXISTS tenants (
       id                     SERIAL PRIMARY KEY,
+      uuid                   UUID DEFAULT gen_random_uuid(),
       slug                   TEXT NOT NULL UNIQUE,
       display_name           TEXT NOT NULL,
       owner_user_id          INTEGER REFERENCES public_users(id) ON DELETE SET NULL,
@@ -490,7 +548,12 @@ async function initDb() {
       status                 TEXT NOT NULL DEFAULT 'active',
       stripe_customer_id     TEXT,
       stripe_subscription_id TEXT,
-      created_at             TIMESTAMPTZ DEFAULT NOW()
+      created_at             TIMESTAMPTZ DEFAULT NOW(),
+      deleted_at             TIMESTAMPTZ,
+      suspended_at           TIMESTAMPTZ,
+      suspension_reason      TEXT,
+      trial_ends_at          TIMESTAMPTZ,
+      is_platform            BOOLEAN DEFAULT false
     )`,
     `CREATE TABLE IF NOT EXISTS plan_limits (
       plan                   TEXT PRIMARY KEY,
@@ -926,9 +989,16 @@ async function initDb() {
     `ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'platform'`,
     // Per-article AI summary opt-out
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS disable_summary INTEGER NOT NULL DEFAULT 0`,
+    // BYAI (Bring Your AI) — track whether an AI call used the tenant's own key
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS is_byai BOOLEAN DEFAULT false`,
   ];
   for (const sql of migrations) {
-    try { await p.query(sql); } catch { /* already exists */ }
+    try { await p.query(sql); } catch (err) {
+      // Log unexpected errors (not just "already exists" / "duplicate" noise)
+      if (!/already exists|duplicate|cannot alter/i.test(err.message)) {
+        console.error('[DB migration]', err.message, '—', sql.slice(0, 80));
+      }
+    }
   }
 
   // Backfill: populate slug column for articles that don't have one
@@ -1141,12 +1211,14 @@ async function initDb() {
     console.log(`✅ Seeded ${FEATURE_DEFINITIONS.length} feature definitions across ${plans.length} plans`);
   } catch (err) { console.error('[DB] Feature seed error:', err.message); }
 
-  // Seed admin user
-  const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');
-  if (!existingAdmin) {
-    const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
-    await prepare('INSERT INTO users (username, password_hash, role, display_name) VALUES ($1, $2, $3, $4)').run('admin', hash, 'owner', 'Admin');
-    console.log('✅ Seeded admin user');
+  // Seed admin user (only if ADMIN_PASSWORD env var is set — otherwise setup wizard handles it)
+  if (process.env.ADMIN_PASSWORD) {
+    const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');
+    if (!existingAdmin) {
+      const hash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+      await prepare('INSERT INTO users (username, password_hash, role, display_name) VALUES ($1, $2, $3, $4)').run('admin', hash, 'owner', 'Admin');
+      console.log('✅ Seeded admin user');
+    }
   }
 
   // Migrate ADMIN_EMAILS to users table (one-time)
@@ -1177,21 +1249,9 @@ async function initDb() {
     }
   }
 
-  // Seed default RSS source
-  const existingSource = await prepare('SELECT id FROM sources WHERE url = $1').get(
-    'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml'
-  );
-  if (!existingSource) {
-    await prepare('INSERT INTO sources (name, url, priority) VALUES ($1, $2, $3)').run(
-      'The Verge AI',
-      'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml',
-      1
-    );
-    console.log('✅ Seeded default RSS source');
-  }
-
+  _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;
 }
 
-module.exports = { init: initDb, prepare, getPool };
+module.exports = { init: initDb, prepare, getPool, isDbReady, connectAndInit };

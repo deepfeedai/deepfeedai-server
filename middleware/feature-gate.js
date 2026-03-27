@@ -23,9 +23,9 @@ function requireFeature(featureKey) {
       }
       next();
     } catch (err) {
-      // On error, allow through (graceful degradation) but log
+      // On error, fail closed — do not expose gated features during DB outage
       console.error(`[feature-gate] Error checking feature '${featureKey}':`, err.message);
-      next();
+      res.status(503).json({ error: 'Service temporarily unavailable' });
     }
   };
 }

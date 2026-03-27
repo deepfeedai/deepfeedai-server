@@ -44,8 +44,7 @@ sed -i "s|^USER_JWT_SECRET=.*|USER_JWT_SECRET=$USER_JWT_SECRET|" "$ENV_FILE"
 sed -i "s|^CRON_SECRET=.*|CRON_SECRET=$CRON_SECRET|" "$ENV_FILE"
 sed -i "s|^SETTINGS_ENCRYPTION_KEY=.*|SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY|" "$ENV_FILE"
 
-# Step 4: Set deployment mode and storage backend
-sed -i "s|^# DEPLOYMENT_MODE=single|DEPLOYMENT_MODE=single|" "$ENV_FILE"
+# Step 4: Set storage backend (single-tenant is now the default — no env var needed)
 sed -i "s|^# STORAGE_BACKEND=local|STORAGE_BACKEND=local|" "$ENV_FILE"
 sed -i "s|^# STORAGE_LOCAL_DIR=.*|STORAGE_LOCAL_DIR=./public/media|" "$ENV_FILE"
 
@@ -53,7 +52,7 @@ sed -i "s|^# STORAGE_LOCAL_DIR=.*|STORAGE_LOCAL_DIR=./public/media|" "$ENV_FILE"
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "  Deployment mode:  single-tenant"
+echo "  Deployment mode:  single-tenant (default)"
 echo "  Storage backend:  local (./public/media)"
 echo "  JWT secrets:      generated"
 echo "  Encryption key:   generated"

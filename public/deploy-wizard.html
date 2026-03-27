@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Deployment Setup</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <link rel="stylesheet" href="/chat-widget.css" />
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <div class="topbar-title">Deployment Setup</div>
+    </header>
+
+    <div class="page-body">
+      <div class="wizard-content">
+
+        <!-- Step indicator -->
+        <div class="wizard-steps" id="wizardSteps">
+          <div class="wizard-step active" data-step="1">
+            <span class="wizard-step-num">1</span> <span>Encryption</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="2">
+            <span class="wizard-step-num">2</span> <span>Storage</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="3">
+            <span class="wizard-step-num">3</span> <span>AI</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="4">
+            <span class="wizard-step-num">4</span> <span>Email</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="5">
+            <span class="wizard-step-num">5</span> <span>Review</span>
+          </div>
+        </div>
+
+        <!-- Step 1: Encryption -->
+        <div class="wizard-panel active" id="step1">
+          <h2 style="margin-bottom:var(--space-2);">Encryption</h2>
+          <p style="color:var(--muted);margin-bottom:var(--space-6);">API keys and secrets are encrypted at rest using AES-256-GCM. This requires the <code>SETTINGS_ENCRYPTION_KEY</code> environment variable.</p>
+
+          <div class="dash-panel" id="encryptionStatus">
+            <div style="display:flex;align-items:center;gap:var(--space-3);">
+              <span id="encIcon" style="font-size:1.5rem;"></span>
+              <div>
+                <div id="encLabel" style="font-weight:600;"></div>
+                <div id="encDetail" style="color:var(--muted);font-size:0.875rem;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="encInstructions" style="display:none;margin-top:var(--space-5);">
+            <div class="dash-panel" style="border-color:var(--accent);">
+              <p style="margin-bottom:var(--space-3);font-weight:600;">How to fix:</p>
+              <ol style="margin:0;padding-left:var(--space-5);color:var(--muted);line-height:1.8;">
+                <li>Generate a key: <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></li>
+                <li>Add to your <code>.env</code> file: <code>SETTINGS_ENCRYPTION_KEY=&lt;your-64-char-hex&gt;</code></li>
+                <li>Restart the server</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Storage -->
+        <div class="wizard-panel" id="step2">
+          <h2 style="margin-bottom:var(--space-2);">Storage</h2>
+          <p style="color:var(--muted);margin-bottom:var(--space-6);">Choose where uploaded images, thumbnails, and audio files are stored.</p>
+
+          <div class="dash-panel" id="storageStatus" style="margin-bottom:var(--space-5);">
+            <div style="display:flex;align-items:center;gap:var(--space-3);">
+              <span id="storageIcon" style="font-size:1.5rem;"></span>
+              <div>
+                <div id="storageLabel" style="font-weight:600;"></div>
+                <div id="storageDetail" style="color:var(--muted);font-size:0.875rem;"></div>
+              </div>
+            </div>
+          </div>
+
+          <p style="color:var(--muted);font-size:0.875rem;margin-bottom:var(--space-4);">To switch to S3-compatible storage (Cloudflare R2, AWS S3, MinIO), configure the credentials below or set <code>S3_*</code> environment variables and restart.</p>
+
+          <div class="form-group">
+            <label class="form-label" for="dwS3Endpoint">S3 Endpoint</label>
+            <input class="form-control input-mono" type="url" id="dwS3Endpoint" placeholder="https://account-id.r2.cloudflarestorage.com" />
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="dwS3AccessKey">Access Key ID</label>
+              <input class="form-control input-mono" type="password" id="dwS3AccessKey" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="dwS3SecretKey">Secret Access Key</label>
+              <input class="form-control input-mono" type="password" id="dwS3SecretKey" />
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="dwS3Bucket">Bucket Name</label>
+              <input class="form-control input-mono" type="text" id="dwS3Bucket" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="dwS3PublicUrl">Public URL (optional)</label>
+              <input class="form-control input-mono" type="url" id="dwS3PublicUrl" placeholder="https://pub-xxx.r2.dev" />
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--space-3);align-items:center;">
+            <button class="btn btn-outline btn-sm" id="dwS3SaveBtn" type="button">Save S3 Config</button>
+            <button class="btn btn-outline btn-sm" id="dwS3TestBtn" type="button">Test Connection</button>
+            <span id="dwS3Status" style="font-size:0.875rem;"></span>
+          </div>
+        </div>
+
+        <!-- Step 3: AI Setup -->
+        <div class="wizard-panel" id="step3">
+          <h2 style="margin-bottom:var(--space-2);">AI Setup</h2>
+          <p style="color:var(--muted);margin-bottom:var(--space-6);">An AI API key is required for article summaries, categorization, and synthesis.</p>
+
+          <div class="dash-panel" id="aiStatus" style="margin-bottom:var(--space-5);">
+            <div style="display:flex;align-items:center;gap:var(--space-3);">
+              <span id="aiIcon" style="font-size:1.5rem;"></span>
+              <div>
+                <div id="aiLabel" style="font-weight:600;"></div>
+                <div id="aiDetail" style="color:var(--muted);font-size:0.875rem;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="dwGeminiKey">Gemini API Key</label>
+            <div class="input-action-row">
+              <input class="form-control input-mono" type="password" id="dwGeminiKey" placeholder="AIzaSy..." />
+              <button class="btn btn-outline btn-sm" type="button" id="dwGeminiToggle">Show</button>
+            </div>
+            <small class="form-help"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key from Google AI Studio</a></small>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="dwElevenLabsKey">ElevenLabs API Key <span style="color:var(--muted);font-weight:normal;">(optional — for audio)</span></label>
+            <div class="input-action-row">
+              <input class="form-control input-mono" type="password" id="dwElevenLabsKey" placeholder="" />
+              <button class="btn btn-outline btn-sm" type="button" id="dwElevenLabsToggle">Show</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:var(--space-3);align-items:center;">
+            <button class="btn btn-outline btn-sm" id="dwAiSaveBtn" type="button">Save</button>
+            <span id="dwAiStatus" style="font-size:0.875rem;"></span>
+          </div>
+        </div>
+
+        <!-- Step 4: Email -->
+        <div class="wizard-panel" id="step4">
+          <h2 style="margin-bottom:var(--space-2);">Email</h2>
+          <p style="color:var(--muted);margin-bottom:var(--space-6);">Configure email for newsletters, notifications, and password resets. <a href="https://resend.com" target="_blank" rel="noopener">Resend</a> offers 3,000 free emails/month.</p>
+
+          <div class="dash-panel" id="emailStatus" style="margin-bottom:var(--space-5);">
+            <div style="display:flex;align-items:center;gap:var(--space-3);">
+              <span id="emailIcon" style="font-size:1.5rem;"></span>
+              <div>
+                <div id="emailLabel" style="font-weight:600;"></div>
+                <div id="emailDetail" style="color:var(--muted);font-size:0.875rem;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="dwResendKey">Resend API Key</label>
+            <input class="form-control input-mono" type="password" id="dwResendKey" />
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="dwResendAudience">Audience ID <span style="color:var(--muted);font-weight:normal;">(for newsletters)</span></label>
+              <input class="form-control input-mono" type="text" id="dwResendAudience" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="dwNotifyFrom">Sender Address</label>
+              <input class="form-control" type="email" id="dwNotifyFrom" placeholder="notifications@yourdomain.com" />
+              <small class="form-help">Must be from a domain verified in Resend.</small>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="dwAdminEmail">Admin Email <span style="color:var(--muted);font-weight:normal;">(receives budget alerts)</span></label>
+            <input class="form-control" type="email" id="dwAdminEmail" />
+          </div>
+          <div style="display:flex;gap:var(--space-3);align-items:center;">
+            <button class="btn btn-outline btn-sm" id="dwEmailSaveBtn" type="button">Save</button>
+            <button class="btn btn-outline btn-sm" id="dwEmailTestBtn" type="button">Send Test Email</button>
+            <span id="dwEmailStatus" style="font-size:0.875rem;"></span>
+          </div>
+        </div>
+
+        <!-- Step 5: Review -->
+        <div class="wizard-panel" id="step5">
+          <h2 style="margin-bottom:var(--space-2);">Deployment Review</h2>
+          <p style="color:var(--muted);margin-bottom:var(--space-6);">Here's the current status of your deployment. You can always reconfigure from Settings &gt; Deployment.</p>
+          <div id="reviewChecks" class="deploy-health-grid"></div>
+          <div id="reviewDone" style="display:none;margin-top:var(--space-6);text-align:center;">
+            <div style="font-size:3rem;margin-bottom:var(--space-4);">&#9989;</div>
+            <h3>Setup Complete</h3>
+            <p style="color:var(--muted);margin-bottom:var(--space-6);">Your deployment is configured. Head to the content wizard to set up your first sources and writers.</p>
+            <div class="btn-group" style="justify-content:center;">
+              <a href="/wizard.html" class="btn btn-primary">Content Setup Wizard</a>
+              <a href="/index.html" class="btn btn-outline">Go to Dashboard</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer navigation -->
+        <div class="wizard-footer" id="wizardFooter">
+          <button class="btn btn-outline" id="wizardBack" style="visibility:hidden;">Back</button>
+          <div>
+            <a href="/index.html" class="btn btn-ghost" style="margin-right:var(--space-2);">Skip</a>
+            <button class="btn btn-primary" id="wizardNext">Next</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/chat-widget.js"></script>
+<script src="/deploy-wizard-page.js"></script>
+</body>
+</html>

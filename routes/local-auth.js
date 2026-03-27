@@ -31,9 +31,9 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const { username, password } = data;
   const tenantId = req.tenantId;
 
-  // Look up user
+  // Look up user by username or email
   const user = await db.prepare(
-    'SELECT * FROM users WHERE username = $1 AND tenant_id = $2'
+    'SELECT * FROM users WHERE (username = $1 OR LOWER(email) = LOWER($1)) AND tenant_id = $2'
   ).get(username, tenantId);
 
   if (!user) {

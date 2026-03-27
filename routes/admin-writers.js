@@ -13,7 +13,7 @@ const storage = require('../lib/storage');
 const { checkPlanLimit }    = require('../lib/plan-limits');
 const { logAudit } = require('../middleware/audit');
 const { getCategories }     = require('../lib/categories');
-const { getGeminiKey }      = require('../lib/gemini-config');
+const { complete: aiComplete } = require('../lib/ai-router');
 
 async function storeAvatar(buf, mimeType, writerId, tenantId) {
   const ext = extFromMime(mimeType);
@@ -67,9 +67,6 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
   const { categoryIds, uncoveredOnly = true } = req.body || {};
   const tenantId = req.tenantId;
 
-  const apiKey = await getGeminiKey(tenantId);
-  if (!apiKey) return res.status(503).json({ error: 'Gemini API key not configured' });
-
   // Fetch tenant categories
   let categories = await getCategories(tenantId);
   if (Array.isArray(categoryIds) && categoryIds.length) {
@@ -102,7 +99,7 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
     return res.json({ generated: [], message: 'All categories already have writers' });
   }
 
-  // Build Gemini prompt
+  // Build prompt
   const catList = targetCategories.map(c => {
     const kwStr = (c.keywords || []).slice(0, 10).join(', ');
     return `- "${c.name}"${c.description ? ': ' + c.description : ''}${kwStr ? ' (keywords: ' + kwStr + ')' : ''}`;
@@ -137,35 +134,20 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
     'No markdown fences, no explanation, no trailing text.',
   ].join('\n');
 
-  const { logUsage, extractGeminiTokens } = require('../lib/ai-usage');
-  const GEMINI_MODEL = 'gemini-2.5-flash-lite';
-  const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
   const maxTokens = Math.min(1024 * targetCategories.length, 8192);
-  const _start = Date.now();
 
-  const upstream = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
-    }),
-    signal: AbortSignal.timeout(30000),
+  const aiResult = await aiComplete({
+    operation: 'generate-writer-personas',
+    tenantId,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.7,
+    maxTokens,
+    trigger: 'admin',
   });
 
-  if (!upstream.ok) {
-    const errBody = await upstream.text().catch(() => '');
-    console.error('[generate-writers] Gemini error:', upstream.status, errBody);
-    logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-writer-personas', trigger: 'admin', durationMs: Date.now() - _start, success: false, error: `${upstream.status}`, tenantId }).catch(() => {});
-    return res.status(502).json({ error: `Gemini API error: ${upstream.status}` });
-  }
+  if (!aiResult) return res.status(503).json({ error: 'AI service unavailable or budget denied' });
 
-  const data = await upstream.json();
-  const _tokens = extractGeminiTokens(data);
-  logUsage({ provider: 'gemini', model: GEMINI_MODEL, operation: 'generate-writer-personas', trigger: 'admin', inputTokens: _tokens.promptTokenCount, outputTokens: _tokens.candidatesTokenCount, durationMs: Date.now() - _start, tenantId }).catch(() => {});
-
-  const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+  const raw = aiResult.text.trim();
   let personas;
   try {
     let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
@@ -205,7 +187,7 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
     };
   }).filter(Boolean);
 
-  res.json({ generated, usage: { inputTokens: _tokens.promptTokenCount || 0, outputTokens: _tokens.candidatesTokenCount || 0 } });
+  res.json({ generated, usage: { inputTokens: aiResult.usage?.promptTokens || 0, outputTokens: aiResult.usage?.completionTokens || 0 } });
 }));
 
 // POST /api/admin/writers — create writer
