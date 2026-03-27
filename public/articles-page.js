@@ -253,7 +253,7 @@ let articles = [];
 
   // ── Per-row HTML generators (extracted for reuse by rerenderRow) ──
 
-  const ROW_TOTAL_COLS = 10;
+  const ROW_TOTAL_COLS = 11;
 
   function renderRowHtml(a) {
     const isArchived = !!a.is_archived;
@@ -304,6 +304,9 @@ let articles = [];
       <td class="text-muted text-sm"><span title="${fmtDate(a.published_at || a.created_at)}">${relativeTime(a.published_at || a.created_at)}</span></td>
       <td class="td-image" id="img-cell-${a.id}" style="text-align:center;">
         ${isArchived ? '—' : renderImageCell(a)}
+      </td>
+      <td class="td-audio" id="audio-cell-${a.id}" style="text-align:center;">
+        ${isArchived ? '—' : renderAudioCell(a)}
       </td>
     </tr>`;
 
@@ -991,12 +994,9 @@ let articles = [];
   /* ---------- Audio helpers ---------- */
   function renderAudioCell(a) {
     const status = a.audio_status;
-    if (!status || status === 'error') {
-      return `
-        <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : 'Generate audio summary'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>
-          🎙️ Generate
-        </button>
-        ${status === 'error' ? '<span class="badge badge-danger" style="font-size:10px;">Error</span>' : ''}`;
+    if (!status) return '—';
+    if (status === 'error') {
+      return '<span class="badge badge-danger" style="font-size:10px;">Error</span>';
     }
     if (status === 'pending') {
       return `<span class="badge badge-muted" style="font-size:11px;">⏳ Generating…</span>`;
