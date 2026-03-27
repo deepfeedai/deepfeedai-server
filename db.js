@@ -924,6 +924,8 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)`,
     // Chat context: separate portal vs platform conversations
     `ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'platform'`,
+    // Per-article AI summary opt-out
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS disable_summary INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }
