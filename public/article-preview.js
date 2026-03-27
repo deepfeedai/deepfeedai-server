@@ -278,9 +278,21 @@ function showArticlePreview(a, writer) {
   var blocks = a.content_blocks;
   if (blocks && typeof blocks === 'string') try { blocks = JSON.parse(blocks); } catch(e) { blocks = null; }
   if (blocks && blocks.blocks && blocks.blocks.length) {
+    // Convert markdown inline syntax to HTML before sanitizing
+    var _apMdToHtml = function(text) {
+      if (!text) return text;
+      return text
+        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<i>$1</i>')
+        .replace(/__(.+?)__/g, '<b>$1</b>')
+        .replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<i>$1</i>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2">$1</a>');
+    };
     // Sanitize inline HTML — allow only safe formatting tags
     var _apSanitize = function(html) {
       if (!html) return '';
+      html = _apMdToHtml(html);
       var div = document.createElement('div');
       div.innerHTML = html;
       var allowed = { B: 1, STRONG: 1, I: 1, EM: 1, A: 1, CODE: 1, BR: 1, U: 1, MARK: 1, SUP: 1 };
@@ -315,7 +327,7 @@ function showArticlePreview(a, writer) {
           break;
         case 'header':
           var lvl = block.data.level || 2;
-          html += '<h' + lvl + '>' + escHtml(block.data.text || '').replace(/&lt;b&gt;/g,'<b>').replace(/&lt;\/b&gt;/g,'</b>').replace(/&lt;i&gt;/g,'<i>').replace(/&lt;\/i&gt;/g,'</i>') + '</h' + lvl + '>';
+          html += '<h' + lvl + '>' + _apSanitize(block.data.text || '') + '</h' + lvl + '>';
           break;
         case 'list':
           var tag = block.data.style === 'ordered' ? 'ol' : 'ul';

@@ -295,6 +295,8 @@ app.use('/api/promo',    auth, require('./routes/promo'));
 app.use('/api/credits',  auth, require('./routes/credit-purchases'));
 app.use('/api/synthesis', auth, largeBodyParser, require('./routes/synthesis'));
 app.use('/api/platform/banners', auth, require('./routes/platform-banners')); // platform admin — global banners
+app.use('/api/chat', aiLimiter, require('./routes/chat'));                     // platform admin — AI chatbot
+app.use('/api/article-assist', aiLimiter, require('./routes/article-assist')); // admin — AI article editor assistant
 
 const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./routes/fetch');
 const cron = require('node-cron');

@@ -373,7 +373,7 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
   if (!body) return;
 
   const { title, summary, content, content_blocks, category, source, source_url,
-          image_url, author, is_featured, featured_priority, is_published, published_at } = body;
+          image_url, author, is_featured, featured_priority, is_published, published_at, disable_summary } = body;
 
   // Handle content_blocks: validate and derive full_content
   let blocksJson = undefined; // undefined = not sent, don't update
@@ -419,8 +419,8 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
       title = $1, slug = $2, summary = $3, content = $4, category = $5, source = $6,
       source_url = $7, image_url = $8, author = $9, is_featured = $10,
       featured_priority = $11, is_published = $12, published_at = $13, status = $14,
-      content_blocks = $15, full_content = $16, updated_at = NOW()
-    WHERE id = $17 AND tenant_id = $18
+      content_blocks = $15, full_content = $16, disable_summary = $17, updated_at = NOW()
+    WHERE id = $18 AND tenant_id = $19
     RETURNING *
   `).get(
     newTitle,
@@ -439,6 +439,7 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     newStatus,
     blocksJson !== undefined ? (blocksJson ? JSON.stringify(blocksJson) : null) : (existing.content_blocks || null),
     derivedFullContent !== undefined ? derivedFullContent : (existing.full_content || null),
+    disable_summary !== undefined ? (disable_summary ? 1 : 0) : (existing.disable_summary || 0),
     req.params.id,
     req.tenantId
   );

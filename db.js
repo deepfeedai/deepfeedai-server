@@ -900,6 +900,32 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_tenant_feature_overrides_tenant ON tenant_feature_overrides(tenant_id)`,
     // Block editor: structured content storage
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_blocks JSONB DEFAULT NULL`,
+    // ── Platform AI Chat ──────────────────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS chat_conversations (
+      id         SERIAL PRIMARY KEY,
+      tenant_id  INTEGER NOT NULL DEFAULT 1,
+      user_id    INTEGER NOT NULL,
+      title      TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_conversations_user ON chat_conversations(tenant_id, user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated ON chat_conversations(updated_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS chat_messages (
+      id              SERIAL PRIMARY KEY,
+      conversation_id INTEGER NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+      role            TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+      content         TEXT NOT NULL,
+      input_tokens    INTEGER,
+      output_tokens   INTEGER,
+      duration_ms     INTEGER,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)`,
+    // Chat context: separate portal vs platform conversations
+    `ALTER TABLE chat_conversations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'platform'`,
+    // Per-article AI summary opt-out
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS disable_summary INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch { /* already exists */ }

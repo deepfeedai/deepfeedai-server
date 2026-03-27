@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Article Editor — DeepFeedAI Admin</title>
   <link rel="stylesheet" href="/admin.css" />
+  <link rel="stylesheet" href="/chat-widget.css" />
   <link rel="stylesheet" href="/block-editor.css" />
 </head>
 <body class="editor-page">
@@ -96,6 +97,12 @@
             <option value="5">#5 — Fifth</option>
           </select>
         </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="esDisableSummary" />
+            Disable AI Summary
+          </label>
+        </div>
       </div>
     </aside>
 
@@ -117,5 +124,6 @@
   <script src="/admin.js"></script>
   <script src="/article-preview.js"></script>
   <script src="/block-editor.js"></script>
+  <script src="/editor-assist.js"></script>
 </body>
 </html>

@@ -47,6 +47,13 @@
     // Auto-resize title textarea on load
     autoResizeTitle();
 
+    // Sidebar metadata changes → mark dirty
+    ['esSummary', 'esCategory', 'esAuthor', 'esSource', 'esSourceUrl', 'esFeatured'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => { isDirty = true; });
+    });
+    document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
+    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
+
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
     document.getElementById('esImageClearBtn').addEventListener('click', () => setImageField(''));
@@ -104,6 +111,7 @@
     populateWriterSelect(articleData.writer_id || null);
     document.getElementById('editorPublished').checked = !!articleData.is_published;
     document.getElementById('esFeatured').value = articleData.is_featured ? (articleData.featured_priority || 1) : 0;
+    document.getElementById('esDisableSummary').checked = !!articleData.disable_summary;
 
     document.getElementById('editorLabel').textContent = 'Edit Article';
     updateTopbarTitle();
@@ -209,6 +217,7 @@
     }
 
     editor = new EditorJS(config);
+    window._dfaEditor = editor; // expose for editor-assist.js
 
     // Wait for Editor.js to be ready before allowing interaction
     try {
@@ -216,6 +225,7 @@
     } catch (err) {
       console.error('Editor.js init failed:', err);
       editor = null;
+      window._dfaEditor = null;
       updateStatus('Editor failed to load');
       showAlert('Editor failed to initialize: ' + err.message, 'error');
     }
@@ -297,6 +307,7 @@
         is_published: document.getElementById('editorPublished').checked,
         is_featured: parseInt(document.getElementById('esFeatured').value) > 0,
         featured_priority: parseInt(document.getElementById('esFeatured').value) || null,
+        disable_summary: document.getElementById('esDisableSummary').checked,
         content_blocks: outputData.blocks && outputData.blocks.length
           ? { version: '1.0', blocks: outputData.blocks }
           : null,
