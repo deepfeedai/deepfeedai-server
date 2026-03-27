@@ -209,6 +209,7 @@
     }
 
     editor = new EditorJS(config);
+    window._dfaEditor = editor; // expose for editor-assist.js
 
     // Wait for Editor.js to be ready before allowing interaction
     try {
@@ -216,6 +217,7 @@
     } catch (err) {
       console.error('Editor.js init failed:', err);
       editor = null;
+      window._dfaEditor = null;
       updateStatus('Editor failed to load');
       showAlert('Editor failed to initialize: ' + err.message, 'error');
     }
