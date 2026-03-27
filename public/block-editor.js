@@ -51,8 +51,8 @@
     ['esSummary', 'esCategory', 'esAuthor', 'esSource', 'esSourceUrl', 'esFeatured'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => { isDirty = true; });
     });
-    document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; });
-    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; });
+    document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
+    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
 
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
