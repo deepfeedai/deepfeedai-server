@@ -116,6 +116,32 @@
           <div id="brandingStatus" class="settings-status"></div>
         </div>
 
+        <!-- Site URLs -->
+        <div class="dash-panel mb-6">
+          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Site URLs</h3>
+
+          <div class="form-group">
+            <label class="form-label" for="siteDomain">Site Domain</label>
+            <input type="text" class="form-control" id="siteDomain" placeholder="deepfeedai.com" style="max-width:400px;" />
+            <p class="form-help">The domain used in article links, emails, and notifications.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siteUrl">Site URL</label>
+            <input type="text" class="form-control" id="siteUrl" placeholder="https://deepfeedai.com" style="max-width:400px;" />
+            <p class="form-help">Full URL of the public-facing site (include https://).</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mainSiteUrl">Main Site URL</label>
+            <input type="text" class="form-control" id="mainSiteUrl" placeholder="https://deepfeedai.com" style="max-width:400px;" />
+            <p class="form-help">Used for OAuth redirects and email links. Usually same as Site URL.</p>
+          </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveSiteUrlsBtn">Save Site URLs</button>
+          </div>
+          <div id="siteUrlsStatus" class="settings-status"></div>
+        </div>
+
         <!-- Social & Metadata -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Social &amp; Metadata</h3>

@@ -699,6 +699,9 @@ let apiKeyVisible = false;
     { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
+    { id: 'siteDomain',           key: 'site_domain' },
+    { id: 'siteUrl',              key: 'site_url' },
+    { id: 'mainSiteUrl',          key: 'main_site_url' },
   ];
 
   // Logo HTML live preview
@@ -1079,6 +1082,13 @@ let apiKeyVisible = false;
     { id: 'siteLogoHtml',     key: 'site_logo_html' },
     { id: 'siteCopyright',    key: 'site_copyright' },
     { id: 'siteFooterTagline',key: 'site_footer_tagline' },
+  ]));
+
+  // ── Site URLs save ──────────────────────────────────────────────
+  panelSave('saveSiteUrlsBtn', 'siteUrlsStatus', 'Site URLs', () => saveFields([
+    { id: 'siteDomain',  key: 'site_domain' },
+    { id: 'siteUrl',     key: 'site_url' },
+    { id: 'mainSiteUrl', key: 'main_site_url' },
   ]));
 
   // ── Social & Metadata save ──────────────────────────────────────
