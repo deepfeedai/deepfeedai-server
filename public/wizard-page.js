@@ -2275,7 +2275,7 @@ async function executeLaunch() {
     if (description) brandPayload.site_description = description;
     if (emoji) brandPayload.site_logo_emoji = emoji;
     if (aiPersona) brandPayload.site_ai_persona = aiPersona;
-    if (geminiKey) brandPayload.gemini_api_key = geminiKey;
+    if (geminiKey && isPlatformAdmin()) brandPayload.gemini_api_key = geminiKey;
     if (selectedTheme) {
       brandPayload.site_accent_color = selectedTheme.accent;
       brandPayload.site_bg_color = selectedTheme.bg;
@@ -2501,6 +2501,11 @@ onReady(() => {
   renderThemes();
   initCustomSource();
   checkExistingData();
+
+  // Only show Gemini API key field for platform admins (tenants inherit the platform key)
+  if (isPlatformAdmin()) {
+    document.getElementById('wGeminiKeyGroup').style.display = '';
+  }
 
   // API key show/hide toggle
   document.getElementById('wToggleKeyBtn').addEventListener('click', function () {
