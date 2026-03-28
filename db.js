@@ -995,6 +995,10 @@ async function initDb() {
     `UPDATE settings SET value = 'deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_domain' AND value LIKE '%.deepfeedai.com' AND value != 'deepfeedai.com'`,
     `UPDATE settings SET value = 'https://deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_url' AND value LIKE '%deepfeedai.deepfeedai.com%'`,
     `UPDATE settings SET value = 'https://deepfeedai.com' WHERE tenant_id = 1 AND key = 'main_site_url' AND value LIKE '%deepfeedai.deepfeedai.com%'`,
+    // SEO: AI-rewritten headline and story thread label for related article matching
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS generated_title TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
