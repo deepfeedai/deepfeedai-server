@@ -129,6 +129,9 @@ router.get('/', asyncHandler(async (req, res) => {
       conditions.push(`a.published_at >= $${params.length}`);
     }
   }
+  if (req.query.has_audio === '1') {
+    conditions.push(`a.audio_url IS NOT NULL AND a.audio_status = 'ready' AND a.media_enabled = 1`);
+  }
 
   const whereClause = 'WHERE ' + conditions.join(' AND ');
   const whereParams = [...params];
