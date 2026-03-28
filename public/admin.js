@@ -17,8 +17,11 @@ function getSiteBase() {
   try {
     const token = localStorage.getItem('deepfeedai_token');
     if (token) {
-      const slug = JSON.parse(atob(token.split('.')[1])).tenantSlug;
-      if (slug) return 'https://' + slug + '.' + base;
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      // Platform admin uses the root domain; tenant admins get subdomain URLs
+      if (payload.tenantSlug && payload.type !== 'platform-admin') {
+        return 'https://' + payload.tenantSlug + '.' + base;
+      }
     }
   } catch (_) {}
 
