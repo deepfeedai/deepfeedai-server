@@ -102,7 +102,31 @@ router.get('/', auth, requirePermission('cron.read'), asyncHandler(async (req, r
     });
   }
 
-  res.json({ jobs: results });
+  // Get autopilot state for this tenant
+  let autopilotRow = null;
+  try {
+    autopilotRow = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'autopilot_enabled'"
+    ).get(req.tenantId);
+  } catch { /* default to enabled */ }
+
+  res.json({ jobs: results, autopilotEnabled: autopilotRow?.value !== '0' });
+}));
+
+// PUT /autopilot — toggle tenant autopilot master switch
+router.put('/autopilot', auth, requirePermission('cron.update'), asyncHandler(async (req, res) => {
+  const { enabled } = req.body;
+  if (enabled === undefined) return res.status(400).json({ error: 'enabled is required' });
+
+  const val = enabled ? '1' : '0';
+  await db.prepare(
+    "INSERT INTO settings (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $3"
+  ).run(req.tenantId, 'autopilot_enabled', val);
+
+  bustAppConfigCache(req.tenantId);
+  await logAudit(req, 'cron.autopilot', 'cron', null, { enabled });
+
+  res.json({ success: true, autopilotEnabled: enabled });
 }));
 
 // PUT /:name — update schedule or enable/disable

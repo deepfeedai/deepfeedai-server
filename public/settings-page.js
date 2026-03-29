@@ -1280,6 +1280,30 @@ let apiKeyVisible = false;
     try {
       var _data = await apiFetch('/admin/cron');
       var jobs = _data.jobs || [];
+
+      // Autopilot toggle
+      var autopilotToggle = document.getElementById('autopilotToggle');
+      var autopilotBanner = document.getElementById('autopilotBanner');
+      var autopilotStateText = document.getElementById('autopilotStateText');
+      if (autopilotToggle) {
+        var isOn = _data.autopilotEnabled !== false;
+        autopilotToggle.checked = isOn;
+        autopilotStateText.textContent = isOn ? 'ON' : 'OFF';
+        autopilotBanner.style.display = isOn ? 'none' : '';
+        autopilotToggle.onchange = async function() {
+          var newState = autopilotToggle.checked;
+          try {
+            await apiFetch('/admin/cron/autopilot', { method: 'PUT', body: JSON.stringify({ enabled: newState }) });
+            autopilotStateText.textContent = newState ? 'ON' : 'OFF';
+            autopilotBanner.style.display = newState ? 'none' : '';
+            showToast('Autopilot ' + (newState ? 'enabled' : 'disabled'));
+          } catch (err) {
+            autopilotToggle.checked = !newState;
+            showToast(err.message, 'error');
+          }
+        };
+      }
+
       if (!jobs.length) {
         container.innerHTML = '<div class="empty-state">No scheduled tasks found</div>';
         return;

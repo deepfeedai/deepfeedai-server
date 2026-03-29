@@ -90,6 +90,7 @@ const DEFAULT_CATEGORIES = [
 const DEFAULT_SETTINGS = [
   ['ai_daily_budget', '5.00'],
   ['ai_monthly_budget', '50.00'],
+  ['autopilot_enabled', '1'],
 ];
 
 // GET /plan-limits — return all plan limit definitions
@@ -635,7 +636,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
-  const [resources, adminCount, lastCron, monthAiSpend] = await Promise.all([
+  const [resources, adminCount, lastCron, monthAiSpend, autopilotRow] = await Promise.all([
     db.prepare(`
       SELECT
         (SELECT COUNT(*) FROM articles WHERE tenant_id = $1) AS articles,
@@ -649,6 +650,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       SELECT COALESCE(SUM(estimated_cost), 0) AS total
       FROM ai_usage WHERE tenant_id = $1 AND created_at >= date_trunc('month', NOW())
     `).get(id),
+    db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'autopilot_enabled'").get(id).catch(() => null),
   ]);
 
   res.json({
@@ -662,6 +664,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     adminCount: parseInt(adminCount.cnt),
     lastCron: lastCron || null,
     monthlyAiSpend: parseFloat(monthAiSpend.total),
+    autopilotEnabled: autopilotRow?.value !== '0',
   });
 }));
 
@@ -797,6 +800,24 @@ router.put('/:id', asyncHandler(async (req, res) => {
 
   await logAuditWithDiff(req, 'tenant.update', 'tenants', id, before, tenant);
   res.json(tenant);
+}));
+
+// PUT /:id/autopilot — toggle tenant autopilot
+router.put('/:id/autopilot', asyncHandler(async (req, res) => {
+  const id = await resolveTenantParam(req.params.id);
+  if (!id || id < 1) return res.status(400).json({ error: 'Invalid tenant ID' });
+
+  const { enabled } = req.body;
+  if (enabled === undefined) return res.status(400).json({ error: 'enabled is required' });
+
+  const val = enabled ? '1' : '0';
+  await db.prepare(
+    "INSERT INTO settings (tenant_id, key, value) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, key) DO UPDATE SET value = $3"
+  ).run(id, 'autopilot_enabled', val);
+
+  await logAudit(req, 'tenant.autopilot', 'tenants', id, { enabled });
+
+  res.json({ success: true, autopilotEnabled: enabled });
 }));
 
 // POST /:id/suspend — suspend tenant

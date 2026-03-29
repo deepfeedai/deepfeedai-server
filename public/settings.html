@@ -838,6 +838,26 @@
       <!-- ═══ Automation Tab ═══ -->
       <div class="tab-panel" data-tab="automation">
 
+        <div class="settings-card" id="autopilotCard" style="margin-bottom:var(--space-5);">
+          <div class="settings-card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div class="settings-card-icon">🤖</div>
+              <div>
+                <div class="settings-card-title">Autopilot</div>
+                <div class="settings-card-subtitle">Master switch for all automated jobs. When off, all scheduled cron jobs are paused. Manual runs still work.</div>
+              </div>
+            </div>
+            <label class="form-check" style="margin:0;font-size:15px;font-weight:600;" id="autopilotToggleLabel">
+              <input type="checkbox" id="autopilotToggle" /> <span id="autopilotStateText">ON</span>
+            </label>
+          </div>
+          <div id="autopilotBanner" style="display:none;padding:0 20px 16px;">
+            <div style="background:var(--warning-bg, #fff3cd);color:var(--warning-text, #856404);padding:10px 14px;border-radius:8px;font-size:13px;">
+              Autopilot is OFF — all scheduled cron jobs are paused for this tenant.
+            </div>
+          </div>
+        </div>
+
         <!-- Featured Rotation -->
         <div class="settings-card" style="margin-bottom:var(--space-5);">
           <div class="settings-card-header">
