@@ -91,7 +91,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/analytics/client-logs', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -163,6 +163,9 @@ app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
+// ── Correlation ID ─────────────────────────────────────────────────
+app.use(require('./middleware/correlation'));
+
 // Admin routes with larger payloads get a higher limit via per-route middleware
 const largeBodyParser = express.json({ limit: '2mb' });
 
@@ -221,6 +224,9 @@ if (tenantUtils.MULTI_TENANT) {
     next();
   });
 }
+
+// ── Request Logger ─────────────────────────────────────────────────
+app.use(require('./middleware/request-logger'));
 
 // ── First-Boot Setup Mode ────────────────────────────────────────
 const { isSetupMode } = require('./lib/setup-mode');
@@ -346,6 +352,7 @@ const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
 app.use('/api/admin/cron', require('./routes/admin-cron'));
 app.use('/api/admin/metrics', require('./routes/admin-metrics'));
+app.use('/api/admin/logs', require('./routes/admin-logs'));
 
 const { getActiveTenantIds } = require('./lib/tenant-utils');
 const { registerJob, startAll } = require('./lib/cron-registry');
@@ -364,12 +371,20 @@ app.get('*', async (req, res) => {
 
 // ── Global error handler ────────────────────────────────────────────
 // Catches errors forwarded via next(err) from asyncHandler-wrapped routes.
+const logger = require('./lib/logger');
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
-  // Don't leak stack traces in production
   const isDev = process.env.NODE_ENV !== 'production';
-  console.error('[Error]', err.message, isDev ? err.stack : '');
   const status = err.status || err.statusCode || 500;
+  logger.error(err.message, {
+    module: 'http',
+    error: err,
+    correlationId: req.correlationId,
+    tenantId: req.tenantId,
+    method: req.method,
+    path: req.path,
+    statusCode: status,
+  });
   res.status(status).json({ error: isDev ? err.message : 'Internal server error' });
 });
 
@@ -789,6 +804,7 @@ registerJob({
       'tenant_storage_usage',
       'banners',
       'audit_log', 'cron_runs', 'notifications', 'newsletter_sends',
+      'app_logs', 'request_logs', 'error_aggregates',
       'roles', 'users',
       'tenant_admins',
     ];

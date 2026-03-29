@@ -66,6 +66,74 @@ router.post('/event', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ── Client-side log ingestion ─────────────────────────────────────
+// POST /api/analytics/client-logs — public, rate-limited, batch endpoint
+const VALID_LEVELS = new Set(['warn', 'error']);
+const VALID_SOURCES = new Set(['web', 'portal', 'platform']);
+const _clientRl = new Map(); // ip → { count, windowStart }
+
+router.post('/client-logs', asyncHandler(async (req, res) => {
+  // Rate limit: 10 requests/min per IP
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const now = Date.now();
+  let bucket = _clientRl.get(ip);
+  if (!bucket || now - bucket.windowStart > 60000) {
+    bucket = { count: 0, windowStart: now };
+    _clientRl.set(ip, bucket);
+  }
+  bucket.count++;
+  if (bucket.count > 10) return res.status(429).json({ ok: false, reason: 'rate_limited' });
+
+  // Prune rate-limit map
+  if (_clientRl.size > 10000) {
+    for (const [k, v] of _clientRl) { if (now - v.windowStart > 120000) _clientRl.delete(k); }
+  }
+
+  const { events } = req.body || {};
+  if (!Array.isArray(events) || events.length === 0) {
+    return res.status(400).json({ error: 'events array required' });
+  }
+  if (events.length > 20) {
+    return res.status(400).json({ error: 'Max 20 events per request' });
+  }
+
+  const pool = getPool();
+  if (!pool) return res.status(503).json({ error: 'Database not ready' });
+
+  const tenantId = req.tenantId || null;
+  const userAgent = (req.headers['user-agent'] || '').slice(0, 512);
+  let inserted = 0;
+
+  for (const evt of events) {
+    if (!evt || typeof evt !== 'object') continue;
+    const level = VALID_LEVELS.has(evt.level) ? evt.level : null;
+    if (!level) continue;
+    const message = String(evt.message || '').slice(0, 2000);
+    if (!message) continue;
+
+    const source = VALID_SOURCES.has(evt.source) ? evt.source : 'web';
+    const module = 'client:' + source;
+    const stack = evt.stack ? String(evt.stack).slice(0, 4000) : null;
+    const context = {};
+    if (evt.url) context.url = String(evt.url).slice(0, 2000);
+    if (userAgent) context.userAgent = userAgent;
+    if (evt.extra && typeof evt.extra === 'object') {
+      Object.assign(context, evt.extra);
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO app_logs (tenant_id, level, message, module, context, error_stack, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [tenantId, level, message, module, Object.keys(context).length ? JSON.stringify(context) : null, stack]
+      );
+      inserted++;
+    } catch { /* non-fatal — don't fail the batch on one bad event */ }
+  }
+
+  res.json({ ok: true, inserted });
+}));
+
 // GET /api/analytics/summary
 const VALID_RANGES = { '7d': 7, '30d': 30, '90d': 90 };
 

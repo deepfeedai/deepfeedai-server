@@ -3,91 +3,216 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Audit Log — Deep Feed AI</title>
+  <title>Logs — Deep Feed AI</title>
   <link rel="stylesheet" href="/admin.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    .log-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;}
+    .log-tab{padding:6px 14px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;}
+    .log-tab:hover{background:rgba(255,255,255,.04);}
+    .log-tab.active{background:var(--accent,#00d9ff);color:#000;border-color:var(--accent,#00d9ff);}
+    .log-section{display:none;}
+    .log-section.active{display:block;}
+    .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px;}
+    .stat-box{padding:14px;text-align:center;background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;}
+    .stat-box .stat-label{font-size:11px;color:var(--text-muted,#94a3b8);text-transform:uppercase;letter-spacing:.5px;}
+    .stat-box .stat-value{font-size:22px;font-weight:700;color:var(--text,#e2e8f0);margin-top:4px;}
+    .chart-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+    .chart-card{background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:16px;}
+    .chart-card h4{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--text-muted,#94a3b8);}
+    .chart-wrap{position:relative;height:180px;}
+    .range-btns{display:flex;gap:4px;margin-bottom:12px;}
+    .range-btn{padding:3px 10px;border-radius:4px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-muted,#94a3b8);cursor:pointer;font-size:12px;}
+    .range-btn.active{background:var(--accent,#00d9ff);color:#000;border-color:var(--accent,#00d9ff);}
+    .log-row{cursor:pointer;transition:background .1s;}
+    .log-row:hover{background:rgba(255,255,255,.03);}
+    .log-detail td{padding:0!important;}
+    .log-pre{background:var(--bg,#0f172a);color:var(--text-muted,#94a3b8);padding:12px 16px;margin:0;font-size:12px;line-height:1.5;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all;border-top:1px solid var(--border,#334155);}
+    .lvl-badge{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:600;text-transform:uppercase;}
+    .lvl-debug{background:rgba(148,163,184,.15);color:#94a3b8;}
+    .lvl-info{background:rgba(0,217,255,.15);color:#00d9ff;}
+    .lvl-warn{background:rgba(251,191,36,.15);color:#fbbf24;}
+    .lvl-error{background:rgba(248,113,113,.15);color:#f87171;}
+    .method-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;font-family:monospace;}
+    .m-GET{background:rgba(0,217,255,.15);color:#00d9ff;}
+    .m-POST{background:rgba(74,222,128,.15);color:#4ade80;}
+    .m-PUT{background:rgba(251,191,36,.15);color:#fbbf24;}
+    .m-DELETE{background:rgba(248,113,113,.15);color:#f87171;}
+    .status-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:600;}
+    .s-2xx{background:rgba(74,222,128,.15);color:#4ade80;}
+    .s-3xx{background:rgba(148,163,184,.15);color:#94a3b8;}
+    .s-4xx{background:rgba(251,191,36,.15);color:#fbbf24;}
+    .s-5xx{background:rgba(248,113,113,.15);color:#f87171;}
+    .err-status{display:inline-block;padding:1px 8px;border-radius:4px;font-size:11px;font-weight:600;}
+    .err-open{background:rgba(248,113,113,.15);color:#f87171;}
+    .err-resolved{background:rgba(74,222,128,.15);color:#4ade80;}
+    .err-ignored{background:rgba(148,163,184,.15);color:#94a3b8;}
+    .health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px;}
+    .health-card{background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:14px;}
+    .health-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;}
+    .dot-ok{background:#4ade80;} .dot-warn{background:#fbbf24;} .dot-error{background:#f87171;} .dot-none{background:#555;}
+    .tl-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;}
+    .tl-label{width:110px;font-size:12px;color:var(--text-muted,#94a3b8);text-align:right;flex-shrink:0;}
+    .tl-track{flex:1;height:16px;background:rgba(255,255,255,.04);border-radius:3px;position:relative;overflow:hidden;}
+    .tl-bar{position:absolute;top:2px;height:12px;border-radius:2px;min-width:3px;}
+    .alert-banner{padding:10px 16px;border-radius:8px;margin-bottom:10px;font-size:13px;}
+    .alert-critical{background:rgba(239,68,68,.12);border:1px solid #ef4444;color:#f87171;}
+    .alert-warning{background:rgba(245,158,11,.12);border:1px solid #f59e0b;color:#fbbf24;}
+    .alert-info{background:rgba(0,217,255,.08);border:1px solid rgba(0,217,255,.3);color:#00d9ff;}
+    .live-tail-feed{max-height:260px;overflow-y:auto;background:var(--bg,#0f172a);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px;}
+    .live-entry{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .btn-live-active{background:var(--danger,#f87171)!important;color:#fff!important;border-color:var(--danger,#f87171)!important;}
+    @media(max-width:768px){.chart-row{grid-template-columns:1fr;}.health-grid{grid-template-columns:1fr;}}
+  </style>
 </head>
 <body>
 <div class="admin-layout">
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
-      <div class="topbar-title">Audit Log</div>
+      <div class="topbar-title">Logs</div>
     </header>
 
     <div class="page-body">
-      <div class="filter-bar" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;margin-bottom:20px;">
-        <div class="form-group" style="margin:0;">
-          <label class="form-label">Event Type</label>
-          <select class="form-control" id="filterAction" style="min-width:140px;">
+      <div class="log-tabs" id="logTabs">
+        <button class="log-tab active" data-tab="overview">Overview</button>
+        <button class="log-tab" data-tab="app-logs">App Logs</button>
+        <button class="log-tab" data-tab="requests">Requests</button>
+        <button class="log-tab" data-tab="errors">Errors</button>
+        <button class="log-tab" data-tab="audit">Audit Trail</button>
+        <button class="log-tab" data-tab="cron">Cron</button>
+        <button class="log-tab" data-tab="ai-ops">AI Ops</button>
+        <button class="log-tab" data-tab="health">Health</button>
+      </div>
+
+      <!-- ── Overview ── -->
+      <div id="overviewSection" class="log-section active">
+        <div class="range-btns" id="overviewRange"></div>
+        <div class="stat-row" id="overviewStats"><div class="stat-box"><div class="stat-label">Loading...</div><div class="stat-value">-</div></div></div>
+        <div class="chart-row">
+          <div class="chart-card"><h4>Request Volume</h4><div class="chart-wrap"><canvas id="reqVolumeChart"></canvas></div></div>
+          <div class="chart-card"><h4>Errors</h4><div class="chart-wrap"><canvas id="errRateChart"></canvas></div></div>
+        </div>
+        <div id="overviewAlerts"></div>
+      </div>
+
+      <!-- ── App Logs ── -->
+      <div id="app-logsSection" class="log-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:16px;">Application Logs</h3>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" id="appLiveTailBtn">Live Tail</button>
+            <button class="btn btn-outline btn-sm" id="appExportBtn">Export CSV</button>
+          </div>
+        </div>
+        <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <select class="form-control" id="logLevel" style="width:auto;min-width:100px;"><option value="">All Levels</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option></select>
+          <select class="form-control" id="logModule" style="width:auto;min-width:100px;"><option value="">All Modules</option></select>
+          <input type="text" class="form-control" id="logSearch" placeholder="Search messages..." style="flex:1;min-width:150px;" />
+        </div>
+        <div id="appLiveFeed" class="live-tail-feed" style="display:none;"><div class="live-entry text-muted">Waiting for events...</div></div>
+        <div class="table-wrap"><div class="table-scroll" style="max-height:65vh;">
+          <table><thead><tr><th style="width:140px">Time</th><th style="width:55px">Level</th><th style="width:75px">Module</th><th>Message</th><th style="width:90px">Corr. ID</th></tr></thead>
+          <tbody id="appLogBody"><tr><td colspan="5"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+        </div></div>
+        <div id="appLogPagination" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- ── Requests ── -->
+      <div id="requestsSection" class="log-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:16px;">Request Log</h3>
+          <button class="btn btn-outline btn-sm" id="reqExportBtn">Export CSV</button>
+        </div>
+        <div class="stat-row" id="reqStats"><div class="stat-box"><div class="stat-label">Loading...</div><div class="stat-value">-</div></div></div>
+        <div class="chart-card" style="margin-bottom:16px;"><h4>Response Time Distribution</h4><div class="chart-wrap" style="height:160px;"><canvas id="reqDistChart"></canvas></div></div>
+        <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <select class="form-control" id="reqMethod" style="width:auto;"><option value="">All Methods</option><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option></select>
+          <select class="form-control" id="reqStatus" style="width:auto;"><option value="">All Status</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select>
+          <input type="text" class="form-control" id="reqPath" placeholder="Filter path..." style="flex:1;min-width:150px;" />
+        </div>
+        <div class="table-wrap"><div class="table-scroll" style="max-height:60vh;">
+          <table><thead><tr><th style="width:140px">Time</th><th style="width:55px">Method</th><th>Path</th><th style="width:55px">Status</th><th style="width:75px">Duration</th><th style="width:110px">IP</th></tr></thead>
+          <tbody id="reqBody"><tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+        </div></div>
+        <div id="reqPagination" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- ── Errors ── -->
+      <div id="errorsSection" class="log-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:16px;">Error Groups</h3>
+          <button class="btn btn-outline btn-sm" id="errExportBtn">Export CSV</button>
+        </div>
+        <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <select class="form-control" id="errStatus" style="width:auto;"><option value="">All</option><option value="open">Open</option><option value="resolved">Resolved</option><option value="ignored">Ignored</option></select>
+          <input type="text" class="form-control" id="errSearch" placeholder="Search errors..." style="flex:1;min-width:150px;" />
+        </div>
+        <div class="table-wrap"><div class="table-scroll" style="max-height:65vh;">
+          <table><thead><tr><th>Message</th><th style="width:70px">Module</th><th style="width:50px">Count</th><th style="width:90px">Last Seen</th><th style="width:70px">Status</th><th style="width:90px">Actions</th></tr></thead>
+          <tbody id="errBody"><tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+        </div></div>
+        <div id="errPagination" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- ── Audit Trail (preserved from original audit page) ── -->
+      <div id="auditSection" class="log-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:16px;">Audit Trail</h3>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" id="auditExportBtn">Export CSV</button>
+            <button class="btn btn-outline btn-sm" id="auditLiveTailBtn">Live Tail: Off</button>
+            <button class="btn btn-danger btn-sm" id="archiveBtn" style="display:none;">Archive</button>
+          </div>
+        </div>
+        <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <select class="form-control" id="filterAction" style="width:auto;min-width:120px;">
             <option value="">All Events</option>
-            <option value="auth.">Auth</option>
-            <option value="articles.">Articles</option>
-            <option value="sources.">Sources</option>
-            <option value="writers.">Writers</option>
-            <option value="users.">Users</option>
-            <option value="roles.">Roles</option>
-            <option value="settings.">Settings</option>
-            <option value="comment.">Comments</option>
-            <option value="media.">Media</option>
-            <option value="newsletter.">Newsletter</option>
+            <option value="auth.">Auth</option><option value="articles.">Articles</option>
+            <option value="sources.">Sources</option><option value="writers.">Writers</option>
+            <option value="users.">Users</option><option value="roles.">Roles</option>
+            <option value="settings.">Settings</option><option value="comment.">Comments</option>
+            <option value="media.">Media</option><option value="newsletter.">Newsletter</option>
             <option value="audit.">System</option>
           </select>
+          <input type="date" class="form-control" id="auditFrom" style="width:auto;" />
+          <input type="date" class="form-control" id="auditTo" style="width:auto;" />
+          <input type="text" class="form-control" id="auditSearch" placeholder="Search details..." style="flex:1;min-width:150px;" />
         </div>
-        <div class="form-group" style="margin:0;">
-          <label class="form-label">From</label>
-          <input type="date" class="form-control" id="filterFrom" />
-        </div>
-        <div class="form-group" style="margin:0;">
-          <label class="form-label">To</label>
-          <input type="date" class="form-control" id="filterTo" />
-        </div>
-        <div class="form-group" style="margin:0;flex:1;min-width:150px;">
-          <label class="form-label">Search</label>
-          <input type="text" class="form-control" id="filterSearch" placeholder="Search details..." />
-        </div>
-        <button class="btn btn-ghost btn-sm" id="clearFiltersBtn" style="margin-bottom:2px;">Clear</button>
+        <div id="auditAlertBanner" style="display:none;"></div>
+        <div id="auditStatsCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:12px;"></div>
+        <div class="table-wrap"><div class="table-scroll" style="max-height:65vh;">
+          <table><thead><tr><th style="width:150px">Time</th><th style="width:110px">User</th><th style="width:170px">Action</th><th style="width:110px">Resource</th><th>Details</th><th style="width:110px">IP</th></tr></thead>
+          <tbody id="auditBody"><tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+        </div></div>
+        <div id="auditPagination" style="margin-top:12px;"></div>
       </div>
 
-      <!-- Alert Banner -->
-      <div id="auditAlertBanner" style="display:none;"></div>
-
-      <!-- Stats Dashboard -->
-      <div id="auditStatsCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;"></div>
-      <div id="auditChart" style="margin-bottom:16px;"></div>
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <button class="btn btn-ghost btn-sm" data-period="7d" onclick="loadStatsWithPeriod('7d')">7 days</button>
-        <button class="btn btn-ghost btn-sm" data-period="30d" onclick="loadStatsWithPeriod('30d')">30 days</button>
-        <button class="btn btn-ghost btn-sm" data-period="90d" onclick="loadStatsWithPeriod('90d')">90 days</button>
+      <!-- ── Cron ── -->
+      <div id="cronSection" class="log-section">
+        <h3 style="margin:0 0 12px;font-size:16px;">Cron Monitor</h3>
+        <div class="stat-row" id="cronStats"><div class="stat-box"><div class="stat-label">Loading...</div><div class="stat-value">-</div></div></div>
+        <div class="chart-card" style="margin-bottom:16px;"><h4>Timeline (24h)</h4><div id="cronTimeline" style="min-height:80px;padding:8px;">Loading...</div></div>
+        <div class="chart-card"><h4>Duration Trends</h4><div class="chart-wrap"><canvas id="cronDurationChart"></canvas></div></div>
       </div>
-      <div id="auditStats" class="text-muted text-sm" style="margin-bottom:12px;"></div>
 
-      <div class="table-wrap">
-        <div class="table-scroll" style="max-height:70vh;">
-          <table>
-            <thead>
-              <tr>
-                <th style="width:160px;">Time</th>
-                <th style="width:120px;">User</th>
-                <th style="width:180px;">Action</th>
-                <th style="width:120px;">Resource</th>
-                <th>Details</th>
-                <th style="width:120px;">IP</th>
-              </tr>
-            </thead>
-            <tbody id="auditBody">
-              <tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr>
-            </tbody>
-          </table>
+      <!-- ── AI Ops ── -->
+      <div id="ai-opsSection" class="log-section">
+        <h3 style="margin:0 0 12px;font-size:16px;">AI Operations</h3>
+        <div class="range-btns" id="aiOpsRange"></div>
+        <div class="chart-card" style="margin-bottom:16px;"><h4>Latency Percentiles</h4><div class="chart-wrap"><canvas id="aiLatencyChart"></canvas></div></div>
+        <div class="chart-card"><h4>Error Patterns</h4>
+          <div class="table-wrap"><table><thead><tr><th>Error</th><th style="width:50px">Count</th><th style="width:100px">Operations</th><th style="width:90px">Last Seen</th></tr></thead>
+          <tbody id="aiErrorBody"><tr><td colspan="4"><div class="empty-state">Loading...</div></td></tr></tbody></table></div>
         </div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
-        <div id="paginationContainer"></div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-outline btn-sm" id="exportCsvBtn">Export CSV</button>
-          <button class="btn btn-outline btn-sm" id="liveTailBtn">Live Tail: Off</button>
-          <button class="btn btn-danger btn-sm" id="archiveBtn" style="display:none;">Archive Old Entries</button>
-        </div>
+      <!-- ── Health ── -->
+      <div id="healthSection" class="log-section">
+        <h3 style="margin:0 0 12px;font-size:16px;">System Health</h3>
+        <div class="stat-row" id="healthUptime"><div class="stat-box"><div class="stat-label">Loading...</div><div class="stat-value">-</div></div></div>
+        <div class="health-grid" id="healthGrid">Loading...</div>
+        <div id="healthAlerts" style="margin-top:16px;"></div>
       </div>
     </div>
   </div>
@@ -97,8 +222,8 @@
 <div id="detailModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
   <div style="background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow:auto;position:relative;">
     <button onclick="closeDetailModal()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-muted,#94a3b8);font-size:20px;cursor:pointer;">&times;</button>
-    <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text,#e2e8f0);">Event Details</h3>
-    <pre id="detailModalContent" style="background:var(--bg,#0f172a);padding:16px;border-radius:8px;overflow:auto;font-size:13px;color:var(--text,#e2e8f0);white-space:pre-wrap;word-break:break-word;"></pre>
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text,#e2e8f0);">Details</h3>
+    <pre id="detailModalContent" class="log-pre"></pre>
   </div>
 </div>
 

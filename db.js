@@ -999,6 +999,56 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS generated_title TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
+    // ── Enterprise Logging System ─────────────────────────────────
+    `CREATE TABLE IF NOT EXISTS app_logs (
+      id             BIGSERIAL PRIMARY KEY,
+      tenant_id      INTEGER,
+      level          TEXT NOT NULL,
+      message        TEXT NOT NULL,
+      module         TEXT,
+      correlation_id TEXT,
+      context        JSONB,
+      error_stack    TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_app_logs_tenant_time ON app_logs (tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_app_logs_level ON app_logs (level, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_app_logs_module ON app_logs (module, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_app_logs_correlation ON app_logs (correlation_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_app_logs_created ON app_logs (created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS request_logs (
+      id             BIGSERIAL PRIMARY KEY,
+      tenant_id      INTEGER,
+      correlation_id TEXT,
+      method         TEXT NOT NULL,
+      path           TEXT NOT NULL,
+      status_code    INTEGER NOT NULL,
+      duration_ms    INTEGER,
+      ip_address     TEXT,
+      user_agent     TEXT,
+      user_id        INTEGER,
+      content_length INTEGER,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_req_logs_tenant_time ON request_logs (tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_req_logs_status ON request_logs (status_code, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_req_logs_path ON request_logs (path, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_req_logs_created ON request_logs (created_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS error_aggregates (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER,
+      error_hash  TEXT NOT NULL,
+      message     TEXT NOT NULL,
+      stack_sample TEXT,
+      module      TEXT,
+      count       INTEGER NOT NULL DEFAULT 1,
+      first_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      status      TEXT DEFAULT 'open',
+      UNIQUE(tenant_id, error_hash)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_error_agg_tenant ON error_aggregates (tenant_id, last_seen DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_error_agg_status ON error_aggregates (tenant_id, status, count DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
