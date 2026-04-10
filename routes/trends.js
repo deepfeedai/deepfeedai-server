@@ -74,19 +74,19 @@ async function extractCompaniesParallel(articles, tenantId, categoryNames) {
     ? categoryNames.join(', ')
     : 'news';
 
+  const { loadPrompt } = require('../lib/prompt-loader');
+
   const batchResults = await Promise.all(batches.map(async (batch) => {
     const texts = batch
       .map((a, i) => `${i + 1}. ${a.title}. ${(a.summary || '').slice(0, 200)}`)
       .join('\n');
-    const prompt = `Extract the most notable proper nouns (people, companies, brands, organizations, products, events) from these article excerpts about ${topicCtx}. Return a comma-separated list of names. No explanations. If none, return "NONE".\n\n${texts}`;
+
+    const p = loadPrompt('entity-extract');
+    const { messages, ...meta } = p.render({ topicCtx, texts });
 
     try {
       const result = await aiComplete({
-        operation: 'trends',
-        tenantId,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        maxTokens: 150,
+        ...meta, messages, tenantId,
         trigger: 'page-load',
       });
 
