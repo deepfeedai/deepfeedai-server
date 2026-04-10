@@ -462,5 +462,10 @@
   });
 
   // ── Init ─────────────────────────────────────────────────
-  loadArticles();
+  onReady(async () => {
+    if (!requireAuth()) return;
+    renderSidebar();
+    initModals();
+    loadArticles();
+  });
 })();
