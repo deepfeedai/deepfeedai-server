@@ -83,6 +83,61 @@ async function fetchEngagement(slugs, tenantId) {
 router.get('/', asyncHandler(async (req, res) => {
   const { category, limit: lim, featured, writer, feed } = req.query;
 
+  // ── "Developing" feed: source articles awaiting synthesis ──────────
+  if (feed === 'developing') {
+    const devLimit = Math.min(parseInt(lim) || 20, 50);
+    const devResult = await getPool().query(
+      `SELECT a.id, a.title, a.summary, a.category, a.source, a.source_url,
+              a.image_url, a.editorial_score, a.created_at, a.slug, a.topic_tag
+       FROM articles a
+       WHERE a.tenant_id = $1
+         AND a.status = 'source'
+         AND (a.is_archived = 0 OR a.is_archived IS NULL)
+         AND a.editorial_score >= 5
+         AND a.created_at > NOW() - INTERVAL '48 hours'
+       ORDER BY a.created_at DESC
+       LIMIT $2`,
+      [req.tenantId, devLimit]
+    );
+
+    const devItems = devResult.rows.map(serializeRow);
+
+    // Compute "sources tracking this" — count other source articles with 2+ shared title words
+    const { significantWords } = require('../lib/utils');
+    for (const item of devItems) {
+      const words = new Set(significantWords(item.title));
+      let tracking = 1; // count self
+      for (const other of devItems) {
+        if (other.id === item.id) continue;
+        if (other.category !== item.category) continue;
+        const otherWords = significantWords(other.title);
+        let shared = 0;
+        for (const w of otherWords) {
+          if (words.has(w)) shared++;
+        }
+        if (shared >= 2) tracking++;
+      }
+
+      // Check if synthesis already published an article using this source
+      let publishedSlug = null;
+      try {
+        const published = await db.prepare(
+          `SELECT slug, title FROM articles
+           WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')
+             AND is_published = 1 AND source_article_ids::text LIKE $2
+             AND created_at > NOW() - INTERVAL '7 days'
+           LIMIT 1`
+        ).get(req.tenantId, `%"id":${item.id}%`);
+        if (published) publishedSlug = published.slug;
+      } catch { /* ignore */ }
+
+      item.tracking_count = tracking;
+      item.published_slug = publishedSlug;
+    }
+
+    return res.json({ status: 'ok', items: devItems, count: devItems.length });
+  }
+
   // Build filter conditions separately so they can be shared with the count query
   const conditions = ['a.tenant_id = $1', 'a.is_published = 1', '(a.is_archived = 0 OR a.is_archived IS NULL)'];
   const params = [req.tenantId];

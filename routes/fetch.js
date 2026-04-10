@@ -66,10 +66,10 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
         const wantPublish = shouldAutoPublish && autoPublishedForSource < maxToPublish;
         if (wantPublish) autoPublishedForSource++;
 
-        // Insert as draft; auto-publish path upgrades to 'published' if selected
+        // Insert as source material — synthesis pipeline is the path to publication
         await db.prepare(
           `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'draft', $10)`
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'source', $10)`
         ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), summary, category, source.name, url, image, author, pubDate, tenantId);
         inserted++;
 
@@ -91,10 +91,7 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
                 const gate = await getCuratedScore({ title: artObj.title, summary: artObj.summary, image_url: inserted_row.image_url, author: inserted_row.author, source: artObj.source }, tenantId);
                 await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
 
-                if (wantPublish && gate.publish) {
-                  await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
-                  onArticlePublished(inserted_row.id, tenantId).catch(() => {});
-                }
+                // Source articles are not auto-published — synthesis is the path to publication
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
           }
@@ -253,10 +250,10 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
     // Use server-side categorization (detectCategory expects an RSS-item-shaped object)
     const category = await detectCategory({ title: item.title, contentSnippet: item.summary }, { tenantId });
 
-    // Insert as draft; auto-publish path upgrades to 'published' if selected
+    // Insert as source material — synthesis pipeline is the path to publication
     await db.prepare(
       `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, published_at, is_published, is_featured, source_type, status, tenant_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'draft', $10)`
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'source', $10)`
     ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), item.summary, category, item.source, item.url, item.image, item.publishedAt, item.sourceType, tenantId);
     inserted++;
 
@@ -277,10 +274,7 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
             const gate = await getCuratedScore({ title: artObj.title, summary: artObj.summary, image_url: inserted_row.image_url, author: inserted_row.author, source: artObj.source }, tenantId);
             await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
 
-            if (autoPublish && gate.publish) {
-              await db.prepare("UPDATE articles SET is_published = 1, status = 'published' WHERE id = $1 AND tenant_id = $2").run(inserted_row.id, tenantId);
-              onArticlePublished(inserted_row.id, tenantId).catch(() => {});
-            }
+            // Source articles are not auto-published — synthesis is the path to publication
           } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
         })();
       }

@@ -12,6 +12,7 @@ let articles = [];
   let writerFilter = 'all';
   let statusFilter = 'all';
   let categoryFilter = 'all';
+  let contentTypeFilter = 'all';
   let writerNameFilter = 'all';
   let activeTab   = 'all';
   let viewMode    = localStorage.getItem('dfa_articles_view') || 'table';
@@ -207,7 +208,18 @@ let articles = [];
       filtered = filtered.filter(a => a.category === categoryFilter);
     }
 
-    // 7. Sort
+    // 8. Content type filter
+    if (contentTypeFilter === 'original') {
+      filtered = filtered.filter(a => a.content_type === 'original');
+    } else if (contentTypeFilter === 'deep-dive') {
+      filtered = filtered.filter(a => a.content_type === 'deep-dive');
+    } else if (contentTypeFilter === 'curated') {
+      filtered = filtered.filter(a => !a.content_type || a.content_type === 'curated');
+    } else if (contentTypeFilter === 'source') {
+      filtered = filtered.filter(a => a.status === 'source');
+    }
+
+    // 9. Sort
     filtered.sort((a, b) => {
       let va = a[sortCol], vb = b[sortCol];
       if (va == null) va = ''; if (vb == null) vb = '';
@@ -227,7 +239,7 @@ let articles = [];
     const countEl = document.getElementById('filterCount');
     if (countEl) {
       const total = (showArchived ? allArticles : allArticles.filter(a => !a.is_archived)).length;
-      const isFiltered = searchQuery || audioFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || categoryFilter !== 'all' || writerNameFilter !== 'all';
+      const isFiltered = searchQuery || audioFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || categoryFilter !== 'all' || writerNameFilter !== 'all' || contentTypeFilter !== 'all';
       countEl.textContent = isFiltered
         ? `${articles.length} of ${total}`
         : `${total} articles`;
@@ -1777,6 +1789,10 @@ let articles = [];
     });
     document.getElementById('writerFilter').addEventListener('change', e => {
       writerFilter = e.target.value;
+      applyFilters();
+    });
+    document.getElementById('contentTypeFilter').addEventListener('change', e => {
+      contentTypeFilter = e.target.value;
       applyFilters();
     });
 
