@@ -45,7 +45,6 @@
             <div class="dropdown" id="purgeDropdown" style="position:relative;">
               <button class="btn btn-danger btn-sm" id="purgeArticlesBtn" title="Purge articles">🗑 Purge</button>
               <div id="purgeMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px;z-index:100;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.3);">
-                <a class="purge-option" data-type="curated" href="#" style="display:block;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-radius:6px;">📰 Feed Articles Only</a>
                 <a class="purge-option" data-type="original" href="#" style="display:block;padding:8px 12px;color:var(--text);text-decoration:none;font-size:13px;border-radius:6px;">✨ Original Articles Only</a>
                 <a class="purge-option" data-type="all" href="#" style="display:block;padding:8px 12px;color:#f87171;text-decoration:none;font-size:13px;border-radius:6px;">⚠️ All Articles</a>
               </div>
@@ -98,13 +97,11 @@
           </select>
         </div>
         <div class="filter-group">
-          <label class="filter-label" for="contentTypeFilter">Type</label>
+          <label class="filter-label" for="contentTypeFilter">Format</label>
           <select class="filter-select" id="contentTypeFilter">
             <option value="all">All</option>
             <option value="original">Original</option>
             <option value="deep-dive">Deep Dive</option>
-            <option value="curated">Curated</option>
-            <option value="source">Source</option>
           </select>
         </div>
         <div class="filter-group">

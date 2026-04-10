@@ -43,6 +43,13 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
     query += ` AND LOWER(title) LIKE LOWER($${params.length})`;
     countQuery += ` AND LOWER(title) LIKE LOWER($${countParams.length})`;
   }
+  if (req.query.type === 'editorial') {
+    query += ` AND content_type IN ('original', 'deep-dive')`;
+    countQuery += ` AND content_type IN ('original', 'deep-dive')`;
+  } else if (req.query.type === 'curated') {
+    query += ` AND (content_type IS NULL OR content_type = 'curated')`;
+    countQuery += ` AND (content_type IS NULL OR content_type = 'curated')`;
+  }
   query += ' ORDER BY created_at DESC';
 
   // Pagination: ?limit=50&offset=0 (defaults: limit 100, offset 0)
@@ -80,9 +87,9 @@ router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHan
   // Fetch media URLs before deleting so we can clean up storage
   let selectSql;
   if (type === 'curated') {
-    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL)`;
+    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND (content_type IS NULL OR content_type = 'curated')`;
   } else if (type === 'original') {
-    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND content_type = 'original'`;
+    selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')`;
   } else {
     selectSql = `SELECT id, image_url, audio_url, inline_images FROM articles WHERE tenant_id = $1`;
   }
@@ -101,9 +108,9 @@ router.delete('/purge-all', auth, requirePermission('articles.delete'), asyncHan
 
   let deleteSql;
   if (type === 'curated') {
-    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND (content_type != 'original' OR content_type IS NULL) RETURNING id`;
+    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND (content_type IS NULL OR content_type = 'curated') RETURNING id`;
   } else if (type === 'original') {
-    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND content_type = 'original' RETURNING id`;
+    deleteSql = `DELETE FROM articles WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive') RETURNING id`;
   } else {
     deleteSql = `DELETE FROM articles WHERE tenant_id = $1 RETURNING id`;
   }
