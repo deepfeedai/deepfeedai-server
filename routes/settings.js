@@ -364,6 +364,10 @@ router.get('/available-models', requireAdmin, requirePermission('settings.read')
       { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
       { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
     ],
+    openrouter: [
+      { id: 'openrouter/auto', name: 'Auto (best for request)' },
+      { id: 'openrouter/free', name: 'Free (no cost)' },
+    ],
   };
 
   res.json({ models: CURATED_MODELS[provider] || [] });
