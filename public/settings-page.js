@@ -2130,9 +2130,9 @@ let apiKeyVisible = false;
   };
 
   // Hook messaging load into settings
-  var _origLoadSettings = loadSettings;
+  var _origLoadSettingsForMessaging = loadSettings;
   loadSettings = async function () {
-    await _origLoadSettings();
+    await _origLoadSettingsForMessaging();
     try {
       var settings = await apiFetch('/settings');
       loadMessagingTab(settings);
