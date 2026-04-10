@@ -427,7 +427,7 @@ registerJob({
   name: 'synthesis',
   description: 'Synthesis scheduler',
   category: 'Content',
-  defaultSchedule: '0 * * * *',
+  defaultSchedule: '0 */2 * * *',
   handler: async (tenantId) => {
     const { runSynthesisForWriter } = require('./lib/synthesis');
     const hour = new Date().getUTCHours();
@@ -439,7 +439,8 @@ registerJob({
     for (const w of writers) {
       const schedule = w.synthesis_schedule || 'daily';
       let shouldRun = false;
-      if (schedule === 'daily')            shouldRun = (hour === 6);
+      if (schedule === 'frequent')         shouldRun = true; // every 2 hours
+      else if (schedule === 'daily')       shouldRun = (hour === 6);
       else if (schedule === 'twice-daily') shouldRun = (hour === 6 || hour === 18);
       else if (schedule === 'weekly')      shouldRun = (hour === 6 && dow === 1);
 
@@ -460,9 +461,9 @@ registerJob({
 
 registerJob({
   name: 'deep-dive',
-  description: 'Weekly deep dive roundups',
+  description: 'Twice-weekly deep dive roundups',
   category: 'Content',
-  defaultSchedule: '0 20 * * 0',  // Sunday 8 PM UTC
+  defaultSchedule: '0 20 * * 0,3',  // Sunday + Wednesday 8 PM UTC
   handler: async (tenantId) => {
     const { runWeeklyDeepDives } = require('./lib/synthesis');
     const result = await runWeeklyDeepDives(tenantId);
@@ -477,7 +478,7 @@ registerJob({
   name: 'synthesis-forecast',
   description: 'Pre-synthesis forecast and admin notification',
   category: 'Content',
-  defaultSchedule: '0 * * * *',  // hourly, same cadence as synthesis
+  defaultSchedule: '0 */2 * * *',  // every 2 hours, same cadence as synthesis
   handler: async (tenantId) => {
     const { generateForecast } = require('./lib/synthesis');
     const { sendForecastNotification } = require('./lib/notify');
@@ -491,7 +492,8 @@ registerJob({
       const schedule = w.synthesis_schedule || 'daily';
       // Run forecast 1 hour before synthesis would fire
       let shouldForecast = false;
-      if (schedule === 'daily')            shouldForecast = (hour === 5);
+      if (schedule === 'frequent')         shouldForecast = (hour % 2 === 1); // odd hours (1h before even-hour synthesis)
+      else if (schedule === 'daily')       shouldForecast = (hour === 5);
       else if (schedule === 'twice-daily') shouldForecast = (hour === 5 || hour === 17);
       else if (schedule === 'weekly')      shouldForecast = (hour === 5 && dow === 1);
 
