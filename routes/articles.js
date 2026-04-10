@@ -745,4 +745,75 @@ router.put('/:id/assign-writer', auth, requirePermission('articles.update'), asy
   res.json(updated);
 }));
 
+// POST /api/articles/:id/regenerate — re-synthesize from original sources
+router.post('/:id/regenerate', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.content_type !== 'original' && article.content_type !== 'deep-dive') {
+    return res.status(400).json({ error: 'Only original and deep-dive articles can be regenerated' });
+  }
+
+  // Parse source refs to get source article IDs
+  let sourceIds;
+  try {
+    const raw = typeof article.source_article_ids === 'string'
+      ? JSON.parse(article.source_article_ids)
+      : (article.source_article_ids || []);
+    sourceIds = raw.map(r => (typeof r === 'object' && r !== null) ? r.id : r).filter(Boolean);
+  } catch { return res.status(400).json({ error: 'Cannot parse source_article_ids' }); }
+
+  if (sourceIds.length < 3) {
+    return res.status(400).json({ error: `Only ${sourceIds.length} source articles found (need 3+)` });
+  }
+
+  // Fetch source articles
+  const placeholders = sourceIds.map((_, i) => `$${i + 1}`).join(', ');
+  const sources = await getPool().query(
+    `SELECT * FROM articles WHERE id IN (${placeholders}) AND tenant_id = $${sourceIds.length + 1}`,
+    [...sourceIds, req.tenantId]
+  );
+
+  if (sources.rows.length < 3) {
+    return res.status(400).json({ error: `Only ${sources.rows.length} source articles still exist (need 3+)` });
+  }
+
+  // Get the writer
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+  if (!writer) return res.status(400).json({ error: 'Writer not found' });
+
+  const { synthesizeCluster } = require('../lib/synthesis');
+
+  // Re-synthesize
+  const cluster = { topic: article.category, articles: sources.rows };
+  const result = await synthesizeCluster(cluster, writer, req.tenantId);
+  if (!result) return res.status(500).json({ error: 'Synthesis returned no result' });
+
+  // Update the existing article row (preserve ID, slug, URL — no broken links)
+  await db.prepare(`
+    UPDATE articles SET
+      title = $1, summary = $2, full_content = $3,
+      source_article_ids = $4, synthesis_meta = $5, followups = $6,
+      editorial_score = $7, updated_at = NOW()
+    WHERE id = $8 AND tenant_id = $9
+  `).run(
+    result.title,
+    result.summary,
+    result.full_content,
+    typeof result.source_article_ids === 'string' ? result.source_article_ids : JSON.stringify(result.source_article_ids),
+    typeof result.synthesis_meta === 'string' ? result.synthesis_meta : JSON.stringify(result.synthesis_meta),
+    result.followups ? (typeof result.followups === 'string' ? result.followups : JSON.stringify(result.followups)) : null,
+    result.editorial_score || null,
+    article.id,
+    req.tenantId
+  );
+
+  // Delete the duplicate row that synthesizeCluster created
+  if (result.id && result.id !== article.id) {
+    await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(result.id, req.tenantId);
+  }
+
+  logAudit(req, 'article.regenerate', 'article', parseInt(req.params.id), { title: result.title });
+  res.json({ ok: true, title: result.title, summary: result.summary });
+}));
+
 module.exports = router;

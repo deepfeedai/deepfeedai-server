@@ -999,8 +999,10 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS generated_title TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
-    // ── Source-first pipeline: prefetched follow-up Q&As ──────────
+    // ── Source-first pipeline ───────────────────────────────────────
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS enriched_summary TEXT DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS scrape_status TEXT DEFAULT NULL`,
     // ── Enterprise Logging System ─────────────────────────────────
     `CREATE TABLE IF NOT EXISTS app_logs (
       id             BIGSERIAL PRIMARY KEY,
