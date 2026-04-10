@@ -139,7 +139,7 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   // Build filter conditions separately so they can be shared with the count query
-  const conditions = ['a.tenant_id = $1', 'a.is_published = 1', '(a.is_archived = 0 OR a.is_archived IS NULL)'];
+  const conditions = ['a.tenant_id = $1', 'a.is_published = 1', '(a.is_archived = 0 OR a.is_archived IS NULL)', "a.category != 'Uncategorized'"];
   const params = [req.tenantId];
 
   // "Following" feed: only articles by writers the user follows
@@ -266,6 +266,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
     `SELECT * FROM articles
      WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
        AND content_type IN ('original', 'deep-dive')
+       AND category != 'Uncategorized'
        AND published_at >= NOW() - INTERVAL '30 days'`,
     [req.tenantId]
   );
@@ -322,6 +323,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
      LEFT JOIN writers w ON a.writer_id = w.id
      WHERE a.tenant_id = $1 AND a.is_published = 1 AND a.is_archived = 0
        AND a.content_type IN ('original', 'deep-dive')
+       AND a.category != 'Uncategorized'
        AND a.published_at >= NOW() - INTERVAL '24 hours'
      ORDER BY a.editorial_score DESC NULLS LAST, a.published_at DESC
      LIMIT 5`,
@@ -334,6 +336,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
      FROM articles
      WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
        AND content_type IN ('original', 'deep-dive')
+       AND category != 'Uncategorized'
        AND published_at >= NOW() - INTERVAL '24 hours'
      GROUP BY category ORDER BY count DESC`,
     [tenantId]
