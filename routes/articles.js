@@ -745,6 +745,80 @@ router.put('/:id/assign-writer', auth, requirePermission('articles.update'), asy
   res.json(updated);
 }));
 
+// POST /api/articles/:id/generate-followups — generate follow-up Q&As without regenerating content
+router.post('/:id/generate-followups', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article.full_content && !article.summary) {
+    return res.status(400).json({ error: 'Article has no content to generate follow-ups from' });
+  }
+
+  const { complete: aiComplete } = require('../lib/ai-router');
+  const { sanitizeForPrompt } = require('../lib/utils');
+
+  // Build source refs context if available
+  let sourceContext = '';
+  try {
+    const raw = typeof article.source_article_ids === 'string'
+      ? JSON.parse(article.source_article_ids) : (article.source_article_ids || []);
+    if (raw.length) {
+      sourceContext = '\n\nSources referenced in the article:\n' + raw.map((r, i) => {
+        const title = (typeof r === 'object' && r.title) ? r.title : 'Source ' + (i + 1);
+        const source = (typeof r === 'object' && r.source) ? r.source : '';
+        return `[${i + 1}] ${title}${source ? ' (' + source + ')' : ''}`;
+      }).join('\n');
+    }
+  } catch {}
+
+  const contentText = sanitizeForPrompt(article.full_content || article.summary || '', 3000);
+
+  const result = await aiComplete({
+    operation: 'scrape-summarize',
+    tenantId: req.tenantId,
+    messages: [{
+      role: 'user',
+      content: `Given this article, generate 3 follow-up questions a curious reader would ask, with short answers.
+
+Title: ${sanitizeForPrompt(article.title, 200)}
+Article: ${contentText}${sourceContext}
+
+Rules:
+- Each question should cover a different angle (impact, specific player/detail, what to watch next)
+- Answers should be 2-3 sentences, grounded in the article content
+- If sources are listed, use [N] citations in answers where applicable
+- Questions should be specific, not generic
+
+Respond in exactly this format:
+Q1: [question]
+A1: [answer]
+Q2: [question]
+A2: [answer]
+Q3: [question]
+A3: [answer]`
+    }],
+    maxTokens: 1024,
+    temperature: 0.5,
+    trigger: 'manual',
+  });
+
+  if (!result?.text) return res.status(502).json({ error: 'AI returned no content' });
+
+  const followups = [];
+  const qMatches = [...result.text.matchAll(/Q(\d+):\s*(.+)\nA\1:\s*([\s\S]+?)(?=\nQ\d+:|$)/g)];
+  for (const m of qMatches) {
+    followups.push({ question: m[2].trim(), answer: m[3].trim() });
+  }
+
+  if (!followups.length) return res.status(502).json({ error: 'Could not parse follow-ups from AI response' });
+
+  await db.prepare(
+    'UPDATE articles SET followups = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
+  ).run(JSON.stringify(followups), article.id, req.tenantId);
+
+  logAudit(req, 'article.generate-followups', 'article', parseInt(req.params.id), { count: followups.length });
+  res.json({ ok: true, followups });
+}));
+
 // POST /api/articles/:id/regenerate — re-synthesize from original sources
 router.post('/:id/regenerate', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
