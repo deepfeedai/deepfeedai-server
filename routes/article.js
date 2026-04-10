@@ -128,6 +128,7 @@ router.get('/related', asyncHandler(async (req, res) => {
      FROM articles a
      LEFT JOIN writers w ON w.id = a.writer_id
      WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)
+       AND a.content_type IN ('original', 'deep-dive')
        AND a.id != $2
      ORDER BY a.published_at DESC
      LIMIT 200`

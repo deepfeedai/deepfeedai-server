@@ -745,4 +745,149 @@ router.put('/:id/assign-writer', auth, requirePermission('articles.update'), asy
   res.json(updated);
 }));
 
+// POST /api/articles/:id/generate-followups — generate follow-up Q&As without regenerating content
+router.post('/:id/generate-followups', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article.full_content && !article.summary) {
+    return res.status(400).json({ error: 'Article has no content to generate follow-ups from' });
+  }
+
+  const { complete: aiComplete } = require('../lib/ai-router');
+  const { sanitizeForPrompt } = require('../lib/utils');
+
+  // Build source refs context if available
+  let sourceContext = '';
+  try {
+    const raw = typeof article.source_article_ids === 'string'
+      ? JSON.parse(article.source_article_ids) : (article.source_article_ids || []);
+    if (raw.length) {
+      sourceContext = '\n\nSources referenced in the article:\n' + raw.map((r, i) => {
+        const title = (typeof r === 'object' && r.title) ? r.title : 'Source ' + (i + 1);
+        const source = (typeof r === 'object' && r.source) ? r.source : '';
+        return `[${i + 1}] ${title}${source ? ' (' + source + ')' : ''}`;
+      }).join('\n');
+    }
+  } catch {}
+
+  const contentText = sanitizeForPrompt(article.full_content || article.summary || '', 3000);
+
+  const result = await aiComplete({
+    operation: 'scrape-summarize',
+    tenantId: req.tenantId,
+    messages: [{
+      role: 'user',
+      content: `Given this article, generate 3 follow-up questions a curious reader would ask, with short answers.
+
+Title: ${sanitizeForPrompt(article.title, 200)}
+Article: ${contentText}${sourceContext}
+
+Rules:
+- Each question should cover a different angle (impact, specific player/detail, what to watch next)
+- Answers should be 2-3 sentences, grounded in the article content
+- If sources are listed, use [N] citations in answers where applicable
+- Questions should be specific, not generic
+
+Respond in exactly this format:
+Q1: [question]
+A1: [answer]
+Q2: [question]
+A2: [answer]
+Q3: [question]
+A3: [answer]`
+    }],
+    maxTokens: 1024,
+    temperature: 0.5,
+    trigger: 'manual',
+  });
+
+  if (!result?.text) return res.status(502).json({ error: 'AI returned no content' });
+
+  const followups = [];
+  const qMatches = [...result.text.matchAll(/Q(\d+):\s*(.+)\nA\1:\s*([\s\S]+?)(?=\nQ\d+:|$)/g)];
+  for (const m of qMatches) {
+    followups.push({ question: m[2].trim(), answer: m[3].trim() });
+  }
+
+  if (!followups.length) return res.status(502).json({ error: 'Could not parse follow-ups from AI response' });
+
+  await db.prepare(
+    'UPDATE articles SET followups = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
+  ).run(JSON.stringify(followups), article.id, req.tenantId);
+
+  logAudit(req, 'article.generate-followups', 'article', parseInt(req.params.id), { count: followups.length });
+  res.json({ ok: true, followups });
+}));
+
+// POST /api/articles/:id/regenerate — re-synthesize from original sources
+router.post('/:id/regenerate', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.content_type !== 'original' && article.content_type !== 'deep-dive') {
+    return res.status(400).json({ error: 'Only original and deep-dive articles can be regenerated' });
+  }
+
+  // Parse source refs to get source article IDs
+  let sourceIds;
+  try {
+    const raw = typeof article.source_article_ids === 'string'
+      ? JSON.parse(article.source_article_ids)
+      : (article.source_article_ids || []);
+    sourceIds = raw.map(r => (typeof r === 'object' && r !== null) ? r.id : r).filter(Boolean);
+  } catch { return res.status(400).json({ error: 'Cannot parse source_article_ids' }); }
+
+  if (sourceIds.length < 3) {
+    return res.status(400).json({ error: `Only ${sourceIds.length} source articles found (need 3+)` });
+  }
+
+  // Fetch source articles
+  const placeholders = sourceIds.map((_, i) => `$${i + 1}`).join(', ');
+  const sources = await getPool().query(
+    `SELECT * FROM articles WHERE id IN (${placeholders}) AND tenant_id = $${sourceIds.length + 1}`,
+    [...sourceIds, req.tenantId]
+  );
+
+  if (sources.rows.length < 3) {
+    return res.status(400).json({ error: `Only ${sources.rows.length} source articles still exist (need 3+)` });
+  }
+
+  // Get the writer
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+  if (!writer) return res.status(400).json({ error: 'Writer not found' });
+
+  const { synthesizeCluster } = require('../lib/synthesis');
+
+  // Re-synthesize
+  const cluster = { topic: article.category, articles: sources.rows };
+  const result = await synthesizeCluster(cluster, writer, req.tenantId);
+  if (!result) return res.status(500).json({ error: 'Synthesis returned no result' });
+
+  // Update the existing article row (preserve ID, slug, URL — no broken links)
+  await db.prepare(`
+    UPDATE articles SET
+      title = $1, summary = $2, full_content = $3,
+      source_article_ids = $4, synthesis_meta = $5, followups = $6,
+      editorial_score = $7, updated_at = NOW()
+    WHERE id = $8 AND tenant_id = $9
+  `).run(
+    result.title,
+    result.summary,
+    result.full_content,
+    typeof result.source_article_ids === 'string' ? result.source_article_ids : JSON.stringify(result.source_article_ids),
+    typeof result.synthesis_meta === 'string' ? result.synthesis_meta : JSON.stringify(result.synthesis_meta),
+    result.followups ? (typeof result.followups === 'string' ? result.followups : JSON.stringify(result.followups)) : null,
+    result.editorial_score || null,
+    article.id,
+    req.tenantId
+  );
+
+  // Delete the duplicate row that synthesizeCluster created
+  if (result.id && result.id !== article.id) {
+    await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(result.id, req.tenantId);
+  }
+
+  logAudit(req, 'article.regenerate', 'article', parseInt(req.params.id), { title: result.title });
+  res.json({ ok: true, title: result.title, summary: result.summary });
+}));
+
 module.exports = router;

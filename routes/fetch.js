@@ -92,6 +92,10 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
                 await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
 
                 // Source articles are not auto-published — synthesis is the path to publication
+
+                // Enrich: scrape full article text and generate structured summary
+                const { enrichArticle } = require('../lib/synthesis');
+                enrichArticle(inserted_row.id, tenantId).catch(() => {});
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
           }
@@ -275,6 +279,10 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
             await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
 
             // Source articles are not auto-published — synthesis is the path to publication
+
+            // Enrich: scrape full article text and generate structured summary
+            const { enrichArticle } = require('../lib/synthesis');
+            enrichArticle(inserted_row.id, tenantId).catch(() => {});
           } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
         })();
       }

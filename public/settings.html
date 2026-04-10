@@ -342,6 +342,17 @@
           </div>
 
           <div class="form-group">
+            <label class="form-label">OpenRouter API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="openrouterApiKeyPortal" placeholder="sk-or-..."
+                     autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOpenrouterPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For cost-effective multi-model routing. Get a key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a></p>
+            <div id="openrouterKeyStatus" class="settings-status"></div>
+          </div>
+
+          <div class="form-group">
             <label class="form-label">Ollama Base URL</label>
             <div class="input-action-row">
               <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434"

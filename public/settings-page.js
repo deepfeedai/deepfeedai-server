@@ -300,6 +300,10 @@ let apiKeyVisible = false;
       document.getElementById('anthropicApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
       document.getElementById('anthropicKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
     }
+    if (settings.openrouter_api_key) {
+      document.getElementById('openrouterApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+      document.getElementById('openrouterKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+    }
     if (settings.ollama_base_url) {
       document.getElementById('ollamaBaseUrlPortal').value = settings.ollama_base_url;
       document.getElementById('ollamaUrlStatus').textContent = '✅ Ollama URL is configured';
@@ -402,6 +406,7 @@ let apiKeyVisible = false;
   }
   wirePortalTest('testOpenaiPortal', 'openai');
   wirePortalTest('testAnthropicPortal', 'anthropic');
+  wirePortalTest('testOpenrouterPortal', 'openrouter');
   wirePortalTest('testOllamaPortal', 'ollama');
 
   // Save handler
@@ -416,6 +421,8 @@ let apiKeyVisible = false;
       if (openaiKey) payload.openai_api_key = openaiKey;
       var anthropicKey = document.getElementById('anthropicApiKeyPortal').value.trim();
       if (anthropicKey) payload.anthropic_api_key = anthropicKey;
+      var openrouterKey = document.getElementById('openrouterApiKeyPortal').value.trim();
+      if (openrouterKey) payload.openrouter_api_key = openrouterKey;
       var ollamaUrl = document.getElementById('ollamaBaseUrlPortal').value.trim();
       if (ollamaUrl) payload.ollama_base_url = ollamaUrl;
 
@@ -455,6 +462,11 @@ let apiKeyVisible = false;
         document.getElementById('anthropicApiKeyPortal').value = '';
         document.getElementById('anthropicApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
         document.getElementById('anthropicKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+      }
+      if (openrouterKey) {
+        document.getElementById('openrouterApiKeyPortal').value = '';
+        document.getElementById('openrouterApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+        document.getElementById('openrouterKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
       }
       if (ollamaUrl) {
         document.getElementById('ollamaUrlStatus').textContent = '✅ Ollama URL is configured';

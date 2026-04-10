@@ -176,6 +176,9 @@ router.get('/', asyncHandler(async (req, res) => {
       types.forEach(t => params.push(t));
       conditions.push(`a.content_type IN (${placeholders})`);
     }
+  } else {
+    // Default: only show original and deep-dive articles (source-first pipeline)
+    conditions.push(`a.content_type IN ('original', 'deep-dive')`);
   }
   if (req.query.since) {
     const sinceMs = parseInt(req.query.since, 10);
@@ -262,6 +265,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
   const result = await getPool().query(
     `SELECT * FROM articles
      WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
+       AND content_type IN ('original', 'deep-dive')
        AND published_at >= NOW() - INTERVAL '30 days'`,
     [req.tenantId]
   );
@@ -317,6 +321,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
      FROM articles a
      LEFT JOIN writers w ON a.writer_id = w.id
      WHERE a.tenant_id = $1 AND a.is_published = 1 AND a.is_archived = 0
+       AND a.content_type IN ('original', 'deep-dive')
        AND a.published_at >= NOW() - INTERVAL '24 hours'
      ORDER BY a.editorial_score DESC NULLS LAST, a.published_at DESC
      LIMIT 5`,
@@ -328,6 +333,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
     `SELECT category, COUNT(*)::int AS count
      FROM articles
      WHERE tenant_id = $1 AND is_published = 1 AND is_archived = 0
+       AND content_type IN ('original', 'deep-dive')
        AND published_at >= NOW() - INTERVAL '24 hours'
      GROUP BY category ORDER BY count DESC`,
     [tenantId]
