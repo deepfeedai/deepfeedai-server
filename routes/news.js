@@ -91,9 +91,9 @@ router.get('/', asyncHandler(async (req, res) => {
               a.image_url, a.editorial_score, a.created_at, a.slug, a.topic_tag
        FROM articles a
        WHERE a.tenant_id = $1
-         AND a.status = 'source'
+         AND a.is_published = 0
          AND (a.is_archived = 0 OR a.is_archived IS NULL)
-         AND a.editorial_score >= 5
+         AND (content_type IS NULL OR content_type NOT IN ('original', 'deep-dive'))
          AND a.created_at > NOW() - INTERVAL '48 hours'
        ORDER BY a.created_at DESC
        LIMIT $2`,
