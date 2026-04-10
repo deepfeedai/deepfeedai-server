@@ -336,7 +336,9 @@ app.use('/api/admin/roles',   require('./routes/admin-roles'));
 app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
+app.use('/api/admin/pitches', require('./routes/admin-pitches'));
 app.use('/api/admin/discover', require('./routes/discover'));
+app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/admin/features', require('./routes/admin-features'));
 app.use('/api/features',       require('./routes/features'));          // public — tenant feature flags
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
@@ -511,6 +513,47 @@ registerJob({
     }
 
     return { forecasts: forecasts.length };
+  },
+});
+
+registerJob({
+  name: 'agent-scan',
+  description: 'Writer agent story pitch evaluation',
+  category: 'Content',
+  defaultSchedule: '30 */2 * * *', // every 2 hours at :30 (offset from synthesis at :00)
+  handler: async (tenantId) => {
+    const { evaluateIncomingArticles, checkPredictions } = require('./lib/writer-agent');
+    const writers = await db.prepare(
+      "SELECT id FROM writers WHERE tenant_id = $1 AND is_auto = true"
+    ).all(tenantId);
+
+    let totalPitches = 0;
+    for (const w of writers) {
+      try {
+        const pitches = await evaluateIncomingArticles(w.id, tenantId);
+        totalPitches += pitches.length;
+
+        // Notify on new pitches
+        if (pitches.length) {
+          const { notifyNewPitch } = require('./lib/messaging');
+          const writer = await db.prepare('SELECT * FROM writers WHERE id = $1').get(w.id);
+          for (const p of pitches) {
+            notifyNewPitch(tenantId, p, writer).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.error(`[agent-scan] writer ${w.id}:`, err.message);
+      }
+    }
+
+    // Weekly prediction checks (Mondays)
+    if (new Date().getDay() === 1) {
+      for (const w of writers) {
+        try { await checkPredictions(w.id, tenantId); } catch {}
+      }
+    }
+
+    return { writers: writers.length, pitches: totalPitches };
   },
 });
 

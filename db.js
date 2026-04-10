@@ -1072,6 +1072,45 @@ async function initDb() {
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
     // Future: writer voice fingerprint (analyzed from 20+ articles)
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_fingerprint JSONB`,
+    // Writer agent: story pitches
+    `CREATE TABLE IF NOT EXISTS story_pitches (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      writer_id   INTEGER NOT NULL REFERENCES writers(id) ON DELETE CASCADE,
+      pitch_type  TEXT NOT NULL,
+      headline    TEXT NOT NULL,
+      reasoning   TEXT NOT NULL,
+      source_article_ids JSONB DEFAULT '[]',
+      memory_refs JSONB DEFAULT '[]',
+      status      TEXT DEFAULT 'pending',
+      priority    NUMERIC(3,1) DEFAULT 5.0,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_story_pitches_lookup ON story_pitches(tenant_id, writer_id, status)`,
+    // Messaging channels (Telegram, Slack, etc.)
+    `CREATE TABLE IF NOT EXISTS messaging_channels (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      platform    TEXT NOT NULL,
+      channel_id  TEXT NOT NULL,
+      writer_id   INTEGER REFERENCES writers(id) ON DELETE SET NULL,
+      config      JSONB DEFAULT '{}',
+      is_active   BOOLEAN DEFAULT true,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    // Newsroom inter-writer messages
+    `CREATE TABLE IF NOT EXISTS newsroom_messages (
+      id              SERIAL PRIMARY KEY,
+      tenant_id       INTEGER NOT NULL,
+      from_writer_id  INTEGER REFERENCES writers(id) ON DELETE SET NULL,
+      to_writer_id    INTEGER REFERENCES writers(id) ON DELETE SET NULL,
+      message_type    TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      context         JSONB DEFAULT '{}',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_messages_tenant ON newsroom_messages(tenant_id, created_at DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
