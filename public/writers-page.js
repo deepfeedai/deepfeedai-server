@@ -54,11 +54,53 @@ function renderWriters() {
       + '<td>'
       + '<div style="display:flex;gap:6px;">'
       + '<button class="btn btn-ghost btn-sm btn-icon" title="View" onclick="showWriterQuickView(' + w.id + ')">&#128065;</button>'
-      + '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(' + w.id + ')">&#9998;&#65039;</button>'
+      + '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="window.location.href=\'/writer-detail.html?id=' + w.id + '&edit=1\'">&#9998;&#65039;</button>'
       + '<button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(' + w.id + ')">&#128465;&#65039;</button>'
       + '</div>'
       + '</td>'
       + '</tr>';
+  }).join('');
+
+  // Card grid view
+  renderWriterCards();
+}
+
+function renderWriterCards() {
+  var container = document.getElementById('writersCardGrid');
+  if (!container) return;
+  if (!writers.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No writers configured</p></div>';
+    return;
+  }
+
+  container.innerHTML = writers.map(function(w) {
+    var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
+    var beatsHtml = beats.slice(0, 3).map(function(n) { return '<span class="badge badge-muted" style="font-size:10px;">' + esc(n) + '</span>'; }).join(' ');
+    var angleSnippet = w.beat_angle ? '<div class="text-muted text-sm" style="margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(w.beat_angle) + '">' + esc(w.beat_angle) + '</div>' : '';
+    var autoBadge = w.is_auto ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>' : '';
+
+    return '<div class="writer-card" onclick="showWriterQuickView(' + w.id + ')">'
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
+      + (w.avatar_url
+        ? '<img src="' + esc(w.avatar_url) + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);flex-shrink:0;" />'
+        : '<div style="width:48px;height:48px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">&#9997;&#65039;</div>')
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-weight:700;font-size:15px;">' + esc(w.name) + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">' + beatsHtml + ' ' + autoBadge + '</div>'
+      + '</div>'
+      + '</div>'
+      + (w.bio ? '<div class="text-muted text-sm" style="line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + esc(w.bio) + '</div>' : '')
+      + angleSnippet
+      + '<div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--muted);">'
+      + '<span><strong style="color:var(--text);">' + (w.article_count || 0) + '</strong> articles</span>'
+      + '<span><strong style="color:var(--text);">' + (w.follower_count || 0) + '</strong> followers</span>'
+      + (w.tone ? '<span>' + esc(w.tone) + '</span>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:10px;justify-content:flex-end;">'
+      + '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();window.location.href=\'/writer-detail.html?id=' + w.id + '&edit=1\'">&#9998;&#65039; Edit</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openDelete(' + w.id + ')">&#128465;&#65039;</button>'
+      + '</div>'
+      + '</div>';
   }).join('');
 }
 
@@ -999,7 +1041,7 @@ window.showWriterQuickView = async function(id) {
 
   // Wire footer buttons
   document.getElementById('qvFullPageLink').href = '/writer-detail.html?id=' + w.id;
-  document.getElementById('qvEditBtn').onclick = function() { closeModal('writerQuickViewModal'); openEdit(w.id); };
+  document.getElementById('qvEditBtn').onclick = function() { window.location.href = '/writer-detail.html?id=' + w.id + '&edit=1'; };
 
   openModal('writerQuickViewModal');
 
@@ -1120,11 +1162,24 @@ window.showWriterQuickView = async function(id) {
 
 // ── Initialize ───────────────────────────────────────────────────
 
+var writerViewMode = localStorage.getItem('dfa_writers_view') || 'table';
+
+function applyWriterViewMode() {
+  var tableEl = document.querySelector('.writers-table-view');
+  var cardEl = document.getElementById('writersCardGrid');
+  if (tableEl) tableEl.style.display = writerViewMode === 'table' ? '' : 'none';
+  if (cardEl) cardEl.style.display = writerViewMode === 'cards' ? 'grid' : 'none';
+  document.querySelectorAll('#writerViewToggle .view-toggle-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.view === writerViewMode);
+  });
+}
+
 async function init() {
   renderSidebar();
   initModals();
   await loadCategoriesList();
   await loadWriters();
+  applyWriterViewMode();
 
   // Voice preview handler
   document.getElementById('previewVoiceBtn').addEventListener('click', async function() {
@@ -1154,6 +1209,15 @@ async function init() {
     } finally {
       document.getElementById('previewVoiceBtn').disabled = false;
     }
+  });
+
+  // View toggle
+  document.querySelectorAll('#writerViewToggle .view-toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      writerViewMode = btn.dataset.view;
+      localStorage.setItem('dfa_writers_view', writerViewMode);
+      applyWriterViewMode();
+    });
   });
 }
 

@@ -41,6 +41,9 @@
     .leader-bar-fill { height:100%; border-radius:3px; transition:width 0.4s ease; }
     .chart-section { margin-bottom:24px; }
     .chart-section .chart-container { position:relative; height:260px; }
+    .writer-card-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px; margin-bottom:24px; }
+    .writer-card { background:var(--bg-card, #161616); border:1px solid var(--border); border-radius:12px; padding:16px; cursor:pointer; transition:border-color 0.15s; }
+    .writer-card:hover { border-color:var(--accent); }
     .memory-item { display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); }
     .memory-item:last-child { border-bottom:none; }
     .memory-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 6px; border-radius:4px; white-space:nowrap; }
@@ -71,11 +74,21 @@
       <div id="writersSection">
         <div class="section-header">
           <div class="section-title">Writer Personas</div>
-          <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
-          <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
+          <div class="btn-group" style="display:flex;gap:8px;align-items:center;">
+            <div class="view-toggle" id="writerViewToggle">
+              <button class="view-toggle-btn active" data-view="table" title="Table view">&#9776;</button>
+              <button class="view-toggle-btn" data-view="cards" title="Card view">&#9638;</button>
+            </div>
+            <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
+            <button class="btn btn-primary" id="addWriterBtn" onclick="window.location.href='/writer-detail.html?new=1'">+ Add Writer</button>
+          </div>
         </div>
 
-        <div class="table-wrap"><div class="table-scroll">
+        <!-- Card grid view -->
+        <div id="writersCardGrid" class="writer-card-grid" style="display:none;"></div>
+
+        <!-- Table view -->
+        <div class="table-wrap writers-table-view"><div class="table-scroll">
           <table id="writersTable">
             <thead>
               <tr>

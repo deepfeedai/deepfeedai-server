@@ -30,6 +30,14 @@
     .wd-article-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
     .wd-article-row:last-child { border-bottom:none; }
     .wd-article-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+    .wd-edit-field { margin-bottom:14px; }
+    .wd-edit-field label { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+    .checkbox-grid { display:flex; flex-wrap:wrap; gap:8px 16px; }
+    .checkbox-grid label { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; }
+    .checkbox-grid input[type="checkbox"] { width:14px; height:14px; }
+    .few-shot-row { display:flex; gap:8px; align-items:flex-start; margin-bottom:8px; }
+    .few-shot-row input, .few-shot-row textarea { flex:1; }
+    .few-shot-row textarea { min-height:50px; }
   </style>
 </head>
 <body>
@@ -41,9 +49,13 @@
     </header>
 
     <div class="page-body">
-      <div style="margin-bottom:16px;">
+      <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
         <a href="/writers.html" class="btn btn-ghost btn-sm">&larr; Back to Writers</a>
-        <button class="btn btn-primary btn-sm" id="editWriterBtn" style="float:right;">Edit Writer</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline btn-sm" id="toggleEditBtn" style="display:none;">Edit</button>
+          <button class="btn btn-primary btn-sm" id="saveWriterBtn" style="display:none;">Save Writer</button>
+          <button class="btn btn-outline btn-sm" id="cancelEditBtn" style="display:none;">Cancel</button>
+        </div>
       </div>
 
       <div id="writerDetailContent">
