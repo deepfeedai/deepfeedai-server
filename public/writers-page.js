@@ -138,6 +138,13 @@ function openAdd() {
   document.getElementById('fWriterAvatar').value = '';
   pendingAvatarDataUrl = null;
   document.getElementById('fWriterElevenLabsVoice').value = '';
+  // Personality fields
+  document.getElementById('fWriterBeatAngle').value = '';
+  document.getElementById('fWriterSignaturePhrases').value = '';
+  document.getElementById('fWriterContrarian').value = '0.5';
+  updateContrarianLabel(0.5);
+  // Hide profile panel for new writers
+  document.getElementById('writerProfilePanel').style.display = 'none';
   populateBeatsCheckboxes([]);
   openModal('writerModal');
   document.getElementById('fWriterName').focus();
@@ -180,6 +187,17 @@ function openEdit(id) {
   document.getElementById('fewShotContainer').innerHTML = '';
   var fse = typeof w.few_shot_examples === 'string' ? JSON.parse(w.few_shot_examples || '[]') : (w.few_shot_examples || []);
   fse.forEach(function(ex) { addFewShotRow(ex.title, ex.excerpt); });
+
+  // Personality fields
+  document.getElementById('fWriterBeatAngle').value = w.beat_angle || '';
+  document.getElementById('fWriterSignaturePhrases').value = (w.signature_phrases || []).join(', ');
+  var contLevel = w.contrarian_level != null ? w.contrarian_level : 0.5;
+  document.getElementById('fWriterContrarian').value = contLevel;
+  updateContrarianLabel(contLevel);
+
+  // Show profile panel and load data
+  document.getElementById('writerProfilePanel').style.display = '';
+  loadWriterProfile(w.id);
 
   openModal('writerModal');
   document.getElementById('fWriterName').focus();
@@ -229,6 +247,10 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var beats = getSelectedBeats();
   var gender = document.getElementById('fWriterGender').value || null;
   var ethnicity = document.getElementById('fWriterEthnicity').value || null;
+  var beat_angle = document.getElementById('fWriterBeatAngle').value.trim() || null;
+  var sigRaw = document.getElementById('fWriterSignaturePhrases').value.trim();
+  var signature_phrases = sigRaw ? sigRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean).slice(0, 5) : null;
+  var contrarian_level = parseFloat(document.getElementById('fWriterContrarian').value);
 
   if (!name) { showAlert('Name is required', 'error'); return; }
 
@@ -250,6 +272,9 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     elevenlabs_voice_id: elevenlabs_voice_id,
     gender: gender,
     ethnicity: ethnicity,
+    beat_angle: beat_angle,
+    signature_phrases: signature_phrases,
+    contrarian_level: contrarian_level,
   };
 
   try {
@@ -827,6 +852,139 @@ function startAvatarPolling(writerIds) {
 
 function stopAvatarPolling() {
   if (avatarPollTimer) { clearInterval(avatarPollTimer); avatarPollTimer = null; }
+}
+
+// ── Contrarian slider label ──────────────────────────────────────
+
+function updateContrarianLabel(val) {
+  var el = document.getElementById('contrarianLabel');
+  if (!el) return;
+  var v = parseFloat(val);
+  var label = v <= 0.2 ? 'Straight reporter' : v <= 0.4 ? 'Mostly balanced' : v <= 0.6 ? 'Balanced' : v <= 0.8 ? 'Pushes back' : 'Contrarian';
+  el.textContent = v.toFixed(1) + ' — ' + label;
+}
+
+document.getElementById('fWriterContrarian').addEventListener('input', function() {
+  updateContrarianLabel(this.value);
+});
+
+// ── Writer Profile Panel ────────────────────────────────────────
+
+var currentProfileWriterId = null;
+
+async function loadWriterProfile(writerId) {
+  currentProfileWriterId = writerId;
+  // Load stats, recent articles, and memories in parallel
+  try {
+    var [memories, articles] = await Promise.all([
+      apiFetch('/admin/writers/' + writerId + '/memories').catch(function() { return { memories: [] }; }),
+      apiFetch('/articles?type=editorial&limit=10&offset=0').catch(function() { return { articles: [] }; }),
+    ]);
+
+    var w = writers.find(function(x) { return x.id === writerId; });
+
+    // Stats
+    var writerArticles = (articles.articles || []).filter(function(a) { return a.writer_id === writerId; });
+    document.getElementById('wpArticleCount').textContent = w ? (w.article_count || 0) : writerArticles.length;
+    document.getElementById('wpFollowers').textContent = w ? (w.follower_count || 0) : 0;
+
+    var lastPub = writerArticles.find(function(a) { return a.is_published; });
+    document.getElementById('wpLastPublished').textContent = lastPub ? relativeTime(lastPub.published_at || lastPub.created_at) : 'Never';
+
+    var memList = memories.memories || [];
+    document.getElementById('wpMemoryCount').textContent = memList.length;
+    document.getElementById('wpMemoryBadge').textContent = memList.length;
+
+    // Recent articles
+    var recentEl = document.getElementById('wpRecentArticles');
+    if (writerArticles.length === 0) {
+      recentEl.innerHTML = '<span class="text-muted text-sm">No articles yet</span>';
+    } else {
+      recentEl.innerHTML = writerArticles.slice(0, 8).map(function(a) {
+        var badge = a.content_type === 'deep-dive' ? '<span class="badge badge-accent" style="font-size:9px;">Deep Dive</span>' : '';
+        return '<div class="recent-article-item">'
+          + '<span class="badge badge-muted" style="font-size:10px;">' + escHtml(a.category || '—') + '</span> '
+          + badge
+          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(a.title) + '">' + escHtml(a.title) + '</span>'
+          + '<span class="text-muted text-sm" style="white-space:nowrap;">' + relativeTime(a.published_at || a.created_at) + '</span>'
+          + '</div>';
+      }).join('');
+    }
+
+    // Memories
+    renderMemories(memList);
+
+  } catch (err) {
+    console.error('Failed to load writer profile:', err);
+  }
+}
+
+function renderMemories(memList) {
+  var el = document.getElementById('wpMemories');
+  if (!memList.length) {
+    el.innerHTML = '<span class="text-muted text-sm">No memories yet — they\'re auto-extracted after synthesis.</span>';
+    return;
+  }
+  el.innerHTML = memList.map(function(m) {
+    return '<div class="memory-item">'
+      + '<span class="memory-type memory-type-' + m.memory_type + '">' + m.memory_type.replace('_', ' ') + '</span>'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-weight:600;font-size:13px;">' + escHtml(m.subject) + '</div>'
+      + '<div class="text-muted text-sm">' + escHtml(m.content) + '</div>'
+      + '<div class="text-muted" style="font-size:11px;margin-top:2px;">' + relativeTime(m.created_at)
+      + (m.expires_at ? ' — expires ' + relativeTime(m.expires_at) : '') + '</div>'
+      + '</div>'
+      + '<button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteMemory(' + m.id + ')" style="flex-shrink:0;">&#10005;</button>'
+      + '</div>';
+  }).join('');
+}
+
+window.deleteMemory = async function(memoryId) {
+  if (!currentProfileWriterId) return;
+  try {
+    await apiFetch('/admin/writers/' + currentProfileWriterId + '/memories/' + memoryId, { method: 'DELETE' });
+    loadWriterProfile(currentProfileWriterId);
+    showAlert('Memory deleted');
+  } catch (err) {
+    showAlert('Delete failed: ' + err.message, 'error');
+  }
+};
+
+// Add memory
+document.getElementById('addMemoryBtn').addEventListener('click', function() {
+  document.getElementById('addMemoryForm').style.display = '';
+  document.getElementById('fMemSubject').focus();
+});
+
+document.getElementById('cancelMemoryBtn').addEventListener('click', function() {
+  document.getElementById('addMemoryForm').style.display = 'none';
+});
+
+document.getElementById('saveMemoryBtn').addEventListener('click', async function() {
+  if (!currentProfileWriterId) return;
+  var type = document.getElementById('fMemType').value;
+  var subject = document.getElementById('fMemSubject').value.trim();
+  var content = document.getElementById('fMemContent').value.trim();
+  if (!subject || !content) { showAlert('Subject and content required', 'error'); return; }
+  try {
+    await apiFetch('/admin/writers/' + currentProfileWriterId + '/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memory_type: type, subject: subject, content: content })
+    });
+    document.getElementById('addMemoryForm').style.display = 'none';
+    document.getElementById('fMemSubject').value = '';
+    document.getElementById('fMemContent').value = '';
+    loadWriterProfile(currentProfileWriterId);
+    showAlert('Memory added');
+  } catch (err) {
+    showAlert('Save failed: ' + err.message, 'error');
+  }
+});
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Initialize ───────────────────────────────────────────────────
