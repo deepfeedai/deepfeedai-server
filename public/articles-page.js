@@ -208,15 +208,11 @@ let articles = [];
       filtered = filtered.filter(a => a.category === categoryFilter);
     }
 
-    // 8. Content type filter
+    // 8. Content type filter (editorial formats only — curated articles are in Feed Inbox)
     if (contentTypeFilter === 'original') {
       filtered = filtered.filter(a => a.content_type === 'original');
     } else if (contentTypeFilter === 'deep-dive') {
       filtered = filtered.filter(a => a.content_type === 'deep-dive');
-    } else if (contentTypeFilter === 'curated') {
-      filtered = filtered.filter(a => !a.content_type || a.content_type === 'curated');
-    } else if (contentTypeFilter === 'source') {
-      filtered = filtered.filter(a => a.status === 'source');
     }
 
     // 9. Sort
@@ -1263,7 +1259,7 @@ let articles = [];
       let offset = 0;
       let hasMore = true;
       while (hasMore) {
-        const data = await apiFetch(`/articles?limit=${PAGE_SIZE}&offset=${offset}`);
+        const data = await apiFetch(`/articles?type=editorial&limit=${PAGE_SIZE}&offset=${offset}`);
         const batch = Array.isArray(data) ? data : (data.articles || []);
         all = all.concat(batch);
         hasMore = data.hasMore === true;
