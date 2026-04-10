@@ -1006,7 +1006,11 @@
             </div>
             <button class="btn btn-primary btn-sm" id="addChannelBtn" style="margin-bottom:0;">Add Channel</button>
           </div>
-          <p class="form-help" style="margin-top:8px;">For Telegram: start a chat with your bot, send a message, then use the chat ID. For group chats, the ID starts with <code>-100</code>.</p>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+            <button class="btn btn-outline btn-sm" id="detectChatsBtn">Detect Telegram Chats</button>
+            <div id="detectedChats" style="margin-top:8px;"></div>
+          </div>
+          <p class="form-help" style="margin-top:8px;">Send your bot a message on Telegram first, then click Detect to find the chat ID automatically.</p>
         </div>
 
       </div><!-- /messaging tab -->

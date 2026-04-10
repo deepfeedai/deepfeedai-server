@@ -211,6 +211,43 @@ router.post('/channels/:id/toggle', auth, requirePermission('settings.update'), 
   res.json({ channel: row });
 }));
 
+// GET /api/admin/pitches/telegram-chats — detect recent chats from getUpdates
+router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { getBotToken } = require('../lib/messaging/telegram');
+  const token = await getBotToken(req.tenantId);
+  if (!token) return res.status(400).json({ error: 'No Telegram bot token configured' });
+
+  const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=50`, {
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    const err = await response.text().catch(() => '');
+    return res.status(502).json({ error: `Telegram API error: ${err.slice(0, 200)}` });
+  }
+
+  const data = await response.json();
+  const updates = data.result || [];
+
+  // Extract unique chats
+  const seen = new Set();
+  const chats = [];
+  for (const update of updates) {
+    const msg = update.message || update.edited_message;
+    if (!msg?.chat) continue;
+    const chatId = String(msg.chat.id);
+    if (seen.has(chatId)) continue;
+    seen.add(chatId);
+    chats.push({
+      chat_id: chatId,
+      title: msg.chat.title || [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ') || chatId,
+      type: msg.chat.type,
+      last_message: msg.text?.slice(0, 100) || '',
+    });
+  }
+
+  res.json({ chats });
+}));
+
 // POST /api/admin/pitches/telegram-webhook — set Telegram webhook
 router.post('/telegram-webhook', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const { setWebhook } = require('../lib/messaging/telegram');

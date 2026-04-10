@@ -2044,6 +2044,33 @@ let apiKeyVisible = false;
       }
     });
 
+    // Detect Telegram chats
+    document.getElementById('detectChatsBtn')?.addEventListener('click', async function () {
+      this.disabled = true; this.textContent = 'Detecting...';
+      var container = document.getElementById('detectedChats');
+      try {
+        var data = await apiFetch('/admin/pitches/telegram-chats');
+        var chats = data.chats || [];
+        if (!chats.length) {
+          container.innerHTML = '<div class="text-muted text-sm">No chats found. Send your bot a message on Telegram first, then try again.</div>';
+        } else {
+          container.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Click a chat to use its ID:</div>'
+            + chats.map(function (c) {
+              var typeIcon = c.type === 'group' || c.type === 'supergroup' ? '&#128101;' : '&#128100;';
+              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;" onclick="document.getElementById(\'newChannelId\').value=\'' + c.chat_id + '\';document.getElementById(\'newChannelPlatform\').value=\'telegram\';showAlert(\'Chat ID copied to channel form\');">'
+                + '<span>' + typeIcon + '</span>'
+                + '<div style="flex:1;"><strong>' + c.title + '</strong> <span class="text-muted">(' + c.type + ')</span></div>'
+                + '<code style="font-size:11px;color:var(--accent);">' + c.chat_id + '</code>'
+                + '</div>';
+            }).join('');
+        }
+      } catch (err) {
+        container.innerHTML = '<div class="text-muted text-sm">Detection failed: ' + err.message + '</div>';
+      } finally {
+        this.disabled = false; this.textContent = 'Detect Telegram Chats';
+      }
+    });
+
     // Add channel
     document.getElementById('addChannelBtn')?.addEventListener('click', async function () {
       var platform = document.getElementById('newChannelPlatform').value;
