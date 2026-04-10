@@ -251,9 +251,8 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
 // POST /api/admin/pitches/telegram-webhook — set Telegram webhook
 router.post('/telegram-webhook', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const { setWebhook } = require('../lib/messaging/telegram');
-  const host = req.get('host');
-  const protocol = req.protocol;
-  const webhookUrl = `${protocol}://${host}/api/webhooks/telegram`;
+  const host = req.get('x-forwarded-host') || req.get('host');
+  const webhookUrl = `https://${host}/api/webhooks/telegram`;
   const result = await setWebhook(req.tenantId, webhookUrl);
   res.json({ status: 'ok', webhook_url: webhookUrl, result });
 }));
