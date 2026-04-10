@@ -2003,4 +2003,140 @@ let apiKeyVisible = false;
     }
   });
 
+  // ── Messaging Tab ──────────────────────────────────────────────
+  (function initMessaging() {
+    // Save Telegram token
+    document.getElementById('saveTelegramBtn')?.addEventListener('click', async function () {
+      var token = document.getElementById('telegramBotToken').value.trim();
+      var statusEl = document.getElementById('telegramSaveStatus');
+      if (!token) { showAlert('Enter a bot token', 'error'); return; }
+      this.disabled = true; this.textContent = 'Saving...';
+      try {
+        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ telegram_bot_token: token }) });
+        document.getElementById('telegramBotToken').value = '';
+        document.getElementById('telegramBotToken').placeholder = '••••••••  (saved)';
+        var badge = document.getElementById('telegramStatus');
+        if (badge) { badge.textContent = 'Configured'; badge.className = 'badge badge-success'; }
+        document.getElementById('setTelegramWebhookBtn').style.display = '';
+        if (statusEl) { statusEl.textContent = 'Token saved'; setTimeout(function() { statusEl.textContent = ''; }, 3000); }
+        showAlert('Telegram bot token saved');
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Save failed: ' + err.message;
+        showAlert('Save failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Save Token';
+      }
+    });
+
+    // Set webhook
+    document.getElementById('setTelegramWebhookBtn')?.addEventListener('click', async function () {
+      this.disabled = true; this.textContent = 'Setting...';
+      var statusEl = document.getElementById('telegramSaveStatus');
+      try {
+        var data = await apiFetch('/admin/pitches/telegram-webhook', { method: 'POST' });
+        if (statusEl) statusEl.textContent = 'Webhook set: ' + data.webhook_url;
+        showAlert('Telegram webhook configured');
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Webhook failed: ' + err.message;
+        showAlert('Webhook failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Set Webhook';
+      }
+    });
+
+    // Add channel
+    document.getElementById('addChannelBtn')?.addEventListener('click', async function () {
+      var platform = document.getElementById('newChannelPlatform').value;
+      var channelId = document.getElementById('newChannelId').value.trim();
+      var writerId = document.getElementById('newChannelWriter').value;
+      if (!channelId) { showAlert('Channel ID is required', 'error'); return; }
+      try {
+        await apiFetch('/admin/pitches/channels', {
+          method: 'POST',
+          body: JSON.stringify({ platform: platform, channel_id: channelId, writer_id: writerId || null })
+        });
+        document.getElementById('newChannelId').value = '';
+        showAlert('Channel added');
+        loadChannels();
+      } catch (err) {
+        showAlert('Add failed: ' + err.message, 'error');
+      }
+    });
+  })();
+
+  async function loadMessagingTab(settings) {
+    // Telegram status
+    var badge = document.getElementById('telegramStatus');
+    if (settings.telegram_bot_token) {
+      if (badge) { badge.textContent = 'Configured'; badge.className = 'badge badge-success'; }
+      document.getElementById('telegramBotToken').placeholder = '••••••••  (saved)';
+      var webhookBtn = document.getElementById('setTelegramWebhookBtn');
+      if (webhookBtn) webhookBtn.style.display = '';
+    }
+    // Populate writer dropdown for channels
+    try {
+      var writers = await apiFetch('/admin/writers');
+      var sel = document.getElementById('newChannelWriter');
+      if (sel && writers.length) {
+        sel.innerHTML = '<option value="">All Writers</option>' + writers.map(function (w) {
+          return '<option value="' + w.id + '">' + w.name + '</option>';
+        }).join('');
+      }
+    } catch {}
+    loadChannels();
+  }
+
+  async function loadChannels() {
+    var container = document.getElementById('channelsList');
+    if (!container) return;
+    try {
+      var data = await apiFetch('/admin/pitches/channels');
+      var channels = data.channels || [];
+      if (!channels.length) {
+        container.innerHTML = '<div class="text-muted text-sm" style="padding:12px;">No channels configured yet.</div>';
+        return;
+      }
+      var platformIcons = { telegram: '&#128172;', slack: '&#128488;', discord: '&#127918;', webhook: '&#128279;' };
+      container.innerHTML = '<table style="width:100%;font-size:13px;"><thead><tr><th>Platform</th><th>Channel ID</th><th>Writer</th><th>Active</th><th></th></tr></thead><tbody>'
+        + channels.map(function (ch) {
+          return '<tr>'
+            + '<td>' + (platformIcons[ch.platform] || '') + ' ' + ch.platform + '</td>'
+            + '<td class="text-muted input-mono" style="font-size:12px;">' + (ch.channel_id || '') + '</td>'
+            + '<td>' + (ch.writer_name || '<span class="text-muted">All</span>') + '</td>'
+            + '<td><button class="btn btn-ghost btn-sm" onclick="toggleChannel(' + ch.id + ')">' + (ch.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Off</span>') + '</button></td>'
+            + '<td><button class="btn btn-ghost btn-sm" onclick="deleteChannel(' + ch.id + ')">&#10005;</button></td>'
+            + '</tr>';
+        }).join('')
+        + '</tbody></table>';
+    } catch {
+      container.innerHTML = '<div class="text-muted text-sm">Failed to load channels.</div>';
+    }
+  }
+
+  window.toggleChannel = async function (id) {
+    try {
+      await apiFetch('/admin/pitches/channels/' + id + '/toggle', { method: 'POST' });
+      loadChannels();
+    } catch (err) { showAlert('Toggle failed: ' + err.message, 'error'); }
+  };
+
+  window.deleteChannel = async function (id) {
+    if (!confirm('Remove this channel?')) return;
+    try {
+      await apiFetch('/admin/pitches/channels/' + id, { method: 'DELETE' });
+      showAlert('Channel removed');
+      loadChannels();
+    } catch (err) { showAlert('Delete failed: ' + err.message, 'error'); }
+  };
+
+  // Hook messaging load into settings
+  var _origLoadSettings = loadSettings;
+  loadSettings = async function () {
+    await _origLoadSettings();
+    try {
+      var settings = await apiFetch('/settings');
+      loadMessagingTab(settings);
+    } catch {}
+  };
+
   loadSettings();

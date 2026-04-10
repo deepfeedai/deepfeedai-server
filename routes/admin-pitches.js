@@ -166,4 +166,59 @@ router.get('/newsroom', auth, asyncHandler(async (req, res) => {
   res.json({ messages: messages.rows });
 }));
 
+// ── Messaging Channels ──────────────────────────────────────────
+
+// GET /api/admin/pitches/channels — list messaging channels
+router.get('/channels', auth, requirePermission('settings.read'), asyncHandler(async (req, res) => {
+  const channels = await getPool().query(`
+    SELECT mc.*, w.name AS writer_name
+    FROM messaging_channels mc
+    LEFT JOIN writers w ON w.id = mc.writer_id
+    WHERE mc.tenant_id = $1
+    ORDER BY mc.created_at DESC
+  `, [req.tenantId]);
+  res.json({ channels: channels.rows });
+}));
+
+// POST /api/admin/pitches/channels — add a channel
+router.post('/channels', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { platform, channel_id, writer_id } = req.body;
+  if (!platform || !channel_id) return res.status(400).json({ error: 'platform and channel_id required' });
+
+  const row = await db.prepare(`
+    INSERT INTO messaging_channels (tenant_id, platform, channel_id, writer_id)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
+  `).get(req.tenantId, platform, channel_id.trim(), writer_id ? parseInt(writer_id) : null);
+
+  res.json({ channel: row });
+}));
+
+// DELETE /api/admin/pitches/channels/:id — remove a channel
+router.delete('/channels/:id', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  await db.prepare(
+    'DELETE FROM messaging_channels WHERE id = $1 AND tenant_id = $2'
+  ).run(req.params.id, req.tenantId);
+  res.json({ status: 'ok' });
+}));
+
+// POST /api/admin/pitches/channels/:id/toggle — toggle active
+router.post('/channels/:id/toggle', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const row = await db.prepare(
+    'UPDATE messaging_channels SET is_active = NOT is_active WHERE id = $1 AND tenant_id = $2 RETURNING *'
+  ).get(req.params.id, req.tenantId);
+  if (!row) return res.status(404).json({ error: 'Channel not found' });
+  res.json({ channel: row });
+}));
+
+// POST /api/admin/pitches/telegram-webhook — set Telegram webhook
+router.post('/telegram-webhook', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { setWebhook } = require('../lib/messaging/telegram');
+  const host = req.get('host');
+  const protocol = req.protocol;
+  const webhookUrl = `${protocol}://${host}/api/webhooks/telegram`;
+  const result = await setWebhook(req.tenantId, webhookUrl);
+  res.json({ status: 'ok', webhook_url: webhookUrl, result });
+}));
+
 module.exports = router;
