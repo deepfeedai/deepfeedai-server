@@ -46,18 +46,61 @@ function renderWriters() {
 
     return '<tr>'
       + '<td>' + avatarHtml + '</td>'
-      + '<td><strong>' + esc(w.name) + '</strong></td>'
+      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a></td>'
       + '<td>' + beatsHtml + '</td>'
       + '<td style="text-align:center;">' + autoBadge + '</td>'
       + '<td class="text-muted text-sm">' + (w.elevenlabs_voice_id ? '<span title="' + esc(w.elevenlabs_voice_id) + '">Configured</span>' : 'None') + '</td>'
       + '<td style="text-align:center;">' + (w.article_count || 0) + '</td>'
       + '<td>'
       + '<div style="display:flex;gap:6px;">'
-      + '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(' + w.id + ')">&#9998;&#65039;</button>'
+      + '<button class="btn btn-ghost btn-sm btn-icon" title="View" onclick="showWriterQuickView(' + w.id + ')">&#128065;</button>'
+      + '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="window.location.href=\'/writer-detail.html?id=' + w.id + '&edit=1\'">&#9998;&#65039;</button>'
       + '<button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(' + w.id + ')">&#128465;&#65039;</button>'
       + '</div>'
       + '</td>'
       + '</tr>';
+  }).join('');
+
+  // Card grid view
+  renderWriterCards();
+}
+
+function renderWriterCards() {
+  var container = document.getElementById('writersCardGrid');
+  if (!container) return;
+  if (!writers.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No writers configured</p></div>';
+    return;
+  }
+
+  container.innerHTML = writers.map(function(w) {
+    var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
+    var beatsHtml = beats.slice(0, 3).map(function(n) { return '<span class="badge badge-muted" style="font-size:10px;">' + esc(n) + '</span>'; }).join(' ');
+    var angleSnippet = w.beat_angle ? '<div class="text-muted text-sm" style="margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(w.beat_angle) + '">' + esc(w.beat_angle) + '</div>' : '';
+    var autoBadge = w.is_auto ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>' : '';
+
+    return '<div class="writer-card" onclick="showWriterQuickView(' + w.id + ')">'
+      + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
+      + (w.avatar_url
+        ? '<img src="' + esc(w.avatar_url) + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);flex-shrink:0;" />'
+        : '<div style="width:48px;height:48px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">&#9997;&#65039;</div>')
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-weight:700;font-size:15px;">' + esc(w.name) + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">' + beatsHtml + ' ' + autoBadge + '</div>'
+      + '</div>'
+      + '</div>'
+      + (w.bio ? '<div class="text-muted text-sm" style="line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + esc(w.bio) + '</div>' : '')
+      + angleSnippet
+      + '<div style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:var(--muted);">'
+      + '<span><strong style="color:var(--text);">' + (w.article_count || 0) + '</strong> articles</span>'
+      + '<span><strong style="color:var(--text);">' + (w.follower_count || 0) + '</strong> followers</span>'
+      + (w.tone ? '<span>' + esc(w.tone) + '</span>' : '')
+      + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:10px;justify-content:flex-end;">'
+      + '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();window.location.href=\'/writer-detail.html?id=' + w.id + '&edit=1\'">&#9998;&#65039; Edit</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openDelete(' + w.id + ')">&#128465;&#65039;</button>'
+      + '</div>'
+      + '</div>';
   }).join('');
 }
 
@@ -138,6 +181,13 @@ function openAdd() {
   document.getElementById('fWriterAvatar').value = '';
   pendingAvatarDataUrl = null;
   document.getElementById('fWriterElevenLabsVoice').value = '';
+  // Personality fields
+  document.getElementById('fWriterBeatAngle').value = '';
+  document.getElementById('fWriterSignaturePhrases').value = '';
+  document.getElementById('fWriterContrarian').value = '0.5';
+  updateContrarianLabel(0.5);
+  // Hide profile panel for new writers
+  document.getElementById('writerProfilePanel').style.display = 'none';
   populateBeatsCheckboxes([]);
   openModal('writerModal');
   document.getElementById('fWriterName').focus();
@@ -180,6 +230,17 @@ function openEdit(id) {
   document.getElementById('fewShotContainer').innerHTML = '';
   var fse = typeof w.few_shot_examples === 'string' ? JSON.parse(w.few_shot_examples || '[]') : (w.few_shot_examples || []);
   fse.forEach(function(ex) { addFewShotRow(ex.title, ex.excerpt); });
+
+  // Personality fields
+  document.getElementById('fWriterBeatAngle').value = w.beat_angle || '';
+  document.getElementById('fWriterSignaturePhrases').value = (w.signature_phrases || []).join(', ');
+  var contLevel = w.contrarian_level != null ? w.contrarian_level : 0.5;
+  document.getElementById('fWriterContrarian').value = contLevel;
+  updateContrarianLabel(contLevel);
+
+  // Show profile panel and load data
+  document.getElementById('writerProfilePanel').style.display = '';
+  loadWriterProfile(w.id);
 
   openModal('writerModal');
   document.getElementById('fWriterName').focus();
@@ -229,6 +290,10 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var beats = getSelectedBeats();
   var gender = document.getElementById('fWriterGender').value || null;
   var ethnicity = document.getElementById('fWriterEthnicity').value || null;
+  var beat_angle = document.getElementById('fWriterBeatAngle').value.trim() || null;
+  var sigRaw = document.getElementById('fWriterSignaturePhrases').value.trim();
+  var signature_phrases = sigRaw ? sigRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean).slice(0, 5) : null;
+  var contrarian_level = parseFloat(document.getElementById('fWriterContrarian').value);
 
   if (!name) { showAlert('Name is required', 'error'); return; }
 
@@ -250,6 +315,9 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     elevenlabs_voice_id: elevenlabs_voice_id,
     gender: gender,
     ethnicity: ethnicity,
+    beat_angle: beat_angle,
+    signature_phrases: signature_phrases,
+    contrarian_level: contrarian_level,
   };
 
   try {
@@ -829,13 +897,289 @@ function stopAvatarPolling() {
   if (avatarPollTimer) { clearInterval(avatarPollTimer); avatarPollTimer = null; }
 }
 
+// ── Contrarian slider label ──────────────────────────────────────
+
+function updateContrarianLabel(val) {
+  var el = document.getElementById('contrarianLabel');
+  if (!el) return;
+  var v = parseFloat(val);
+  var label = v <= 0.2 ? 'Straight reporter' : v <= 0.4 ? 'Mostly balanced' : v <= 0.6 ? 'Balanced' : v <= 0.8 ? 'Pushes back' : 'Contrarian';
+  el.textContent = v.toFixed(1) + ' — ' + label;
+}
+
+document.getElementById('fWriterContrarian').addEventListener('input', function() {
+  updateContrarianLabel(this.value);
+});
+
+// ── Writer Profile Panel ────────────────────────────────────────
+
+var currentProfileWriterId = null;
+
+async function loadWriterProfile(writerId) {
+  currentProfileWriterId = writerId;
+  // Load stats, recent articles, and memories in parallel
+  try {
+    var [memories, articles] = await Promise.all([
+      apiFetch('/admin/writers/' + writerId + '/memories').catch(function() { return { memories: [] }; }),
+      apiFetch('/articles?type=editorial&limit=10&offset=0').catch(function() { return { articles: [] }; }),
+    ]);
+
+    var w = writers.find(function(x) { return x.id === writerId; });
+
+    // Stats
+    var writerArticles = (articles.articles || []).filter(function(a) { return a.writer_id === writerId; });
+    document.getElementById('wpArticleCount').textContent = w ? (w.article_count || 0) : writerArticles.length;
+    document.getElementById('wpFollowers').textContent = w ? (w.follower_count || 0) : 0;
+
+    var lastPub = writerArticles.find(function(a) { return a.is_published; });
+    document.getElementById('wpLastPublished').textContent = lastPub ? relativeTime(lastPub.published_at || lastPub.created_at) : 'Never';
+
+    var memList = memories.memories || [];
+    document.getElementById('wpMemoryCount').textContent = memList.length;
+    document.getElementById('wpMemoryBadge').textContent = memList.length;
+
+    // Recent articles
+    var recentEl = document.getElementById('wpRecentArticles');
+    if (writerArticles.length === 0) {
+      recentEl.innerHTML = '<span class="text-muted text-sm">No articles yet</span>';
+    } else {
+      recentEl.innerHTML = writerArticles.slice(0, 8).map(function(a) {
+        var badge = a.content_type === 'deep-dive' ? '<span class="badge badge-accent" style="font-size:9px;">Deep Dive</span>' : '';
+        return '<div class="recent-article-item">'
+          + '<span class="badge badge-muted" style="font-size:10px;">' + escHtml(a.category || '—') + '</span> '
+          + badge
+          + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(a.title) + '">' + escHtml(a.title) + '</span>'
+          + '<span class="text-muted text-sm" style="white-space:nowrap;">' + relativeTime(a.published_at || a.created_at) + '</span>'
+          + '</div>';
+      }).join('');
+    }
+
+    // Memories
+    renderMemories(memList);
+
+  } catch (err) {
+    console.error('Failed to load writer profile:', err);
+  }
+}
+
+function renderMemories(memList) {
+  var el = document.getElementById('wpMemories');
+  if (!memList.length) {
+    el.innerHTML = '<span class="text-muted text-sm">No memories yet — they\'re auto-extracted after synthesis.</span>';
+    return;
+  }
+  el.innerHTML = memList.map(function(m) {
+    return '<div class="memory-item">'
+      + '<span class="memory-type memory-type-' + m.memory_type + '">' + m.memory_type.replace('_', ' ') + '</span>'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-weight:600;font-size:13px;">' + escHtml(m.subject) + '</div>'
+      + '<div class="text-muted text-sm">' + escHtml(m.content) + '</div>'
+      + '<div class="text-muted" style="font-size:11px;margin-top:2px;">' + relativeTime(m.created_at)
+      + (m.expires_at ? ' — expires ' + relativeTime(m.expires_at) : '') + '</div>'
+      + '</div>'
+      + '<button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteMemory(' + m.id + ')" style="flex-shrink:0;">&#10005;</button>'
+      + '</div>';
+  }).join('');
+}
+
+window.deleteMemory = async function(memoryId) {
+  if (!currentProfileWriterId) return;
+  try {
+    await apiFetch('/admin/writers/' + currentProfileWriterId + '/memories/' + memoryId, { method: 'DELETE' });
+    loadWriterProfile(currentProfileWriterId);
+    showAlert('Memory deleted');
+  } catch (err) {
+    showAlert('Delete failed: ' + err.message, 'error');
+  }
+};
+
+// Add memory
+document.getElementById('addMemoryBtn').addEventListener('click', function() {
+  document.getElementById('addMemoryForm').style.display = '';
+  document.getElementById('fMemSubject').focus();
+});
+
+document.getElementById('cancelMemoryBtn').addEventListener('click', function() {
+  document.getElementById('addMemoryForm').style.display = 'none';
+});
+
+document.getElementById('saveMemoryBtn').addEventListener('click', async function() {
+  if (!currentProfileWriterId) return;
+  var type = document.getElementById('fMemType').value;
+  var subject = document.getElementById('fMemSubject').value.trim();
+  var content = document.getElementById('fMemContent').value.trim();
+  if (!subject || !content) { showAlert('Subject and content required', 'error'); return; }
+  try {
+    await apiFetch('/admin/writers/' + currentProfileWriterId + '/memories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memory_type: type, subject: subject, content: content })
+    });
+    document.getElementById('addMemoryForm').style.display = 'none';
+    document.getElementById('fMemSubject').value = '';
+    document.getElementById('fMemContent').value = '';
+    loadWriterProfile(currentProfileWriterId);
+    showAlert('Memory added');
+  } catch (err) {
+    showAlert('Save failed: ' + err.message, 'error');
+  }
+});
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Writer Quick View ───────────────────────────────────────────
+
+window.showWriterQuickView = async function(id) {
+  var w = writers.find(function(x) { return x.id === id; });
+  if (!w) return;
+
+  var body = document.getElementById('writerQuickViewBody');
+  body.innerHTML = '<div style="text-align:center;padding:40px;"><span class="spinner"></span></div>';
+
+  // Wire footer buttons
+  document.getElementById('qvFullPageLink').href = '/writer-detail.html?id=' + w.id;
+  document.getElementById('qvEditBtn').onclick = function() { window.location.href = '/writer-detail.html?id=' + w.id + '&edit=1'; };
+
+  openModal('writerQuickViewModal');
+
+  // Fetch supplementary data
+  var [memories, articles, perfRes] = await Promise.all([
+    apiFetch('/admin/writers/' + w.id + '/memories').catch(function() { return { memories: [] }; }),
+    apiFetch('/articles?type=editorial&limit=50&offset=0').catch(function() { return { articles: [] }; }),
+    apiFetch('/admin/writers/performance?range=30d').catch(function() { return []; }),
+  ]);
+
+  var memList = memories.memories || [];
+  var writerArticles = (articles.articles || []).filter(function(a) { return a.writer_id === w.id; });
+  var perf = (Array.isArray(perfRes) ? perfRes : []).find(function(p) { return p.writer_id === w.id || p.id === w.id; });
+
+  var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
+  var contLevel = w.contrarian_level != null ? parseFloat(w.contrarian_level) : 0.5;
+  var contLabel = contLevel <= 0.2 ? 'Straight reporter' : contLevel <= 0.4 ? 'Mostly balanced' : contLevel <= 0.6 ? 'Balanced' : contLevel <= 0.8 ? 'Pushes back' : 'Contrarian';
+
+  var html = '<div style="padding:24px;">';
+
+  // Header: avatar + name + bio
+  html += '<div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:24px;">';
+  if (w.avatar_url) {
+    html += '<img src="' + esc(w.avatar_url) + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);flex-shrink:0;" />';
+  } else {
+    html += '<div style="width:80px;height:80px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0;">&#9997;&#65039;</div>';
+  }
+  html += '<div style="flex:1;min-width:0;">';
+  html += '<h2 style="margin:0 0 4px;font-size:1.5rem;">' + esc(w.name) + '</h2>';
+  if (beats.length) {
+    html += '<div style="margin-bottom:6px;">' + beats.map(function(b) { return '<span class="badge badge-muted" style="font-size:11px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
+  }
+  if (w.bio) html += '<p style="color:var(--muted);margin:0;font-size:0.9rem;line-height:1.5;">' + esc(w.bio) + '</p>';
+  html += '</div></div>';
+
+  // Stats row
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:20px;">';
+  var stats = [
+    { label: 'Articles', value: w.article_count || 0 },
+    { label: 'Followers', value: w.follower_count || 0 },
+    { label: 'Memories', value: memList.length },
+    { label: 'Avg Score', value: perf ? (parseFloat(perf.avg_editorial_score) || 0).toFixed(1) : '—' },
+    { label: 'Views', value: perf ? (perf.total_views || 0) : '—' },
+    { label: 'Reactions', value: perf ? (perf.total_reactions || 0) : '—' },
+  ];
+  stats.forEach(function(s) {
+    html += '<div style="text-align:center;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);">'
+      + '<div class="text-muted" style="font-size:11px;">' + s.label + '</div>'
+      + '<div style="font-size:1.2rem;font-weight:700;">' + s.value + '</div></div>';
+  });
+  html += '</div>';
+
+  // Personality
+  if (w.beat_angle || (w.signature_phrases && w.signature_phrases.length) || contLevel !== 0.5) {
+    html += '<div style="margin-bottom:20px;padding:14px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);">';
+    html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">PERSONALITY</div>';
+    if (w.beat_angle) html += '<div style="margin-bottom:6px;"><strong>Angle:</strong> ' + esc(w.beat_angle) + '</div>';
+    if (w.signature_phrases && w.signature_phrases.length) html += '<div style="margin-bottom:6px;"><strong>Phrases:</strong> ' + w.signature_phrases.map(function(p) { return '&ldquo;' + esc(p) + '&rdquo;'; }).join(', ') + '</div>';
+    html += '<div><strong>Style:</strong> ' + contLabel + ' (' + contLevel.toFixed(1) + ')</div>';
+    html += '</div>';
+  }
+
+  // Voice & Automation
+  html += '<div style="display:flex;gap:10px;margin-bottom:20px;">';
+  if (w.tone || w.expertise_level) {
+    html += '<div style="flex:1;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);font-size:13px;">';
+    html += '<div style="font-weight:700;color:var(--muted);margin-bottom:4px;">STYLE</div>';
+    if (w.tone) html += '<div>Tone: <strong>' + esc(w.tone) + '</strong></div>';
+    if (w.expertise_level) html += '<div>Expertise: <strong>' + esc(w.expertise_level) + '</strong></div>';
+    html += '</div>';
+  }
+  html += '<div style="flex:1;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);font-size:13px;">';
+  html += '<div style="font-weight:700;color:var(--muted);margin-bottom:4px;">AUTOMATION</div>';
+  html += '<div>Mode: <strong>' + (w.is_auto ? 'Auto' : 'Manual') + '</strong></div>';
+  html += '<div>Schedule: <strong>' + esc(w.synthesis_schedule || 'daily') + '</strong></div>';
+  html += '<div>Voice: <strong>' + (w.elevenlabs_voice_id ? 'Configured' : 'None') + '</strong></div>';
+  html += '</div></div>';
+
+  // Recent Articles
+  html += '<div style="margin-bottom:20px;">';
+  html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">RECENT ARTICLES</div>';
+  if (writerArticles.length === 0) {
+    html += '<div class="text-muted text-sm">No articles yet</div>';
+  } else {
+    writerArticles.slice(0, 8).forEach(function(a) {
+      var typeBadge = a.content_type === 'deep-dive' ? '<span class="badge badge-accent" style="font-size:9px;">Deep Dive</span> ' : '';
+      html += '<div class="recent-article-item">'
+        + '<span class="badge badge-muted" style="font-size:10px;">' + esc(a.category || '—') + '</span> '
+        + typeBadge
+        + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(a.title) + '</span>'
+        + '<span class="text-muted text-sm" style="white-space:nowrap;">' + relativeTime(a.published_at || a.created_at) + '</span>'
+        + '</div>';
+    });
+  }
+  html += '</div>';
+
+  // Memories
+  html += '<div>';
+  html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">EDITORIAL MEMORY (' + memList.length + ')</div>';
+  if (memList.length === 0) {
+    html += '<div class="text-muted text-sm">No memories yet — auto-extracted after synthesis.</div>';
+  } else {
+    memList.slice(0, 10).forEach(function(m) {
+      html += '<div class="memory-item">'
+        + '<span class="memory-type memory-type-' + m.memory_type + '">' + m.memory_type.replace('_', ' ') + '</span>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:600;font-size:13px;">' + esc(m.subject) + '</div>'
+        + '<div class="text-muted text-sm">' + esc(m.content) + '</div>'
+        + '</div></div>';
+    });
+    if (memList.length > 10) html += '<div class="text-muted text-sm" style="margin-top:4px;">+ ' + (memList.length - 10) + ' more</div>';
+  }
+  html += '</div>';
+
+  html += '</div>';
+  body.innerHTML = html;
+};
+
 // ── Initialize ───────────────────────────────────────────────────
+
+var writerViewMode = localStorage.getItem('dfa_writers_view') || 'table';
+
+function applyWriterViewMode() {
+  var tableEl = document.querySelector('.writers-table-view');
+  var cardEl = document.getElementById('writersCardGrid');
+  if (tableEl) tableEl.style.display = writerViewMode === 'table' ? '' : 'none';
+  if (cardEl) cardEl.style.display = writerViewMode === 'cards' ? 'grid' : 'none';
+  document.querySelectorAll('#writerViewToggle .view-toggle-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.view === writerViewMode);
+  });
+}
 
 async function init() {
   renderSidebar();
   initModals();
   await loadCategoriesList();
   await loadWriters();
+  applyWriterViewMode();
 
   // Voice preview handler
   document.getElementById('previewVoiceBtn').addEventListener('click', async function() {
@@ -865,6 +1209,15 @@ async function init() {
     } finally {
       document.getElementById('previewVoiceBtn').disabled = false;
     }
+  });
+
+  // View toggle
+  document.querySelectorAll('#writerViewToggle .view-toggle-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      writerViewMode = btn.dataset.view;
+      localStorage.setItem('dfa_writers_view', writerViewMode);
+      applyWriterViewMode();
+    });
   });
 }
 

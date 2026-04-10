@@ -6,7 +6,8 @@ onReady(async () => {
     if (user) document.getElementById('topbarUser').textContent = `👤 ${user}`;
 
     // Show skeletons while data loads
-    ['statTotal','statPublished','statDrafts','statToday','statWeek','statSources',
+    ['statTotal','statPublished','statDrafts','statToday','statWeek',
+     'statFeedTotal','statFeedToday','statFeedWeek','statSources',
      'statAudioTotal','statAudioLive','statAudioHidden','statNoAudio','statImages','statFeatured'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.innerHTML = '<span class="skeleton sk-stat-value" style="width:50px;height:28px;display:block;"></span>';
@@ -15,14 +16,14 @@ onReady(async () => {
     if (recentBodyEl) recentBodyEl.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-md'], 5);
 
     try {
-      // Fetch all articles by paginating through the API (max 500 per request)
-      async function fetchAllArticles() {
+      // Fetch articles by type, paginating through the API (max 500 per request)
+      async function fetchArticles(type) {
         const PAGE_SIZE = 500;
         let all = [];
         let offset = 0;
         let hasMore = true;
         while (hasMore) {
-          const data = await apiFetch(`/articles?limit=${PAGE_SIZE}&offset=${offset}`);
+          const data = await apiFetch(`/articles?type=${type}&limit=${PAGE_SIZE}&offset=${offset}`);
           const batch = Array.isArray(data) ? data : (data.articles || []);
           all = all.concat(batch);
           hasMore = data.hasMore === true;
@@ -32,8 +33,9 @@ onReady(async () => {
         return all;
       }
 
-      const [articlesRaw, sources, settings, commentsData, queueData] = await Promise.all([
-        fetchAllArticles(),
+      const [editorialRaw, curatedRaw, sources, settings, commentsData, queueData] = await Promise.all([
+        fetchArticles('editorial'),
+        fetchArticles('curated'),
         apiFetch('/sources'),
         apiFetch('/settings').catch(() => ({})),
         apiFetch('/comments/admin').catch(() => ({ comments: [] })),
@@ -46,11 +48,12 @@ onReady(async () => {
         if (banner) banner.style.display = 'block';
       }
 
-      const articles  = articlesRaw;
+      const articles  = editorialRaw;
       const now       = Date.now();
       const DAY_MS    = 86400000;
       const WEEK_MS   = 7 * DAY_MS;
 
+      // Editorial metrics
       const active    = articles.filter(a => !a.is_archived);
       const published = active.filter(a => a.is_published);
       const drafts    = active.filter(a => !a.is_published && a.status !== 'review');
@@ -64,12 +67,20 @@ onReady(async () => {
       const noAudio     = active.filter(a => !a.audio_status || a.audio_status === 'error');
       const hasImage    = active.filter(a => a.image_url);
 
+      // Ingestion metrics
+      const feedActive = curatedRaw.filter(a => !a.is_archived);
+
       // ── Stat cards ────────────────────────────────────────────
       document.getElementById('statTotal').textContent     = active.length;
       document.getElementById('statPublished').textContent = published.length;
       document.getElementById('statDrafts').textContent    = drafts.length;
       document.getElementById('statToday').textContent     = today.length;
       document.getElementById('statWeek').textContent      = week.length;
+
+      // Ingestion stats
+      document.getElementById('statFeedTotal').textContent = feedActive.length;
+      document.getElementById('statFeedToday').textContent = feedActive.filter(a => now - new Date(a.created_at).getTime() <= DAY_MS).length;
+      document.getElementById('statFeedWeek').textContent  = feedActive.filter(a => now - new Date(a.created_at).getTime() <= WEEK_MS).length;
       document.getElementById('statSources').textContent   = sources.filter(s => s.is_active).length;
       document.getElementById('statAudioTotal').textContent  = audioReady.length;
       document.getElementById('statAudioLive').textContent   = audioLive.length;

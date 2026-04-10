@@ -41,6 +41,18 @@
     .leader-bar-fill { height:100%; border-radius:3px; transition:width 0.4s ease; }
     .chart-section { margin-bottom:24px; }
     .chart-section .chart-container { position:relative; height:260px; }
+    .writer-card-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px; margin-bottom:24px; }
+    .writer-card { background:var(--bg-card, #161616); border:1px solid var(--border); border-radius:12px; padding:16px; cursor:pointer; transition:border-color 0.15s; }
+    .writer-card:hover { border-color:var(--accent); }
+    .memory-item { display:flex; align-items:flex-start; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); }
+    .memory-item:last-child { border-bottom:none; }
+    .memory-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 6px; border-radius:4px; white-space:nowrap; }
+    .memory-type-position { background:rgba(168,85,247,0.15); color:#a855f7; }
+    .memory-type-thread { background:rgba(59,130,246,0.15); color:#3b82f6; }
+    .memory-type-source_note { background:rgba(34,197,94,0.15); color:#22c55e; }
+    .memory-type-prediction { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .recent-article-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px; }
+    .recent-article-item:last-child { border-bottom:none; }
   </style>
 </head>
 <body>
@@ -62,11 +74,21 @@
       <div id="writersSection">
         <div class="section-header">
           <div class="section-title">Writer Personas</div>
-          <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
-          <button class="btn btn-primary" id="addWriterBtn">+ Add Writer</button>
+          <div class="btn-group" style="display:flex;gap:8px;align-items:center;">
+            <div class="view-toggle" id="writerViewToggle">
+              <button class="view-toggle-btn active" data-view="table" title="Table view">&#9776;</button>
+              <button class="view-toggle-btn" data-view="cards" title="Card view">&#9638;</button>
+            </div>
+            <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
+            <button class="btn btn-primary" id="addWriterBtn" onclick="window.location.href='/writer-detail.html?new=1'">+ Add Writer</button>
+          </div>
         </div>
 
-        <div class="table-wrap"><div class="table-scroll">
+        <!-- Card grid view -->
+        <div id="writersCardGrid" class="writer-card-grid" style="display:none;"></div>
+
+        <!-- Table view -->
+        <div class="table-wrap writers-table-view"><div class="table-scroll">
           <table id="writersTable">
             <thead>
               <tr>
@@ -219,6 +241,30 @@
         <textarea class="form-control" id="fWriterSystemPrompt" rows="4" placeholder="You are Ghost, a no-nonsense cybersecurity analyst..."></textarea>
       </div>
 
+      <!-- Personality -->
+      <details class="style-section" id="personalitySection">
+        <summary>Personality</summary>
+        <div class="form-group" style="margin-top:8px;">
+          <label class="form-label">Beat Angle</label>
+          <input type="text" class="form-control" id="fWriterBeatAngle" placeholder="e.g. AI chips through supply chain economics" />
+          <p class="form-help">The lens through which this writer covers their beats — not the topic, but the perspective.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Signature Phrases</label>
+          <input type="text" class="form-control" id="fWriterSignaturePhrases" placeholder='e.g. Follow the money, Here&#39;s the thing no one&#39;s saying' />
+          <p class="form-help">Comma-separated. Up to 5 go-to phrases this writer uses.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contrarian Level</label>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="text-muted text-sm">Straight reporter</span>
+            <input type="range" id="fWriterContrarian" min="0" max="1" step="0.1" value="0.5" style="flex:1;" />
+            <span class="text-muted text-sm">Contrarian</span>
+          </div>
+          <div class="text-center text-muted text-sm" id="contrarianLabel" style="margin-top:4px;">0.5 — Balanced</div>
+        </div>
+      </details>
+
       <!-- Style Profile -->
       <details class="style-section">
         <summary>Style Profile</summary>
@@ -291,6 +337,72 @@
           <input type="number" class="form-control" id="fWriterMinCluster" value="3" min="1" max="100" />
         </div>
       </div>
+      <!-- Writer Profile (edit mode only) -->
+      <div id="writerProfilePanel" style="display:none;">
+        <hr style="border-color:var(--border);margin:20px 0;" />
+
+        <!-- Stats -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+          <div class="stat-card" style="flex:1;min-width:100px;padding:12px;text-align:center;">
+            <div class="text-muted text-sm">Articles</div>
+            <div style="font-size:1.3rem;font-weight:700;" id="wpArticleCount">—</div>
+          </div>
+          <div class="stat-card" style="flex:1;min-width:100px;padding:12px;text-align:center;">
+            <div class="text-muted text-sm">Last Published</div>
+            <div style="font-size:0.9rem;font-weight:600;" id="wpLastPublished">—</div>
+          </div>
+          <div class="stat-card" style="flex:1;min-width:100px;padding:12px;text-align:center;">
+            <div class="text-muted text-sm">Memories</div>
+            <div style="font-size:1.3rem;font-weight:700;" id="wpMemoryCount">—</div>
+          </div>
+          <div class="stat-card" style="flex:1;min-width:100px;padding:12px;text-align:center;">
+            <div class="text-muted text-sm">Followers</div>
+            <div style="font-size:1.3rem;font-weight:700;" id="wpFollowers">—</div>
+          </div>
+        </div>
+
+        <!-- Recent Articles -->
+        <details class="style-section" open>
+          <summary>Recent Articles</summary>
+          <div id="wpRecentArticles" style="margin-top:8px;">
+            <span class="text-muted text-sm">Loading...</span>
+          </div>
+        </details>
+
+        <!-- Memories -->
+        <details class="style-section">
+          <summary>Editorial Memory <span class="badge badge-muted text-sm" id="wpMemoryBadge" style="margin-left:6px;"></span></summary>
+          <div id="wpMemories" style="margin-top:8px;">
+            <span class="text-muted text-sm">Loading...</span>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;">
+            <button class="btn btn-outline btn-sm" type="button" id="addMemoryBtn">+ Add Memory</button>
+          </div>
+          <!-- Add memory inline form -->
+          <div id="addMemoryForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-surface, #111);border:1px solid var(--border);border-radius:8px;">
+            <div class="form-row" style="margin-bottom:8px;">
+              <div class="form-group" style="margin-bottom:0;">
+                <select class="form-control" id="fMemType" style="font-size:13px;">
+                  <option value="position">Position</option>
+                  <option value="thread">Thread</option>
+                  <option value="source_note">Source Note</option>
+                  <option value="prediction">Prediction</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex:2;margin-bottom:0;">
+                <input type="text" class="form-control" id="fMemSubject" placeholder="Subject (e.g. AMD MI350)" style="font-size:13px;" />
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <input type="text" class="form-control" id="fMemContent" placeholder="What to remember..." style="font-size:13px;" />
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-primary btn-sm" type="button" id="saveMemoryBtn">Save</button>
+              <button class="btn btn-ghost btn-sm" type="button" id="cancelMemoryBtn">Cancel</button>
+            </div>
+          </div>
+        </details>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
@@ -325,6 +437,22 @@
     </div>
     <div class="modal-body" id="aiGenContent">
       <!-- Content injected by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- Writer Quick View Modal -->
+<div class="modal-overlay" id="writerQuickViewModal">
+  <div class="modal modal-xl modal-dark" style="max-width:800px;">
+    <div class="modal-header">
+      <div class="modal-title">Writer Profile</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body" id="writerQuickViewBody" style="padding:0;max-height:80vh;overflow-y:auto;"></div>
+    <div class="modal-footer" style="gap:8px;">
+      <a id="qvFullPageLink" href="#" class="btn btn-outline btn-sm">View Full Page</a>
+      <button class="btn btn-primary btn-sm" id="qvEditBtn">Edit Writer</button>
+      <button class="btn btn-outline" data-close-modal>Close</button>
     </div>
   </div>
 </div>
