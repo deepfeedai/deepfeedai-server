@@ -1053,6 +1053,25 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_error_agg_tenant ON error_aggregates (tenant_id, last_seen DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_error_agg_status ON error_aggregates (tenant_id, status, count DESC)`,
+    // Phase: Writer memory system — editorial positions, running threads, predictions
+    `CREATE TABLE IF NOT EXISTS writer_memory (
+      id          SERIAL PRIMARY KEY,
+      writer_id   INTEGER NOT NULL REFERENCES writers(id) ON DELETE CASCADE,
+      tenant_id   INTEGER NOT NULL,
+      memory_type TEXT NOT NULL,
+      subject     TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      confidence  NUMERIC(3,2) DEFAULT 0.80,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      expires_at  TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_memory_lookup ON writer_memory(writer_id, tenant_id, memory_type)`,
+    // Writer personality enhancements
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS signature_phrases TEXT[]`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS contrarian_level NUMERIC(2,1) DEFAULT 0.5`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
+    // Future: writer voice fingerprint (analyzed from 20+ articles)
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_fingerprint JSONB`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

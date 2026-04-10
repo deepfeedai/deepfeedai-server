@@ -64,36 +64,27 @@ async function setCached(key, payload, tenantId) {
 
 /**
  * Build the summary prompt for a given title/description and persona.
+ * Note: callers manage their own aiComplete params (temperature varies by trigger).
+ * The prompt file provides the template text only; meta is not used here.
  */
 function buildSummaryPrompt(title, description, persona, isWriterStyled) {
-  return [
+  const { loadPrompt } = require('../lib/prompt-loader');
+  const p = loadPrompt('summary');
+  const { messages } = p.render({
     persona,
-    '',
-    isWriterStyled
+    styleInstruction: isWriterStyled
       ? 'Write your analysis in your own voice and style as described above. Respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:'
       : 'Analyze this article and respond with ONLY valid JSON (no markdown, no code fences) in this exact shape:',
-    '{',
-    '  "headline": "Rewritten headline — clear, specific, max 90 chars. Not clickbait.",',
-    '  "overview": "2 clear sentences summarizing what happened and who is involved.",',
-    '  "context": "One sentence of backstory or context a reader needs to understand why this matters.",',
-    '  "keyPoints": ["specific fact or detail", "another key detail (1-4 items, as many as the story warrants)"],',
-    '  "topicTag": "2-4 word story thread label, e.g. \'OpenAI Safety\', \'Chip Export Controls\'",',
-    isWriterStyled
-      ? '  "whyItMatters": "One sentence on why this matters, written in your distinctive voice."'
-      : '  "whyItMatters": "One sentence on the broader significance for the AI industry."',
-    '}',
-    'Rules:',
-    '- headline: rewrite the title for clarity — no clickbait, no "How...", no "Why...", max 90 chars',
-    '- keyPoints: 1-4 items based on substance — not always 3. Include numbers, dates, names when available.',
-    '- topicTag: a short label for the ongoing story thread (used to group related articles). Use title case.',
-    '- No "In this article..." or "This article discusses..." openers.',
-    isWriterStyled
+    matterInstruction: isWriterStyled
+      ? '"whyItMatters": "One sentence on why this matters, written in your distinctive voice."'
+      : '"whyItMatters": "One sentence on the broader significance for the AI industry."',
+    ruleInstruction: isWriterStyled
       ? '- Stay in character. Use your tone and style throughout. No generic language.'
       : '- Be specific and factual. No fluff.',
-    '',
-    `Title: ${title.replace(/[\x00-\x1F]/g, '').slice(0, 300)}`,
-    description ? `Context: ${description.replace(/[\x00-\x1F]/g, '').slice(0, 500)}` : '',
-  ].filter(Boolean).join('\n');
+    title: title.replace(/[\x00-\x1F]/g, '').slice(0, 300),
+    description: description ? `Context: ${description.replace(/[\x00-\x1F]/g, '').slice(0, 500)}` : '',
+  });
+  return messages[0].content;
 }
 
 /**

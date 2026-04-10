@@ -772,32 +772,16 @@ router.post('/:id/generate-followups', auth, requirePermission('articles.update'
 
   const contentText = sanitizeForPrompt(article.full_content || article.summary || '', 3000);
 
+  const { loadPrompt } = require('../lib/prompt-loader');
+  const p = loadPrompt('followup-qa');
+  const { messages, ...meta } = p.render({
+    title: sanitizeForPrompt(article.title, 200),
+    contentText,
+    sourceContext,
+  });
+
   const result = await aiComplete({
-    operation: 'scrape-summarize',
-    tenantId: req.tenantId,
-    messages: [{
-      role: 'user',
-      content: `Given this article, generate 3 follow-up questions a curious reader would ask, with short answers.
-
-Title: ${sanitizeForPrompt(article.title, 200)}
-Article: ${contentText}${sourceContext}
-
-Rules:
-- Each question should cover a different angle (impact, specific player/detail, what to watch next)
-- Answers should be 2-3 sentences, grounded in the article content
-- If sources are listed, use [N] citations in answers where applicable
-- Questions should be specific, not generic
-
-Respond in exactly this format:
-Q1: [question]
-A1: [answer]
-Q2: [question]
-A2: [answer]
-Q3: [question]
-A3: [answer]`
-    }],
-    maxTokens: 1024,
-    temperature: 0.5,
+    ...meta, messages, tenantId: req.tenantId,
     trigger: 'manual',
   });
 

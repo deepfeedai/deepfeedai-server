@@ -202,15 +202,17 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
-          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
+          signature_phrases, contrarian_level, beat_angle } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
   const writer = await db.prepare(`
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
-      tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
+      signature_phrases, contrarian_level, beat_angle, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -221,6 +223,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     tone || null, expertise_level || null, style_guide || null,
     JSON.stringify(few_shot_examples || []),
     gender || null, ethnicity || null,
+    signature_phrases || null, contrarian_level ?? 0.5, beat_angle || null,
     req.tenantId
   );
 
@@ -242,7 +245,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
 
   const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
-          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity } = body;
+          tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
+          signature_phrases, contrarian_level, beat_angle } = body;
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);
@@ -252,8 +256,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
       synthesis_lookback_hours = $9, min_cluster_size = $10, elevenlabs_voice_id = $11,
       tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15,
-      gender = $16, ethnicity = $17
-    WHERE id = $18 AND tenant_id = $19
+      gender = $16, ethnicity = $17,
+      signature_phrases = $18, contrarian_level = $19, beat_angle = $20
+    WHERE id = $21 AND tenant_id = $22
     RETURNING *
   `).get(
     name,
@@ -273,6 +278,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     few_shot_examples !== undefined ? JSON.stringify(few_shot_examples) : existingFse,
     gender !== undefined ? (gender || null) : existing.gender,
     ethnicity !== undefined ? (ethnicity || null) : existing.ethnicity,
+    signature_phrases !== undefined ? signature_phrases : existing.signature_phrases,
+    contrarian_level !== undefined ? contrarian_level : existing.contrarian_level,
+    beat_angle !== undefined ? (beat_angle || null) : existing.beat_angle,
     id,
     req.tenantId
   );
@@ -462,6 +470,69 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
   `).all(days, req.tenantId);
 
   res.json(rows);
+}));
+
+// ── Writer Memory endpoints ────────────────────────────────────────────
+
+// GET /api/admin/writers/:id/memories — list memories for a writer
+router.get('/:id/memories', requirePermission('writers.read'), asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, parseInt(req.query.limit) || 30);
+  const offset = (page - 1) * limit;
+
+  const memories = await db.prepare(`
+    SELECT id, memory_type, subject, content, confidence, created_at, expires_at
+    FROM writer_memory
+    WHERE writer_id = $1 AND tenant_id = $2
+    ORDER BY created_at DESC
+    LIMIT $3 OFFSET $4
+  `).all(parseInt(req.params.id), req.tenantId, limit, offset);
+
+  const { cnt } = await db.prepare(
+    'SELECT COUNT(*)::int AS cnt FROM writer_memory WHERE writer_id = $1 AND tenant_id = $2'
+  ).get(parseInt(req.params.id), req.tenantId);
+
+  res.json({ memories, total: cnt, page, limit });
+}));
+
+// POST /api/admin/writers/:id/memories — manually add a memory entry
+router.post('/:id/memories', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { memory_type, subject, content, confidence, expires_in_days } = req.body;
+  const validTypes = ['position', 'thread', 'source_note', 'prediction'];
+  if (!validTypes.includes(memory_type)) return res.status(400).json({ error: 'Invalid memory_type' });
+  if (!subject || !content) return res.status(400).json({ error: 'subject and content required' });
+  const conf = confidence ?? 0.80;
+  if (typeof conf !== 'number' || conf < 0 || conf > 1) return res.status(400).json({ error: 'confidence must be between 0 and 1' });
+
+  const expiresAt = expires_in_days
+    ? new Date(Date.now() + expires_in_days * 86400000).toISOString()
+    : null;
+
+  const row = await db.prepare(`
+    INSERT INTO writer_memory (writer_id, tenant_id, memory_type, subject, content, confidence, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
+  `).get(
+    parseInt(req.params.id), req.tenantId, memory_type,
+    String(subject).slice(0, 200), String(content).slice(0, 500),
+    conf, expiresAt
+  );
+
+  logAudit(req, 'writer.memory.create', 'writer_memory', row.id, { memory_type, subject });
+  res.json(row);
+}));
+
+// DELETE /api/admin/writers/:id/memories/:memoryId — delete a memory
+router.delete('/:id/memories/:memoryId', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  // Verify memory belongs to this writer + tenant
+  const mem = await db.prepare(
+    'SELECT id FROM writer_memory WHERE id = $1 AND writer_id = $2 AND tenant_id = $3'
+  ).get(parseInt(req.params.memoryId), parseInt(req.params.id), req.tenantId);
+  if (!mem) return res.status(404).json({ error: 'Memory not found' });
+
+  const { deleteMemory } = require('../lib/writer-memory');
+  await deleteMemory(parseInt(req.params.memoryId), req.tenantId);
+  logAudit(req, 'writer.memory.delete', 'writer_memory', parseInt(req.params.memoryId), {});
+  res.json({ ok: true });
 }));
 
 module.exports = router;
