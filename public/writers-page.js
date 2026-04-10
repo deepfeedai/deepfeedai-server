@@ -46,13 +46,14 @@ function renderWriters() {
 
     return '<tr>'
       + '<td>' + avatarHtml + '</td>'
-      + '<td><strong>' + esc(w.name) + '</strong></td>'
+      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a></td>'
       + '<td>' + beatsHtml + '</td>'
       + '<td style="text-align:center;">' + autoBadge + '</td>'
       + '<td class="text-muted text-sm">' + (w.elevenlabs_voice_id ? '<span title="' + esc(w.elevenlabs_voice_id) + '">Configured</span>' : 'None') + '</td>'
       + '<td style="text-align:center;">' + (w.article_count || 0) + '</td>'
       + '<td>'
       + '<div style="display:flex;gap:6px;">'
+      + '<button class="btn btn-ghost btn-sm btn-icon" title="View" onclick="showWriterQuickView(' + w.id + ')">&#128065;</button>'
       + '<button class="btn btn-ghost btn-sm btn-icon" title="Edit" onclick="openEdit(' + w.id + ')">&#9998;&#65039;</button>'
       + '<button class="btn btn-ghost btn-sm btn-icon" title="Delete" onclick="openDelete(' + w.id + ')">&#128465;&#65039;</button>'
       + '</div>'
@@ -986,6 +987,136 @@ function escHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ── Writer Quick View ───────────────────────────────────────────
+
+window.showWriterQuickView = async function(id) {
+  var w = writers.find(function(x) { return x.id === id; });
+  if (!w) return;
+
+  var body = document.getElementById('writerQuickViewBody');
+  body.innerHTML = '<div style="text-align:center;padding:40px;"><span class="spinner"></span></div>';
+
+  // Wire footer buttons
+  document.getElementById('qvFullPageLink').href = '/writer-detail.html?id=' + w.id;
+  document.getElementById('qvEditBtn').onclick = function() { closeModal('writerQuickViewModal'); openEdit(w.id); };
+
+  openModal('writerQuickViewModal');
+
+  // Fetch supplementary data
+  var [memories, articles, perfRes] = await Promise.all([
+    apiFetch('/admin/writers/' + w.id + '/memories').catch(function() { return { memories: [] }; }),
+    apiFetch('/articles?type=editorial&limit=50&offset=0').catch(function() { return { articles: [] }; }),
+    apiFetch('/admin/writers/performance?range=30d').catch(function() { return []; }),
+  ]);
+
+  var memList = memories.memories || [];
+  var writerArticles = (articles.articles || []).filter(function(a) { return a.writer_id === w.id; });
+  var perf = (Array.isArray(perfRes) ? perfRes : []).find(function(p) { return p.writer_id === w.id || p.id === w.id; });
+
+  var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
+  var contLevel = w.contrarian_level != null ? parseFloat(w.contrarian_level) : 0.5;
+  var contLabel = contLevel <= 0.2 ? 'Straight reporter' : contLevel <= 0.4 ? 'Mostly balanced' : contLevel <= 0.6 ? 'Balanced' : contLevel <= 0.8 ? 'Pushes back' : 'Contrarian';
+
+  var html = '<div style="padding:24px;">';
+
+  // Header: avatar + name + bio
+  html += '<div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:24px;">';
+  if (w.avatar_url) {
+    html += '<img src="' + esc(w.avatar_url) + '" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);flex-shrink:0;" />';
+  } else {
+    html += '<div style="width:80px;height:80px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0;">&#9997;&#65039;</div>';
+  }
+  html += '<div style="flex:1;min-width:0;">';
+  html += '<h2 style="margin:0 0 4px;font-size:1.5rem;">' + esc(w.name) + '</h2>';
+  if (beats.length) {
+    html += '<div style="margin-bottom:6px;">' + beats.map(function(b) { return '<span class="badge badge-muted" style="font-size:11px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
+  }
+  if (w.bio) html += '<p style="color:var(--muted);margin:0;font-size:0.9rem;line-height:1.5;">' + esc(w.bio) + '</p>';
+  html += '</div></div>';
+
+  // Stats row
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:20px;">';
+  var stats = [
+    { label: 'Articles', value: w.article_count || 0 },
+    { label: 'Followers', value: w.follower_count || 0 },
+    { label: 'Memories', value: memList.length },
+    { label: 'Avg Score', value: perf ? (parseFloat(perf.avg_editorial_score) || 0).toFixed(1) : '—' },
+    { label: 'Views', value: perf ? (perf.total_views || 0) : '—' },
+    { label: 'Reactions', value: perf ? (perf.total_reactions || 0) : '—' },
+  ];
+  stats.forEach(function(s) {
+    html += '<div style="text-align:center;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);">'
+      + '<div class="text-muted" style="font-size:11px;">' + s.label + '</div>'
+      + '<div style="font-size:1.2rem;font-weight:700;">' + s.value + '</div></div>';
+  });
+  html += '</div>';
+
+  // Personality
+  if (w.beat_angle || (w.signature_phrases && w.signature_phrases.length) || contLevel !== 0.5) {
+    html += '<div style="margin-bottom:20px;padding:14px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);">';
+    html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">PERSONALITY</div>';
+    if (w.beat_angle) html += '<div style="margin-bottom:6px;"><strong>Angle:</strong> ' + esc(w.beat_angle) + '</div>';
+    if (w.signature_phrases && w.signature_phrases.length) html += '<div style="margin-bottom:6px;"><strong>Phrases:</strong> ' + w.signature_phrases.map(function(p) { return '&ldquo;' + esc(p) + '&rdquo;'; }).join(', ') + '</div>';
+    html += '<div><strong>Style:</strong> ' + contLabel + ' (' + contLevel.toFixed(1) + ')</div>';
+    html += '</div>';
+  }
+
+  // Voice & Automation
+  html += '<div style="display:flex;gap:10px;margin-bottom:20px;">';
+  if (w.tone || w.expertise_level) {
+    html += '<div style="flex:1;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);font-size:13px;">';
+    html += '<div style="font-weight:700;color:var(--muted);margin-bottom:4px;">STYLE</div>';
+    if (w.tone) html += '<div>Tone: <strong>' + esc(w.tone) + '</strong></div>';
+    if (w.expertise_level) html += '<div>Expertise: <strong>' + esc(w.expertise_level) + '</strong></div>';
+    html += '</div>';
+  }
+  html += '<div style="flex:1;padding:10px;background:var(--bg-surface, #111);border-radius:8px;border:1px solid var(--border);font-size:13px;">';
+  html += '<div style="font-weight:700;color:var(--muted);margin-bottom:4px;">AUTOMATION</div>';
+  html += '<div>Mode: <strong>' + (w.is_auto ? 'Auto' : 'Manual') + '</strong></div>';
+  html += '<div>Schedule: <strong>' + esc(w.synthesis_schedule || 'daily') + '</strong></div>';
+  html += '<div>Voice: <strong>' + (w.elevenlabs_voice_id ? 'Configured' : 'None') + '</strong></div>';
+  html += '</div></div>';
+
+  // Recent Articles
+  html += '<div style="margin-bottom:20px;">';
+  html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">RECENT ARTICLES</div>';
+  if (writerArticles.length === 0) {
+    html += '<div class="text-muted text-sm">No articles yet</div>';
+  } else {
+    writerArticles.slice(0, 8).forEach(function(a) {
+      var typeBadge = a.content_type === 'deep-dive' ? '<span class="badge badge-accent" style="font-size:9px;">Deep Dive</span> ' : '';
+      html += '<div class="recent-article-item">'
+        + '<span class="badge badge-muted" style="font-size:10px;">' + esc(a.category || '—') + '</span> '
+        + typeBadge
+        + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(a.title) + '</span>'
+        + '<span class="text-muted text-sm" style="white-space:nowrap;">' + relativeTime(a.published_at || a.created_at) + '</span>'
+        + '</div>';
+    });
+  }
+  html += '</div>';
+
+  // Memories
+  html += '<div>';
+  html += '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:var(--muted);">EDITORIAL MEMORY (' + memList.length + ')</div>';
+  if (memList.length === 0) {
+    html += '<div class="text-muted text-sm">No memories yet — auto-extracted after synthesis.</div>';
+  } else {
+    memList.slice(0, 10).forEach(function(m) {
+      html += '<div class="memory-item">'
+        + '<span class="memory-type memory-type-' + m.memory_type + '">' + m.memory_type.replace('_', ' ') + '</span>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:600;font-size:13px;">' + esc(m.subject) + '</div>'
+        + '<div class="text-muted text-sm">' + esc(m.content) + '</div>'
+        + '</div></div>';
+    });
+    if (memList.length > 10) html += '<div class="text-muted text-sm" style="margin-top:4px;">+ ' + (memList.length - 10) + ' more</div>';
+  }
+  html += '</div>';
+
+  html += '</div>';
+  body.innerHTML = html;
+};
 
 // ── Initialize ───────────────────────────────────────────────────
 

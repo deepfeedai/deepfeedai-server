@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Writer Detail</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    .wd-header { display:flex; gap:24px; align-items:flex-start; margin-bottom:28px; }
+    .wd-avatar { width:100px; height:100px; border-radius:50%; object-fit:cover; border:3px solid var(--accent); flex-shrink:0; }
+    .wd-avatar-placeholder { width:100px; height:100px; border-radius:50%; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:40px; flex-shrink:0; }
+    .wd-name { font-size:1.8rem; font-weight:800; margin:0 0 4px; }
+    .wd-bio { color:var(--muted); font-size:0.95rem; line-height:1.5; margin:8px 0 0; }
+    .wd-stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:12px; margin-bottom:24px; }
+    .wd-stat { text-align:center; padding:14px; background:var(--bg-card); border-radius:10px; border:1px solid var(--border); }
+    .wd-stat-value { font-size:1.4rem; font-weight:700; }
+    .wd-stat-label { font-size:11px; color:var(--muted); margin-top:2px; }
+    .wd-section { margin-bottom:28px; }
+    .wd-section-title { font-weight:700; font-size:14px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px; }
+    .wd-card { padding:16px; background:var(--bg-card); border-radius:10px; border:1px solid var(--border); }
+    .wd-two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+    @media (max-width: 768px) { .wd-two-col { grid-template-columns:1fr; } .wd-header { flex-direction:column; align-items:center; text-align:center; } }
+    .memory-item { display:flex; align-items:flex-start; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .memory-item:last-child { border-bottom:none; }
+    .memory-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 6px; border-radius:4px; white-space:nowrap; }
+    .memory-type-position { background:rgba(168,85,247,0.15); color:#a855f7; }
+    .memory-type-thread { background:rgba(59,130,246,0.15); color:#3b82f6; }
+    .memory-type-source_note { background:rgba(34,197,94,0.15); color:#22c55e; }
+    .memory-type-prediction { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .wd-article-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .wd-article-row:last-child { border-bottom:none; }
+    .wd-article-title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <div class="topbar-title">Writer Detail</div>
+    </header>
+
+    <div class="page-body">
+      <div style="margin-bottom:16px;">
+        <a href="/writers.html" class="btn btn-ghost btn-sm">&larr; Back to Writers</a>
+        <button class="btn btn-primary btn-sm" id="editWriterBtn" style="float:right;">Edit Writer</button>
+      </div>
+
+      <div id="writerDetailContent">
+        <div style="text-align:center;padding:60px;"><span class="spinner"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/writer-detail-page.js"></script>
+</body>
+</html>
