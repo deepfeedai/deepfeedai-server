@@ -30,7 +30,7 @@
     await loadCategories();
 
     if (isNewWriter) {
-      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
+      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
       document.querySelector('.topbar-title').textContent = 'New Writer';
       setEditMode(true);
       renderEditMode();
