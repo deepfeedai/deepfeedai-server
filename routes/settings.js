@@ -107,6 +107,16 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
     bustKeyCache(req.tenantId);
   }
 
+  // Restart Discord gateway if bot token changed
+  if ('discord_bot_token' in body) {
+    try {
+      const { restartGateway } = require('../lib/messaging/discord-gateway');
+      await restartGateway(req.tenantId);
+    } catch (err) {
+      console.error('[settings] Discord gateway restart failed:', err.message);
+    }
+  }
+
   // Audit log with before/after diff
   const changes = {};
   for (const key of Object.keys(body)) {
