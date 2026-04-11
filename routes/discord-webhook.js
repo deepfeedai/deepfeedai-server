@@ -92,10 +92,15 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
       console.log(`[webhook:discord] ${userName} (channel: ${channelId}): ${commandText}`);
 
-      // /help can respond immediately (fast, no AI)
+      // /help can respond immediately (fast, no AI) — check agent role for correct help text
       if (commandName === 'help') {
+        const channelRow = await db.prepare(
+          "SELECT w.role FROM messaging_channels mc JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.channel_id = $1 AND mc.is_active = true"
+        ).get(channelId);
+        if (channelRow?.role === 'editor') {
+          return res.json({ type: 4, data: { content: '--- Editor Commands ---\n\napprove [id] — Publish an article\nreject [id] — Reject article to draft\n/review — Show review queue\n/stats — Editorial statistics\n/help — Show this message\n' } });
+        }
         const { getHelpText } = require('../lib/messaging');
-        // Type 4 = CHANNEL_MESSAGE_WITH_SOURCE (immediate response)
         return res.json({ type: 4, data: { content: getHelpText(true) } });
       }
 

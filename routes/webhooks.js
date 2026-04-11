@@ -22,30 +22,28 @@ router.post('/telegram', asyncHandler(async (req, res) => {
   console.log(`[webhook:telegram] ${parsed.senderName} (chat: ${parsed.chatId}, thread: ${parsed.threadId || 'none'}): ${parsed.text}`);
 
   try {
-    // Check for newsroom commands first (group-level, no specific writer needed)
-    const { handleNewsroomCommand } = require('../lib/messaging');
-    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId);
-    if (newsroomResponse) {
-      const { sendTelegramMessage } = require('../lib/messaging/telegram');
-      await sendTelegramMessage(parsed.chatId, newsroomResponse, req.tenantId, parsed.threadId);
-      return;
-    }
-
-    // Find channel → writer mapping
+    // Find channel → writer mapping first (need agent role for command routing)
     let channel = null;
 
     if (parsed.threadId) {
-      // Topic message — match by chat_id + thread_id
       channel = await db.prepare(
-        "SELECT * FROM messaging_channels WHERE platform = 'telegram' AND channel_id = $1 AND thread_id = $2 AND is_active = true"
+        "SELECT mc.*, w.role AS writer_role FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'telegram' AND mc.channel_id = $1 AND mc.thread_id = $2 AND mc.is_active = true"
       ).get(parsed.chatId, parsed.threadId);
     }
 
     if (!channel) {
-      // DM or general group message — match by chat_id with no thread_id
       channel = await db.prepare(
-        "SELECT * FROM messaging_channels WHERE platform = 'telegram' AND channel_id = $1 AND (thread_id IS NULL OR thread_id = '') AND is_active = true"
+        "SELECT mc.*, w.role AS writer_role FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'telegram' AND mc.channel_id = $1 AND (mc.thread_id IS NULL OR mc.thread_id = '') AND mc.is_active = true"
       ).get(parsed.chatId);
+    }
+
+    // Check for newsroom commands (editors skip this — they handle their own)
+    const { handleNewsroomCommand } = require('../lib/messaging');
+    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId, channel?.writer_role);
+    if (newsroomResponse) {
+      const { sendTelegramMessage } = require('../lib/messaging/telegram');
+      await sendTelegramMessage(parsed.chatId, newsroomResponse, req.tenantId, parsed.threadId);
+      return;
     }
 
     if (!channel) {
@@ -100,19 +98,19 @@ router.post('/slack', asyncHandler(async (req, res) => {
   console.log(`[webhook:slack] ${parsed.senderName} (channel: ${parsed.chatId}): ${parsed.text}`);
 
   try {
-    // Check for newsroom commands
+    // Find channel first (need agent role for command routing)
+    let channel = await db.prepare(
+      "SELECT mc.*, w.role AS writer_role FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'slack' AND mc.channel_id = $1 AND mc.is_active = true"
+    ).get(parsed.chatId);
+
+    // Check for newsroom commands (editors skip this)
     const { handleNewsroomCommand } = require('../lib/messaging');
-    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId);
+    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId, channel?.writer_role);
     if (newsroomResponse) {
       const { sendSlackMessage } = require('../lib/messaging/slack');
       await sendSlackMessage(parsed.chatId, newsroomResponse, req.tenantId, parsed.threadId);
       return;
     }
-
-    // Find channel
-    let channel = await db.prepare(
-      "SELECT * FROM messaging_channels WHERE platform = 'slack' AND channel_id = $1 AND is_active = true"
-    ).get(parsed.chatId);
 
     if (!channel) {
       const { sendSlackMessage } = require('../lib/messaging/slack');
