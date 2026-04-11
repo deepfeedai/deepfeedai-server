@@ -15,30 +15,60 @@ const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
 
 // GET health check + diagnostic
 router.get('/', async (req, res) => {
-  // Include config diagnostic (non-sensitive)
   let diag = {};
   try {
     const db = require('../db');
     const rows = await db.prepare(
-      "SELECT key, CASE WHEN key = 'discord_app_id' THEN value ELSE LEFT(value, 4) || '...' END AS val FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = 1"
+      "SELECT key, value FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = 1"
     ).all();
-    for (const r of rows) diag[r.key] = r.val || '(empty)';
-    // Check if tenant lookup works
-    if (diag.discord_app_id && diag.discord_app_id !== '(empty)') {
-      const tid = await getTenantByAppId(diag.discord_app_id);
+    for (const r of rows) {
+      if (r.key === 'discord_bot_token') {
+        diag[r.key] = r.value ? (r.value.startsWith('enc:') ? 'encrypted ✓' : `plain (${r.value.length} chars)`) : '(empty)';
+      } else if (r.key === 'discord_public_key') {
+        diag[r.key] = r.value ? `${r.value.length} chars, starts=${r.value.slice(0, 8)}` : '(empty)';
+      } else {
+        diag[r.key] = r.value || '(empty)';
+      }
+    }
+    // Tenant lookup
+    const appIdRaw = rows.find(r => r.key === 'discord_app_id')?.value;
+    if (appIdRaw) {
+      const tid = await getTenantByAppId(appIdRaw);
       diag.tenant_lookup = tid ? `tenant ${tid}` : 'NOT FOUND';
     }
+    // List registered commands from Discord API
+    try {
+      const { getBotToken } = require('../lib/messaging/discord');
+      const token = await getBotToken(1);
+      if (token && appIdRaw) {
+        const cmdRes = await fetch(`https://discord.com/api/v10/applications/${appIdRaw}/commands`, {
+          headers: { Authorization: `Bot ${token}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (cmdRes.ok) {
+          const cmds = await cmdRes.json();
+          diag.registered_commands = cmds.map(c => c.name);
+          diag.command_count = cmds.length;
+        } else {
+          diag.commands_error = `HTTP ${cmdRes.status}`;
+        }
+      }
+    } catch (err) { diag.commands_error = err.message; }
   } catch (err) { diag.error = err.message; }
-  res.json({ status: 'ok', message: 'Discord interactions endpoint is active', config: diag });
+  res.json({ status: 'ok', config: diag });
 });
 
 // POST — Discord interactions (raw body for signature verification)
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
+    const rawBodyStr = req.body?.toString?.() || '';
+    console.log(`[webhook:discord] POST received, body type=${typeof req.body}, isBuffer=${Buffer.isBuffer(req.body)}, length=${rawBodyStr.length}`);
+
     let body;
     try {
-      body = JSON.parse(req.body.toString());
-    } catch {
+      body = JSON.parse(rawBodyStr);
+    } catch (parseErr) {
+      console.error(`[webhook:discord] JSON parse failed: ${parseErr.message}, raw=${rawBodyStr.slice(0, 100)}`);
       return res.status(400).json({ error: 'Invalid JSON' });
     }
 
