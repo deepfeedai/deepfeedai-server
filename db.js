@@ -1089,6 +1089,20 @@ async function initDb() {
       resolved_at TIMESTAMPTZ
     )`,
     `CREATE INDEX IF NOT EXISTS idx_story_pitches_lookup ON story_pitches(tenant_id, writer_id, status)`,
+    // Article revision history (snapshot before chat/API edits)
+    `CREATE TABLE IF NOT EXISTS article_revisions (
+      id            SERIAL PRIMARY KEY,
+      article_id    INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      tenant_id     INTEGER NOT NULL,
+      title         TEXT,
+      full_content  TEXT,
+      summary       TEXT,
+      tldr_overview TEXT,
+      edited_via    TEXT,
+      edited_by     TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_article_revisions_lookup ON article_revisions(article_id, tenant_id)`,
     // Messaging channels (Telegram, Slack, etc.)
     `CREATE TABLE IF NOT EXISTS messaging_channels (
       id          SERIAL PRIMARY KEY,
