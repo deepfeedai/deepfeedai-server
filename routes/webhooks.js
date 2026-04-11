@@ -6,6 +6,11 @@ const router = express.Router();
 const db = require('../db');
 const { asyncHandler } = require('../lib/utils');
 
+// GET /api/webhooks/telegram — health check (verify route is reachable)
+router.get('/telegram', (req, res) => {
+  res.json({ status: 'ok', message: 'Telegram webhook endpoint is active' });
+});
+
 // POST /api/webhooks/telegram — incoming Telegram updates
 router.post('/telegram', asyncHandler(async (req, res) => {
   // Respond immediately to avoid Telegram retries
