@@ -81,4 +81,108 @@ router.post('/telegram', asyncHandler(async (req, res) => {
   }
 }));
 
+// ── Slack Webhook ───────────────────────────────────────────────
+
+router.post('/slack', asyncHandler(async (req, res) => {
+  const { parseEvent } = require('../lib/messaging/slack');
+  const parsed = parseEvent(req.body);
+
+  // URL verification challenge
+  if (parsed?.type === 'challenge') {
+    return res.json({ challenge: parsed.challenge });
+  }
+
+  res.json({ ok: true });
+  if (!parsed || parsed.type !== 'message') return;
+
+  console.log(`[webhook:slack] ${parsed.senderName} (channel: ${parsed.chatId}): ${parsed.text}`);
+
+  try {
+    // Check for newsroom commands
+    const { handleNewsroomCommand } = require('../lib/messaging');
+    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId);
+    if (newsroomResponse) {
+      const { sendSlackMessage } = require('../lib/messaging/slack');
+      await sendSlackMessage(parsed.chatId, newsroomResponse, req.tenantId, parsed.threadId);
+      return;
+    }
+
+    // Find channel
+    let channel = await db.prepare(
+      "SELECT * FROM messaging_channels WHERE platform = 'slack' AND channel_id = $1 AND is_active = true"
+    ).get(parsed.chatId);
+
+    if (!channel) {
+      const { sendSlackMessage } = require('../lib/messaging/slack');
+      await sendSlackMessage(parsed.chatId, 'This channel is not configured. Add channel ID `' + parsed.chatId + '` in Settings > Messaging.', req.tenantId);
+      return;
+    }
+
+    if (!channel.writer_id) {
+      const { sendSlackMessage } = require('../lib/messaging/slack');
+      await sendSlackMessage(parsed.chatId, 'No writer assigned to this channel.', channel.tenant_id);
+      return;
+    }
+
+    const { handleIncoming } = require('../lib/messaging');
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text);
+
+    const { sendSlackMessage } = require('../lib/messaging/slack');
+    await sendSlackMessage(parsed.chatId, response, channel.tenant_id, parsed.threadId);
+  } catch (err) {
+    console.error('[webhook:slack] Error:', err.message);
+  }
+}));
+
+// ── Discord Webhook ─────────────────────────────────────────────
+
+router.post('/discord', asyncHandler(async (req, res) => {
+  const { parseEvent } = require('../lib/messaging/discord');
+  const parsed = parseEvent(req.body);
+
+  // Interaction ping
+  if (parsed?.type === 'ping') {
+    return res.json({ type: 1 });
+  }
+
+  res.json({ ok: true });
+  if (!parsed || parsed.type !== 'message') return;
+
+  console.log(`[webhook:discord] ${parsed.senderName} (channel: ${parsed.chatId}): ${parsed.text}`);
+
+  try {
+    const { handleNewsroomCommand } = require('../lib/messaging');
+    const newsroomResponse = await handleNewsroomCommand(req.tenantId, parsed.text, parsed.chatId);
+    if (newsroomResponse) {
+      const { sendDiscordMessage } = require('../lib/messaging/discord');
+      await sendDiscordMessage(parsed.chatId, newsroomResponse, req.tenantId);
+      return;
+    }
+
+    let channel = await db.prepare(
+      "SELECT * FROM messaging_channels WHERE platform = 'discord' AND channel_id = $1 AND is_active = true"
+    ).get(parsed.chatId);
+
+    if (!channel) {
+      const { sendDiscordMessage } = require('../lib/messaging/discord');
+      await sendDiscordMessage(parsed.chatId, 'This channel is not configured. Add channel ID `' + parsed.chatId + '` in Settings > Messaging.', req.tenantId);
+      return;
+    }
+
+    if (!channel.writer_id) {
+      const { sendDiscordMessage } = require('../lib/messaging/discord');
+      await sendDiscordMessage(parsed.chatId, 'No writer assigned to this channel.', channel.tenant_id);
+      return;
+    }
+
+    const { handleIncoming } = require('../lib/messaging');
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text);
+
+    const { sendDiscordMessage } = require('../lib/messaging/discord');
+    await sendDiscordMessage(parsed.chatId, response, channel.tenant_id);
+  } catch (err) {
+    console.error('[webhook:discord] Error:', err.message);
+  }
+}));
+
 module.exports = router;

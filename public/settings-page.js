@@ -2004,120 +2004,153 @@ let apiKeyVisible = false;
   });
 
   // ── Messaging Tab ──────────────────────────────────────────────
-  (function initMessaging() {
-    // Save Telegram token
-    document.getElementById('saveTelegramBtn')?.addEventListener('click', async function () {
-      var token = document.getElementById('telegramBotToken').value.trim();
-      var statusEl = document.getElementById('telegramSaveStatus');
-      if (!token) { showAlert('Enter a bot token', 'error'); return; }
+  var _msgWriters = [];
+
+  function writerOptions() {
+    return '<option value="">— Select Writer —</option>' + _msgWriters.map(function (w) {
+      return '<option value="' + w.id + '">' + w.name + '</option>';
+    }).join('');
+  }
+
+  function setupTokenSave(btnId, inputId, settingsKey, badgeId) {
+    document.getElementById(btnId)?.addEventListener('click', async function () {
+      var token = document.getElementById(inputId).value.trim();
+      if (!token) { showAlert('Enter a token', 'error'); return; }
       this.disabled = true; this.textContent = 'Saving...';
       try {
-        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ telegram_bot_token: token }) });
-        document.getElementById('telegramBotToken').value = '';
-        document.getElementById('telegramBotToken').placeholder = '••••••••  (saved)';
-        var badge = document.getElementById('telegramStatus');
+        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ [settingsKey]: token }) });
+        document.getElementById(inputId).value = '';
+        document.getElementById(inputId).placeholder = '••••••••  (saved)';
+        var badge = document.getElementById(badgeId);
         if (badge) { badge.textContent = 'Configured'; badge.className = 'badge badge-success'; }
-        document.getElementById('setTelegramWebhookBtn').style.display = '';
-        if (statusEl) { statusEl.textContent = 'Token saved'; setTimeout(function() { statusEl.textContent = ''; }, 3000); }
-        showAlert('Telegram bot token saved');
-      } catch (err) {
-        if (statusEl) statusEl.textContent = 'Save failed: ' + err.message;
-        showAlert('Save failed: ' + err.message, 'error');
-      } finally {
-        this.disabled = false; this.textContent = 'Save Token';
-      }
+        showAlert('Token saved');
+      } catch (err) { showAlert('Save failed: ' + err.message, 'error'); }
+      finally { this.disabled = false; this.textContent = 'Save'; }
     });
+  }
 
-    // Set webhook
+  (function initMessaging() {
+    // Token saves
+    setupTokenSave('saveTelegramBtn', 'telegramBotToken', 'telegram_bot_token', 'telegramStatus');
+    setupTokenSave('saveSlackBtn', 'slackBotToken', 'slack_bot_token', 'slackStatus');
+    setupTokenSave('saveDiscordBtn', 'discordBotToken', 'discord_bot_token', 'discordStatus');
+
+    // Telegram webhook
     document.getElementById('setTelegramWebhookBtn')?.addEventListener('click', async function () {
-      var webhookUrl = document.getElementById('telegramWebhookUrl').value.trim();
-      if (!webhookUrl) { showAlert('Enter the webhook URL first', 'error'); return; }
+      var url = document.getElementById('telegramWebhookUrl').value.trim();
+      if (!url) { showAlert('Enter the webhook URL', 'error'); return; }
       this.disabled = true; this.textContent = 'Setting...';
-      var statusEl = document.getElementById('telegramSaveStatus');
       try {
-        var data = await apiFetch('/admin/pitches/telegram-webhook', { method: 'POST', body: JSON.stringify({ webhook_url: webhookUrl }) });
-        if (statusEl) statusEl.textContent = 'Webhook set: ' + data.webhook_url;
-        showAlert('Telegram webhook configured');
-      } catch (err) {
-        if (statusEl) statusEl.textContent = 'Webhook failed: ' + err.message;
-        showAlert('Webhook failed: ' + err.message, 'error');
-      } finally {
-        this.disabled = false; this.textContent = 'Set Webhook';
-      }
+        var data = await apiFetch('/admin/pitches/telegram-webhook', { method: 'POST', body: JSON.stringify({ webhook_url: url }) });
+        var st = document.getElementById('telegramSaveStatus');
+        if (st) st.textContent = 'Webhook set: ' + data.webhook_url;
+        showAlert('Webhook configured');
+      } catch (err) { showAlert('Webhook failed: ' + err.message, 'error'); }
+      finally { this.disabled = false; this.textContent = 'Set Webhook'; }
     });
 
-    // Detect Telegram chats
-    document.getElementById('detectChatsBtn')?.addEventListener('click', async function () {
-      this.disabled = true; this.textContent = 'Detecting...';
-      var container = document.getElementById('detectedChats');
-      try {
-        var data = await apiFetch('/admin/pitches/telegram-chats');
-        var chats = data.chats || [];
-        if (!chats.length) {
-          container.innerHTML = '<div class="text-muted text-sm">No chats found. Send your bot a message on Telegram first, then try again.</div>';
-        } else {
-          container.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Click a chat to use its ID:</div>'
-            + chats.map(function (c) {
-              var typeIcon = c.type === 'group' || c.type === 'supergroup' ? '&#128101;' : '&#128100;';
-              var threadLabel = c.thread_id ? ' <span class="badge badge-accent" style="font-size:9px;">Topic ' + c.thread_id + '</span>' : '';
-              var onclick = "document.getElementById('newChannelId').value='" + c.chat_id + "';document.getElementById('newChannelPlatform').value='telegram';"
-                + (c.thread_id ? "document.getElementById('newThreadId').value='" + c.thread_id + "';" : "document.getElementById('newThreadId').value='';")
-                + "showAlert('Chat ID copied to channel form');";
-              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;" onclick="' + onclick + '">'
-                + '<span>' + typeIcon + '</span>'
-                + '<div style="flex:1;"><strong>' + c.title + '</strong>' + threadLabel + ' <span class="text-muted">(' + c.type + ')</span></div>'
-                + '<code style="font-size:11px;color:var(--accent);">' + c.chat_id + '</code>'
-                + '</div>';
-            }).join('');
+    // Detect buttons
+    function setupDetect(btnId, platform, apiPath, requireMsg) {
+      document.getElementById(btnId)?.addEventListener('click', async function () {
+        this.disabled = true; this.textContent = 'Detecting...';
+        var container = document.getElementById('detectedChannels');
+        try {
+          var data = await apiFetch(apiPath);
+          var chats = data.chats || [];
+          if (!chats.length) {
+            container.innerHTML = '<div class="text-muted text-sm">' + (requireMsg || 'No channels found.') + '</div>';
+          } else {
+            renderDetectedChannels(platform, chats);
+          }
+        } catch (err) {
+          container.innerHTML = '<div class="text-muted text-sm">Detection failed: ' + err.message + '</div>';
+        } finally {
+          this.disabled = false;
+          this.textContent = 'Detect ' + platform.charAt(0).toUpperCase() + platform.slice(1);
         }
-      } catch (err) {
-        container.innerHTML = '<div class="text-muted text-sm">Detection failed: ' + err.message + '</div>';
-      } finally {
-        this.disabled = false; this.textContent = 'Detect Telegram Chats';
-      }
-    });
+      });
+    }
 
-    // Add channel
-    document.getElementById('addChannelBtn')?.addEventListener('click', async function () {
-      var platform = document.getElementById('newChannelPlatform').value;
-      var channelId = document.getElementById('newChannelId').value.trim();
-      var threadId = document.getElementById('newThreadId').value.trim();
-      var writerId = document.getElementById('newChannelWriter').value;
-      if (!channelId) { showAlert('Channel ID is required', 'error'); return; }
-      try {
-        await apiFetch('/admin/pitches/channels', {
-          method: 'POST',
-          body: JSON.stringify({ platform: platform, channel_id: channelId, thread_id: threadId || null, writer_id: writerId || null })
-        });
-        document.getElementById('newChannelId').value = '';
-        document.getElementById('newThreadId').value = '';
-        showAlert('Channel added');
-        loadChannels();
-      } catch (err) {
-        showAlert('Add failed: ' + err.message, 'error');
-      }
-    });
+    setupDetect('detectTelegramBtn', 'telegram', '/admin/pitches/telegram-chats', 'No chats found. Send your bot a message on Telegram first.');
+    setupDetect('detectSlackBtn', 'slack', '/admin/pitches/slack-channels', 'No channels found. Add the bot to channels in Slack first.');
+    setupDetect('detectDiscordBtn', 'discord', '/admin/pitches/discord-channels', 'No channels found. Add the bot to a Discord server first.');
   })();
 
+  function renderDetectedChannels(platform, chats) {
+    var container = document.getElementById('detectedChannels');
+    var platformIcons = { telegram: '&#128172;', slack: '&#128488;', discord: '&#127918;' };
+    var icon = platformIcons[platform] || '';
+
+    var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">'
+      + icon + ' ' + chats.length + ' ' + platform + ' channel(s) found. Select a writer and click Enroll:</div>';
+
+    html += chats.map(function (c, i) {
+      var threadLabel = c.thread_id ? ' <span class="badge badge-accent" style="font-size:9px;">Topic ' + c.thread_id + '</span>' : '';
+      var typeIcon = (c.type === 'group' || c.type === 'supergroup') ? '&#128101;' : c.type === 'private_channel' ? '&#128274;' : '&#128100;';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:13px;" data-enroll="' + i + '">'
+        + '<span>' + typeIcon + '</span>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<strong>' + (c.title || c.chat_id) + '</strong>' + threadLabel
+        + '<div class="text-muted" style="font-size:11px;">' + c.chat_id + (c.last_message ? ' — "' + c.last_message + '"' : '') + '</div>'
+        + '</div>'
+        + '<select class="form-control enroll-writer" data-chat="' + c.chat_id + '" data-thread="' + (c.thread_id || '') + '" style="width:140px;font-size:12px;">' + writerOptions() + '</select>'
+        + '<button class="btn btn-primary btn-sm enroll-btn" style="white-space:nowrap;">Enroll</button>'
+        + '</div>';
+    }).join('');
+
+    container.innerHTML = html;
+
+    // Enroll button handlers
+    container.querySelectorAll('.enroll-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var row = btn.closest('[data-enroll]');
+        var sel = row.querySelector('.enroll-writer');
+        var writerId = sel.value;
+        if (!writerId) { showAlert('Select a writer first', 'error'); return; }
+        var chatId = sel.dataset.chat;
+        var threadId = sel.dataset.thread || null;
+        btn.disabled = true; btn.textContent = 'Enrolling...';
+        try {
+          await apiFetch('/admin/pitches/channels', {
+            method: 'POST',
+            body: JSON.stringify({ platform: platform, channel_id: chatId, thread_id: threadId, writer_id: writerId })
+          });
+          btn.textContent = 'Enrolled';
+          btn.className = 'btn btn-sm';
+          btn.style.background = 'var(--success)';
+          btn.style.color = '#fff';
+          btn.style.border = 'none';
+          row.style.borderColor = 'var(--success)';
+          showAlert('Writer enrolled in channel');
+          loadChannels();
+        } catch (err) {
+          showAlert('Enroll failed: ' + err.message, 'error');
+          btn.disabled = false; btn.textContent = 'Enroll';
+        }
+      });
+    });
+  }
+
   async function loadMessagingTab(settings) {
-    // Telegram status
-    var badge = document.getElementById('telegramStatus');
-    if (settings.telegram_bot_token) {
-      if (badge) { badge.textContent = 'Configured'; badge.className = 'badge badge-success'; }
-      document.getElementById('telegramBotToken').placeholder = '••••••••  (saved)';
-      var webhookBtn = document.getElementById('setTelegramWebhookBtn');
-      if (webhookBtn) webhookBtn.style.display = '';
-    }
-    // Populate writer dropdown for channels
-    try {
-      var writers = await apiFetch('/admin/writers');
-      var sel = document.getElementById('newChannelWriter');
-      if (sel && writers.length) {
-        sel.innerHTML = '<option value="">All Writers</option>' + writers.map(function (w) {
-          return '<option value="' + w.id + '">' + w.name + '</option>';
-        }).join('');
+    // Status badges
+    var platforms = [
+      { key: 'telegram_bot_token', badge: 'telegramStatus', input: 'telegramBotToken' },
+      { key: 'slack_bot_token', badge: 'slackStatus', input: 'slackBotToken' },
+      { key: 'discord_bot_token', badge: 'discordStatus', input: 'discordBotToken' },
+    ];
+    platforms.forEach(function (p) {
+      if (settings[p.key]) {
+        var badge = document.getElementById(p.badge);
+        if (badge) { badge.textContent = 'Configured'; badge.className = 'badge badge-success'; }
+        document.getElementById(p.input).placeholder = '••••••••  (saved)';
       }
-    } catch {}
+    });
+
+    // Load writers for dropdowns
+    try {
+      _msgWriters = await apiFetch('/admin/writers');
+    } catch { _msgWriters = []; }
+
     loadChannels();
   }
 
@@ -2128,17 +2161,17 @@ let apiKeyVisible = false;
       var data = await apiFetch('/admin/pitches/channels');
       var channels = data.channels || [];
       if (!channels.length) {
-        container.innerHTML = '<div class="text-muted text-sm" style="padding:12px;">No channels configured yet.</div>';
+        container.innerHTML = '<div class="text-muted text-sm" style="padding:12px;">No channels enrolled yet. Use Detect above to find and enroll channels.</div>';
         return;
       }
       var platformIcons = { telegram: '&#128172;', slack: '&#128488;', discord: '&#127918;', webhook: '&#128279;' };
-      container.innerHTML = '<table style="width:100%;font-size:13px;"><thead><tr><th>Platform</th><th>Channel ID</th><th>Topic</th><th>Writer</th><th>Active</th><th></th></tr></thead><tbody>'
+      container.innerHTML = '<table style="width:100%;font-size:13px;"><thead><tr><th>Platform</th><th>Channel</th><th>Topic</th><th>Writer</th><th>Active</th><th></th></tr></thead><tbody>'
         + channels.map(function (ch) {
           return '<tr>'
             + '<td>' + (platformIcons[ch.platform] || '') + ' ' + ch.platform + '</td>'
             + '<td class="text-muted input-mono" style="font-size:12px;">' + (ch.channel_id || '') + '</td>'
             + '<td class="text-muted input-mono" style="font-size:12px;">' + (ch.thread_id || '—') + '</td>'
-            + '<td>' + (ch.writer_name || '<span class="text-muted">All</span>') + '</td>'
+            + '<td>' + (ch.writer_name || '<span class="text-muted">—</span>') + '</td>'
             + '<td><button class="btn btn-ghost btn-sm" onclick="toggleChannel(' + ch.id + ')">' + (ch.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Off</span>') + '</button></td>'
             + '<td><button class="btn btn-ghost btn-sm" onclick="deleteChannel(' + ch.id + ')">&#10005;</button></td>'
             + '</tr>';

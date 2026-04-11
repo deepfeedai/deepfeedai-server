@@ -947,13 +947,13 @@
       <!-- ═══ Messaging Tab ═══ -->
       <div class="tab-panel" data-tab="messaging">
 
-        <!-- Telegram Bot -->
+        <!-- Telegram -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128172;</div>
             <div>
-              <div class="settings-card-title">Telegram Bot</div>
-              <div class="settings-card-subtitle">Connect a Telegram bot for writer agent messaging</div>
+              <div class="settings-card-title">Telegram</div>
+              <div class="settings-card-subtitle">Create bot via <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>. For groups: disable Group Privacy in Bot Settings.</div>
             </div>
             <span id="telegramStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
           </div>
@@ -962,67 +962,90 @@
             <div class="input-action-row">
               <input type="password" class="form-control input-mono" id="telegramBotToken" placeholder="123456:ABC-DEF1234..." autocomplete="off" />
               <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('telegramBotToken', this)">Show</button>
+              <button class="btn btn-primary btn-sm" id="saveTelegramBtn">Save</button>
             </div>
-            <p class="form-help">Create a bot via <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> on Telegram and paste the token here.</p>
           </div>
-          <div class="form-group" style="margin-top:12px;">
+          <div class="form-group">
             <label class="form-label">Webhook URL</label>
             <div class="input-action-row">
               <input type="text" class="form-control input-mono" id="telegramWebhookUrl" placeholder="https://your-backend.up.railway.app/api/webhooks/telegram" style="font-size:12px;" />
               <button class="btn btn-outline btn-sm" id="setTelegramWebhookBtn">Set Webhook</button>
             </div>
-            <p class="form-help">Your backend server URL + <code>/api/webhooks/telegram</code>. This is where Telegram sends messages.</p>
-          </div>
-          <div class="btn-group mt-5" style="gap:8px;">
-            <button class="btn btn-primary btn-sm" id="saveTelegramBtn">Save Token</button>
           </div>
           <div id="telegramSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Messaging Channels -->
+        <!-- Slack -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#128488;</div>
+            <div>
+              <div class="settings-card-title">Slack</div>
+              <div class="settings-card-subtitle">Create <a href="https://api.slack.com/apps" target="_blank" rel="noopener">Slack App</a> with scopes: chat:write, channels:read, groups:read. Event URL: <code>/api/webhooks/slack</code></div>
+            </div>
+            <span id="slackStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Bot OAuth Token</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control input-mono" id="slackBotToken" placeholder="xoxb-..." autocomplete="off" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('slackBotToken', this)">Show</button>
+              <button class="btn btn-primary btn-sm" id="saveSlackBtn">Save</button>
+            </div>
+          </div>
+          <div id="slackSaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Discord -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#127918;</div>
+            <div>
+              <div class="settings-card-title">Discord</div>
+              <div class="settings-card-subtitle">Create app at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>. Bot permissions: Send Messages, Read Message History, View Channels.</div>
+            </div>
+            <span id="discordStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Bot Token</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control input-mono" id="discordBotToken" placeholder="MTIz..." autocomplete="off" />
+              <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('discordBotToken', this)">Show</button>
+              <button class="btn btn-primary btn-sm" id="saveDiscordBtn">Save</button>
+            </div>
+          </div>
+          <div id="discordSaveStatus" class="settings-status"></div>
+        </div>
+
+        <!-- Detect & Enroll -->
+        <div class="settings-card">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#128269;</div>
+            <div>
+              <div class="settings-card-title">Detect & Enroll Writers</div>
+              <div class="settings-card-subtitle">Discover available channels and assign writers to them</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-outline btn-sm" id="detectTelegramBtn">Detect Telegram</button>
+            <button class="btn btn-outline btn-sm" id="detectSlackBtn">Detect Slack</button>
+            <button class="btn btn-outline btn-sm" id="detectDiscordBtn">Detect Discord</button>
+          </div>
+          <div id="detectedChannels"></div>
+        </div>
+
+        <!-- Active Channels -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128227;</div>
             <div>
-              <div class="settings-card-title">Channels</div>
-              <div class="settings-card-subtitle">Configure which writers are reachable on which channels</div>
+              <div class="settings-card-title">Active Channels</div>
+              <div class="settings-card-subtitle">Enrolled writer channels</div>
             </div>
           </div>
-          <div id="channelsList" style="margin-bottom:12px;">
+          <div id="channelsList">
             <div class="text-muted text-sm" style="padding:12px;">Loading...</div>
           </div>
-          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border);">
-            <div class="form-group" style="margin-bottom:0;flex:1;min-width:120px;">
-              <label class="form-label">Platform</label>
-              <select class="form-control" id="newChannelPlatform" style="font-size:13px;">
-                <option value="telegram">Telegram</option>
-                <option value="slack">Slack</option>
-                <option value="discord">Discord</option>
-                <option value="webhook">Webhook</option>
-              </select>
-            </div>
-            <div class="form-group" style="margin-bottom:0;flex:2;min-width:150px;">
-              <label class="form-label">Channel / Chat ID</label>
-              <input type="text" class="form-control" id="newChannelId" placeholder="e.g. -1001234567890" style="font-size:13px;" />
-            </div>
-            <div class="form-group" style="margin-bottom:0;flex:1;min-width:100px;">
-              <label class="form-label">Topic ID</label>
-              <input type="text" class="form-control" id="newThreadId" placeholder="Optional" style="font-size:13px;" />
-            </div>
-            <div class="form-group" style="margin-bottom:0;flex:1;min-width:120px;">
-              <label class="form-label">Writer</label>
-              <select class="form-control" id="newChannelWriter" style="font-size:13px;">
-                <option value="">All Writers</option>
-              </select>
-            </div>
-            <button class="btn btn-primary btn-sm" id="addChannelBtn" style="margin-bottom:0;">Add Channel</button>
-          </div>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-            <button class="btn btn-outline btn-sm" id="detectChatsBtn">Detect Telegram Chats</button>
-            <div id="detectedChats" style="margin-top:8px;"></div>
-          </div>
-          <p class="form-help" style="margin-top:8px;">Send your bot a message on Telegram first, then click Detect to find the chat ID automatically. For group topics, each topic gets its own thread ID — assign a different writer to each topic.</p>
-          <p class="form-help">For groups: disable Group Privacy via <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> (<code>/mybots</code> → Bot Settings → Group Privacy → Turn off) so the bot receives all messages.</p>
         </div>
 
       </div><!-- /messaging tab -->
