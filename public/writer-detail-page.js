@@ -30,7 +30,7 @@
     await loadCategories();
 
     if (isNewWriter) {
-      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
+      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
       document.querySelector('.topbar-title').textContent = 'New Writer';
       setEditMode(true);
       renderEditMode();
@@ -192,6 +192,11 @@
       html += '<div class="wd-section"><div class="wd-section-title">System Prompt</div><div class="wd-card" style="font-size:13px;white-space:pre-wrap;color:var(--muted);font-family:monospace;max-height:200px;overflow-y:auto;">' + esc(w.system_prompt) + '</div></div>';
     }
 
+    // Chat Persona
+    if (w.chat_prompt) {
+      html += '<div class="wd-section"><div class="wd-section-title">Chat Persona</div><div class="wd-card" style="font-size:13px;white-space:pre-wrap;color:var(--muted);max-height:200px;overflow-y:auto;">' + esc(w.chat_prompt) + '</div></div>';
+    }
+
     document.getElementById('writerDetailContent').innerHTML = html;
   }
 
@@ -208,8 +213,17 @@
     // Avatar + Basic Info
     html += '<div class="wd-card" style="margin-bottom:20px;">';
     html += '<div class="wd-section-title">Basic Info</div>';
-    if (!isNewWriter && w.avatar_url) {
-      html += '<div style="margin-bottom:12px;"><img src="' + esc(w.avatar_url) + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" /></div>';
+    if (!isNewWriter) {
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">';
+      if (w.avatar_url) {
+        html += '<img id="writerAvatarImg" src="' + esc(w.avatar_url) + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+      } else {
+        html += '<div id="writerAvatarImg" style="width:64px;height:64px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;">&#9997;&#65039;</div>';
+      }
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      html += '<label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0;"><input type="file" accept="image/*" id="avatarFileInput" style="display:none;" onchange="uploadWriterAvatar(this)" />Upload</label>';
+      html += '<button class="btn btn-accent btn-sm" id="generateAvatarBtn" onclick="generateWriterAvatar()">Generate</button>';
+      html += '</div></div>';
     }
     html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Writer name" />');
     html += field('Slug', '<input type="text" class="form-control" id="fSlug" value="' + esc(w.slug || '') + '" placeholder="Auto-generated from name" />');
@@ -246,6 +260,7 @@
     html += field('Expertise', '<select class="form-control" id="fExpertise"><option value="">Default</option>' + ['beginner-friendly','intermediate','technical','expert'].map(function(t) { return '<option value="' + t + '"' + sel(w.expertise_level, t) + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>'; }).join('') + '</select>');
     html += '</div>';
     html += field('System Prompt', '<textarea class="form-control" id="fSystemPrompt" rows="4" placeholder="You are...">' + esc(w.system_prompt || '') + '</textarea>');
+    html += field('Chat Persona <span class="text-muted text-sm" style="font-weight:normal;">(Discord / Telegram / Slack voice)</span>', '<textarea class="form-control" id="fChatPrompt" rows="4" placeholder="Custom personality for messaging conversations...">' + esc(w.chat_prompt || '') + '</textarea><button class="btn btn-outline btn-sm" type="button" id="generateChatPromptBtn" style="margin-top:6px;">Generate Chat Persona</button>');
     html += field('Style Guide', '<textarea class="form-control" id="fStyleGuide" rows="3" placeholder="Editorial guidelines...">' + esc(w.style_guide || '') + '</textarea>');
 
     // Few-shot examples
@@ -295,6 +310,27 @@
       row.innerHTML = '<input type="text" class="form-control fs-title" placeholder="Title" /><textarea class="form-control fs-excerpt" placeholder="Excerpt"></textarea><button class="btn btn-ghost btn-sm" type="button" onclick="this.parentElement.remove()">&#10005;</button>';
       document.getElementById('fewShotContainer').appendChild(row);
     });
+
+    // Generate Chat Persona
+    var genChatBtn = document.getElementById('generateChatPromptBtn');
+    if (genChatBtn) {
+      genChatBtn.addEventListener('click', async function () {
+        if (!writerData.id) { alert('Save the writer first, then generate.'); return; }
+        genChatBtn.disabled = true;
+        genChatBtn.textContent = 'Generating...';
+        try {
+          var res = await apiFetch('/admin/writers/' + writerData.id + '/generate-chat-prompt', { method: 'POST' });
+          if (res.chat_prompt) {
+            document.getElementById('fChatPrompt').value = res.chat_prompt;
+          }
+        } catch (err) {
+          alert('Generation failed: ' + (err.message || err));
+        } finally {
+          genChatBtn.disabled = false;
+          genChatBtn.textContent = 'Generate Chat Persona';
+        }
+      });
+    }
   }
 
   function field(label, input) {
@@ -332,6 +368,7 @@
       beats: beatsChecked,
       keywords: keywordsRaw ? keywordsRaw.split(',').map(function (k) { return k.trim(); }).filter(Boolean) : [],
       system_prompt: document.getElementById('fSystemPrompt').value.trim() || null,
+      chat_prompt: document.getElementById('fChatPrompt').value.trim() || null,
       tone: document.getElementById('fTone').value || null,
       expertise_level: document.getElementById('fExpertise').value || null,
       style_guide: document.getElementById('fStyleGuide').value.trim() || null,
@@ -372,6 +409,57 @@
       showAlert('Save failed: ' + err.message, 'error');
     }
   });
+
+  // ── Avatar Upload / Generate ──────────────────────────────
+
+  window.uploadWriterAvatar = async function (input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!writerData || !writerData.id) return;
+
+    var reader = new FileReader();
+    reader.onload = async function () {
+      try {
+        showAlert('Uploading avatar...');
+        var data = await apiFetch('/admin/writers/' + writerData.id + '/avatar', {
+          method: 'POST',
+          body: JSON.stringify({ dataUrl: reader.result }),
+        });
+        writerData.avatar_url = data.avatar_url;
+        var img = document.getElementById('writerAvatarImg');
+        if (img && img.tagName === 'IMG') {
+          img.src = data.avatar_url;
+        } else if (img) {
+          img.outerHTML = '<img id="writerAvatarImg" src="' + data.avatar_url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+        }
+        showAlert('Avatar uploaded');
+      } catch (err) {
+        showAlert('Upload failed: ' + err.message, 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.generateWriterAvatar = async function () {
+    if (!writerData || !writerData.id) return;
+    var btn = document.getElementById('generateAvatarBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+    try {
+      var data = await apiFetch('/admin/writers/' + writerData.id + '/generate-avatar', { method: 'POST' });
+      writerData.avatar_url = data.avatar_url;
+      var img = document.getElementById('writerAvatarImg');
+      if (img && img.tagName === 'IMG') {
+        img.src = data.avatar_url;
+      } else if (img) {
+        img.outerHTML = '<img id="writerAvatarImg" src="' + data.avatar_url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+      }
+      showAlert('Avatar generated');
+    } catch (err) {
+      showAlert('Generate failed: ' + err.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+    }
+  };
 
   // ── Init ──────────────────────────────────────────────────
 

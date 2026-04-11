@@ -6,8 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup } = require('../lib/messaging/discord');
+const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter } = require('../lib/messaging/discord');
 const { handleIncoming, handleNewsroomCommand } = require('../lib/messaging');
+const { getAppConfig } = require('../lib/app-config');
 
 const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
 
@@ -127,9 +128,9 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
       }
     }
 
-    // Writer commands — look up channel→writer mapping
+    // Writer commands — look up channel→writer mapping (with writer info for avatar)
     const channel = await db.prepare(
-      "SELECT * FROM messaging_channels WHERE platform = 'discord' AND channel_id = $1 AND is_active = true"
+      "SELECT mc.*, w.name AS writer_name, w.avatar_url AS writer_avatar FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.channel_id = $1 AND mc.is_active = true"
     ).get(channelId);
 
     if (!channel) {
@@ -147,6 +148,64 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('discord', channelId);
     const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
+
+    // /new returns an object with clearChannel flag — bulk delete via REST
+    if (response && typeof response === 'object' && response.clearChannel) {
+      try {
+        const botToken = await require('../lib/messaging/discord').getBotToken(tenantId);
+        if (botToken) {
+          // Fetch recent messages
+          const fetchRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=50`, {
+            headers: { Authorization: `Bot ${botToken}` },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (fetchRes.ok) {
+            const msgs = await fetchRes.json();
+            const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+            const ids = msgs.filter(m => new Date(m.timestamp).getTime() > twoWeeksAgo).map(m => m.id);
+            if (ids.length > 1) {
+              await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/bulk-delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bot ${botToken}` },
+                body: JSON.stringify({ messages: ids }),
+                signal: AbortSignal.timeout(10000),
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[discord] bulk delete failed:', err.message);
+      }
+      // Delete the deferred message and send confirmation via webhook
+      await deleteFollowup(appId, interactionToken).catch(() => {});
+      if (channel.writer_name) {
+        await sendAsWriter(channelId, response.text, tenantId, channel.writer_name, channel.writer_avatar);
+      }
+      return;
+    }
+
+    // Try sending as the writer (with name + avatar) via channel webhook
+    if (channel.writer_name) {
+      // Resolve relative avatar URLs
+      let avatarUrl = channel.writer_avatar;
+      if (avatarUrl && !avatarUrl.startsWith('http')) {
+        try {
+          const config = await getAppConfig(tenantId);
+          const baseUrl = (config.base_url || '').replace(/\/$/, '');
+          if (baseUrl) avatarUrl = baseUrl + avatarUrl;
+          else avatarUrl = null;
+        } catch { avatarUrl = null; }
+      }
+
+      const sent = await sendAsWriter(channelId, response, tenantId, channel.writer_name, avatarUrl);
+      if (sent) {
+        // Delete the deferred "thinking" message since we sent via webhook
+        await deleteFollowup(appId, interactionToken).catch(() => {});
+        return;
+      }
+    }
+
+    // Fallback: send as bot via interaction follow-up
     await sendFollowup(appId, interactionToken, response);
   } catch (err) {
     console.error('[discord] follow-up error:', err.message, err.stack);
