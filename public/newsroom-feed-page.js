@@ -3,6 +3,8 @@
 (function () {
   'use strict';
 
+  renderSidebar();
+
   var allMessages = [];
   var activeFilter = 'all';
 
