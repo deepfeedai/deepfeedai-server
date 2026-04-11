@@ -6,8 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter } = require('../lib/messaging/discord');
+const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter, sendVoiceMessage, sendVoiceFollowup } = require('../lib/messaging/discord');
 const { handleIncoming, handleNewsroomCommand } = require('../lib/messaging');
+const { generateVoiceResponse } = require('../lib/media-helpers');
 const { getAppConfig } = require('../lib/app-config');
 
 const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
@@ -86,16 +87,23 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         commandText = '/update ' + (options.instruction || '');
       } else if (commandName === 'resync') {
         commandText = '/resync ' + (options.search || '');
+      } else if (commandName === 'voice') {
+        commandText = '/voice ' + (options.question || '');
       } else {
         commandText = '/' + commandName;
       }
 
       console.log(`[webhook:discord] ${userName} (channel: ${channelId}): ${commandText}`);
 
-      // /help can respond immediately (fast, no AI)
+      // /help can respond immediately (fast, no AI) — check agent role for correct help text
       if (commandName === 'help') {
+        const channelRow = await db.prepare(
+          "SELECT w.role FROM messaging_channels mc JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.channel_id = $1 AND mc.is_active = true"
+        ).get(channelId);
+        if (channelRow?.role === 'editor') {
+          return res.json({ type: 4, data: { content: '--- Editor Commands ---\n\napprove [id] — Publish an article\nreject [id] — Reject article to draft\n/review — Show review queue\n/stats — Editorial statistics\n/help — Show this message\n' } });
+        }
         const { getHelpText } = require('../lib/messaging');
-        // Type 4 = CHANNEL_MESSAGE_WITH_SOURCE (immediate response)
         return res.json({ type: 4, data: { content: getHelpText(true) } });
       }
 
@@ -104,7 +112,8 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       res.json({ type: 5 });
 
       // Fire-and-forget async processing
-      processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken).catch(err => {
+      const userId = body.member?.user?.id || body.user?.id || null;
+      processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken, { userId, userName, platform: 'discord' }).catch(err => {
         console.error('[discord] command processing error:', err.message, err.stack);
       });
       return;
@@ -121,7 +130,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 /**
  * Process a slash command asynchronously after deferring the interaction response.
  */
-async function processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken) {
+async function processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken, userMeta = {}) {
   try {
     // Check newsroom commands first
     if (NEWSROOM_COMMANDS.has(commandName)) {
@@ -151,7 +160,19 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
 
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('discord', channelId);
-    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey, userMeta);
+
+    // /voice returns { text, voice: true, writerId } — generate audio and send as attachment
+    if (response && typeof response === 'object' && response.voice) {
+      const voiceResult = await generateVoiceResponse(response.text, response.writerId, tenantId);
+      if (voiceResult) {
+        await sendVoiceFollowup(appId, interactionToken, voiceResult.buffer, response.text.slice(0, 200) + '...');
+      } else {
+        // Voice unavailable — fall back to text with explanation
+        await sendFollowup(appId, interactionToken, response.text + '\n\n(Voice not available — no ElevenLabs voice configured for this writer)');
+      }
+      return;
+    }
 
     // /new returns an object with clearChannel flag — bulk delete via REST
     if (response && typeof response === 'object' && response.clearChannel) {

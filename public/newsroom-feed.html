@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Newsroom Feed</title>
+  <title>DeepFeedAI Admin — Newsroom Activity</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
     .feed-container { max-width:700px; }
@@ -33,14 +33,17 @@
   <div class="main-content">
     <div class="topbar">
       <button class="hamburger" id="hamburger">&#9776;</button>
-      <div class="topbar-title">Newsroom Feed</div>
+      <div class="topbar-title">Newsroom Activity</div>
     </div>
     <div class="page-content feed-container">
-      <div class="feed-filters" id="feedFilters">
-        <button class="feed-filter active" data-type="all">All</button>
-        <button class="feed-filter" data-type="editorial-review">Editorial</button>
-        <button class="feed-filter" data-type="coordination">Coordination</button>
-        <button class="feed-filter" data-type="pitch">Pitches</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <div class="feed-filters" id="feedFilters" style="margin-bottom:0;">
+          <button class="feed-filter active" data-type="all">All</button>
+          <button class="feed-filter" data-type="editorial-review">Editorial</button>
+          <button class="feed-filter" data-type="coordination">Coordination</button>
+          <button class="feed-filter" data-type="pitch">Pitches</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="clearAllBtn" style="font-size:11px;">Clear All</button>
       </div>
       <div id="feedList">
         <div class="feed-empty">Loading...</div>

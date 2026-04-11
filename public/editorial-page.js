@@ -3,6 +3,8 @@
 (function () {
   'use strict';
 
+  renderSidebar();
+
   var articles = [];
 
   init();

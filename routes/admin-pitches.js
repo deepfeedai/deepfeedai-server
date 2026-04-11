@@ -154,16 +154,56 @@ router.get('/newsroom', auth, asyncHandler(async (req, res) => {
   const messages = await getPool().query(`
     SELECT nm.*,
       fw.name AS from_writer_name, fw.avatar_url AS from_writer_avatar,
-      tw.name AS to_writer_name
+      tw.name AS to_writer_name,
+      a.status AS article_status, a.is_published AS article_published
     FROM newsroom_messages nm
     LEFT JOIN writers fw ON fw.id = nm.from_writer_id
     LEFT JOIN writers tw ON tw.id = nm.to_writer_id
+    LEFT JOIN articles a ON a.id = (nm.context->>'articleId')::integer
     WHERE nm.tenant_id = $1
     ORDER BY nm.created_at DESC
     LIMIT $2
   `, [req.tenantId, limit]);
 
   res.json({ messages: messages.rows });
+}));
+
+// DELETE /api/admin/newsroom/:id — delete a newsroom message
+router.delete('/newsroom/:id', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const result = await db.prepare(
+    'DELETE FROM newsroom_messages WHERE id = $1 AND tenant_id = $2 RETURNING id'
+  ).get(req.params.id, req.tenantId);
+  if (!result) return res.status(404).json({ error: 'Message not found' });
+  res.json({ ok: true });
+}));
+
+// POST /api/admin/newsroom/clear — clear all newsroom messages
+router.post('/newsroom/clear', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  await db.prepare('DELETE FROM newsroom_messages WHERE tenant_id = $1').run(req.tenantId);
+  res.json({ ok: true });
+}));
+
+// POST /api/admin/pitches/test-editorial-review — run AI editor on a specific article
+router.post('/test-editorial-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { articleId } = req.body;
+  if (!articleId) return res.status(400).json({ error: 'articleId required' });
+
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(articleId, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { editorialReview } = require('../lib/editorial');
+  const verdict = await editorialReview(article, req.tenantId);
+
+  // If editor flagged the article, move it to review status
+  let newStatus = article.status;
+  if (verdict && !verdict.publish && article.status === 'published') {
+    await db.prepare(
+      "UPDATE articles SET status = 'review', is_published = 0, submitted_for_review_at = NOW() WHERE id = $1 AND tenant_id = $2"
+    ).run(articleId, req.tenantId);
+    newStatus = 'review';
+  }
+
+  res.json({ article: { id: article.id, title: article.title, status: newStatus }, verdict });
 }));
 
 // ── Messaging Channels ──────────────────────────────────────────

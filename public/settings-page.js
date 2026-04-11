@@ -2007,8 +2007,9 @@ let apiKeyVisible = false;
   var _msgWriters = [];
 
   function writerOptions() {
-    return '<option value="">— Select Writer —</option>' + _msgWriters.map(function (w) {
-      return '<option value="' + w.id + '">' + w.name + '</option>';
+    return '<option value="">— Select Agent —</option>' + _msgWriters.map(function (w) {
+      var role = w.role && w.role !== 'writer' ? ' (' + w.role + ')' : '';
+      return '<option value="' + w.id + '">' + w.name + role + '</option>';
     }).join('');
   }
 

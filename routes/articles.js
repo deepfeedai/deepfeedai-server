@@ -881,4 +881,53 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
+// POST /api/articles/backfill-embeddings — Generate embeddings for articles without them
+router.post('/backfill-embeddings', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { generateEmbedding, isPgvectorAvailable } = require('../lib/embeddings');
+
+  if (!(await isPgvectorAvailable())) {
+    return res.json({ ok: false, error: 'pgvector extension not available' });
+  }
+
+  const batchSize = Math.min(parseInt(req.query.batch) || 50, 100);
+
+  const articles = await db.prepare(`
+    SELECT id, title, COALESCE(tldr_overview, LEFT(summary, 300)) AS text
+    FROM articles
+    WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')
+      AND is_published = 1 AND embedding IS NULL
+    ORDER BY published_at DESC
+    LIMIT $2
+  `).all(req.tenantId, batchSize);
+
+  if (!articles.length) {
+    return res.json({ ok: true, processed: 0, remaining: 0, message: 'All articles already have embeddings' });
+  }
+
+  let processed = 0;
+  let errors = 0;
+
+  for (const a of articles) {
+    try {
+      const textToEmbed = `${a.title} — ${a.text || ''}`.slice(0, 1000);
+      const vector = await generateEmbedding(req.tenantId, textToEmbed);
+      await db.prepare('UPDATE articles SET embedding = $1 WHERE id = $2 AND tenant_id = $3')
+        .run(JSON.stringify(vector), a.id, req.tenantId);
+      processed++;
+    } catch (err) {
+      errors++;
+      console.error(`[backfill] Embedding failed for article ${a.id}:`, err.message);
+    }
+  }
+
+  const remaining = await db.prepare(`
+    SELECT COUNT(*)::int AS cnt FROM articles
+    WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')
+      AND is_published = 1 AND embedding IS NULL
+  `).get(req.tenantId);
+
+  logAudit(req, 'articles.backfill-embeddings', 'articles', null, { processed, errors, remaining: remaining?.cnt || 0 });
+  res.json({ ok: true, processed, errors, remaining: remaining?.cnt || 0 });
+}));
+
 module.exports = router;

@@ -923,6 +923,30 @@ registerJob({
   },
 });
 
+registerJob({
+  name: 'conversation-retention',
+  description: 'Clean up old conversation history',
+  category: 'Maintenance',
+  defaultSchedule: '0 4 * * *',
+  handler: async (tenantId) => {
+    const RETENTION_DAYS = 90;
+    const result = await db.getPool().query(
+      `DELETE FROM conversation_history WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
+      [tenantId, RETENTION_DAYS]
+    );
+    const deleted = result.rowCount;
+    if (deleted > 0) {
+      console.log(`[Cron] Conversation retention (tenant ${tenantId}): deleted ${deleted} messages older than ${RETENTION_DAYS} days`);
+    }
+    // Also clean up orphaned summaries where no recent history exists
+    await db.getPool().query(
+      `DELETE FROM conversation_summaries WHERE tenant_id = $1 AND updated_at < NOW() - make_interval(days => $2)`,
+      [tenantId, RETENTION_DAYS]
+    );
+    return { deleted, retentionDays: RETENTION_DAYS };
+  },
+});
+
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
   // ── Load saved deployment mode from DB if env var not set ────
