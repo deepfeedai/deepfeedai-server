@@ -2034,6 +2034,25 @@ let apiKeyVisible = false;
     setupTokenSave('saveTelegramBtn', 'telegramBotToken', 'telegram_bot_token', 'telegramStatus');
     setupTokenSave('saveSlackBtn', 'slackBotToken', 'slack_bot_token', 'slackStatus');
     setupTokenSave('saveDiscordBtn', 'discordBotToken', 'discord_bot_token', 'discordStatus');
+    setupTokenSave('saveDiscordAppIdBtn', 'discordAppId', 'discord_app_id', null);
+    setupTokenSave('saveDiscordPublicKeyBtn', 'discordPublicKey', 'discord_public_key', null);
+
+    // Register Discord slash commands
+    document.getElementById('registerDiscordCommandsBtn')?.addEventListener('click', async function () {
+      this.disabled = true; this.textContent = 'Registering...';
+      var statusEl = document.getElementById('discordRegisterStatus');
+      try {
+        var data = await apiFetch('/admin/pitches/discord-register-commands', { method: 'POST' });
+        var names = (data.commands || []).map(function (c) { return '/' + c.name; }).join(', ');
+        if (statusEl) statusEl.textContent = 'Registered: ' + names;
+        showAlert('Discord commands registered');
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Failed: ' + err.message;
+        showAlert('Registration failed: ' + err.message, 'error');
+      } finally {
+        this.disabled = false; this.textContent = 'Register Commands';
+      }
+    });
 
     // Telegram webhook
     document.getElementById('setTelegramWebhookBtn')?.addEventListener('click', async function () {
@@ -2145,6 +2164,14 @@ let apiKeyVisible = false;
         document.getElementById(p.input).placeholder = '••••••••  (saved)';
       }
     });
+
+    // Discord app settings (non-sensitive, show actual values)
+    if (settings.discord_app_id) {
+      document.getElementById('discordAppId').value = settings.discord_app_id;
+    }
+    if (settings.discord_public_key) {
+      document.getElementById('discordPublicKey').value = settings.discord_public_key;
+    }
 
     // Load writers for dropdowns
     try {

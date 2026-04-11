@@ -322,6 +322,13 @@ router.get('/slack-channels', auth, requirePermission('settings.update'), asyncH
   res.json({ chats });
 }));
 
+// POST /api/admin/pitches/discord-register-commands — register slash commands with Discord
+router.post('/discord-register-commands', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { registerCommands } = require('../lib/messaging/discord');
+  const result = await registerCommands(req.tenantId);
+  res.json({ status: 'ok', commands: result.map(c => ({ id: c.id, name: c.name })) });
+}));
+
 // GET /api/admin/pitches/discord-channels — detect Discord channels
 router.get('/discord-channels', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const { listChannels } = require('../lib/messaging/discord');

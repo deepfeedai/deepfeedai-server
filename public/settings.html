@@ -1002,9 +1002,23 @@
             <div class="settings-card-icon">&#127918;</div>
             <div>
               <div class="settings-card-title">Discord</div>
-              <div class="settings-card-subtitle">Create app at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>. Bot permissions: Send Messages, Read Message History, View Channels.</div>
+              <div class="settings-card-subtitle">Create app at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>. Bot scope: <code>bot</code> + <code>applications.commands</code>. Set Interactions Endpoint URL to <code>https://&lt;your-backend&gt;/api/webhooks/discord</code></div>
             </div>
             <span id="discordStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Application ID</label>
+            <div class="input-action-row">
+              <input type="text" class="form-control input-mono" id="discordAppId" placeholder="123456789012345678" autocomplete="off" />
+              <button class="btn btn-primary btn-sm" id="saveDiscordAppIdBtn">Save</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Public Key</label>
+            <div class="input-action-row">
+              <input type="text" class="form-control input-mono" id="discordPublicKey" placeholder="abc123..." autocomplete="off" />
+              <button class="btn btn-primary btn-sm" id="saveDiscordPublicKeyBtn">Save</button>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">Bot Token</label>
@@ -1013,6 +1027,10 @@
               <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('discordBotToken', this)">Show</button>
               <button class="btn btn-primary btn-sm" id="saveDiscordBtn">Save</button>
             </div>
+          </div>
+          <div class="form-group">
+            <button class="btn btn-accent btn-sm" id="registerDiscordCommandsBtn">Register Commands</button>
+            <span id="discordRegisterStatus" class="text-muted text-sm" style="margin-left:8px;"></span>
           </div>
           <div id="discordSaveStatus" class="settings-status"></div>
         </div>
