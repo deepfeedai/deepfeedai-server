@@ -1111,6 +1111,8 @@ async function initDb() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_messages_tenant ON newsroom_messages(tenant_id, created_at DESC)`,
+    // Telegram group topics: thread_id column for per-topic writer mapping
+    `ALTER TABLE messaging_channels ADD COLUMN IF NOT EXISTS thread_id TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

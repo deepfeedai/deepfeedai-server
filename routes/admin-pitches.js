@@ -182,14 +182,14 @@ router.get('/channels', auth, requirePermission('settings.read'), asyncHandler(a
 
 // POST /api/admin/pitches/channels — add a channel
 router.post('/channels', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
-  const { platform, channel_id, writer_id } = req.body;
+  const { platform, channel_id, writer_id, thread_id } = req.body;
   if (!platform || !channel_id) return res.status(400).json({ error: 'platform and channel_id required' });
 
   const row = await db.prepare(`
-    INSERT INTO messaging_channels (tenant_id, platform, channel_id, writer_id)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO messaging_channels (tenant_id, platform, channel_id, writer_id, thread_id)
+    VALUES ($1, $2, $3, $4, $5)
     RETURNING *
-  `).get(req.tenantId, platform, channel_id.trim(), writer_id ? parseInt(writer_id) : null);
+  `).get(req.tenantId, platform, channel_id.trim(), writer_id ? parseInt(writer_id) : null, thread_id?.trim() || null);
 
   res.json({ channel: row });
 }));
@@ -242,18 +242,23 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
     const data = await response.json();
     const updates = data.result || [];
 
-    // Extract unique chats
+    // Extract unique chats and topics
     const seen = new Set();
     const chats = [];
     for (const update of updates) {
       const msg = update.message || update.edited_message;
       if (!msg?.chat) continue;
       const chatId = String(msg.chat.id);
-      if (seen.has(chatId)) continue;
-      seen.add(chatId);
+      const threadId = msg.message_thread_id ? String(msg.message_thread_id) : null;
+      const key = threadId ? `${chatId}:${threadId}` : chatId;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const chatTitle = msg.chat.title || [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ') || chatId;
       chats.push({
         chat_id: chatId,
-        title: msg.chat.title || [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ') || chatId,
+        thread_id: threadId,
+        title: threadId ? `${chatTitle} → Topic` : chatTitle,
         type: msg.chat.type,
         last_message: msg.text?.slice(0, 100) || '',
       });
