@@ -13,9 +13,23 @@ const { getAppConfig } = require('../lib/app-config');
 
 const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
 
-// GET health check
-router.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Discord interactions endpoint is active' });
+// GET health check + diagnostic
+router.get('/', async (req, res) => {
+  // Include config diagnostic (non-sensitive)
+  let diag = {};
+  try {
+    const db = require('../db');
+    const rows = await db.prepare(
+      "SELECT key, CASE WHEN key = 'discord_app_id' THEN value ELSE LEFT(value, 4) || '...' END AS val FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = 1"
+    ).all();
+    for (const r of rows) diag[r.key] = r.val || '(empty)';
+    // Check if tenant lookup works
+    if (diag.discord_app_id && diag.discord_app_id !== '(empty)') {
+      const tid = await getTenantByAppId(diag.discord_app_id);
+      diag.tenant_lookup = tid ? `tenant ${tid}` : 'NOT FOUND';
+    }
+  } catch (err) { diag.error = err.message; }
+  res.json({ status: 'ok', message: 'Discord interactions endpoint is active', config: diag });
 });
 
 // POST — Discord interactions (raw body for signature verification)
