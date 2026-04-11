@@ -149,6 +149,41 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
     const contextKey = buildContextKey('discord', channelId);
     const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
 
+    // /new returns an object with clearChannel flag — bulk delete via REST
+    if (response && typeof response === 'object' && response.clearChannel) {
+      try {
+        const botToken = await require('../lib/messaging/discord').getBotToken(tenantId);
+        if (botToken) {
+          // Fetch recent messages
+          const fetchRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages?limit=50`, {
+            headers: { Authorization: `Bot ${botToken}` },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (fetchRes.ok) {
+            const msgs = await fetchRes.json();
+            const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+            const ids = msgs.filter(m => new Date(m.timestamp).getTime() > twoWeeksAgo).map(m => m.id);
+            if (ids.length > 1) {
+              await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/bulk-delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bot ${botToken}` },
+                body: JSON.stringify({ messages: ids }),
+                signal: AbortSignal.timeout(10000),
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[discord] bulk delete failed:', err.message);
+      }
+      // Delete the deferred message and send confirmation via webhook
+      await deleteFollowup(appId, interactionToken).catch(() => {});
+      if (channel.writer_name) {
+        await sendAsWriter(channelId, response.text, tenantId, channel.writer_name, channel.writer_avatar);
+      }
+      return;
+    }
+
     // Try sending as the writer (with name + avatar) via channel webhook
     if (channel.writer_name) {
       // Resolve relative avatar URLs
