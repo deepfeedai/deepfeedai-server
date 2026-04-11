@@ -6,8 +6,9 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup } = require('../lib/messaging/discord');
+const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter } = require('../lib/messaging/discord');
 const { handleIncoming, handleNewsroomCommand } = require('../lib/messaging');
+const { getAppConfig } = require('../lib/app-config');
 
 const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
 
@@ -127,9 +128,9 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
       }
     }
 
-    // Writer commands — look up channel→writer mapping
+    // Writer commands — look up channel→writer mapping (with writer info for avatar)
     const channel = await db.prepare(
-      "SELECT * FROM messaging_channels WHERE platform = 'discord' AND channel_id = $1 AND is_active = true"
+      "SELECT mc.*, w.name AS writer_name, w.avatar_url AS writer_avatar FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.channel_id = $1 AND mc.is_active = true"
     ).get(channelId);
 
     if (!channel) {
@@ -147,6 +148,29 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('discord', channelId);
     const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
+
+    // Try sending as the writer (with name + avatar) via channel webhook
+    if (channel.writer_name) {
+      // Resolve relative avatar URLs
+      let avatarUrl = channel.writer_avatar;
+      if (avatarUrl && !avatarUrl.startsWith('http')) {
+        try {
+          const config = await getAppConfig(tenantId);
+          const baseUrl = (config.base_url || '').replace(/\/$/, '');
+          if (baseUrl) avatarUrl = baseUrl + avatarUrl;
+          else avatarUrl = null;
+        } catch { avatarUrl = null; }
+      }
+
+      const sent = await sendAsWriter(channelId, response, tenantId, channel.writer_name, avatarUrl);
+      if (sent) {
+        // Delete the deferred "thinking" message since we sent via webhook
+        await deleteFollowup(appId, interactionToken).catch(() => {});
+        return;
+      }
+    }
+
+    // Fallback: send as bot via interaction follow-up
     await sendFollowup(appId, interactionToken, response);
   } catch (err) {
     console.error('[discord] follow-up error:', err.message, err.stack);
