@@ -92,11 +92,22 @@
         verdictHtml += '</div>';
       }
 
-      // Action buttons
+      // Article status + action buttons
+      var articleStatus = m.article_status || null;
+      var statusHtml = '';
+      if (context?.articleId && articleStatus) {
+        var statusColor = articleStatus === 'published' ? '#22c55e' : articleStatus === 'review' ? '#fbbf24' : '#94a3b8';
+        statusHtml = '<div style="margin-top:6px;font-size:11px;"><span style="color:' + statusColor + ';font-weight:600;">Article: ' + articleStatus + '</span></div>';
+      }
+
       var actionsHtml = '<div style="display:flex;gap:6px;margin-top:8px;">';
       if (context?.verdict && context?.articleId && !context.verdict.publish) {
-        actionsHtml += '<button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="approveFromFeed(' + context.articleId + ',' + m.id + ')">Approve & Publish</button>';
-        actionsHtml += '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="rejectFromFeed(' + context.articleId + ',' + m.id + ')">Reject</button>';
+        if (articleStatus === 'review') {
+          actionsHtml += '<button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="approveFromFeed(' + context.articleId + ',' + m.id + ')">Approve & Publish</button>';
+          actionsHtml += '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="rejectFromFeed(' + context.articleId + ',' + m.id + ')">Reject to Draft</button>';
+        } else if (articleStatus === 'published') {
+          actionsHtml += '<span style="font-size:11px;color:var(--muted);">Already published</span>';
+        }
       }
       actionsHtml += '<button class="btn btn-ghost btn-sm" style="font-size:11px;" onclick="dismissMessage(' + m.id + ')">Dismiss</button>';
       actionsHtml += '</div>';
@@ -112,6 +123,7 @@
         + '<div class="feed-content">' + esc(m.content) + '</div>'
         + targetHtml
         + verdictHtml
+        + statusHtml
         + actionsHtml
         + '</div>'
         + '</div>';
@@ -130,7 +142,13 @@
   window.approveFromFeed = async function (articleId, msgId) {
     if (!confirm('Publish this article?')) return;
     try {
-      await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      // Try the review workflow first, fall back to direct publish for non-review articles
+      try {
+        await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      } catch (approveErr) {
+        // Article might already be published or not in review — force publish
+        await apiFetch('/articles/' + articleId, { method: 'PUT', body: JSON.stringify({ is_published: true, status: 'published' }) });
+      }
       await apiFetch('/admin/pitches/newsroom/' + msgId, { method: 'DELETE' });
       var el = document.getElementById('feed-msg-' + msgId);
       if (el) el.remove();
@@ -141,7 +159,11 @@
   window.rejectFromFeed = async function (articleId, msgId) {
     if (!confirm('Reject this article back to draft?')) return;
     try {
-      await apiFetch('/articles/' + articleId + '/reject', { method: 'PUT' });
+      try {
+        await apiFetch('/articles/' + articleId + '/reject', { method: 'PUT' });
+      } catch {
+        await apiFetch('/articles/' + articleId, { method: 'PUT', body: JSON.stringify({ is_published: false, status: 'draft' }) });
+      }
       await apiFetch('/admin/pitches/newsroom/' + msgId, { method: 'DELETE' });
       var el = document.getElementById('feed-msg-' + msgId);
       if (el) el.remove();

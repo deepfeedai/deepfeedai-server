@@ -154,10 +154,12 @@ router.get('/newsroom', auth, asyncHandler(async (req, res) => {
   const messages = await getPool().query(`
     SELECT nm.*,
       fw.name AS from_writer_name, fw.avatar_url AS from_writer_avatar,
-      tw.name AS to_writer_name
+      tw.name AS to_writer_name,
+      a.status AS article_status, a.is_published AS article_published
     FROM newsroom_messages nm
     LEFT JOIN writers fw ON fw.id = nm.from_writer_id
     LEFT JOIN writers tw ON tw.id = nm.to_writer_id
+    LEFT JOIN articles a ON a.id = (nm.context->>'articleId')::integer
     WHERE nm.tenant_id = $1
     ORDER BY nm.created_at DESC
     LIMIT $2
@@ -191,7 +193,17 @@ router.post('/test-editorial-review', auth, requirePermission('articles.update')
 
   const { editorialReview } = require('../lib/editorial');
   const verdict = await editorialReview(article, req.tenantId);
-  res.json({ article: { id: article.id, title: article.title, status: article.status }, verdict });
+
+  // If editor flagged the article, move it to review status
+  let newStatus = article.status;
+  if (verdict && !verdict.publish && article.status === 'published') {
+    await db.prepare(
+      "UPDATE articles SET status = 'review', is_published = 0, submitted_for_review_at = NOW() WHERE id = $1 AND tenant_id = $2"
+    ).run(articleId, req.tenantId);
+    newStatus = 'review';
+  }
+
+  res.json({ article: { id: article.id, title: article.title, status: newStatus }, verdict });
 }));
 
 // ── Messaging Channels ──────────────────────────────────────────
