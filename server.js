@@ -158,6 +158,9 @@ app.use(async (req, res, next) => {
 // ── Stripe Webhook (raw body — must be BEFORE json parser) ─────────
 app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
 
+// ── Discord Webhook (raw body — Ed25519 signature verification) ────
+app.use('/api/webhooks/discord', require('./routes/discord-webhook'));
+
 // ── Body Parsers ───────────────────────────────────────────────────
 // Default: small limit for public endpoints (DoS mitigation)
 app.use(express.json({ limit: '64kb' }));
