@@ -208,8 +208,17 @@
     // Avatar + Basic Info
     html += '<div class="wd-card" style="margin-bottom:20px;">';
     html += '<div class="wd-section-title">Basic Info</div>';
-    if (!isNewWriter && w.avatar_url) {
-      html += '<div style="margin-bottom:12px;"><img src="' + esc(w.avatar_url) + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" /></div>';
+    if (!isNewWriter) {
+      html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">';
+      if (w.avatar_url) {
+        html += '<img id="writerAvatarImg" src="' + esc(w.avatar_url) + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+      } else {
+        html += '<div id="writerAvatarImg" style="width:64px;height:64px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:24px;">&#9997;&#65039;</div>';
+      }
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      html += '<label class="btn btn-outline btn-sm" style="cursor:pointer;margin:0;"><input type="file" accept="image/*" id="avatarFileInput" style="display:none;" onchange="uploadWriterAvatar(this)" />Upload</label>';
+      html += '<button class="btn btn-accent btn-sm" id="generateAvatarBtn" onclick="generateWriterAvatar()">Generate</button>';
+      html += '</div></div>';
     }
     html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Writer name" />');
     html += field('Slug', '<input type="text" class="form-control" id="fSlug" value="' + esc(w.slug || '') + '" placeholder="Auto-generated from name" />');
@@ -372,6 +381,57 @@
       showAlert('Save failed: ' + err.message, 'error');
     }
   });
+
+  // ── Avatar Upload / Generate ──────────────────────────────
+
+  window.uploadWriterAvatar = async function (input) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!writerData || !writerData.id) return;
+
+    var reader = new FileReader();
+    reader.onload = async function () {
+      try {
+        showAlert('Uploading avatar...');
+        var data = await apiFetch('/admin/writers/' + writerData.id + '/avatar', {
+          method: 'POST',
+          body: JSON.stringify({ dataUrl: reader.result }),
+        });
+        writerData.avatar_url = data.avatar_url;
+        var img = document.getElementById('writerAvatarImg');
+        if (img && img.tagName === 'IMG') {
+          img.src = data.avatar_url;
+        } else if (img) {
+          img.outerHTML = '<img id="writerAvatarImg" src="' + data.avatar_url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+        }
+        showAlert('Avatar uploaded');
+      } catch (err) {
+        showAlert('Upload failed: ' + err.message, 'error');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.generateWriterAvatar = async function () {
+    if (!writerData || !writerData.id) return;
+    var btn = document.getElementById('generateAvatarBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+    try {
+      var data = await apiFetch('/admin/writers/' + writerData.id + '/generate-avatar', { method: 'POST' });
+      writerData.avatar_url = data.avatar_url;
+      var img = document.getElementById('writerAvatarImg');
+      if (img && img.tagName === 'IMG') {
+        img.src = data.avatar_url;
+      } else if (img) {
+        img.outerHTML = '<img id="writerAvatarImg" src="' + data.avatar_url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+      }
+      showAlert('Avatar generated');
+    } catch (err) {
+      showAlert('Generate failed: ' + err.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Generate'; }
+    }
+  };
 
   // ── Init ──────────────────────────────────────────────────
 
