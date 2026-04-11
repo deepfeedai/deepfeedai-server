@@ -968,7 +968,7 @@ db.init().then(async () => {
     console.log('[info] No admin user found — setup wizard available at /setup');
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, async () => {
     const version  = require('./package.json').version;
     const mode     = tenantUtils.MULTI_TENANT ? 'MULTI-TENANT' : 'SINGLE-TENANT';
     const instance = process.env.INSTANCE_NAME || 'default';
@@ -983,6 +983,20 @@ db.init().then(async () => {
     if (setupNeeded) console.log('  Status:   SETUP REQUIRED');
     console.log('  ========================================');
     console.log('');
+
+    // Auto-restore Telegram webhook on startup
+    try {
+      const rows = await db.prepare(
+        "SELECT s.tenant_id, s.value AS url FROM settings s WHERE s.key = 'telegram_webhook_url' AND s.value IS NOT NULL AND s.value != ''"
+      ).all();
+      for (const row of rows) {
+        const { setWebhook } = require('./lib/messaging/telegram');
+        await setWebhook(row.tenant_id, row.url);
+        console.log(`  [telegram] Webhook restored: ${row.url}`);
+      }
+    } catch (err) {
+      console.error('  [telegram] Webhook restore failed:', err.message);
+    }
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
