@@ -35,21 +35,17 @@ router.post('/telegram', asyncHandler(async (req, res) => {
     let channel = null;
 
     if (parsed.threadId) {
+      // Topic message — match by chat_id + thread_id
       channel = await db.prepare(
         "SELECT * FROM messaging_channels WHERE platform = 'telegram' AND channel_id = $1 AND thread_id = $2 AND is_active = true"
       ).get(parsed.chatId, parsed.threadId);
     }
 
     if (!channel) {
+      // DM or general group message — match by chat_id with no thread_id
       channel = await db.prepare(
         "SELECT * FROM messaging_channels WHERE platform = 'telegram' AND channel_id = $1 AND (thread_id IS NULL OR thread_id = '') AND is_active = true"
       ).get(parsed.chatId);
-    }
-
-    if (!channel) {
-      channel = await db.prepare(
-        "SELECT * FROM messaging_channels WHERE platform = 'telegram' AND is_active = true AND tenant_id = $1 ORDER BY writer_id IS NOT NULL DESC LIMIT 1"
-      ).get(req.tenantId);
     }
 
     if (!channel) {

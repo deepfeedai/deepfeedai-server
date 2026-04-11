@@ -220,13 +220,16 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
 
   const api = `https://api.telegram.org/bot${token}`;
 
-  // Check if a webhook is currently active
+  // Get saved webhook URL from DB (most reliable) or from Telegram API
+  const savedUrlRow = await db.prepare(
+    "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'telegram_webhook_url'"
+  ).get(req.tenantId);
   const infoRes = await fetch(`${api}/getWebhookInfo`, { signal: AbortSignal.timeout(10000) });
   const infoData = await infoRes.json();
-  const hadWebhook = infoData.result?.url || '';
+  const hadWebhook = savedUrlRow?.value || infoData.result?.url || '';
 
   // If webhook is active, temporarily delete it to allow getUpdates
-  if (hadWebhook) {
+  if (infoData.result?.url) {
     await fetch(`${api}/deleteWebhook`, { method: 'POST', signal: AbortSignal.timeout(10000) });
   }
 
@@ -266,14 +269,19 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
 
     res.json({ chats });
   } finally {
-    // Re-set the webhook if one was active
+    // Re-set the webhook
     if (hadWebhook) {
-      fetch(`${api}/setWebhook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: hadWebhook }),
-        signal: AbortSignal.timeout(10000),
-      }).catch(() => {});
+      try {
+        await fetch(`${api}/setWebhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: hadWebhook }),
+          signal: AbortSignal.timeout(10000),
+        });
+        console.log(`[telegram] Webhook restored: ${hadWebhook}`);
+      } catch (err) {
+        console.error('[telegram] Webhook restore failed:', err.message);
+      }
     }
   }
 }));
