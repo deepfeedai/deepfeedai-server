@@ -84,6 +84,8 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         commandText = '/assign ' + (options.topic || '');
       } else if (commandName === 'update') {
         commandText = '/update ' + (options.instruction || '');
+      } else if (commandName === 'resync') {
+        commandText = '/resync ' + (options.search || '');
       } else {
         commandText = '/' + commandName;
       }
