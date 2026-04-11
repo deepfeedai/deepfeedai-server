@@ -228,14 +228,25 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
   const infoData = await infoRes.json();
   const hadWebhook = savedUrlRow?.value || infoData.result?.url || '';
 
-  // If webhook is active, temporarily delete it to allow getUpdates
+  // Delete webhook to allow getUpdates (must confirm success)
   if (infoData.result?.url) {
-    await fetch(`${api}/deleteWebhook`, { method: 'POST', signal: AbortSignal.timeout(10000) });
+    const delRes = await fetch(`${api}/deleteWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ drop_pending_updates: false }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const delData = await delRes.json();
+    if (!delData.ok) {
+      return res.status(502).json({ error: 'Failed to remove webhook: ' + (delData.description || 'unknown error') });
+    }
+    // Brief pause to let Telegram process the deletion
+    await new Promise(r => setTimeout(r, 500));
   }
 
   try {
-    const response = await fetch(`${api}/getUpdates?limit=50`, {
-      signal: AbortSignal.timeout(10000),
+    const response = await fetch(`${api}/getUpdates?limit=50&timeout=3`, {
+      signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
       const err = await response.text().catch(() => '');
