@@ -144,7 +144,9 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
       return;
     }
 
-    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText);
+    const { buildContextKey } = require('../lib/messaging/context');
+    const contextKey = buildContextKey('discord', channelId);
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
     await sendFollowup(appId, interactionToken, response);
   } catch (err) {
     console.error('[discord] follow-up error:', err.message, err.stack);

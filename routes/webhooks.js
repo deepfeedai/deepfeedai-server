@@ -66,9 +66,11 @@ router.post('/telegram', asyncHandler(async (req, res) => {
       return;
     }
 
-    // Route to writer
+    // Route to writer (with conversation context)
     const { handleIncoming } = require('../lib/messaging');
-    const response = await handleIncoming(channel.tenant_id, writerId, parsed.text);
+    const { buildContextKey } = require('../lib/messaging/context');
+    const contextKey = buildContextKey('telegram', parsed.chatId, parsed.threadId);
+    const response = await handleIncoming(channel.tenant_id, writerId, parsed.text, contextKey);
 
     const { sendTelegramMessage } = require('../lib/messaging/telegram');
     await sendTelegramMessage(parsed.chatId, response, channel.tenant_id, parsed.threadId);
@@ -125,7 +127,9 @@ router.post('/slack', asyncHandler(async (req, res) => {
     }
 
     const { handleIncoming } = require('../lib/messaging');
-    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text);
+    const { buildContextKey } = require('../lib/messaging/context');
+    const contextKey = buildContextKey('slack', parsed.chatId);
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text, contextKey);
 
     const { sendSlackMessage } = require('../lib/messaging/slack');
     await sendSlackMessage(parsed.chatId, response, channel.tenant_id, parsed.threadId);

@@ -1000,6 +1000,14 @@ db.init().then(async () => {
     } catch (err) {
       console.error('  [telegram] Webhook restore failed:', err.message);
     }
+
+    // Auto-connect Discord Gateway bots on startup
+    try {
+      const { startAllGateways } = require('./lib/messaging/discord-gateway');
+      await startAllGateways();
+    } catch (err) {
+      console.error('  [discord-gw] Gateway startup failed:', err.message);
+    }
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
