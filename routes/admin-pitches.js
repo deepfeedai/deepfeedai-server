@@ -166,6 +166,19 @@ router.get('/newsroom', auth, asyncHandler(async (req, res) => {
   res.json({ messages: messages.rows });
 }));
 
+// POST /api/admin/pitches/test-editorial-review — run AI editor on a specific article
+router.post('/test-editorial-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { articleId } = req.body;
+  if (!articleId) return res.status(400).json({ error: 'articleId required' });
+
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(articleId, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { editorialReview } = require('../lib/editorial');
+  const verdict = await editorialReview(article, req.tenantId);
+  res.json({ article: { id: article.id, title: article.title, status: article.status }, verdict });
+}));
+
 // ── Messaging Channels ──────────────────────────────────────────
 
 // GET /api/admin/pitches/channels — list messaging channels
