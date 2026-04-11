@@ -315,4 +315,39 @@ router.post('/telegram-webhook', auth, requirePermission('settings.update'), asy
   res.json({ status: 'ok', webhook_url: webhookUrl, result });
 }));
 
+// GET /api/admin/pitches/slack-channels — detect Slack channels
+router.get('/slack-channels', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { listChannels } = require('../lib/messaging/slack');
+  const chats = await listChannels(req.tenantId);
+  res.json({ chats });
+}));
+
+// GET /api/admin/pitches/discord-channels — detect Discord channels
+router.get('/discord-channels', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { listChannels } = require('../lib/messaging/discord');
+  const chats = await listChannels(req.tenantId);
+  res.json({ chats });
+}));
+
+// POST /api/admin/pitches/channels/enroll — bulk enroll channels with writers
+router.post('/channels/enroll', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { enrollments } = req.body;
+  if (!Array.isArray(enrollments) || !enrollments.length) {
+    return res.status(400).json({ error: 'enrollments array required' });
+  }
+
+  const created = [];
+  for (const e of enrollments) {
+    if (!e.platform || !e.channel_id || !e.writer_id) continue;
+    const row = await db.prepare(`
+      INSERT INTO messaging_channels (tenant_id, platform, channel_id, thread_id, writer_id)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `).get(req.tenantId, e.platform, e.channel_id, e.thread_id || null, parseInt(e.writer_id));
+    if (row) created.push(row);
+  }
+
+  res.json({ status: 'ok', enrolled: created.length });
+}));
+
 module.exports = router;
