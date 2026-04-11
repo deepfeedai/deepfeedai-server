@@ -2059,9 +2059,13 @@ let apiKeyVisible = false;
           container.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Click a chat to use its ID:</div>'
             + chats.map(function (c) {
               var typeIcon = c.type === 'group' || c.type === 'supergroup' ? '&#128101;' : '&#128100;';
-              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;" onclick="document.getElementById(\'newChannelId\').value=\'' + c.chat_id + '\';document.getElementById(\'newChannelPlatform\').value=\'telegram\';showAlert(\'Chat ID copied to channel form\');">'
+              var threadLabel = c.thread_id ? ' <span class="badge badge-accent" style="font-size:9px;">Topic ' + c.thread_id + '</span>' : '';
+              var onclick = "document.getElementById('newChannelId').value='" + c.chat_id + "';document.getElementById('newChannelPlatform').value='telegram';"
+                + (c.thread_id ? "document.getElementById('newThreadId').value='" + c.thread_id + "';" : "document.getElementById('newThreadId').value='';")
+                + "showAlert('Chat ID copied to channel form');";
+              return '<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;cursor:pointer;font-size:13px;" onclick="' + onclick + '">'
                 + '<span>' + typeIcon + '</span>'
-                + '<div style="flex:1;"><strong>' + c.title + '</strong> <span class="text-muted">(' + c.type + ')</span></div>'
+                + '<div style="flex:1;"><strong>' + c.title + '</strong>' + threadLabel + ' <span class="text-muted">(' + c.type + ')</span></div>'
                 + '<code style="font-size:11px;color:var(--accent);">' + c.chat_id + '</code>'
                 + '</div>';
             }).join('');
@@ -2077,14 +2081,16 @@ let apiKeyVisible = false;
     document.getElementById('addChannelBtn')?.addEventListener('click', async function () {
       var platform = document.getElementById('newChannelPlatform').value;
       var channelId = document.getElementById('newChannelId').value.trim();
+      var threadId = document.getElementById('newThreadId').value.trim();
       var writerId = document.getElementById('newChannelWriter').value;
       if (!channelId) { showAlert('Channel ID is required', 'error'); return; }
       try {
         await apiFetch('/admin/pitches/channels', {
           method: 'POST',
-          body: JSON.stringify({ platform: platform, channel_id: channelId, writer_id: writerId || null })
+          body: JSON.stringify({ platform: platform, channel_id: channelId, thread_id: threadId || null, writer_id: writerId || null })
         });
         document.getElementById('newChannelId').value = '';
+        document.getElementById('newThreadId').value = '';
         showAlert('Channel added');
         loadChannels();
       } catch (err) {
@@ -2126,11 +2132,12 @@ let apiKeyVisible = false;
         return;
       }
       var platformIcons = { telegram: '&#128172;', slack: '&#128488;', discord: '&#127918;', webhook: '&#128279;' };
-      container.innerHTML = '<table style="width:100%;font-size:13px;"><thead><tr><th>Platform</th><th>Channel ID</th><th>Writer</th><th>Active</th><th></th></tr></thead><tbody>'
+      container.innerHTML = '<table style="width:100%;font-size:13px;"><thead><tr><th>Platform</th><th>Channel ID</th><th>Topic</th><th>Writer</th><th>Active</th><th></th></tr></thead><tbody>'
         + channels.map(function (ch) {
           return '<tr>'
             + '<td>' + (platformIcons[ch.platform] || '') + ' ' + ch.platform + '</td>'
             + '<td class="text-muted input-mono" style="font-size:12px;">' + (ch.channel_id || '') + '</td>'
+            + '<td class="text-muted input-mono" style="font-size:12px;">' + (ch.thread_id || '—') + '</td>'
             + '<td>' + (ch.writer_name || '<span class="text-muted">All</span>') + '</td>'
             + '<td><button class="btn btn-ghost btn-sm" onclick="toggleChannel(' + ch.id + ')">' + (ch.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Off</span>') + '</button></td>'
             + '<td><button class="btn btn-ghost btn-sm" onclick="deleteChannel(' + ch.id + ')">&#10005;</button></td>'

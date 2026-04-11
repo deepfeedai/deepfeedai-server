@@ -1005,6 +1005,10 @@
               <label class="form-label">Channel / Chat ID</label>
               <input type="text" class="form-control" id="newChannelId" placeholder="e.g. -1001234567890" style="font-size:13px;" />
             </div>
+            <div class="form-group" style="margin-bottom:0;flex:1;min-width:100px;">
+              <label class="form-label">Topic ID</label>
+              <input type="text" class="form-control" id="newThreadId" placeholder="Optional" style="font-size:13px;" />
+            </div>
             <div class="form-group" style="margin-bottom:0;flex:1;min-width:120px;">
               <label class="form-label">Writer</label>
               <select class="form-control" id="newChannelWriter" style="font-size:13px;">
@@ -1017,7 +1021,8 @@
             <button class="btn btn-outline btn-sm" id="detectChatsBtn">Detect Telegram Chats</button>
             <div id="detectedChats" style="margin-top:8px;"></div>
           </div>
-          <p class="form-help" style="margin-top:8px;">Send your bot a message on Telegram first, then click Detect to find the chat ID automatically.</p>
+          <p class="form-help" style="margin-top:8px;">Send your bot a message on Telegram first, then click Detect to find the chat ID automatically. For group topics, each topic gets its own thread ID — assign a different writer to each topic.</p>
+          <p class="form-help">For groups: disable Group Privacy via <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> (<code>/mybots</code> → Bot Settings → Group Privacy → Turn off) so the bot receives all messages.</p>
         </div>
 
       </div><!-- /messaging tab -->
