@@ -1070,6 +1070,7 @@ async function initDb() {
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS signature_phrases TEXT[]`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS contrarian_level NUMERIC(2,1) DEFAULT 0.5`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS chat_prompt TEXT`,
     // Future: writer voice fingerprint (analyzed from 20+ articles)
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_fingerprint JSONB`,
     // Writer agent: story pitches

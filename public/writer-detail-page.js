@@ -30,7 +30,7 @@
     await loadCategories();
 
     if (isNewWriter) {
-      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
+      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
       document.querySelector('.topbar-title').textContent = 'New Writer';
       setEditMode(true);
       renderEditMode();
@@ -192,6 +192,11 @@
       html += '<div class="wd-section"><div class="wd-section-title">System Prompt</div><div class="wd-card" style="font-size:13px;white-space:pre-wrap;color:var(--muted);font-family:monospace;max-height:200px;overflow-y:auto;">' + esc(w.system_prompt) + '</div></div>';
     }
 
+    // Chat Persona
+    if (w.chat_prompt) {
+      html += '<div class="wd-section"><div class="wd-section-title">Chat Persona</div><div class="wd-card" style="font-size:13px;white-space:pre-wrap;color:var(--muted);max-height:200px;overflow-y:auto;">' + esc(w.chat_prompt) + '</div></div>';
+    }
+
     document.getElementById('writerDetailContent').innerHTML = html;
   }
 
@@ -255,6 +260,7 @@
     html += field('Expertise', '<select class="form-control" id="fExpertise"><option value="">Default</option>' + ['beginner-friendly','intermediate','technical','expert'].map(function(t) { return '<option value="' + t + '"' + sel(w.expertise_level, t) + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>'; }).join('') + '</select>');
     html += '</div>';
     html += field('System Prompt', '<textarea class="form-control" id="fSystemPrompt" rows="4" placeholder="You are...">' + esc(w.system_prompt || '') + '</textarea>');
+    html += field('Chat Persona <span class="text-muted text-sm" style="font-weight:normal;">(Discord / Telegram / Slack voice)</span>', '<textarea class="form-control" id="fChatPrompt" rows="4" placeholder="Custom personality for messaging conversations...">' + esc(w.chat_prompt || '') + '</textarea><button class="btn btn-outline btn-sm" type="button" id="generateChatPromptBtn" style="margin-top:6px;">Generate Chat Persona</button>');
     html += field('Style Guide', '<textarea class="form-control" id="fStyleGuide" rows="3" placeholder="Editorial guidelines...">' + esc(w.style_guide || '') + '</textarea>');
 
     // Few-shot examples
@@ -304,6 +310,27 @@
       row.innerHTML = '<input type="text" class="form-control fs-title" placeholder="Title" /><textarea class="form-control fs-excerpt" placeholder="Excerpt"></textarea><button class="btn btn-ghost btn-sm" type="button" onclick="this.parentElement.remove()">&#10005;</button>';
       document.getElementById('fewShotContainer').appendChild(row);
     });
+
+    // Generate Chat Persona
+    var genChatBtn = document.getElementById('generateChatPromptBtn');
+    if (genChatBtn) {
+      genChatBtn.addEventListener('click', async function () {
+        if (!writerData.id) { alert('Save the writer first, then generate.'); return; }
+        genChatBtn.disabled = true;
+        genChatBtn.textContent = 'Generating...';
+        try {
+          var res = await apiFetch('/admin/writers/' + writerData.id + '/generate-chat-prompt', { method: 'POST' });
+          if (res.chat_prompt) {
+            document.getElementById('fChatPrompt').value = res.chat_prompt;
+          }
+        } catch (err) {
+          alert('Generation failed: ' + (err.message || err));
+        } finally {
+          genChatBtn.disabled = false;
+          genChatBtn.textContent = 'Generate Chat Persona';
+        }
+      });
+    }
   }
 
   function field(label, input) {
@@ -341,6 +368,7 @@
       beats: beatsChecked,
       keywords: keywordsRaw ? keywordsRaw.split(',').map(function (k) { return k.trim(); }).filter(Boolean) : [],
       system_prompt: document.getElementById('fSystemPrompt').value.trim() || null,
+      chat_prompt: document.getElementById('fChatPrompt').value.trim() || null,
       tone: document.getElementById('fTone').value || null,
       expertise_level: document.getElementById('fExpertise').value || null,
       style_guide: document.getElementById('fStyleGuide').value.trim() || null,

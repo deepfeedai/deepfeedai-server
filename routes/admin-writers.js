@@ -200,7 +200,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     return res.status(403).json({ error: 'Plan limit reached', resource: 'writers', current: limit.current, max: limit.max });
   }
 
-  const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
+  const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
           signature_phrases, contrarian_level, beat_angle } = body;
@@ -208,16 +208,16 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
   const writer = await db.prepare(`
-    INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, is_auto,
+    INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, chat_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
       tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
       signature_phrases, contrarian_level, beat_angle, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
     keywords.length ? keywords : null,
-    system_prompt || null, is_auto || false,
+    system_prompt || null, chat_prompt || null, is_auto || false,
     synthesis_schedule, synthesis_lookback_hours, min_cluster_size,
     elevenlabs_voice_id || null,
     tone || null, expertise_level || null, style_guide || null,
@@ -243,7 +243,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   const body = validate(writerUpdate, req.body, res);
   if (!body) return;
 
-  const { name, slug, bio, beat, beats, keywords, system_prompt, is_auto,
+  const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
           signature_phrases, contrarian_level, beat_angle } = body;
@@ -253,12 +253,12 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
 
   const writer = await db.prepare(`
     UPDATE writers SET name = $1, slug = $2, bio = $3, beat = $4, keywords = $5,
-      system_prompt = $6, is_auto = $7, synthesis_schedule = $8,
-      synthesis_lookback_hours = $9, min_cluster_size = $10, elevenlabs_voice_id = $11,
-      tone = $12, expertise_level = $13, style_guide = $14, few_shot_examples = $15,
-      gender = $16, ethnicity = $17,
-      signature_phrases = $18, contrarian_level = $19, beat_angle = $20
-    WHERE id = $21 AND tenant_id = $22
+      system_prompt = $6, chat_prompt = $7, is_auto = $8, synthesis_schedule = $9,
+      synthesis_lookback_hours = $10, min_cluster_size = $11, elevenlabs_voice_id = $12,
+      tone = $13, expertise_level = $14, style_guide = $15, few_shot_examples = $16,
+      gender = $17, ethnicity = $18,
+      signature_phrases = $19, contrarian_level = $20, beat_angle = $21
+    WHERE id = $22 AND tenant_id = $23
     RETURNING *
   `).get(
     name,
@@ -267,6 +267,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     beat !== undefined ? (beat || null) : existing.beat,
     keywords !== undefined ? (keywords.length ? keywords : null) : existing.keywords,
     system_prompt !== undefined ? (system_prompt || null) : existing.system_prompt,
+    chat_prompt !== undefined ? (chat_prompt || null) : existing.chat_prompt,
     is_auto !== undefined ? (is_auto || false) : existing.is_auto,
     synthesis_schedule !== undefined ? synthesis_schedule : existing.synthesis_schedule,
     synthesis_lookback_hours !== undefined ? synthesis_lookback_hours : existing.synthesis_lookback_hours,
@@ -384,6 +385,62 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
 
   const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json({ ...updated, _avatarPrompt: prompt });
+}));
+
+// POST /api/admin/writers/:id/generate-chat-prompt — AI-generate chat persona
+router.post('/:id/generate-chat-prompt', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  // Gather context for the generation
+  const beats = await getBeats(id, req.tenantId);
+  const beatNames = beats.map(b => b.name).join(', ') || 'general news';
+
+  const articles = await db.prepare(`
+    SELECT title, COALESCE(tldr_overview, LEFT(summary, 200)) AS snippet
+    FROM articles WHERE writer_id = $1 AND tenant_id = $2
+      AND content_type IN ('original', 'deep-dive') AND is_published = 1
+    ORDER BY published_at DESC LIMIT 10
+  `).all(id, req.tenantId);
+
+  const { getRelevantMemories } = require('../lib/writer-memory');
+  const memories = await getRelevantMemories(parseInt(id), req.tenantId, '', 10);
+
+  let context = `Writer: ${writer.name}\nBeats: ${beatNames}`;
+  if (writer.tone) context += `\nTone: ${writer.tone}`;
+  if (writer.beat_angle) context += `\nAngle: ${writer.beat_angle}`;
+  if (writer.bio) context += `\nBio: ${writer.bio}`;
+  if (writer.signature_phrases?.length) context += `\nSignature phrases: ${writer.signature_phrases.join(', ')}`;
+  if (articles.length) {
+    context += '\n\nRecent articles:';
+    for (const a of articles) context += `\n- ${a.title}` + (a.snippet ? `: ${a.snippet}` : '');
+  }
+  if (memories.length) {
+    context += '\n\nEditorial memories:';
+    for (const m of memories) context += `\n- ${m.subject}` + (m.content ? `: ${m.content.slice(0, 150)}` : '');
+  }
+
+  const result = await aiComplete({
+    operation: 'chat',
+    tenantId: req.tenantId,
+    messages: [
+      { role: 'system', content: 'You are an expert at creating AI writer personalities for messaging platforms.' },
+      { role: 'user', content: `Based on this writer's profile and body of work, write a chat persona prompt that defines how they should sound in Discord/Slack/Telegram conversations.\n\nThe prompt should capture:\n- Their personality and attitude toward their beat\n- How they explain complex topics (analogies, references, depth)\n- Their conversational quirks and habits\n- How they react to news, hype, skepticism\n- What makes their voice distinctive\n\nWrite it in second person ("You're..."). Be specific and vivid — not generic. 3-5 sentences.\n\n${context}` },
+    ],
+    temperature: 0.8,
+    maxTokens: 400,
+    trigger: 'manual',
+    writerId: parseInt(id),
+  });
+
+  if (!result?.text) return res.status(502).json({ error: 'AI generation returned no result' });
+
+  // Save to DB
+  await db.prepare('UPDATE writers SET chat_prompt = $1 WHERE id = $2 AND tenant_id = $3').run(result.text, id, req.tenantId);
+
+  logAudit(req, 'writer.generate-chat-prompt', 'writer', parseInt(id), { name: writer.name });
+  res.json({ chat_prompt: result.text });
 }));
 
 // GET /api/admin/writers/performance — per-writer performance metrics
