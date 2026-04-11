@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Writers</title>
+  <title>DeepFeedAI Admin — AI Team</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
     .tab-bar { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:20px; }
@@ -53,6 +53,11 @@
     .memory-type-prediction { background:rgba(251,191,36,0.15); color:#fbbf24; }
     .recent-article-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px; }
     .recent-article-item:last-child { border-bottom:none; }
+    .role-badge { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 8px; border-radius:4px; display:inline-block; }
+    .role-badge-writer { background:rgba(59,130,246,0.15); color:#3b82f6; }
+    .role-badge-editor { background:rgba(168,85,247,0.15); color:#a855f7; }
+    .role-badge-analyst { background:rgba(34,197,94,0.15); color:#22c55e; }
+    .role-badge-moderator { background:rgba(251,191,36,0.15); color:#fbbf24; }
   </style>
 </head>
 <body>
@@ -60,27 +65,27 @@
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
-      <div class="topbar-title">Writers</div>
+      <div class="topbar-title">AI Team</div>
     </header>
 
     <div class="page-body">
       <!-- Tab bar -->
       <div class="tab-bar" id="writerTabs">
-        <button class="tab-btn active" data-tab="writers">Writers</button>
+        <button class="tab-btn active" data-tab="writers">Agents</button>
         <button class="tab-btn" data-tab="performance">Performance</button>
       </div>
 
       <!-- Writers Tab -->
       <div id="writersSection">
         <div class="section-header">
-          <div class="section-title">Writer Personas</div>
+          <div class="section-title">AI Team</div>
           <div class="btn-group" style="display:flex;gap:8px;align-items:center;">
             <div class="view-toggle" id="writerViewToggle">
               <button class="view-toggle-btn active" data-view="table" title="Table view">&#9776;</button>
               <button class="view-toggle-btn" data-view="cards" title="Card view">&#9638;</button>
             </div>
             <button class="btn btn-outline" id="aiGenerateWritersBtn">AI Generate</button>
-            <button class="btn btn-primary" id="addWriterBtn" onclick="window.location.href='/writer-detail.html?new=1'">+ Add Writer</button>
+            <button class="btn btn-primary" id="addWriterBtn" onclick="window.location.href='/writer-detail.html?new=1'">+ Add Agent</button>
           </div>
         </div>
 

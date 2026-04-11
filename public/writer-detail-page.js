@@ -116,7 +116,8 @@
     html += '<div class="wd-header">';
     html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
     html += '<div style="flex:1;min-width:0;">';
-    html += '<h1 class="wd-name">' + esc(w.name) + '</h1>';
+    var role = w.role || 'writer';
+    html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span></h1>';
     if (beats.length) html += '<div>' + beats.map(function (b) { return '<span class="badge badge-muted" style="font-size:12px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
     if (w.bio) html += '<p class="wd-bio">' + esc(w.bio) + '</p>';
     html += '</div></div>';
@@ -225,8 +226,11 @@
       html += '<button class="btn btn-accent btn-sm" id="generateAvatarBtn" onclick="generateWriterAvatar()">Generate</button>';
       html += '</div></div>';
     }
-    html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Writer name" />');
+    html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Agent name" />');
+    html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">';
     html += field('Slug', '<input type="text" class="form-control" id="fSlug" value="' + esc(w.slug || '') + '" placeholder="Auto-generated from name" />');
+    html += field('Role', '<select class="form-control" id="fRole"><option value="writer"' + sel(w.role, 'writer') + '>Writer</option><option value="editor"' + sel(w.role, 'editor') + '>Editor</option><option value="analyst"' + sel(w.role, 'analyst') + '>Analyst</option><option value="moderator"' + sel(w.role, 'moderator') + '>Moderator</option></select>');
+    html += '</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
     html += field('Gender', '<select class="form-control" id="fGender"><option value="">— Not set —</option><option value="male"' + sel(w.gender, 'male') + '>Male</option><option value="female"' + sel(w.gender, 'female') + '>Female</option><option value="non-binary"' + sel(w.gender, 'non-binary') + '>Non-binary</option></select>');
     html += field('Ethnicity', '<select class="form-control" id="fEthnicity"><option value="">— Not set —</option>' + ['African American','African','Asian','East Asian','South Asian','Hispanic/Latino','Middle Eastern','Native American','Pacific Islander','Caucasian','Mixed/Multiracial'].map(function(e) { return '<option' + sel(w.ethnicity, e) + '>' + e + '</option>'; }).join('') + '</select>');
@@ -369,6 +373,7 @@
       keywords: keywordsRaw ? keywordsRaw.split(',').map(function (k) { return k.trim(); }).filter(Boolean) : [],
       system_prompt: document.getElementById('fSystemPrompt').value.trim() || null,
       chat_prompt: document.getElementById('fChatPrompt').value.trim() || null,
+      role: document.getElementById('fRole').value || 'writer',
       tone: document.getElementById('fTone').value || null,
       expertise_level: document.getElementById('fExpertise').value || null,
       style_guide: document.getElementById('fStyleGuide').value.trim() || null,

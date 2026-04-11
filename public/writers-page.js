@@ -44,9 +44,12 @@ function renderWriters() {
       ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>'
       : '<span class="text-muted text-sm">Manual</span>';
 
+    var role = w.role || 'writer';
+    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span>';
+
     return '<tr>'
       + '<td>' + avatarHtml + '</td>'
-      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a></td>'
+      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a> ' + roleBadge + '</td>'
       + '<td>' + beatsHtml + '</td>'
       + '<td style="text-align:center;">' + autoBadge + '</td>'
       + '<td class="text-muted text-sm">' + (w.elevenlabs_voice_id ? '<span title="' + esc(w.elevenlabs_voice_id) + '">Configured</span>' : 'None') + '</td>'
@@ -78,6 +81,8 @@ function renderWriterCards() {
     var beatsHtml = beats.slice(0, 3).map(function(n) { return '<span class="badge badge-muted" style="font-size:10px;">' + esc(n) + '</span>'; }).join(' ');
     var angleSnippet = w.beat_angle ? '<div class="text-muted text-sm" style="margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(w.beat_angle) + '">' + esc(w.beat_angle) + '</div>' : '';
     var autoBadge = w.is_auto ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>' : '';
+    var role = w.role || 'writer';
+    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span>';
 
     return '<div class="writer-card" onclick="showWriterQuickView(' + w.id + ')">'
       + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
@@ -86,7 +91,7 @@ function renderWriterCards() {
         : '<div style="width:48px;height:48px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">&#9997;&#65039;</div>')
       + '<div style="flex:1;min-width:0;">'
       + '<div style="font-weight:700;font-size:15px;">' + esc(w.name) + '</div>'
-      + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">' + beatsHtml + ' ' + autoBadge + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">' + roleBadge + ' ' + beatsHtml + ' ' + autoBadge + '</div>'
       + '</div>'
       + '</div>'
       + (w.bio ? '<div class="text-muted text-sm" style="line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + esc(w.bio) + '</div>' : '')
