@@ -76,6 +76,11 @@ router.post('/telegram', asyncHandler(async (req, res) => {
     console.log(`[webhook:telegram] Response sent to ${parsed.chatId} (thread: ${parsed.threadId || 'none'})`);
   } catch (err) {
     console.error('[webhook:telegram] Error:', err.message, err.stack);
+    // Try to send error feedback to the user
+    try {
+      const { sendTelegramMessage } = require('../lib/messaging/telegram');
+      await sendTelegramMessage(parsed.chatId, 'Sorry, something went wrong: ' + err.message, req.tenantId, parsed.threadId);
+    } catch {}
   }
 }));
 
