@@ -1071,6 +1071,22 @@ async function initDb() {
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS contrarian_level NUMERIC(2,1) DEFAULT 0.5`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS chat_prompt TEXT`,
+    // Agent roles & teams (Newsroom)
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'writer'`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS team_id INTEGER`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT false`,
+    `CREATE TABLE IF NOT EXISTS teams (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      name        TEXT NOT NULL,
+      description TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_teams_tenant ON teams(tenant_id)`,
+    // Editorial workflow tracking on articles
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_revision_count INTEGER DEFAULT 0`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMPTZ`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editor_verdict JSONB`,
     // Future: writer voice fingerprint (analyzed from 20+ articles)
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_fingerprint JSONB`,
     // Writer agent: story pitches

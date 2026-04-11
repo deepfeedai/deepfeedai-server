@@ -203,7 +203,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
   const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-          signature_phrases, contrarian_level, beat_angle } = body;
+          signature_phrases, contrarian_level, beat_angle, role, team_id, is_system } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -211,8 +211,8 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, chat_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
       tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-      signature_phrases, contrarian_level, beat_angle, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+      signature_phrases, contrarian_level, beat_angle, role, team_id, is_system, tenant_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -224,6 +224,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     JSON.stringify(few_shot_examples || []),
     gender || null, ethnicity || null,
     signature_phrases || null, contrarian_level ?? 0.5, beat_angle || null,
+    role || 'writer', team_id || null, is_system || false,
     req.tenantId
   );
 
@@ -246,7 +247,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-          signature_phrases, contrarian_level, beat_angle } = body;
+          signature_phrases, contrarian_level, beat_angle, role, team_id, is_system } = body;
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);
@@ -257,8 +258,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       synthesis_lookback_hours = $10, min_cluster_size = $11, elevenlabs_voice_id = $12,
       tone = $13, expertise_level = $14, style_guide = $15, few_shot_examples = $16,
       gender = $17, ethnicity = $18,
-      signature_phrases = $19, contrarian_level = $20, beat_angle = $21
-    WHERE id = $22 AND tenant_id = $23
+      signature_phrases = $19, contrarian_level = $20, beat_angle = $21,
+      role = $22, team_id = $23, is_system = $24
+    WHERE id = $25 AND tenant_id = $26
     RETURNING *
   `).get(
     name,
@@ -282,6 +284,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     signature_phrases !== undefined ? signature_phrases : existing.signature_phrases,
     contrarian_level !== undefined ? contrarian_level : existing.contrarian_level,
     beat_angle !== undefined ? (beat_angle || null) : existing.beat_angle,
+    role !== undefined ? (role || 'writer') : (existing.role || 'writer'),
+    team_id !== undefined ? (team_id || null) : existing.team_id,
+    is_system !== undefined ? (is_system || false) : (existing.is_system || false),
     id,
     req.tenantId
   );
@@ -607,6 +612,53 @@ router.delete('/:id/memories/:memoryId', requirePermission('writers.update'), as
   const { deleteMemory } = require('../lib/writer-memory');
   await deleteMemory(parseInt(req.params.memoryId), req.tenantId);
   logAudit(req, 'writer.memory.delete', 'writer_memory', parseInt(req.params.memoryId), {});
+  res.json({ ok: true });
+}));
+
+// ── Teams ─────────────────────────────────────────────────────
+
+// GET /api/admin/writers/teams — list teams
+router.get('/teams', requirePermission('writers.read'), asyncHandler(async (req, res) => {
+  const teams = await db.prepare(
+    'SELECT * FROM teams WHERE tenant_id = $1 ORDER BY name'
+  ).all(req.tenantId);
+  // Attach agent counts per team
+  for (const team of teams) {
+    const count = await db.prepare(
+      'SELECT COUNT(*)::int AS cnt FROM writers WHERE team_id = $1 AND tenant_id = $2'
+    ).get(team.id, req.tenantId);
+    team.agent_count = count?.cnt || 0;
+  }
+  res.json(teams);
+}));
+
+// POST /api/admin/writers/teams — create team
+router.post('/teams', requirePermission('writers.create'), asyncHandler(async (req, res) => {
+  const { name, description } = req.body;
+  if (!name) return res.status(400).json({ error: 'Team name is required' });
+  const team = await db.prepare(
+    'INSERT INTO teams (tenant_id, name, description) VALUES ($1, $2, $3) RETURNING *'
+  ).get(req.tenantId, name, description || null);
+  logAudit(req, 'team.create', 'team', team.id, { name });
+  res.json(team);
+}));
+
+// PUT /api/admin/writers/teams/:id — update team
+router.put('/teams/:id', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { name, description } = req.body;
+  const team = await db.prepare(
+    'UPDATE teams SET name = COALESCE($1, name), description = COALESCE($2, description) WHERE id = $3 AND tenant_id = $4 RETURNING *'
+  ).get(name || null, description !== undefined ? description : null, req.params.id, req.tenantId);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  res.json(team);
+}));
+
+// DELETE /api/admin/writers/teams/:id — delete team (agents get team_id = NULL)
+router.delete('/teams/:id', requirePermission('writers.delete'), asyncHandler(async (req, res) => {
+  await db.prepare('UPDATE writers SET team_id = NULL WHERE team_id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
+  const result = await db.prepare('DELETE FROM teams WHERE id = $1 AND tenant_id = $2 RETURNING *').get(req.params.id, req.tenantId);
+  if (!result) return res.status(404).json({ error: 'Team not found' });
+  logAudit(req, 'team.delete', 'team', parseInt(req.params.id), { name: result.name });
   res.json({ ok: true });
 }));
 
