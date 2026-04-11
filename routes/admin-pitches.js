@@ -285,6 +285,13 @@ router.post('/telegram-webhook', auth, requirePermission('settings.update'), asy
   if (!webhookUrl || !webhookUrl.startsWith('https://')) {
     return res.status(400).json({ error: 'webhook_url is required and must use https://' });
   }
+
+  // Save the webhook URL so it can be restored on server restart
+  await getPool().query(
+    `INSERT INTO settings (tenant_id, key, value, updated_at) VALUES ($1, 'telegram_webhook_url', $2, NOW())
+     ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [req.tenantId, webhookUrl]
+  );
   const result = await setWebhook(req.tenantId, webhookUrl);
   res.json({ status: 'ok', webhook_url: webhookUrl, result });
 }));
