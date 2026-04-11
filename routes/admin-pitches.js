@@ -166,6 +166,21 @@ router.get('/newsroom', auth, asyncHandler(async (req, res) => {
   res.json({ messages: messages.rows });
 }));
 
+// DELETE /api/admin/newsroom/:id — delete a newsroom message
+router.delete('/newsroom/:id', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const result = await db.prepare(
+    'DELETE FROM newsroom_messages WHERE id = $1 AND tenant_id = $2 RETURNING id'
+  ).get(req.params.id, req.tenantId);
+  if (!result) return res.status(404).json({ error: 'Message not found' });
+  res.json({ ok: true });
+}));
+
+// POST /api/admin/newsroom/clear — clear all newsroom messages
+router.post('/newsroom/clear', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  await db.prepare('DELETE FROM newsroom_messages WHERE tenant_id = $1').run(req.tenantId);
+  res.json({ ok: true });
+}));
+
 // POST /api/admin/pitches/test-editorial-review — run AI editor on a specific article
 router.post('/test-editorial-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { articleId } = req.body;

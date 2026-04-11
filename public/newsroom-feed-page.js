@@ -24,6 +24,15 @@
       activeFilter = btn.dataset.type;
       renderFeed();
     });
+
+    document.getElementById('clearAllBtn').addEventListener('click', async function () {
+      if (!confirm('Clear all newsroom activity? This cannot be undone.')) return;
+      try {
+        await apiFetch('/admin/pitches/newsroom/clear', { method: 'POST' });
+        allMessages = [];
+        renderFeed();
+      } catch (err) { alert('Failed: ' + (err.message || err)); }
+    });
   }
 
   async function loadFeed() {
@@ -83,7 +92,16 @@
         verdictHtml += '</div>';
       }
 
-      return '<div class="feed-item">'
+      // Action buttons
+      var actionsHtml = '<div style="display:flex;gap:6px;margin-top:8px;">';
+      if (context?.verdict && context?.articleId && !context.verdict.publish) {
+        actionsHtml += '<button class="btn btn-primary btn-sm" style="font-size:11px;" onclick="approveFromFeed(' + context.articleId + ',' + m.id + ')">Approve & Publish</button>';
+        actionsHtml += '<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="rejectFromFeed(' + context.articleId + ',' + m.id + ')">Reject</button>';
+      }
+      actionsHtml += '<button class="btn btn-ghost btn-sm" style="font-size:11px;" onclick="dismissMessage(' + m.id + ')">Dismiss</button>';
+      actionsHtml += '</div>';
+
+      return '<div class="feed-item" id="feed-msg-' + m.id + '">'
         + avatarHtml
         + '<div class="feed-body">'
         + '<div class="feed-header">'
@@ -94,10 +112,42 @@
         + '<div class="feed-content">' + esc(m.content) + '</div>'
         + targetHtml
         + verdictHtml
+        + actionsHtml
         + '</div>'
         + '</div>';
     }).join('');
   }
+
+  window.dismissMessage = async function (msgId) {
+    try {
+      await apiFetch('/admin/pitches/newsroom/' + msgId, { method: 'DELETE' });
+      var el = document.getElementById('feed-msg-' + msgId);
+      if (el) el.remove();
+      allMessages = allMessages.filter(function (m) { return m.id !== msgId; });
+    } catch (err) { alert('Failed: ' + (err.message || err)); }
+  };
+
+  window.approveFromFeed = async function (articleId, msgId) {
+    if (!confirm('Publish this article?')) return;
+    try {
+      await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      await apiFetch('/admin/pitches/newsroom/' + msgId, { method: 'DELETE' });
+      var el = document.getElementById('feed-msg-' + msgId);
+      if (el) el.remove();
+      allMessages = allMessages.filter(function (m) { return m.id !== msgId; });
+    } catch (err) { alert('Failed: ' + (err.message || err)); }
+  };
+
+  window.rejectFromFeed = async function (articleId, msgId) {
+    if (!confirm('Reject this article back to draft?')) return;
+    try {
+      await apiFetch('/articles/' + articleId + '/reject', { method: 'PUT' });
+      await apiFetch('/admin/pitches/newsroom/' + msgId, { method: 'DELETE' });
+      var el = document.getElementById('feed-msg-' + msgId);
+      if (el) el.remove();
+      allMessages = allMessages.filter(function (m) { return m.id !== msgId; });
+    } catch (err) { alert('Failed: ' + (err.message || err)); }
+  };
 
   function esc(str) {
     var d = document.createElement('div');
