@@ -425,11 +425,22 @@ router.post('/:id/generate-chat-prompt', requirePermission('writers.update'), as
     operation: 'chat',
     tenantId: req.tenantId,
     messages: [
-      { role: 'system', content: 'You are an expert at creating AI writer personalities for messaging platforms.' },
-      { role: 'user', content: `Based on this writer's profile and body of work, write a chat persona prompt that defines how they should sound in Discord/Slack/Telegram conversations.\n\nThe prompt should capture:\n- Their personality and attitude toward their beat\n- How they explain complex topics (analogies, references, depth)\n- Their conversational quirks and habits\n- How they react to news, hype, skepticism\n- What makes their voice distinctive\n\nWrite it in second person ("You're..."). Be specific and vivid — not generic. 3-5 sentences.\n\n${context}` },
+      { role: 'system', content: 'You are an expert at creating AI writer personalities for messaging platforms. Always write complete responses — never stop mid-sentence.' },
+      { role: 'user', content: `Based on this writer's profile and body of work, write a chat persona prompt that defines how they should sound in Discord/Slack/Telegram conversations.
+
+The prompt should capture:
+- Their personality and attitude toward their beat
+- How they explain complex topics (analogies, references, depth)
+- Their conversational quirks and habits
+- How they react to news, hype, skepticism
+- What makes their voice distinctive
+
+Write it in second person ("You're..."). Be specific and vivid — not generic. Write exactly 4-6 complete sentences. Output ONLY the persona text, no preamble or explanation.
+
+${context}` },
     ],
     temperature: 0.8,
-    maxTokens: 400,
+    maxTokens: 1024,
     trigger: 'manual',
     writerId: parseInt(id),
   });
