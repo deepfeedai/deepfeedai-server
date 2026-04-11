@@ -162,15 +162,22 @@ app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
 app.use('/api/webhooks/discord', require('./routes/discord-webhook'));
 
 // ── Body Parsers ───────────────────────────────────────────────────
-// Default: small limit for public endpoints (DoS mitigation)
+// Routes that need larger payloads get a higher limit applied first.
+// The global 64kb parser below will skip them because body-parser
+// does not re-parse if req.body is already set.
+const largeBodyParser = express.json({ limit: '2mb' });
+const xlBodyParser    = express.json({ limit: '10mb' });
+
+// Apply larger limit to specific admin paths BEFORE the global parser
+app.use('/api/admin/writers', xlBodyParser);
+app.use('/api/synthesis', largeBodyParser);
+
+// Default: small limit for everything else (DoS mitigation)
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: true, limit: '64kb' }));
 
 // ── Correlation ID ─────────────────────────────────────────────────
 app.use(require('./middleware/correlation'));
-
-// Admin routes with larger payloads get a higher limit via per-route middleware
-const largeBodyParser = express.json({ limit: '2mb' });
 
 // ── Signup subdomain routing ────────────────────────────────────────
 // Must be BEFORE express.static so index.html doesn't get served for '/'.
@@ -338,7 +345,7 @@ app.use('/api/admin/users',   adminWriteLimiter, require('./routes/admin-users')
 app.use('/api/admin/roles',   require('./routes/admin-roles'));
 app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
-app.use('/api/admin/writers', auth, express.json({ limit: '10mb' }), require('./routes/admin-writers'));
+app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
 app.use('/api/admin/pitches', require('./routes/admin-pitches'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/webhooks', require('./routes/webhooks'));
