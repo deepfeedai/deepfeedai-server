@@ -965,9 +965,16 @@
             </div>
             <p class="form-help">Create a bot via <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> on Telegram and paste the token here.</p>
           </div>
+          <div class="form-group" style="margin-top:12px;">
+            <label class="form-label">Webhook URL</label>
+            <div class="input-action-row">
+              <input type="text" class="form-control input-mono" id="telegramWebhookUrl" placeholder="https://your-backend.up.railway.app/api/webhooks/telegram" style="font-size:12px;" />
+              <button class="btn btn-outline btn-sm" id="setTelegramWebhookBtn">Set Webhook</button>
+            </div>
+            <p class="form-help">Your backend server URL + <code>/api/webhooks/telegram</code>. This is where Telegram sends messages.</p>
+          </div>
           <div class="btn-group mt-5" style="gap:8px;">
             <button class="btn btn-primary btn-sm" id="saveTelegramBtn">Save Token</button>
-            <button class="btn btn-outline btn-sm" id="setTelegramWebhookBtn">Set Webhook</button>
           </div>
           <div id="telegramSaveStatus" class="settings-status"></div>
         </div>

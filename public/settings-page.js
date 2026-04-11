@@ -2030,10 +2030,12 @@ let apiKeyVisible = false;
 
     // Set webhook
     document.getElementById('setTelegramWebhookBtn')?.addEventListener('click', async function () {
+      var webhookUrl = document.getElementById('telegramWebhookUrl').value.trim();
+      if (!webhookUrl) { showAlert('Enter the webhook URL first', 'error'); return; }
       this.disabled = true; this.textContent = 'Setting...';
       var statusEl = document.getElementById('telegramSaveStatus');
       try {
-        var data = await apiFetch('/admin/pitches/telegram-webhook', { method: 'POST' });
+        var data = await apiFetch('/admin/pitches/telegram-webhook', { method: 'POST', body: JSON.stringify({ webhook_url: webhookUrl }) });
         if (statusEl) statusEl.textContent = 'Webhook set: ' + data.webhook_url;
         showAlert('Telegram webhook configured');
       } catch (err) {

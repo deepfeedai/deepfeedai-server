@@ -276,10 +276,10 @@ router.get('/telegram-chats', auth, requirePermission('settings.update'), asyncH
 // POST /api/admin/pitches/telegram-webhook — set Telegram webhook
 router.post('/telegram-webhook', auth, requirePermission('settings.update'), asyncHandler(async (req, res) => {
   const { setWebhook } = require('../lib/messaging/telegram');
-  // Use the backend host directly — portal frontend proxies API calls,
-  // so x-forwarded-host would be the portal domain, not the backend
-  const host = req.get('host');
-  const webhookUrl = `https://${host}/api/webhooks/telegram`;
+  const webhookUrl = req.body?.webhook_url;
+  if (!webhookUrl || !webhookUrl.startsWith('https://')) {
+    return res.status(400).json({ error: 'webhook_url is required and must use https://' });
+  }
   const result = await setWebhook(req.tenantId, webhookUrl);
   res.json({ status: 'ok', webhook_url: webhookUrl, result });
 }));
