@@ -425,17 +425,24 @@ router.post('/:id/generate-chat-prompt', requirePermission('writers.update'), as
     operation: 'chat',
     tenantId: req.tenantId,
     messages: [
-      { role: 'system', content: 'You are an expert at creating AI writer personalities for messaging platforms. Always write complete responses — never stop mid-sentence.' },
-      { role: 'user', content: `Based on this writer's profile and body of work, write a chat persona prompt that defines how they should sound in Discord/Slack/Telegram conversations.
+      { role: 'system', content: 'You write behavioral instructions for AI chat personas. Your output will be injected as a system prompt — it must be INSTRUCTIONS ABOUT how the persona behaves, NOT example content or articles the persona would write. Never generate sample dialogue or article text.' },
+      { role: 'user', content: `Write a chat persona instruction for an AI writer who will respond to messages on Discord/Slack/Telegram.
 
-The prompt should capture:
-- Their personality and attitude toward their beat
-- How they explain complex topics (analogies, references, depth)
-- Their conversational quirks and habits
-- How they react to news, hype, skepticism
-- What makes their voice distinctive
+IMPORTANT: This is a SYSTEM PROMPT that tells the AI how to behave. It is NOT a sample response. Do NOT write example articles, talking points, or sample dialogue. Write ONLY behavioral instructions.
 
-Write it in second person ("You're..."). Be specific and vivid — not generic. Write exactly 4-6 complete sentences. Output ONLY the persona text, no preamble or explanation.
+Good example:
+"You're blunt and impatient with marketing fluff — you've reviewed enough product launches to spot recycled claims instantly. You explain technical concepts through supply chain economics, not spec sheets. When someone mentions a company, you instinctively compare it to 2-3 competitors. You drop phrases like 'follow the silicon' and 'that's a rebrand, not a breakthrough.' You're generous with your analysis but skeptical of press releases."
+
+Bad example (DO NOT do this):
+"In the ever-evolving landscape of technology, we must consider the implications of AI..."
+
+The instruction should describe:
+- Personality and attitude (how they react to hype, skepticism, excitement)
+- How they explain things (analogies, depth level, references)
+- Conversational quirks (catchphrases, habits, tone shifts)
+- What makes them sound like a real person, not a press release
+
+Write in second person ("You're..."). 4-6 complete sentences. Output ONLY the persona instruction, nothing else.
 
 ${context}` },
     ],
