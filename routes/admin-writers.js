@@ -153,9 +153,10 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
   let personas;
   try {
     personas = parseTruncatedJsonArray(raw);
+    if (!personas.length) throw new Error('Empty array');
   } catch (err) {
-    console.error('[generate-writers] JSON parse error:', err.message, 'raw:', raw.slice(0, 200));
-    return res.status(502).json({ error: 'Failed to parse AI response' });
+    console.error('[generate-writers] JSON parse error:', err.message, 'raw:', raw.slice(0, 500));
+    return res.status(502).json({ error: 'Failed to parse AI response', raw: raw.slice(0, 1000) });
   }
 
   // Map personas back to categories and enrich with defaults
