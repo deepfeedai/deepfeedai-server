@@ -249,7 +249,7 @@ async function initDb() {
       is_auto                  BOOLEAN DEFAULT false,
       synthesis_schedule       TEXT DEFAULT 'daily',
       synthesis_lookback_hours INTEGER DEFAULT 168,
-      min_cluster_size         INTEGER DEFAULT 3,
+      min_cluster_size         INTEGER DEFAULT 2,
       voice_id                 INTEGER REFERENCES voices(id) ON DELETE SET NULL,
       created_at               TIMESTAMPTZ DEFAULT NOW()
     );
@@ -422,7 +422,7 @@ async function initDb() {
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_schedule TEXT DEFAULT 'daily'`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_lookback_hours INTEGER DEFAULT 168`,
-    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 3`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 2`,
     // AI usage tracking table
     `CREATE TABLE IF NOT EXISTS ai_usage (
       id              SERIAL PRIMARY KEY,

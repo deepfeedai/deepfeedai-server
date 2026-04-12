@@ -180,7 +180,7 @@ function openAdd() {
   document.getElementById('fWriterIsAuto').checked = false;
   document.getElementById('fWriterSchedule').value = 'daily';
   document.getElementById('fWriterLookback').value = '168';
-  document.getElementById('fWriterMinCluster').value = '3';
+  document.getElementById('fWriterMinCluster').value = '2';
   document.getElementById('writerAvatarPreviewWrap').style.display = 'none';
   document.getElementById('avatarPromptPreview').style.display = 'none';
   document.getElementById('fWriterAvatar').value = '';
@@ -216,7 +216,7 @@ function openEdit(id) {
   document.getElementById('fWriterIsAuto').checked = !!w.is_auto;
   document.getElementById('fWriterSchedule').value = w.synthesis_schedule || 'daily';
   document.getElementById('fWriterLookback').value = w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168;
-  document.getElementById('fWriterMinCluster').value = w.min_cluster_size != null ? w.min_cluster_size : 3;
+  document.getElementById('fWriterMinCluster').value = w.min_cluster_size != null ? w.min_cluster_size : 2;
   pendingAvatarDataUrl = null;
   document.getElementById('fWriterAvatar').value = '';
   if (w.avatar_url) {
@@ -290,7 +290,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var is_auto = document.getElementById('fWriterIsAuto').checked;
   var synthesis_schedule = document.getElementById('fWriterSchedule').value;
   var synthesis_lookback_hours = parseInt(document.getElementById('fWriterLookback').value) || 168;
-  var min_cluster_size = parseInt(document.getElementById('fWriterMinCluster').value) || 3;
+  var min_cluster_size = parseInt(document.getElementById('fWriterMinCluster').value) || 2;
   var elevenlabs_voice_id = document.getElementById('fWriterElevenLabsVoice').value.trim() || null;
   var beats = getSelectedBeats();
   var gender = document.getElementById('fWriterGender').value || null;
@@ -799,7 +799,7 @@ function readAiGenCard(idx) {
     is_auto: true,
     synthesis_schedule: 'daily',
     synthesis_lookback_hours: 168,
-    min_cluster_size: 3,
+    min_cluster_size: 2,
   };
 }
 

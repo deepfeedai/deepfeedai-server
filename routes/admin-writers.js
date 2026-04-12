@@ -183,7 +183,7 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
       is_auto: true,
       synthesis_schedule: 'daily',
       synthesis_lookback_hours: 168,
-      min_cluster_size: 3,
+      min_cluster_size: 2,
     };
   }).filter(Boolean);
 

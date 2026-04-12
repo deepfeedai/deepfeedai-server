@@ -30,7 +30,7 @@
     await loadCategories();
 
     if (isNewWriter) {
-      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 3, elevenlabs_voice_id: '' };
+      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 2, elevenlabs_voice_id: '' };
       document.querySelector('.topbar-title').textContent = 'New Writer';
       setEditMode(true);
       renderEditMode();
@@ -290,7 +290,7 @@
     html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">';
     html += field('Schedule', '<select class="form-control" id="fSchedule"><option value="daily"' + sel(w.synthesis_schedule, 'daily') + '>Daily</option><option value="weekly"' + sel(w.synthesis_schedule, 'weekly') + '>Weekly</option><option value="manual"' + sel(w.synthesis_schedule, 'manual') + '>Manual</option></select>');
     html += field('Lookback Hours', '<input type="number" class="form-control" id="fLookback" value="' + (w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168) + '" min="1" max="8760" />');
-    html += field('Min Cluster', '<input type="number" class="form-control" id="fMinCluster" value="' + (w.min_cluster_size != null ? w.min_cluster_size : 3) + '" min="1" max="100" />');
+    html += field('Min Cluster', '<input type="number" class="form-control" id="fMinCluster" value="' + (w.min_cluster_size != null ? w.min_cluster_size : 2) + '" min="1" max="100" />');
     html += '</div></div>';
 
     html += '</div>';
@@ -463,7 +463,7 @@
       is_auto: document.getElementById('fIsAuto').checked,
       synthesis_schedule: document.getElementById('fSchedule').value,
       synthesis_lookback_hours: parseInt(document.getElementById('fLookback').value) || 168,
-      min_cluster_size: parseInt(document.getElementById('fMinCluster').value) || 3,
+      min_cluster_size: parseInt(document.getElementById('fMinCluster').value) || 2,
       elevenlabs_voice_id: document.getElementById('fVoiceId').value.trim() || null,
       gender: document.getElementById('fGender').value || null,
       ethnicity: document.getElementById('fEthnicity').value || null,

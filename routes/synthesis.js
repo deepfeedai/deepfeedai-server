@@ -65,7 +65,7 @@ router.get('/preview/:writerId', requirePermission('synthesis.execute'), asyncHa
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   const lookbackHours = writer.synthesis_lookback_hours || 168; // default 7 days
-  const minSize = writer.min_cluster_size || 3;
+  const minSize = writer.min_cluster_size || 2;
 
   // Use the same writer-scoped article pool as actual synthesis
   const pool = await getArticlePool(writer.id, req.tenantId, lookbackHours, minSize);
@@ -87,7 +87,7 @@ router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncH
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
   const lookbackHours = parseInt(req.query.lookbackHours, 10) || writer.synthesis_lookback_hours || 168;
-  const minSize = writer.min_cluster_size || 3;
+  const minSize = writer.min_cluster_size || 2;
   const tenantId = req.tenantId;
 
   // Beats
@@ -303,7 +303,7 @@ router.get('/pipeline-overview', requirePermission('synthesis.execute'), asyncHa
 
   for (const writer of writers) {
     const lookbackHours = writer.synthesis_lookback_hours || 168;
-    const minSize = writer.min_cluster_size || 3;
+    const minSize = writer.min_cluster_size || 2;
     const cooldown = await getCooldownStatus(writer.id, req.tenantId);
     const pool = await getArticlePool(writer.id, req.tenantId, lookbackHours, minSize);
     const clusters = await clusterArticlesForWriter(pool.articles, minSize, req.tenantId);
