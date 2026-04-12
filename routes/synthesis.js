@@ -11,6 +11,7 @@ const { asyncHandler } = require('../lib/utils');
 const {
   clusterArticles, runSynthesisForWriter, generateDeepDive, runWeeklyDeepDives,
   getCooldownStatus, getArticlePool, evaluateClusters, generateForecast, getLatestForecast, loadWatchlist,
+  getCategoryBreakdown,
 } = require('../lib/synthesis');
 
 // POST /api/synthesis/run/:writerId — run synthesis for a single writer
@@ -77,6 +78,149 @@ router.get('/preview/:writerId', requirePermission('synthesis.execute'), asyncHa
     cooldown,
     articlePool: { total: pool.articles.length, writerScoped: pool.writerScopedCount, beatFallback: pool.beatFallbackCount },
     clusters: evaluated,
+  });
+}));
+
+// GET /api/synthesis/diagnose/:writerId — explain why synthesis has no results
+router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncHandler(async (req, res) => {
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(req.params.writerId, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  const lookbackHours = parseInt(req.query.lookbackHours, 10) || writer.synthesis_lookback_hours || 168;
+  const minSize = writer.min_cluster_size || 3;
+  const tenantId = req.tenantId;
+
+  // Beats
+  const beats = await db.prepare(`
+    SELECT c.id, c.name FROM writer_beats wb
+    JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $2
+    WHERE wb.writer_id = $1 AND wb.tenant_id = $2
+    ORDER BY c.name
+  `).all(writer.id, tenantId);
+  const beatNames = beats.map(b => b.name);
+
+  // Sources health
+  const sourcesAgg = await db.prepare(`
+    SELECT COUNT(*)::int AS total,
+           COUNT(*) FILTER (WHERE is_active = 1)::int AS active,
+           COUNT(*) FILTER (WHERE is_active = 1 AND last_fetched IS NULL)::int AS never_fetched,
+           COUNT(*) FILTER (WHERE is_active = 1 AND last_fetched IS NOT NULL AND last_fetched < NOW() - INTERVAL '24 hours')::int AS stale,
+           MAX(last_fetched) AS last_fetch_at
+    FROM sources WHERE tenant_id = $1
+  `).get(tenantId);
+  const sources = {
+    total: sourcesAgg?.total || 0,
+    active: sourcesAgg?.active || 0,
+    inactive: (sourcesAgg?.total || 0) - (sourcesAgg?.active || 0),
+    neverFetched: sourcesAgg?.never_fetched || 0,
+    stale: sourcesAgg?.stale || 0,
+    lastFetchAt: sourcesAgg?.last_fetch_at || null,
+  };
+
+  // Articles health
+  const articlesAgg = await db.prepare(`
+    SELECT COUNT(*) FILTER (WHERE content_type IS NULL OR content_type NOT IN ('original','deep-dive'))::int AS total_curated,
+           COUNT(*) FILTER (WHERE (content_type IS NULL OR content_type NOT IN ('original','deep-dive'))
+                              AND is_archived = 0
+                              AND created_at > NOW() - make_interval(hours => $2))::int AS in_lookback,
+           COUNT(*) FILTER (WHERE (content_type IS NULL OR content_type NOT IN ('original','deep-dive'))
+                              AND is_archived = 0
+                              AND writer_id = $3
+                              AND created_at > NOW() - make_interval(hours => $2))::int AS assigned_to_writer,
+           COUNT(*) FILTER (WHERE (content_type IS NULL OR content_type NOT IN ('original','deep-dive'))
+                              AND is_archived = 0
+                              AND (category IS NULL OR category = 'Uncategorized')
+                              AND created_at > NOW() - make_interval(hours => $2))::int AS uncategorized
+    FROM articles WHERE tenant_id = $1
+  `).get(tenantId, lookbackHours, writer.id);
+
+  const categoryBreakdown = await getCategoryBreakdown(tenantId, lookbackHours);
+  const matchingBeats = categoryBreakdown
+    .filter(c => beatNames.includes(c.category))
+    .reduce((sum, c) => sum + c.count, 0);
+
+  const articles = {
+    totalCurated: articlesAgg?.total_curated || 0,
+    inLookbackWindow: articlesAgg?.in_lookback || 0,
+    assignedToThisWriter: articlesAgg?.assigned_to_writer || 0,
+    matchingBeats,
+    uncategorized: articlesAgg?.uncategorized || 0,
+    byCategory: categoryBreakdown,
+  };
+
+  // Clustering preview
+  const pool = await getArticlePool(writer.id, tenantId, lookbackHours, minSize);
+  const clusters = clusterArticles(pool.articles, minSize);
+
+  const beatCategories = categoryBreakdown.filter(c => beatNames.includes(c.category));
+  const categoriesEligibleForOriginal = beatCategories.filter(c => c.distinctSources >= minSize).length;
+  const categoriesEligibleForDeepDive = beatCategories.filter(c => c.count >= 5).length;
+  const categoriesBelowThreshold = beatCategories
+    .filter(c => c.distinctSources < minSize && c.count > 0)
+    .map(c => ({ category: c.category, articles: c.count, distinctSources: c.distinctSources, needed: minSize }));
+
+  const clustering = {
+    pool: pool.articles.length,
+    writerScoped: pool.writerScopedCount,
+    beatFallback: pool.beatFallbackCount,
+    categoriesEligibleForOriginal,
+    categoriesEligibleForDeepDive,
+    categoriesBelowThreshold,
+    clustersFound: clusters.length,
+  };
+
+  const cooldown = await getCooldownStatus(writer.id, tenantId);
+
+  // Compose reasons in priority order
+  const reasons = [];
+  if (!beats.length) {
+    reasons.push({
+      level: 'error',
+      message: `Writer "${writer.name}" has no beats assigned. Synthesis looks for curated articles matching the writer's beat categories — with none, the pool stays empty. Assign beats on the writer's detail page.`,
+    });
+  }
+  if (sources.total === 0) {
+    reasons.push({ level: 'error', message: 'No RSS sources configured yet. Add sources on the Sources page.' });
+  } else if (sources.active === 0) {
+    reasons.push({ level: 'error', message: `All ${sources.total} sources are inactive. Activate them on the Sources page.` });
+  } else if (!sources.lastFetchAt) {
+    reasons.push({ level: 'error', message: `No sources have been fetched yet. Run Fetch on the Sources page to pull articles from the ${sources.active} active feeds.` });
+  } else if (sources.neverFetched > 0) {
+    reasons.push({ level: 'warn', message: `${sources.neverFetched} of ${sources.active} active sources have never been fetched.` });
+  }
+  if (articles.inLookbackWindow === 0 && sources.lastFetchAt) {
+    reasons.push({ level: 'error', message: `No curated articles in the last ${lookbackHours}h window. Either fetch is not pulling articles, or they're older than the lookback window.` });
+  }
+  if (articles.uncategorized > 0 && articles.uncategorized === articles.inLookbackWindow) {
+    reasons.push({ level: 'error', message: `All ${articles.uncategorized} articles in the lookback window are uncategorized. Check the categorization pipeline.` });
+  }
+  if (beats.length && articles.matchingBeats === 0 && articles.inLookbackWindow > 0) {
+    reasons.push({ level: 'warn', message: `${articles.inLookbackWindow} articles exist in the lookback window, but none match this writer's beats (${beatNames.join(', ')}). Articles are landing in other categories.` });
+  }
+  for (const c of categoriesBelowThreshold) {
+    reasons.push({
+      level: 'warn',
+      message: `"${c.category}" has ${c.articles} article${c.articles === 1 ? '' : 's'} but only ${c.distinctSources} distinct source${c.distinctSources === 1 ? '' : 's'} — need ${c.needed} for originals. Add more sources covering this topic.`,
+    });
+  }
+  if (clustering.pool > 0 && clustering.clustersFound === 0 && categoriesBelowThreshold.length === 0) {
+    reasons.push({ level: 'info', message: `Article pool has ${clustering.pool} items but no clusters formed. Articles in each category may not share enough keywords in titles/summaries to cluster.` });
+  }
+  if (cooldown.active) {
+    reasons.push({ level: 'info', message: `Writer is in cooldown — last synthesis ran ${cooldown.hoursSinceLastRun}h ago (threshold ${cooldown.threshold}h). Use "force" to bypass.` });
+  }
+  if (!reasons.length) {
+    reasons.push({ level: 'ok', message: `Ready: ${clustering.clustersFound} cluster${clustering.clustersFound === 1 ? '' : 's'} from ${clustering.pool} articles across ${categoriesEligibleForOriginal} eligible categor${categoriesEligibleForOriginal === 1 ? 'y' : 'ies'}.` });
+  }
+
+  res.json({
+    writer: { id: writer.id, name: writer.name, schedule: writer.synthesis_schedule || 'daily', lookbackHours, minClusterSize: minSize },
+    beats,
+    sources,
+    articles,
+    clustering,
+    cooldown,
+    reasons,
   });
 }));
 
