@@ -101,6 +101,8 @@ onReady(async () => {
         const strength = c.strength || 0;
         const strengthClass = strength >= 0.3 ? 'strength-high' : strength >= 0.15 ? 'strength-med' : 'strength-low';
         const strengthLabel = strength >= 0.3 ? 'High' : strength >= 0.15 ? 'Med' : 'Low';
+        const lowSignal = uniqueSources.length < 2 || strength < 0.1;
+        const lowSignalBadge = lowSignal ? ` <span class="text-muted text-sm" title="Single source or very low keyword overlap — likely weak cluster">⚠ low signal</span>` : '';
         const sourceRows = (c.articles || []).map(a =>
           `<li>${esc(a.title)} ${a.source ? `<span class="text-muted">(${esc(a.source)})</span>` : ''}${a.source_url ? ` <a href="${esc(a.source_url)}" target="_blank" rel="noopener">link</a>` : ''}</li>`
         ).join('');
@@ -115,7 +117,7 @@ onReady(async () => {
               </div>
             </td>
             <td>${c.articleCount}</td>
-            <td><span class="${strengthClass}">${strengthLabel} (${strength})</span></td>
+            <td><span class="${strengthClass}">${strengthLabel} (${strength})</span>${lowSignalBadge}</td>
             <td>
               <span class="expand-toggle" onclick="toggleSources(${i})">${sourceCount} articles from ${uniqueSources.length} source${uniqueSources.length !== 1 ? 's' : ''}</span>
             </td>
