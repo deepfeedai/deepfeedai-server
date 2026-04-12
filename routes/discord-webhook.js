@@ -18,9 +18,15 @@ router.get('/', async (req, res) => {
   let diag = {};
   try {
     const db = require('../db');
+    // Find the tenant that has the Discord app configured
+    const appIdRow = await db.prepare(
+      "SELECT tenant_id, value FROM settings WHERE key = 'discord_app_id' AND value IS NOT NULL AND value != '' LIMIT 1"
+    ).get();
+    const diagTenantId = appIdRow?.tenant_id || 1;
+    diag._tenant_id = diagTenantId;
     const rows = await db.prepare(
-      "SELECT key, value FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = 1"
-    ).all();
+      "SELECT key, value FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = $1"
+    ).all(diagTenantId);
     for (const r of rows) {
       if (r.key === 'discord_bot_token') {
         diag[r.key] = r.value ? (r.value.startsWith('enc:') ? 'encrypted ✓' : `plain (${r.value.length} chars)`) : '(empty)';
@@ -39,7 +45,7 @@ router.get('/', async (req, res) => {
     // List registered commands from Discord API
     try {
       const { getBotToken } = require('../lib/messaging/discord');
-      const token = await getBotToken(1);
+      const token = await getBotToken(diagTenantId);
       if (token && appIdRaw) {
         const cmdRes = await fetch(`https://discord.com/api/v10/applications/${appIdRaw}/commands`, {
           headers: { Authorization: `Bot ${token}` },
@@ -54,6 +60,31 @@ router.get('/', async (req, res) => {
         }
       }
     } catch (err) { diag.commands_error = err.message; }
+    // Check messaging channels + writer info
+    const channels = await db.prepare(
+      "SELECT mc.channel_id, mc.writer_id, mc.tenant_id, w.name, w.elevenlabs_voice_id FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.is_active = true AND mc.tenant_id = $1"
+    ).all(diagTenantId);
+    diag.messaging_channels = channels.map(c => ({
+      channel_id: c.channel_id,
+      writer: c.name || 'none',
+      writer_id: c.writer_id,
+      has_voice: !!c.elevenlabs_voice_id,
+    }));
+    // Check if ElevenLabs API key is set
+    const elKey = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'elevenlabs_api_key'"
+    ).get(diagTenantId);
+    diag.elevenlabs_api_key = elKey?.value ? (elKey.value.startsWith('enc:') ? 'encrypted ✓' : `plain (${elKey.value.length} chars)`) : '(NOT SET)';
+    // Count articles for each writer
+    for (const ch of diag.messaging_channels) {
+      if (ch.writer_id) {
+        const cnt = await db.prepare(
+          "SELECT COUNT(*)::int AS total, SUM(CASE WHEN content_type IN ('original','deep-dive') THEN 1 ELSE 0 END)::int AS originals FROM articles WHERE writer_id = $1 AND tenant_id = $2 AND is_published = 1"
+        ).get(ch.writer_id, diagTenantId);
+        ch.articles_total = cnt?.total || 0;
+        ch.articles_originals = cnt?.originals || 0;
+      }
+    }
   } catch (err) { diag.error = err.message; }
   res.json({ status: 'ok', config: diag });
 });
