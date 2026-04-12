@@ -254,8 +254,8 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
     }
 
     // Try sending as the writer (with name + avatar) via channel webhook
+    const responseText = (typeof response === 'object' && response.text) ? response.text : response;
     if (channel.writer_name) {
-      // Resolve relative avatar URLs
       let avatarUrl = channel.writer_avatar;
       if (avatarUrl && !avatarUrl.startsWith('http')) {
         try {
@@ -266,16 +266,18 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
         } catch { avatarUrl = null; }
       }
 
-      const sent = await sendAsWriter(channelId, response, tenantId, channel.writer_name, avatarUrl);
+      console.log(`[discord] Slash cmd: sending as "${channel.writer_name}" avatar=${avatarUrl || 'none'}`);
+      const sent = await sendAsWriter(channelId, responseText, tenantId, channel.writer_name, avatarUrl);
       if (sent) {
         // Delete the deferred "thinking" message since we sent via webhook
         await deleteFollowup(appId, interactionToken).catch(() => {});
         return;
       }
+      console.warn(`[discord] sendAsWriter failed — falling back to bot followup`);
     }
 
     // Fallback: send as bot via interaction follow-up
-    await sendFollowup(appId, interactionToken, response);
+    await sendFollowup(appId, interactionToken, responseText);
   } catch (err) {
     console.error('[discord] follow-up error:', err.message, err.stack);
     try {
