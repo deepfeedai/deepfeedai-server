@@ -132,9 +132,14 @@ router.post('/generate-keywords', requireAdmin, requirePermission('categories.up
   try {
     // Strip markdown fences if present
     let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
-    // Fix truncated JSON: trim trailing comma/whitespace and close the array
+    // Fix truncated JSON: handle mid-string, mid-entry, or trailing comma truncation
     if (!cleaned.endsWith(']')) {
-      cleaned = cleaned.replace(/,\s*$/, '') + ']';
+      // Remove incomplete last entry (e.g. `"bot` or `"botnet"` without trailing comma/bracket)
+      cleaned = cleaned.replace(/,\s*"[^"]*$/, '');
+      // Remove trailing comma/whitespace
+      cleaned = cleaned.replace(/,\s*$/, '');
+      // Close the array
+      if (!cleaned.endsWith(']')) cleaned += ']';
     }
     keywords = JSON.parse(cleaned);
     if (!Array.isArray(keywords)) throw new Error('Not an array');
