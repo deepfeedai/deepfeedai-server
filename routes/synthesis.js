@@ -9,7 +9,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { requireFeature } = require('../middleware/feature-gate');
 const { asyncHandler } = require('../lib/utils');
 const {
-  clusterArticles, runSynthesisForWriter, generateDeepDive, runWeeklyDeepDives,
+  clusterArticles, clusterArticlesForWriter, runSynthesisForWriter, generateDeepDive, runWeeklyDeepDives,
   getCooldownStatus, getArticlePool, evaluateClusters, generateForecast, getLatestForecast, loadWatchlist,
   getCategoryBreakdown,
 } = require('../lib/synthesis');
@@ -69,7 +69,7 @@ router.get('/preview/:writerId', requirePermission('synthesis.execute'), asyncHa
 
   // Use the same writer-scoped article pool as actual synthesis
   const pool = await getArticlePool(writer.id, req.tenantId, lookbackHours, minSize);
-  const clusters = clusterArticles(pool.articles, minSize);
+  const clusters = await clusterArticlesForWriter(pool.articles, minSize, req.tenantId);
   const cooldown = await getCooldownStatus(writer.id, req.tenantId);
   const evaluated = await evaluateClusters(clusters, req.tenantId, false);
 
@@ -150,7 +150,7 @@ router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncH
 
   // Clustering preview
   const pool = await getArticlePool(writer.id, tenantId, lookbackHours, minSize);
-  const clusters = clusterArticles(pool.articles, minSize);
+  const clusters = await clusterArticlesForWriter(pool.articles, minSize, req.tenantId);
 
   const beatCategories = categoryBreakdown.filter(c => beatNames.includes(c.category));
   const categoriesEligibleForOriginal = beatCategories.filter(c => c.distinctSources >= minSize).length;
@@ -158,6 +158,31 @@ router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncH
   const categoriesBelowThreshold = beatCategories
     .filter(c => c.distinctSources < minSize && c.count > 0)
     .map(c => ({ category: c.category, articles: c.count, distinctSources: c.distinctSources, needed: minSize }));
+
+  // Embedding coverage for the pool (used by semantic clustering)
+  const poolIds = pool.articles.map(a => a.id);
+  let embeddingCoverage = null;
+  if (poolIds.length) {
+    const embRow = await db.prepare(
+      `SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS covered,
+              COUNT(*)::int AS total
+       FROM articles WHERE tenant_id = $1 AND id = ANY($2)`
+    ).get(tenantId, poolIds);
+    embeddingCoverage = {
+      covered: embRow?.covered || 0,
+      total: embRow?.total || 0,
+      percent: embRow?.total ? Math.round(100 * embRow.covered / embRow.total) : 0,
+    };
+  }
+
+  // Which clustering mode is configured?
+  let clusteringMode = 'auto';
+  try {
+    const modeRow = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'synthesis_clustering_mode'"
+    ).get(tenantId);
+    if (modeRow?.value) clusteringMode = modeRow.value;
+  } catch {}
 
   const clustering = {
     pool: pool.articles.length,
@@ -167,6 +192,8 @@ router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncH
     categoriesEligibleForDeepDive,
     categoriesBelowThreshold,
     clustersFound: clusters.length,
+    mode: clusteringMode,
+    embeddingCoverage,
   };
 
   const cooldown = await getCooldownStatus(writer.id, tenantId);
@@ -205,6 +232,12 @@ router.get('/diagnose/:writerId', requirePermission('synthesis.execute'), asyncH
   }
   if (clustering.pool > 0 && clustering.clustersFound === 0 && categoriesBelowThreshold.length === 0) {
     reasons.push({ level: 'info', message: `Article pool has ${clustering.pool} items but no clusters formed. Articles in each category may not share enough keywords in titles/summaries to cluster.` });
+  }
+  if (embeddingCoverage && embeddingCoverage.total > 0 && embeddingCoverage.percent < 50) {
+    reasons.push({
+      level: 'warn',
+      message: `Only ${embeddingCoverage.percent}% of pool articles (${embeddingCoverage.covered}/${embeddingCoverage.total}) have embeddings. Semantic clustering can't see the rest — run POST /api/articles/backfill-embeddings?type=curated to improve clustering quality.`,
+    });
   }
   if (cooldown.active) {
     reasons.push({ level: 'info', message: `Writer is in cooldown — last synthesis ran ${cooldown.hoursSinceLastRun}h ago (threshold ${cooldown.threshold}h). Use "force" to bypass.` });
@@ -273,7 +306,7 @@ router.get('/pipeline-overview', requirePermission('synthesis.execute'), asyncHa
     const minSize = writer.min_cluster_size || 3;
     const cooldown = await getCooldownStatus(writer.id, req.tenantId);
     const pool = await getArticlePool(writer.id, req.tenantId, lookbackHours, minSize);
-    const clusters = clusterArticles(pool.articles, minSize);
+    const clusters = await clusterArticlesForWriter(pool.articles, minSize, req.tenantId);
     const evaluated = await evaluateClusters(clusters, req.tenantId, false);
 
     // Last synthesis result from cron_runs

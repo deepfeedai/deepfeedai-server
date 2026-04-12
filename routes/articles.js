@@ -882,6 +882,8 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
 }));
 
 // POST /api/articles/backfill-embeddings — Generate embeddings for articles without them
+// ?type=curated|original|all  (default: all)
+// ?batch=N  (default: 50, max: 100)
 router.post('/backfill-embeddings', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { generateEmbedding, isPgvectorAvailable } = require('../lib/embeddings');
 
@@ -890,13 +892,19 @@ router.post('/backfill-embeddings', auth, requirePermission('articles.update'), 
   }
 
   const batchSize = Math.min(parseInt(req.query.batch) || 50, 100);
+  const type = (req.query.type || 'all').toLowerCase();
+
+  // Content-type filter: curated = NULL or 'curated', original = original/deep-dive
+  let typeFilter;
+  if (type === 'original') typeFilter = `content_type IN ('original', 'deep-dive') AND is_published = 1`;
+  else if (type === 'curated') typeFilter = `(content_type IS NULL OR content_type NOT IN ('original', 'deep-dive')) AND is_archived = 0`;
+  else typeFilter = `((content_type IN ('original', 'deep-dive') AND is_published = 1) OR ((content_type IS NULL OR content_type NOT IN ('original', 'deep-dive')) AND is_archived = 0))`;
 
   const articles = await db.prepare(`
-    SELECT id, title, COALESCE(tldr_overview, LEFT(summary, 300)) AS text
+    SELECT id, title, COALESCE(enriched_summary, tldr_overview, LEFT(summary, 400)) AS text
     FROM articles
-    WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')
-      AND is_published = 1 AND embedding IS NULL
-    ORDER BY published_at DESC
+    WHERE tenant_id = $1 AND ${typeFilter} AND embedding IS NULL
+    ORDER BY created_at DESC
     LIMIT $2
   `).all(req.tenantId, batchSize);
 
@@ -920,14 +928,12 @@ router.post('/backfill-embeddings', auth, requirePermission('articles.update'), 
     }
   }
 
-  const remaining = await db.prepare(`
-    SELECT COUNT(*)::int AS cnt FROM articles
-    WHERE tenant_id = $1 AND content_type IN ('original', 'deep-dive')
-      AND is_published = 1 AND embedding IS NULL
-  `).get(req.tenantId);
+  const remaining = await db.prepare(
+    `SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND ${typeFilter} AND embedding IS NULL`
+  ).get(req.tenantId);
 
-  logAudit(req, 'articles.backfill-embeddings', 'articles', null, { processed, errors, remaining: remaining?.cnt || 0 });
-  res.json({ ok: true, processed, errors, remaining: remaining?.cnt || 0 });
+  logAudit(req, 'articles.backfill-embeddings', 'articles', null, { type, processed, errors, remaining: remaining?.cnt || 0 });
+  res.json({ ok: true, type, processed, errors, remaining: remaining?.cnt || 0 });
 }));
 
 module.exports = router;
