@@ -566,7 +566,7 @@ router.post('/:id/regenerate-persona', requirePermission('writers.update'), asyn
   }
   values.push(id, req.tenantId);
   await db.prepare(
-    `UPDATE writers SET ${setClauses.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND tenant_id = $${idx}`
+    `UPDATE writers SET ${setClauses.join(', ')} WHERE id = $${idx++} AND tenant_id = $${idx}`
   ).run(...values);
 
   logAudit(req, 'writer.regenerate-persona', 'writer', parseInt(id), { mode, fields: changedFields });
