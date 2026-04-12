@@ -259,6 +259,13 @@
     // Style Profile
     html += '<div class="wd-card" style="margin-bottom:20px;">';
     html += '<div class="wd-section-title">Style Profile</div>';
+    if (!isNewWriter) {
+      html += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px;background:var(--surface2);border-radius:6px;margin-bottom:12px;">';
+      html += '<div style="flex:1;min-width:200px;"><div style="font-weight:600;font-size:13px;">Regenerate Persona</div><div class="text-muted text-sm">After changing beats, refresh the persona fields to match.</div></div>';
+      html += '<button class="btn btn-accent btn-sm" type="button" id="refreshPersonaBtn" title="Keep voice &amp; identity, update bio and beat-specific fields">Refresh</button>';
+      html += '<button class="btn btn-outline btn-sm" type="button" id="rewritePersonaBtn" style="color:var(--danger,#c33);border-color:var(--danger,#c33);" title="Full rewrite \u2014 destructive">Rewrite from scratch</button>';
+      html += '</div>';
+    }
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
     html += field('Tone', '<select class="form-control" id="fTone"><option value="">Default</option>' + ['analytical','conversational','provocative','authoritative','casual','technical'].map(function(t) { return '<option' + sel(w.tone, t) + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>'; }).join('') + '</select>');
     html += field('Expertise', '<select class="form-control" id="fExpertise"><option value="">Default</option>' + ['beginner-friendly','intermediate','technical','expert'].map(function(t) { return '<option value="' + t + '"' + sel(w.expertise_level, t) + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>'; }).join('') + '</select>');
@@ -332,6 +339,78 @@
         } finally {
           genChatBtn.disabled = false;
           genChatBtn.textContent = 'Generate Chat Persona';
+        }
+      });
+    }
+
+    // Regenerate Persona (Refresh / Rewrite)
+    function getCheckedBeatIds() {
+      return Array.prototype.map.call(document.querySelectorAll('#fBeats input:checked'), function (el) { return parseInt(el.value, 10); });
+    }
+
+    async function regeneratePersona(mode, preserveName) {
+      if (!writerData.id) { alert('Save the writer first.'); return; }
+      if (!getCheckedBeatIds().length) { alert('Assign at least one beat before regenerating the persona.'); return; }
+      var body = { mode: mode };
+      if (mode === 'rewrite') body.preserveName = preserveName;
+      var res = await apiFetch('/admin/writers/' + writerData.id + '/regenerate-persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res || !res.writer) throw new Error('No writer returned');
+      var w = res.writer;
+      // Update form fields
+      if (w.bio !== undefined)            document.getElementById('fBio').value = w.bio || '';
+      if (w.tone !== undefined)           document.getElementById('fTone').value = w.tone || '';
+      if (w.expertise_level !== undefined) document.getElementById('fExpertise').value = w.expertise_level || '';
+      if (w.style_guide !== undefined)    document.getElementById('fStyleGuide').value = w.style_guide || '';
+      if (w.system_prompt !== undefined)  document.getElementById('fSystemPrompt').value = w.system_prompt || '';
+      if (w.beat_angle !== undefined)     document.getElementById('fBeatAngle').value = w.beat_angle || '';
+      if (Array.isArray(w.keywords))      document.getElementById('fKeywords').value = w.keywords.join(', ');
+      if (mode === 'rewrite') {
+        if (w.gender !== undefined)    document.getElementById('fGender').value = w.gender || '';
+        if (w.ethnicity !== undefined) document.getElementById('fEthnicity').value = w.ethnicity || '';
+        if (Array.isArray(w.signature_phrases)) document.getElementById('fSignaturePhrases').value = w.signature_phrases.join(', ');
+        if (!preserveName && w.name)   document.getElementById('fName').value = w.name;
+      }
+      // Update local writerData
+      Object.assign(writerData, w);
+    }
+
+    var refreshBtn = document.getElementById('refreshPersonaBtn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', async function () {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Refreshing...';
+        try {
+          await regeneratePersona('refresh', true);
+          refreshBtn.textContent = 'Refreshed \u2713';
+          setTimeout(function () { refreshBtn.textContent = 'Refresh'; refreshBtn.disabled = false; }, 1500);
+        } catch (err) {
+          alert('Refresh failed: ' + (err.message || err));
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = 'Refresh';
+        }
+      });
+    }
+
+    var rewriteBtn = document.getElementById('rewritePersonaBtn');
+    if (rewriteBtn) {
+      rewriteBtn.addEventListener('click', async function () {
+        var alsoName = confirm('This will REWRITE the persona from scratch: bio, tone, personality, signature phrases, etc.\n\nClick OK to also regenerate the NAME.\nClick Cancel to keep the current name.\n\n(Avatar and voice are always preserved.)');
+        // Second confirmation to actually proceed
+        if (!confirm('Continue with full rewrite?' + (alsoName ? ' (Name will be regenerated.)' : ' (Name will be kept.)'))) return;
+        rewriteBtn.disabled = true;
+        rewriteBtn.textContent = 'Rewriting...';
+        try {
+          await regeneratePersona('rewrite', !alsoName);
+          rewriteBtn.textContent = 'Rewritten \u2713';
+          setTimeout(function () { rewriteBtn.textContent = 'Rewrite from scratch'; rewriteBtn.disabled = false; }, 1500);
+        } catch (err) {
+          alert('Rewrite failed: ' + (err.message || err));
+          rewriteBtn.disabled = false;
+          rewriteBtn.textContent = 'Rewrite from scratch';
         }
       });
     }
