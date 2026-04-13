@@ -61,10 +61,19 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
   const history = (await messagingCtx.getHistory(state.contextKey, state.tenantId, state.writerId)) || [];
   const summary = await messagingCtx.getSummary(state.contextKey, state.tenantId).catch(() => null);
 
+  const groundingRules =
+    '\n\n## Grounding rules (REQUIRED)\n' +
+    '- If the user asks what you have written, covered, or published: CALL searchArticles FIRST. Never fabricate article titles, topics, or links.\n' +
+    '- If searchArticles returns empty, tell the user honestly you have not published articles on that topic (or at all yet). Offer to discuss the topic from curated sources or general knowledge instead.\n' +
+    '- If the user asks for a specific link, the link MUST come from a tool result. No invented URLs.\n' +
+    '- For questions about your beats or what you cover: call listWriterBeats.\n' +
+    '- For questions about other writers\' coverage: call checkRecentColleagueWork.\n';
+
   const systemContent =
     [
       persona,
       summary ? `\nConversation summary so far:\n${summary}` : '',
+      groundingRules,
     ]
       .filter(Boolean)
       .join('\n');

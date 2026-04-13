@@ -79,9 +79,10 @@ function buildSearchArticles(ctx: ToolContext) {
     {
       name: 'searchArticles',
       description:
-        'Search the writer\'s published articles AND curated source articles by meaning (semantic search). ' +
-        'Use when the user asks what you wrote/covered on a topic, or when you need to ground an answer in real articles. ' +
-        'Returns a JSON array of { id, title, slug, snippet, similarity }.',
+        'REQUIRED whenever the user asks what you wrote, published, covered, or any question that should be grounded in specific articles. ' +
+        'Searches the writer\'s published articles AND curated source articles by meaning (semantic search). ' +
+        'You MUST call this tool before claiming to have written anything — NEVER fabricate article titles, topics, or links. ' +
+        'Returns a JSON array of { id, title, slug, snippet, similarity }. If empty, you have NOT published articles yet and must say so honestly.',
       schema: z.object({
         query: z.string().describe('What to search for, in natural language.'),
         limit: z.number().int().min(1).max(10).optional().describe('Max results to return (1-10).'),
