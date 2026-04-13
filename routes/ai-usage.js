@@ -301,7 +301,8 @@ router.get('/sessions', requirePermission('analytics.read'), asyncHandler(async 
 
 // GET /api/ai-usage/sessions/:id — per-iteration breakdown for one session
 router.get('/sessions/:id', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
-  const rows = await db.prepare(`
+  const pool = getPool();
+  const rows = await pool.query(`
     SELECT id, provider, model, operation, trigger,
            input_tokens, input_tokens_cached, input_tokens_fresh, output_tokens,
            estimated_cost, credits_used, duration_ms, success, error_message,
@@ -309,9 +310,9 @@ router.get('/sessions/:id', requirePermission('analytics.read'), asyncHandler(as
     FROM ai_usage
     WHERE tenant_id = $1 AND agent_session_id = $2
     ORDER BY created_at ASC
-  `).all(req.tenantId, req.params.id);
+  `, [req.tenantId, req.params.id]);
 
-  res.json({ iterations: rows });
+  res.json({ iterations: rows.rows });
 }));
 
 module.exports = router;
