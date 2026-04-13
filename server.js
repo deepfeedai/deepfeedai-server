@@ -837,6 +837,48 @@ registerJob({
 });
 
 registerJob({
+  name: 'log-retention',
+  description: 'App + request + analytics log retention cleanup',
+  category: 'Maintenance',
+  defaultSchedule: '15 3 * * *',
+  handler: async (tenantId) => {
+    // Retention tiers (days). Configurable per-tenant via settings keys.
+    const settings = await db.prepare(`
+      SELECT key, value FROM settings WHERE tenant_id = $1
+        AND key IN ('app_log_retention_days', 'request_log_retention_days', 'analytics_retention_days')
+    `).all(tenantId);
+    const byKey = Object.fromEntries((settings || []).map(s => [s.key, parseInt(s.value)]));
+    const appDays       = Math.max(byKey.app_log_retention_days       || 30, 7);
+    const reqDays       = Math.max(byKey.request_log_retention_days   || 30, 7);
+    const analyticsDays = Math.max(byKey.analytics_retention_days     || 90, 30);
+
+    const pool = db.getPool();
+    const results = {};
+    for (const [table, days, key] of [
+      ['app_logs',         appDays,       'app'],
+      ['request_logs',     reqDays,       'request'],
+      ['analytics_events', analyticsDays, 'analytics'],
+    ]) {
+      try {
+        const r = await pool.query(
+          `DELETE FROM ${table} WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
+          [tenantId, days]
+        );
+        results[key] = { deleted: r.rowCount, days };
+      } catch (err) {
+        results[key] = { error: err.message, days };
+      }
+    }
+
+    const total = Object.values(results).reduce((sum, r) => sum + (r.deleted || 0), 0);
+    if (total > 0) {
+      console.log(`[Cron] Log retention (tenant ${tenantId}): ${JSON.stringify(results)}`);
+    }
+    return results;
+  },
+});
+
+registerJob({
   name: 'tenant-cleanup',
   description: 'Clean up deleted tenant data after retention period',
   category: 'Maintenance',
