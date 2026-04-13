@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node server.js",
+    "startCommand": "node -r tsx/cjs server.js",
     "healthcheckPath": "/api/news/updated-at",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
