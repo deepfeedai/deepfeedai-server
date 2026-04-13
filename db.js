@@ -991,6 +991,11 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS disable_summary INTEGER NOT NULL DEFAULT 0`,
     // BYAI (Bring Your AI) — track whether an AI call used the tenant's own key
     `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS is_byai BOOLEAN DEFAULT false`,
+    // Agent session correlation + cached/fresh input token split (PR A: usage tracking rework)
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS agent_session_id UUID`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS input_tokens_cached INTEGER DEFAULT 0`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS input_tokens_fresh INTEGER DEFAULT 0`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_session ON ai_usage(agent_session_id) WHERE agent_session_id IS NOT NULL`,
     // Fix platform tenant site URLs — admin-tenants.js was generating slug.domain (e.g. deepfeedai.deepfeedai.com)
     `UPDATE settings SET value = 'deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_domain' AND value LIKE '%.deepfeedai.com' AND value != 'deepfeedai.com'`,
     `UPDATE settings SET value = 'https://deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_url' AND value LIKE '%deepfeedai.deepfeedai.com%'`,
