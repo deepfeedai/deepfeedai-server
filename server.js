@@ -17,6 +17,7 @@ try {
 const express   = require('express');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { rateLimitHandler } = require('./middleware/rate-limit-log');
 const path      = require('path');
 const db        = require('./db');
 const { toSlug } = require('./lib/utils');
@@ -63,6 +64,7 @@ const summaryLimiter = rateLimit({
   keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many summary requests. Please try again later.' },
   validate:       false,
+  handler:        rateLimitHandler('public.summary'),
 });
 
 const publicApiLimiter = rateLimit({
@@ -73,6 +75,7 @@ const publicApiLimiter = rateLimit({
   keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
   validate:       false,
+  handler:        rateLimitHandler('public.api'),
 });
 
 // Admin write rate limiter — protects mutation endpoints and AI-budget endpoints
@@ -85,6 +88,7 @@ const adminWriteLimiter = rateLimit({
   message:        { error: 'Too many admin write requests. Please slow down.' },
   validate:       false,
   skip:           (req) => req.method === 'GET' || req.method === 'OPTIONS',
+  handler:        rateLimitHandler('admin.write'),
 });
 
 // Tight limiter for AI-budget-consuming endpoints
@@ -96,6 +100,7 @@ const aiLimiter = rateLimit({
   keyGenerator:   (req) => req.user?.sub ? `ai:${req.user.sub}` : `ip:${req.ip}`,
   message:        { error: 'Too many AI generation requests. Please slow down.' },
   validate:       false,
+  handler:        rateLimitHandler('ai.generate'),
 });
 
 // ── CORS ───────────────────────────────────────────────────────────

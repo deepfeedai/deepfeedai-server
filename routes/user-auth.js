@@ -29,6 +29,7 @@ const { getAppConfig }   = require('../lib/app-config');
 
 const { getSecrets } = require('../lib/secrets');
 const { logAudit }   = require('../middleware/audit');
+const { rateLimitHandler } = require('../middleware/rate-limit-log');
 
 /* ── OAuth state store (in-memory, 10-min TTL) ───────────────────── */
 const oauthStates = new Map();
@@ -321,6 +322,7 @@ const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: { error: 'Too many registration attempts. Please try again later.' },
+  handler: rateLimitHandler('user.register'),
 });
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -422,6 +424,7 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
   max: 10,
   message: { error: 'Too many login attempts. Please try again later.' },
+  handler: rateLimitHandler('user.login'),
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
@@ -481,6 +484,7 @@ const verifyLimiter = rateLimit({
   keyGenerator: (req) => req.user?.sub || req.ip,
   message: { error: 'Too many verification attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.verify_email'),
 });
 
 router.post('/verify-email', requireUser, verifyLimiter, async (req, res) => {
@@ -527,6 +531,7 @@ const resendVerifyLimiter = rateLimit({
   keyGenerator: (req) => req.user?.sub || req.ip,
   message: { error: 'Too many resend attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.resend_verification'),
 });
 
 router.post('/resend-verification', requireUser, resendVerifyLimiter, async (req, res) => {
@@ -576,6 +581,7 @@ const forgotPasswordLimiter = rateLimit({
   max: 5,
   message: { error: 'Too many attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.forgot_password'),
 });
 
 router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
@@ -632,6 +638,7 @@ const resetPasswordLimiter = rateLimit({
   max: 5,
   message: { error: 'Too many attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.reset_password'),
 });
 
 router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
