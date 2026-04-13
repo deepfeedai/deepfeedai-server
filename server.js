@@ -1,4 +1,14 @@
 require('dotenv').config({ override: true });
+
+// Agent tracing bootstrap — no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset.
+// Must run before other requires so OTel can instrument them.
+try {
+  const { initTracing } = require('./lib/agents/tracing');
+  initTracing();
+} catch (err) {
+  console.warn('[server] agent tracing bootstrap failed:', err?.message);
+}
+
 const express   = require('express');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
