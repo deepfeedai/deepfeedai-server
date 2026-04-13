@@ -64,7 +64,7 @@ function buildSearchArticles(ctx: ToolContext) {
     async ({ query, limit }: { query: string; limit?: number }) => {
       const { findRelevantArticles } = messaging;
       if (typeof findRelevantArticles !== 'function') {
-        return JSON.stringify({ error: 'search unavailable' });
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Search backend not available.' });
       }
       const results = await findRelevantArticles(ctx.writerId, ctx.tenantId, query, limit || 5);
       const compact = (results || []).slice(0, limit || 5).map((r: any) => ({
@@ -74,15 +74,22 @@ function buildSearchArticles(ctx: ToolContext) {
         snippet: truncate(r.snippet || ''),
         similarity: r.similarity,
       }));
-      return JSON.stringify(compact);
+      if (compact.length === 0) {
+        return JSON.stringify({
+          status: 'no_results',
+          message: 'No articles found matching this query. This writer has not published anything matching that topic. Do NOT retry with a different query — answer the user honestly that you have not written about this yet.',
+          results: [],
+        });
+      }
+      return JSON.stringify({ status: 'ok', results: compact });
     },
     {
       name: 'searchArticles',
       description:
-        'REQUIRED whenever the user asks what you wrote, published, covered, or any question that should be grounded in specific articles. ' +
-        'Searches the writer\'s published articles AND curated source articles by meaning (semantic search). ' +
-        'You MUST call this tool before claiming to have written anything — NEVER fabricate article titles, topics, or links. ' +
-        'Returns a JSON array of { id, title, slug, snippet, similarity }. If empty, you have NOT published articles yet and must say so honestly.',
+        'REQUIRED when the user asks what you wrote, published, or covered on a topic. ' +
+        'Searches the writer\'s published articles AND curated source articles by meaning. ' +
+        'Call this AT MOST ONCE per user question — if it returns status:"no_results", do NOT retry with different queries; answer honestly that you have not published on that topic. ' +
+        'NEVER fabricate article titles, topics, or links.',
       schema: z.object({
         query: z.string().describe('What to search for, in natural language.'),
         limit: z.number().int().min(1).max(10).optional().describe('Max results to return (1-10).'),

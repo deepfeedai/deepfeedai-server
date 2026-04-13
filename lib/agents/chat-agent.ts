@@ -63,8 +63,8 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
 
   const groundingRules =
     '\n\n## Grounding rules (REQUIRED)\n' +
-    '- If the user asks what you have written, covered, or published: CALL searchArticles FIRST. Never fabricate article titles, topics, or links.\n' +
-    '- An EMPTY tool result (e.g. `[]` from searchArticles) is NOT an error — it means no matching data exists. Do not say "technical issue" or "I am unable to retrieve". Instead, plainly say something like "I have not published anything on that yet" and offer to discuss the topic.\n' +
+    '- If the user asks what you have written, covered, or published: CALL searchArticles ONCE. Never fabricate article titles, topics, or links.\n' +
+    '- A tool result with `status: "no_results"` means no matching articles exist. Do NOT retry with different queries. Do NOT say "technical issue" or "I am unable to retrieve" — there is no error. Plainly say "I have not published anything on that yet" and offer to discuss the topic instead.\n' +
     '- If the user asks for a specific link, the link MUST come from a tool result. No invented URLs.\n' +
     '- For questions about your beats or what you cover: call listWriterBeats.\n' +
     '- For questions about other writers\' coverage: call checkRecentColleagueWork.\n' +
