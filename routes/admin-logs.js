@@ -94,7 +94,7 @@ router.get('/app', auth, requirePermission('audit.read'), asyncHandler(async (re
 
   if (level)          { where.push(`level = $${idx}`); params.push(level); idx++; }
   if (mod)            { where.push(`module = $${idx}`); params.push(mod); idx++; }
-  if (search)         { where.push(`message ILIKE $${idx}`); params.push(`%${search}%`); idx++; }
+  if (search)         { where.push(`(message ILIKE $${idx} OR context::text ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
   if (correlation_id) { where.push(`correlation_id = $${idx}`); params.push(correlation_id); idx++; }
   if (from)           { where.push(`created_at >= $${idx}`); params.push(from); idx++; }
   if (to)             { where.push(`created_at <= $${idx}`); params.push(to); idx++; }
@@ -131,7 +131,7 @@ router.get('/app/export', auth, requirePermission('audit.read'), asyncHandler(as
 
   if (level)  { where.push(`level = $${idx}`); params.push(level); idx++; }
   if (mod)    { where.push(`module = $${idx}`); params.push(mod); idx++; }
-  if (search) { where.push(`message ILIKE $${idx}`); params.push(`%${search}%`); idx++; }
+  if (search) { where.push(`(message ILIKE $${idx} OR context::text ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
   where.push(`created_at >= $${idx}`); params.push(from); idx++;
   if (to)     { where.push(`created_at <= $${idx}`); params.push(to); idx++; }
 
@@ -328,7 +328,7 @@ router.get('/errors', auth, requirePermission('audit.read'), asyncHandler(async 
 
   if (status) { where.push(`status = $${idx}`); params.push(status); idx++; }
   if (mod)    { where.push(`module = $${idx}`); params.push(mod); idx++; }
-  if (search) { where.push(`message ILIKE $${idx}`); params.push(`%${search}%`); idx++; }
+  if (search) { where.push(`(message ILIKE $${idx} OR stack_sample ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
   const wc = where.join(' AND ');
 
@@ -351,7 +351,7 @@ router.get('/errors/export', auth, requirePermission('audit.read'), asyncHandler
 
   if (status) { where.push(`status = $${idx}`); params.push(status); idx++; }
   if (mod)    { where.push(`module = $${idx}`); params.push(mod); idx++; }
-  if (search) { where.push(`message ILIKE $${idx}`); params.push(`%${search}%`); idx++; }
+  if (search) { where.push(`(message ILIKE $${idx} OR stack_sample ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
   const wc = where.join(' AND ');
   const items = await db.prepare(
