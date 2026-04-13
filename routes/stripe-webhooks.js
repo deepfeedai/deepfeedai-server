@@ -11,6 +11,17 @@ const db      = require('../db');
 const { bustPlanCache } = require('../lib/plan-limits');
 const { bustFeatureCache } = require('../lib/feature-registry');
 const { getStripeConfig } = require('../lib/stripe-config');
+const { logAudit } = require('../middleware/audit');
+
+function auditFromWebhook(tenantId, eventId, action, resource, resourceId, details) {
+  const pseudoReq = {
+    tenantId: tenantId || 1,
+    user: { sub: null, email: `stripe:${eventId || 'webhook'}` },
+    headers: { 'user-agent': 'stripe-webhook' },
+    ip: null,
+  };
+  return logAudit(pseudoReq, action, resource, resourceId, details).catch(() => {});
+}
 
 // Use raw body for Stripe signature verification
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -58,6 +69,10 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
           bustPlanCache(tenantId);
           bustFeatureCache(tenantId);
+          auditFromWebhook(tenantId, event.id, 'stripe.subscription.activated', 'tenant', tenantId, {
+            stripe_subscription_id: session.subscription,
+            stripe_customer_id: session.customer,
+          });
           console.log(`[Stripe Webhook] Subscription activated for tenant ${tenantId} (subscription: ${session.subscription})`);
           break;
         }
@@ -96,6 +111,10 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
           ).run(session.customer, purchase.tenant_id);
         }
 
+        auditFromWebhook(purchase.tenant_id, event.id, 'stripe.credits.purchased', 'credit_purchase', purchase.id, {
+          credits: purchase.credits,
+          stripe_payment_intent: session.payment_intent,
+        });
         console.log(`[Stripe Webhook] Credit purchase completed: ${purchase.credits} credits for tenant ${purchase.tenant_id}`);
         break;
       }
@@ -103,6 +122,9 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       case 'customer.subscription.deleted': {
         // Subscription cancelled — downgrade tenant to free plan
         const sub = event.data.object;
+        const affected = await db.prepare(
+          'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
+        ).get(sub.id);
         const result = await db.prepare(`
           UPDATE tenants SET plan = 'free', stripe_subscription_id = NULL
           WHERE stripe_subscription_id = $1
@@ -111,6 +133,9 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         if (result.changes > 0) {
           bustPlanCache();
           bustFeatureCache();
+          auditFromWebhook(affected?.id, event.id, 'stripe.subscription.cancelled', 'tenant', affected?.id, {
+            stripe_subscription_id: sub.id,
+          });
           console.log(`[Stripe Webhook] Subscription ${sub.id} deleted — tenant downgraded to free`);
         }
         break;
@@ -124,11 +149,19 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
           // Look up which plan this price belongs to
           const planRow = await db.prepare('SELECT plan FROM plan_limits WHERE stripe_price_id = $1').get(priceId);
           if (planRow) {
+            const affected = await db.prepare(
+              'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
+            ).get(sub.id);
             await db.prepare(
               'UPDATE tenants SET plan = $1 WHERE stripe_subscription_id = $2'
             ).run(planRow.plan, sub.id);
             bustPlanCache();
             bustFeatureCache();
+            auditFromWebhook(affected?.id, event.id, 'stripe.subscription.updated', 'tenant', affected?.id, {
+              stripe_subscription_id: sub.id,
+              plan: planRow.plan,
+              price_id: priceId,
+            });
             console.log(`[Stripe Webhook] Subscription ${sub.id} updated — plan changed to ${planRow.plan}`);
           }
         }
@@ -138,6 +171,13 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
         if (invoice.subscription) {
+          const affected = await db.prepare(
+            'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
+          ).get(invoice.subscription);
+          auditFromWebhook(affected?.id, event.id, 'stripe.payment.failed', 'tenant', affected?.id, {
+            stripe_subscription_id: invoice.subscription,
+            amount_due: invoice.amount_due,
+          });
           console.warn(`[Stripe Webhook] Payment failed for subscription ${invoice.subscription}`);
         }
         break;
@@ -151,11 +191,19 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
           // Only void credits on full refund (amount_refunded >= amount)
           const isFullRefund = charge.refunded === true || charge.amount_refunded >= charge.amount;
           if (isFullRefund) {
+            const purchase = await db.prepare(
+              "SELECT id, tenant_id, credits FROM credit_purchases WHERE stripe_payment_intent = $1 AND status = 'completed'"
+            ).get(paymentIntent);
             const result = await db.prepare(
               "UPDATE credit_purchases SET status = 'refunded' WHERE stripe_payment_intent = $1 AND status = 'completed'"
             ).run(paymentIntent);
 
             if (result.changes > 0) {
+              auditFromWebhook(purchase?.tenant_id, event.id, 'stripe.credits.refunded', 'credit_purchase', purchase?.id, {
+                credits: purchase?.credits,
+                stripe_payment_intent: paymentIntent,
+                amount_refunded: charge.amount_refunded,
+              });
               console.log(`[Stripe Webhook] Credit purchase fully refunded for payment_intent: ${paymentIntent}`);
             }
           } else {
