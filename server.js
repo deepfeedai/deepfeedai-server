@@ -1,5 +1,10 @@
 require('dotenv').config({ override: true });
 
+// LangGraph agent tool loops can stack multiple AbortSignal.timeout listeners
+// per request. Default Node max is 10; bump to 100 to silence the warning
+// while still catching genuine listener leaks.
+require('events').setMaxListeners(100);
+
 // Agent tracing bootstrap — no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset.
 // Must run before other requires so OTel can instrument them.
 try {
