@@ -1231,6 +1231,9 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_tenant_status ON article_pitches(tenant_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_source ON article_pitches(source_article_id)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_writer ON article_pitches(pitched_by_writer_id) WHERE pitched_by_writer_id IS NOT NULL`,
+    // Phase B follow-up — enriched articles explicitly attached to a pitch so synthesis
+    // includes them regardless of embedding-similarity / beat-category / timing
+    `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS attached_article_ids JSONB DEFAULT '[]'`,
     // Social newsroom Phase 2 — activity feed events
     // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
     // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
