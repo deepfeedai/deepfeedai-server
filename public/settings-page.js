@@ -253,6 +253,98 @@ let apiKeyVisible = false;
     }
   });
 
+  // ── Unified Image Provider config ───────────────────────────────
+  const IMAGE_PROVIDER_MODELS = {
+    imagen: [
+      { id: 'imagen-4.0-generate-001',        label: 'imagen-4.0 (Standard) — $0.04' },
+      { id: 'imagen-4.0-ultra-generate-001',  label: 'imagen-4.0 Ultra — $0.04' },
+      { id: 'imagen-4.0-fast-generate-001',   label: 'imagen-4.0 Fast — $0.04' },
+    ],
+    dalle: [
+      { id: 'dall-e-3',     label: 'DALL-E 3 Standard — $0.08 (1792x1024)' },
+      { id: 'dall-e-3-hd',  label: 'DALL-E 3 HD — $0.12 (1792x1024)' },
+    ],
+  };
+
+  function populateImgModelDropdown(selectEl, provider, currentValue, allowEmpty) {
+    const models = IMAGE_PROVIDER_MODELS[provider] || [];
+    selectEl.innerHTML = '';
+    if (allowEmpty) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = provider ? 'Default for provider' : '— select provider first —';
+      selectEl.appendChild(opt);
+    }
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = m.label;
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = currentValue && (models.some(m => m.id === currentValue) || allowEmpty && currentValue === '') ? currentValue : (allowEmpty ? '' : (models[0]?.id || ''));
+    selectEl.disabled = !provider;
+  }
+
+  function loadImageProviderSettings(settings) {
+    let cfg = {};
+    try { cfg = settings.image_provider_config ? JSON.parse(settings.image_provider_config) : {}; } catch { cfg = {}; }
+
+    const defaultProvider = cfg.default?.provider || 'imagen';
+    const defaultModel    = cfg.default?.model    || '';
+    document.getElementById('imgDefaultProvider').value = defaultProvider;
+    populateImgModelDropdown(document.getElementById('imgDefaultModel'), defaultProvider, defaultModel, false);
+
+    for (const op of ['thumbnail-render', 'inline-image']) {
+      const opCfg = cfg.operations?.[op] || {};
+      const provEl  = document.getElementById('imgOpProvider-' + op);
+      const modelEl = document.getElementById('imgOpModel-' + op);
+      provEl.value = opCfg.provider || '';
+      populateImgModelDropdown(modelEl, opCfg.provider || '', opCfg.model || '', true);
+    }
+  }
+
+  document.getElementById('imgDefaultProvider').addEventListener('change', function() {
+    populateImgModelDropdown(document.getElementById('imgDefaultModel'), this.value, '', false);
+  });
+  for (const op of ['thumbnail-render', 'inline-image']) {
+    document.getElementById('imgOpProvider-' + op).addEventListener('change', function() {
+      populateImgModelDropdown(document.getElementById('imgOpModel-' + op), this.value, '', true);
+    });
+  }
+
+  document.getElementById('saveImageProviderBtn').addEventListener('click', async function() {
+    const cfg = {
+      default: {
+        provider: document.getElementById('imgDefaultProvider').value,
+        model:    document.getElementById('imgDefaultModel').value,
+      },
+      operations: {},
+    };
+    for (const op of ['thumbnail-render', 'inline-image']) {
+      const provider = document.getElementById('imgOpProvider-' + op).value;
+      if (!provider) continue;
+      const model = document.getElementById('imgOpModel-' + op).value;
+      cfg.operations[op] = { provider, ...(model ? { model } : {}) };
+    }
+    if (!Object.keys(cfg.operations).length) delete cfg.operations;
+
+    try {
+      this.disabled = true;
+      this.textContent = 'Saving…';
+      await apiFetch('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_provider_config: JSON.stringify(cfg) }),
+      });
+      showAlert('Image provider settings saved ✓');
+    } catch (err) {
+      showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false;
+      this.textContent = 'Save Image Provider Settings';
+    }
+  });
+
   // ── AI Providers (BYAI) ──────────────────────────────────────────
   var aiProvidersInfo = null;
 
@@ -498,6 +590,7 @@ let apiKeyVisible = false;
 
       // Image generation
       loadImagenSettings(settings);
+      loadImageProviderSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
     }

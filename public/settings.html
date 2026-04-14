@@ -310,6 +310,57 @@
           <button class="btn btn-primary" id="saveImagenBtn">Save Gemini Settings</button>
         </div>
 
+        <!-- Image Provider (unified) card -->
+        <div class="settings-card" id="imageProviderCard">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🖼️</div>
+            <div>
+              <div class="settings-card-title">Image Provider</div>
+              <div class="settings-card-subtitle">Choose Imagen or DALL-E for thumbnails and inline images, per operation</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Default Image Provider</label>
+            <div style="display:flex;gap:8px;">
+              <select class="form-control" id="imgDefaultProvider" style="flex:1;">
+                <option value="imagen">Imagen (Google)</option>
+                <option value="dalle">DALL-E (OpenAI)</option>
+              </select>
+              <select class="form-control" id="imgDefaultModel" style="flex:2;"></select>
+            </div>
+            <p class="form-help">
+              Used for any image operation without its own override. DALL-E requires an OpenAI API key (configured in the AI Providers card below).
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Per-Operation Overrides</label>
+            <div style="display:grid;grid-template-columns:140px 1fr 2fr;gap:8px;align-items:center;">
+              <div style="font-size:13px;color:var(--text-muted);">Thumbnail</div>
+              <select class="form-control" id="imgOpProvider-thumbnail-render">
+                <option value="">Use default</option>
+                <option value="imagen">Imagen</option>
+                <option value="dalle">DALL-E</option>
+              </select>
+              <select class="form-control" id="imgOpModel-thumbnail-render"></select>
+
+              <div style="font-size:13px;color:var(--text-muted);">Inline images</div>
+              <select class="form-control" id="imgOpProvider-inline-image">
+                <option value="">Use default</option>
+                <option value="imagen">Imagen</option>
+                <option value="dalle">DALL-E</option>
+              </select>
+              <select class="form-control" id="imgOpModel-inline-image"></select>
+            </div>
+            <p class="form-help">
+              Override per operation — e.g. faster/cheaper Imagen for inline images, DALL-E HD for featured thumbnails.
+            </p>
+          </div>
+
+          <button class="btn btn-primary" id="saveImageProviderBtn">Save Image Provider Settings</button>
+        </div>
+
         <!-- AI Providers (BYAI) card -->
         <div class="settings-card" id="aiProvidersCard">
           <div class="settings-card-header">
