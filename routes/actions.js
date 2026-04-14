@@ -16,6 +16,7 @@ const router  = express.Router();
 const { asyncHandler } = require('../lib/utils');
 const { verifyAndBurn } = require('../lib/action-tokens');
 const { getHandler } = require('../lib/actions/handlers');
+const { cascade: cascadeAction } = require('../lib/actions/post-action');
 const { isFeatureEnabled } = require('../lib/feature-registry');
 const { logAudit } = require('../middleware/audit');
 
@@ -82,6 +83,14 @@ router.post('/:token', asyncHandler(async (req, res) => {
   logAudit(pseudoReq, row.action_kind, row.target_type || 'action',
     row.target_id || row.id,
     { source, ok: result.ok, via: 'action_token' });
+
+  // Fire-and-forget: annotate the user_notifications row(s) + cascade burn to
+  // sibling tokens in the same cohort (multi-channel fanout). Only cascade on
+  // a "real" success — no sense marking siblings used when the handler bailed.
+  if (result.ok) {
+    cascadeAction(row, source).catch(err =>
+      console.error('[actions] cascade failed:', err.message));
+  }
 
   const status = result.ok ? 200 : 409;
   return res.status(status).json(result);

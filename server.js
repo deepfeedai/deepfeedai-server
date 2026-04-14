@@ -1016,6 +1016,35 @@ registerJob({
 });
 
 registerJob({
+  name: 'sweepExpiredActionTokens',
+  description: 'Delete action_tokens rows whose expiry is more than 7 days old',
+  category: 'Maintenance',
+  // Daily at 03:15 — off-peak, after most other maintenance has run.
+  defaultSchedule: '15 3 * * *',
+  handler: async (tenantId) => {
+    const result = await db.getPool().query(
+      `DELETE FROM action_tokens
+        WHERE tenant_id = $1
+          AND expires_at < NOW() - INTERVAL '7 days'`,
+      [tenantId]
+    );
+    const deleted = result.rowCount || 0;
+    if (deleted > 0) {
+      console.log(`[Cron] sweepExpiredActionTokens (tenant ${tenantId}): deleted ${deleted}`);
+      try {
+        const { logAudit } = require('./middleware/audit');
+        await logAudit(
+          { user: { sub: 0 }, tenantId, headers: {}, ip: 'cron' },
+          'action_tokens.sweep', 'action_tokens', null,
+          { deleted }
+        );
+      } catch { /* non-fatal */ }
+    }
+    return { deleted };
+  },
+});
+
+registerJob({
   name: 'presence-sweep',
   description: 'Reset stale agent presence states to idle',
   category: 'Maintenance',

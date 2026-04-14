@@ -186,6 +186,15 @@ async function handleTelegramCallback(cq, tenantId) {
   if (chatId && messageId) {
     await editMessageReplyMarkup(chatId, messageId, row.tenant_id, []);
   }
+
+  // Cascade to sibling tokens in the same cohort (web bell, other chats, etc.)
+  if (result.ok) {
+    try {
+      const { cascade: cascadeAction } = require('../lib/actions/post-action');
+      cascadeAction(row, 'telegram').catch(err =>
+        console.error('[webhook:telegram] cascade failed:', err.message));
+    } catch { /* non-fatal */ }
+  }
 }
 
 // ── Slack Webhook ───────────────────────────────────────────────

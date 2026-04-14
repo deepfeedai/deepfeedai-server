@@ -211,6 +211,11 @@
     var list = (n.payload && Array.isArray(n.payload.actionable)) ? n.payload.actionable : [];
     if (list.length) {
       actions = '<div class="dfa-bell-actions">' + list.map(function (a) {
+        // Server-annotated stale states render as disabled pills with no click handler.
+        if (a.used || a.expired) {
+          return '<span class="dfa-bell-action-btn" style="opacity:0.6;cursor:default;" aria-disabled="true">' +
+            esc(a.label || 'Done') + '</span>';
+        }
         var cls = a.style === 'primary' ? ' primary' : '';
         return '<button class="dfa-bell-action-btn' + cls + '" data-token="' +
           esc(a.token || '') + '">' + esc(a.label || 'Do') + '</button>';

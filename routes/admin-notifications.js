@@ -47,17 +47,104 @@ async function requireFlag(req, res) {
   }
 }
 
-function mapRow(r) {
-  let payload = r.payload;
-  if (typeof payload === 'string') {
-    try { payload = JSON.parse(payload); } catch { payload = {}; }
+function relTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return '';
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60)     return 'just now';
+  if (s < 3600)   return Math.floor(s / 60) + 'm ago';
+  if (s < 86400)  return Math.floor(s / 3600) + 'h ago';
+  if (s < 604800) return Math.floor(s / 86400) + 'd ago';
+  return new Date(t).toLocaleDateString();
+}
+
+/**
+ * Walk the payload.actionable[] / actions[] arrays and annotate each button
+ * based on the token's current state. Handlers render these dumb-ly:
+ *   - used      → disabled pill, label prefixed with ✓ and used-by-source
+ *   - expired   → disabled pill, label prefixed with ⌛
+ *   - otherwise → normal click-to-act button
+ *
+ * Done in a single batched SELECT to avoid N+1.
+ */
+async function enrichActionableTokens(rows) {
+  const payloads = rows.map(r => {
+    let p = r.payload;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
+    return p || {};
+  });
+
+  // Collect every token referenced in every payload.
+  const tokens = new Set();
+  for (const p of payloads) {
+    for (const list of [p.actionable, p.actions]) {
+      if (!Array.isArray(list)) continue;
+      for (const b of list) if (b && b.token) tokens.add(b.token);
+    }
   }
+  if (!tokens.size) return payloads;
+
+  // We only store the HMAC hash, so re-hash and look up by hash.
+  let tokenRows = [];
+  try {
+    const crypto = require('crypto');
+    const SECRET = process.env.ACTION_TOKEN_SECRET || process.env.JWT_SECRET;
+    if (SECRET) {
+      const hashes = Array.from(tokens).map(raw =>
+        crypto.createHmac('sha256', SECRET).update(raw).digest('hex'));
+      const byHash = new Map(Array.from(tokens).map((raw, i) => [hashes[i], raw]));
+      const found = await db.prepare(
+        `SELECT token_hash, used_at, used_by_source, expires_at
+           FROM action_tokens
+          WHERE token_hash = ANY($1::text[])`
+      ).all(hashes);
+      tokenRows = found.map(r => ({ ...r, raw: byHash.get(r.token_hash) }));
+    }
+  } catch (err) {
+    console.error('[admin-notifications] token enrichment failed:', err.message);
+  }
+
+  const byRaw = new Map();
+  for (const r of tokenRows) byRaw.set(r.raw, r);
+  const now = Date.now();
+
+  for (const p of payloads) {
+    for (const list of [p.actionable, p.actions]) {
+      if (!Array.isArray(list)) continue;
+      for (const btn of list) {
+        if (!btn || !btn.token) continue;
+        const info = byRaw.get(btn.token);
+        if (!info) {
+          // Token deleted by sweep → treat as expired.
+          btn.expired = true;
+          btn.label = '⌛ Expired';
+          continue;
+        }
+        const originalLabel = btn.label || 'Do';
+        if (info.used_at) {
+          btn.used = true;
+          btn.used_at = info.used_at;
+          btn.used_by_source = info.used_by_source || btn.used_by_source || 'web';
+          btn.label = '✓ ' + originalLabel
+            + ' (from ' + btn.used_by_source + ', ' + relTime(info.used_at) + ')';
+        } else if (info.expires_at && new Date(info.expires_at).getTime() < now) {
+          btn.expired = true;
+          btn.label = '⌛ ' + originalLabel + ' (expired)';
+        }
+      }
+    }
+  }
+  return payloads;
+}
+
+function mapRowWith(r, enrichedPayload) {
   return {
     id:         r.id,
     kind:       r.kind,
     title:      r.title,
     body:       r.body,
-    payload:    payload || {},
+    payload:    enrichedPayload || {},
     read_at:    r.read_at,
     created_at: r.created_at,
   };
@@ -87,7 +174,9 @@ router.get('/', asyncHandler(async (req, res) => {
   ).all(tenantId, userId, limit + 1, offset);
 
   const hasMore = rows.length > limit;
-  const items = rows.slice(0, limit).map(mapRow);
+  const sliced = rows.slice(0, limit);
+  const enriched = await enrichActionableTokens(sliced);
+  const items = sliced.map((r, i) => mapRowWith(r, enriched[i]));
 
   const unreadRow = await db.prepare(
     `SELECT COUNT(*)::int AS cnt FROM user_notifications

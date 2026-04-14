@@ -1334,6 +1334,20 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_action_tokens_hash ON action_tokens(token_hash)`,
     `CREATE INDEX IF NOT EXISTS idx_action_tokens_expires ON action_tokens(expires_at)`,
+    // Stale-action cleanup (2026-04): cohort_id groups siblings minted in the same notify()
+    // fanout so a successful action can cascade "used_by_source=cascade" to the rest.
+    // notification_id back-links each token to the user_notifications row it lives on so
+    // we can rewrite payload.actionable[] entries in place.
+    // telegram_chat_id / telegram_message_id let the Telegram callback handler strip the
+    // inline keyboard off sibling messages when a cohort cascade fires.
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS cohort_id TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS notification_id BIGINT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS used_by_source TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS used_by_user_id INTEGER`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_cohort ON action_tokens(cohort_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_notification ON action_tokens(notification_id)`,
     // PR-B: revise action needs a place to record editor feedback.
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS review_notes TEXT`,
   ];
