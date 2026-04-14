@@ -14,6 +14,8 @@ const { checkPlanLimit }    = require('../lib/plan-limits');
 const { logAudit } = require('../middleware/audit');
 const { getCategories }     = require('../lib/categories');
 const { complete: aiComplete } = require('../lib/ai-router');
+const { parseTruncatedJsonArray, parseTruncatedJsonObject } = require('../lib/json-parse-safe');
+const { loadPrompt } = require('../lib/prompt-loader');
 
 async function storeAvatar(buf, mimeType, writerId, tenantId) {
   const ext = extFromMime(mimeType);
@@ -150,13 +152,11 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
   const raw = aiResult.text.trim();
   let personas;
   try {
-    let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
-    if (!cleaned.endsWith(']')) cleaned = cleaned.replace(/,\s*$/, '') + ']';
-    personas = JSON.parse(cleaned);
-    if (!Array.isArray(personas)) throw new Error('Not an array');
+    personas = parseTruncatedJsonArray(raw);
+    if (!personas.length) throw new Error('Empty array');
   } catch (err) {
-    console.error('[generate-writers] JSON parse error:', err.message, 'raw:', raw.slice(0, 200));
-    return res.status(502).json({ error: 'Failed to parse AI response' });
+    console.error('[generate-writers] JSON parse error:', err.message, 'raw:', raw.slice(0, 500));
+    return res.status(502).json({ error: 'Failed to parse AI response', raw: raw.slice(0, 1000) });
   }
 
   // Map personas back to categories and enrich with defaults
@@ -183,7 +183,7 @@ router.post('/generate', requirePermission('writers.create'), asyncHandler(async
       is_auto: true,
       synthesis_schedule: 'daily',
       synthesis_lookback_hours: 168,
-      min_cluster_size: 3,
+      min_cluster_size: 2,
     };
   }).filter(Boolean);
 
@@ -464,6 +464,116 @@ ${context}` },
 
   logAudit(req, 'writer.generate-chat-prompt', 'writer', parseInt(id), { name: writer.name });
   res.json({ chat_prompt: result.text });
+}));
+
+// POST /api/admin/writers/:id/regenerate-persona — refresh or fully rewrite persona
+router.post('/:id/regenerate-persona', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const mode = req.body?.mode === 'rewrite' ? 'rewrite' : 'refresh';
+  const preserveName = req.body?.preserveName !== false; // default true
+
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  const beats = await getBeats(id, req.tenantId);
+  if (!beats.length) {
+    return res.status(400).json({ error: 'Assign at least one beat before regenerating the persona' });
+  }
+
+  // Build beats context with category descriptions + keywords
+  const cats = await getCategories(req.tenantId);
+  const catById = new Map(cats.map(c => [c.id, c]));
+  const beatLines = beats.map(b => {
+    const c = catById.get(b.id) || {};
+    const kw = (c.keywords || []).slice(0, 8).join(', ');
+    return `- "${b.name}"${c.description ? ': ' + c.description : ''}${kw ? ' (keywords: ' + kw + ')' : ''}`;
+  }).join('\n');
+
+  let promptName, vars;
+  if (mode === 'refresh') {
+    promptName = 'regenerate-writer-refresh';
+    vars = {
+      name: writer.name || '',
+      tone: writer.tone || '(not set)',
+      expertise_level: writer.expertise_level || '(not set)',
+      bio: writer.bio || '(none)',
+      style_guide: writer.style_guide || '(none)',
+      system_prompt: writer.system_prompt || '(none)',
+      signature_phrases: Array.isArray(writer.signature_phrases) && writer.signature_phrases.length
+        ? writer.signature_phrases.join(', ') : '(none)',
+      keywords: Array.isArray(writer.keywords) && writer.keywords.length
+        ? writer.keywords.join(', ') : '(none)',
+      beats: beatLines,
+    };
+  } else {
+    promptName = 'regenerate-writer-rewrite';
+    vars = {
+      beats: beatLines,
+      nameConstraint: preserveName
+        ? `Keep the existing name: "${writer.name}".`
+        : 'Generate a new single first name (no last name).',
+      nameInstruction: preserveName
+        ? `must be exactly "${writer.name}"`
+        : 'a single first name only (no last name)',
+    };
+  }
+
+  const p = loadPrompt(promptName);
+  const { messages, ...meta } = p.render(vars);
+
+  const aiResult = await aiComplete({
+    ...meta, messages, tenantId: req.tenantId,
+    trigger: 'admin', writerId: parseInt(id),
+  });
+
+  if (!aiResult) return res.status(503).json({ error: 'AI service unavailable or budget denied' });
+
+  let persona;
+  try {
+    persona = parseTruncatedJsonObject(aiResult.text.trim());
+  } catch (err) {
+    console.error('[regenerate-persona] parse error:', err.message, 'raw:', aiResult.text.slice(0, 200));
+    return res.status(502).json({ error: 'Failed to parse AI response', raw: aiResult.text });
+  }
+
+  // Build update set based on mode
+  const updates = {};
+  const allowed = {
+    refresh: ['bio', 'tone', 'expertise_level', 'style_guide', 'system_prompt', 'keywords', 'beat_angle'],
+    rewrite: ['bio', 'tone', 'expertise_level', 'style_guide', 'system_prompt', 'keywords', 'beat_angle',
+              'gender', 'ethnicity', 'signature_phrases'],
+  };
+  for (const field of allowed[mode]) {
+    if (persona[field] !== undefined && persona[field] !== null) {
+      updates[field] = persona[field];
+    }
+  }
+  if (mode === 'rewrite' && !preserveName && persona.name && typeof persona.name === 'string') {
+    updates.name = persona.name.trim();
+  }
+
+  const changedFields = Object.keys(updates);
+  if (!changedFields.length) {
+    return res.status(502).json({ error: 'AI response contained no valid fields', raw: aiResult.text });
+  }
+
+  // Build dynamic UPDATE
+  const setClauses = [];
+  const values = [];
+  let idx = 1;
+  for (const field of changedFields) {
+    setClauses.push(`${field} = $${idx++}`);
+    values.push(updates[field]);
+  }
+  values.push(id, req.tenantId);
+  await db.prepare(
+    `UPDATE writers SET ${setClauses.join(', ')} WHERE id = $${idx++} AND tenant_id = $${idx}`
+  ).run(...values);
+
+  logAudit(req, 'writer.regenerate-persona', 'writer', parseInt(id), { mode, fields: changedFields });
+
+  const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  res.json({ writer: updated, mode, fields: changedFields });
 }));
 
 // GET /api/admin/writers/performance — per-writer performance metrics

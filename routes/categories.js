@@ -12,6 +12,7 @@ const { asyncHandler }       = require('../lib/utils');
 const { getCategories, bustCategoryCache } = require('../lib/categories');
 const { bustSiteConfigCache } = require('../lib/site-config');
 const { complete: aiComplete } = require('../lib/ai-router');
+const { parseTruncatedJsonArray } = require('../lib/json-parse-safe');
 
 // GET /api/categories — public (frontend filter bar needs this)
 router.get('/', asyncHandler(async (req, res) => {
@@ -130,15 +131,8 @@ router.post('/generate-keywords', requireAdmin, requirePermission('categories.up
   const raw = result.text.trim();
   let keywords;
   try {
-    // Strip markdown fences if present
-    let cleaned = raw.replace(/^```json?\s*/i, '').replace(/```\s*$/, '').trim();
-    // Fix truncated JSON: trim trailing comma/whitespace and close the array
-    if (!cleaned.endsWith(']')) {
-      cleaned = cleaned.replace(/,\s*$/, '') + ']';
-    }
-    keywords = JSON.parse(cleaned);
-    if (!Array.isArray(keywords)) throw new Error('Not an array');
-    keywords = keywords.filter(k => typeof k === 'string' && k.trim()).map(k => k.trim().toLowerCase());
+    const parsed = parseTruncatedJsonArray(raw);
+    keywords = parsed.filter(k => typeof k === 'string' && k.trim()).map(k => k.trim().toLowerCase());
   } catch {
     return res.status(502).json({ error: 'Failed to parse AI response', raw });
   }

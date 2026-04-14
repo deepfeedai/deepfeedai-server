@@ -255,4 +255,64 @@ router.get('/elevenlabs', requirePermission('analytics.read'), asyncHandler(asyn
   });
 }));
 
+// GET /api/ai-usage/sessions — grouped by agent_session_id (one row per user turn in LangGraph loops)
+// ?range=7d|30d|90d, ?limit=50, ?writerId=
+router.get('/sessions', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const days = parseInt(req.query.range) || 30;
+  const limit = Math.min(parseInt(req.query.limit) || 50, 500);
+  const writerId = req.query.writerId ? parseInt(req.query.writerId) : null;
+
+  const params = [req.tenantId, `${days} days`, limit];
+  let writerFilter = '';
+  if (writerId) {
+    writerFilter = ` AND writer_id = $${params.length + 1}`;
+    params.push(writerId);
+  }
+
+  const rows = await pool.query(`
+    SELECT agent_session_id,
+           MIN(created_at) AS started_at,
+           MAX(created_at) AS ended_at,
+           EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) * 1000 AS duration_ms,
+           COUNT(*)::int AS iterations,
+           MAX(writer_id) AS writer_id,
+           (array_agg(provider ORDER BY created_at))[1] AS first_provider,
+           (array_agg(model    ORDER BY created_at))[1] AS first_model,
+           array_agg(operation ORDER BY created_at) AS operations,
+           COALESCE(SUM(input_tokens), 0)::int  AS total_input_tokens,
+           COALESCE(SUM(input_tokens_cached), 0)::int AS total_cached_tokens,
+           COALESCE(SUM(output_tokens), 0)::int AS total_output_tokens,
+           COALESCE(SUM(estimated_cost), 0)::numeric(10,6) AS estimated_cost,
+           COALESCE(SUM(credits_used), 0)::int AS credits_used,
+           BOOL_AND(success) AS all_success
+    FROM ai_usage
+    WHERE tenant_id = $1
+      AND agent_session_id IS NOT NULL
+      AND created_at > NOW() - $2::INTERVAL
+      ${writerFilter}
+    GROUP BY agent_session_id
+    ORDER BY MIN(created_at) DESC
+    LIMIT $3
+  `, params);
+
+  res.json({ sessions: rows.rows });
+}));
+
+// GET /api/ai-usage/sessions/:id — per-iteration breakdown for one session
+router.get('/sessions/:id', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const rows = await pool.query(`
+    SELECT id, provider, model, operation, trigger,
+           input_tokens, input_tokens_cached, input_tokens_fresh, output_tokens,
+           estimated_cost, credits_used, duration_ms, success, error_message,
+           created_at, writer_id, article_slug, is_byai
+    FROM ai_usage
+    WHERE tenant_id = $1 AND agent_session_id = $2
+    ORDER BY created_at ASC
+  `, [req.tenantId, req.params.id]);
+
+  res.json({ iterations: rows.rows });
+}));
+
 module.exports = router;

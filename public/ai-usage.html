@@ -268,6 +268,33 @@
         </div>
       </div>
 
+      <!-- Agent sessions -->
+      <div class="dash-section-label">Agent Sessions</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Recent Sessions</h2>
+          <span class="text-muted text-sm" id="sessionCount">--</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="sessionsTable">
+            <thead>
+              <tr>
+                <th>Started</th>
+                <th>Writer</th>
+                <th>Provider / Model</th>
+                <th>Iters</th>
+                <th>Tokens (cached / fresh / out)</th>
+                <th>Cost</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="sessionsTbody">
+              <tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Recent errors -->
       <div class="dash-section-label">Errors</div>
       <div class="card-section" style="margin-bottom:28px;">

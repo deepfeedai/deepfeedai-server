@@ -881,4 +881,59 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
+// POST /api/articles/backfill-embeddings — Generate embeddings for articles without them
+// ?type=curated|original|all  (default: all)
+// ?batch=N  (default: 50, max: 100)
+router.post('/backfill-embeddings', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { generateEmbedding, isPgvectorAvailable } = require('../lib/embeddings');
+
+  if (!(await isPgvectorAvailable())) {
+    return res.json({ ok: false, error: 'pgvector extension not available' });
+  }
+
+  const batchSize = Math.min(parseInt(req.query.batch) || 50, 100);
+  const type = (req.query.type || 'all').toLowerCase();
+
+  // Content-type filter: curated = NULL or 'curated', original = original/deep-dive
+  let typeFilter;
+  if (type === 'original') typeFilter = `content_type IN ('original', 'deep-dive') AND is_published = 1`;
+  else if (type === 'curated') typeFilter = `(content_type IS NULL OR content_type NOT IN ('original', 'deep-dive')) AND is_archived = 0`;
+  else typeFilter = `((content_type IN ('original', 'deep-dive') AND is_published = 1) OR ((content_type IS NULL OR content_type NOT IN ('original', 'deep-dive')) AND is_archived = 0))`;
+
+  const articles = await db.prepare(`
+    SELECT id, title, COALESCE(enriched_summary, tldr_overview, LEFT(summary, 400)) AS text
+    FROM articles
+    WHERE tenant_id = $1 AND ${typeFilter} AND embedding IS NULL
+    ORDER BY created_at DESC
+    LIMIT $2
+  `).all(req.tenantId, batchSize);
+
+  if (!articles.length) {
+    return res.json({ ok: true, processed: 0, remaining: 0, message: 'All articles already have embeddings' });
+  }
+
+  let processed = 0;
+  let errors = 0;
+
+  for (const a of articles) {
+    try {
+      const textToEmbed = `${a.title} — ${a.text || ''}`.slice(0, 1000);
+      const vector = await generateEmbedding(req.tenantId, textToEmbed);
+      await db.prepare('UPDATE articles SET embedding = $1 WHERE id = $2 AND tenant_id = $3')
+        .run(JSON.stringify(vector), a.id, req.tenantId);
+      processed++;
+    } catch (err) {
+      errors++;
+      console.error(`[backfill] Embedding failed for article ${a.id}:`, err.message);
+    }
+  }
+
+  const remaining = await db.prepare(
+    `SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND ${typeFilter} AND embedding IS NULL`
+  ).get(req.tenantId);
+
+  logAudit(req, 'articles.backfill-embeddings', 'articles', null, { type, processed, errors, remaining: remaining?.cnt || 0 });
+  res.json({ ok: true, type, processed, errors, remaining: remaining?.cnt || 0 });
+}));
+
 module.exports = router;

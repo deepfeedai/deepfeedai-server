@@ -44,10 +44,108 @@
       const [data] = await Promise.all([
         apiFetch(`/ai-usage/summary?range=${currentRange}`),
         loadElevenLabs(),
+        loadSessions(),
       ]);
       render(data);
     } catch (err) {
       console.error('[ai-usage] load error:', err);
+    }
+  }
+
+  async function loadSessions() {
+    try {
+      const res = await apiFetch(`/ai-usage/sessions?range=${currentRange}&limit=50`);
+      renderSessions(res.sessions || []);
+    } catch (err) {
+      console.error('[ai-usage] sessions error:', err);
+      const tbody = document.getElementById('sessionsTbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
+    }
+  }
+
+  function renderSessions(sessions) {
+    const tbody = document.getElementById('sessionsTbody');
+    const countEl = document.getElementById('sessionCount');
+    if (countEl) countEl.textContent = sessions.length + ' sessions';
+
+    if (!sessions.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">No agent sessions yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = sessions.map(s => {
+      const cost = parseFloat(s.estimated_cost) || 0;
+      const cached = parseInt(s.total_cached_tokens) || 0;
+      const input = parseInt(s.total_input_tokens) || 0;
+      const fresh = Math.max(input - cached, 0);
+      const out = parseInt(s.total_output_tokens) || 0;
+      const statusBadge = s.all_success
+        ? '<span class="badge" style="background:#22c55e22;color:#22c55e;">ok</span>'
+        : '<span class="badge" style="background:#ef444422;color:#ef4444;">error</span>';
+      return `
+        <tr class="session-row" data-id="${escHtml(s.agent_session_id)}" style="cursor:pointer;">
+          <td style="white-space:nowrap;font-size:12px;">${relTime(s.started_at)}</td>
+          <td style="font-size:12px;">${s.writer_id != null ? '#' + s.writer_id : '—'}</td>
+          <td style="font-size:12px;">${escHtml(s.first_provider || '?')} / ${escHtml(s.first_model || '?')}</td>
+          <td>${s.iterations}</td>
+          <td style="font-size:12px;">${fmt(cached)} / ${fmt(fresh)} / ${fmt(out)}</td>
+          <td style="font-size:12px;">$${cost.toFixed(4)}</td>
+          <td>${statusBadge}</td>
+        </tr>
+        <tr class="session-detail" data-detail="${escHtml(s.agent_session_id)}" hidden>
+          <td colspan="7" style="background:var(--bg);padding:12px 16px;"></td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.querySelectorAll('.session-row').forEach(row => {
+      row.addEventListener('click', () => toggleSessionDetail(row.dataset.id));
+    });
+  }
+
+  async function toggleSessionDetail(sessionId) {
+    const detailRow = document.querySelector(`tr.session-detail[data-detail="${sessionId}"]`);
+    if (!detailRow) return;
+    if (!detailRow.hidden) { detailRow.hidden = true; return; }
+    const cell = detailRow.querySelector('td');
+    cell.innerHTML = '<div class="text-muted text-sm">Loading iterations…</div>';
+    detailRow.hidden = false;
+    try {
+      const res = await apiFetch(`/ai-usage/sessions/${encodeURIComponent(sessionId)}`);
+      const iters = res.iterations || [];
+      if (!iters.length) {
+        cell.innerHTML = '<div class="text-muted text-sm">No iterations</div>';
+        return;
+      }
+      cell.innerHTML = `
+        <table class="data-table" style="margin:0;font-size:12px;">
+          <thead><tr>
+            <th>#</th><th>Operation</th><th>Provider/Model</th>
+            <th>In (cached/fresh)</th><th>Out</th><th>Cost</th><th>Duration</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            ${iters.map((it, i) => {
+              const cached = parseInt(it.input_tokens_cached) || 0;
+              const fresh  = parseInt(it.input_tokens_fresh) || Math.max((parseInt(it.input_tokens) || 0) - cached, 0);
+              const cost = parseFloat(it.estimated_cost) || 0;
+              const statusBadge = it.success
+                ? '<span class="badge" style="background:#22c55e22;color:#22c55e;">ok</span>'
+                : `<span class="badge" style="background:#ef444422;color:#ef4444;" title="${escHtml(it.error_message || '')}">error</span>`;
+              return `<tr>
+                <td>${i + 1}</td>
+                <td>${escHtml(it.operation || '')}</td>
+                <td>${escHtml(it.provider || '')}/${escHtml(it.model || '')}</td>
+                <td>${fmt(cached)} / ${fmt(fresh)}</td>
+                <td>${fmt(parseInt(it.output_tokens) || 0)}</td>
+                <td>$${cost.toFixed(4)}</td>
+                <td>${it.duration_ms != null ? it.duration_ms + 'ms' : '—'}</td>
+                <td>${statusBadge}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      cell.innerHTML = `<div class="text-muted text-sm">Failed: ${escHtml(err.message || '')}</div>`;
     }
   }
 

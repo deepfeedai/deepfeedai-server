@@ -4,6 +4,65 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.8.0] — 2026-04-14
+
+### Added — LangGraph chat agent (pilot)
+
+- Feature-flagged StateGraph (`chat_agent_engine` setting, default off) runs conversations through a tool-loop graph: load context → agent → (tools → agent)* → persist → END
+- Six tools on `ToolContext`: `searchArticles`, `fetchArticle`, `listWriterBeats`, `getWriterMemory`, `updateWriterMemory`, `checkRecentColleagueWork`
+- `ai-router-chat-model.ts` wraps `ai-router` as a LangChain `BaseChatModel`; tool calls round-trip through provider-native tool-use (Anthropic `tool_use`, OpenAI `tool_calls`, Gemini `functionDeclarations`)
+- OpenTelemetry tracing bootstrap (no-op when `OTEL_EXPORTER_OTLP_ENDPOINT` unset)
+- `ai_usage.agent_session_id` UUID correlates the N rows from one user turn through a tool loop
+- Cached vs fresh input token split (`input_tokens_cached` / `input_tokens_fresh`) with per-model cache pricing (Anthropic 10%, OpenAI 50%, Gemini 25%)
+- Sessions tab in AI usage dashboard with per-iteration expand (cached/fresh/cost/duration)
+
+### Added — Unified AI providers (text + image)
+
+- `lib/providers/gemini.js` extracted to match the openai/anthropic/openrouter/ollama adapter layout
+- `lib/providers/imagen.js` + `lib/providers/dalle.js` — unified image adapter contract
+- `ai-router.generateImage()` dispatches from `settings.image_provider_config` (per-op + default override), falls back to legacy `imagen_model` for backward compat
+- DALL-E pricing: `dall-e-3` $0.08/image standard, `dall-e-3-hd` $0.12/image HD at 1792x1024
+- Settings: new **Image Provider** card with default + per-operation dropdowns (thumbnail-render / inline-image)
+- Settings: **Google Gemini card folded into AI Providers** — Gemini is now a first-class BYOK provider alongside OpenAI/Anthropic/OpenRouter/Ollama
+- `BYAI` renamed to `BYOK` throughout UI and comments; DB keys preserved (`is_byai` column, `byai` row in feature table)
+
+### Added — Synthesis quality
+
+- Semantic clustering via `pgvector` cosine similarity (≥0.72) with keyword-coherence guard, dispatched by `settings.synthesis_clustering_mode`
+- Embedding backfill now covers curated articles with `COALESCE(enriched_summary, tldr_overview, summary)`
+- `min_cluster_size` default 3 → 2 (primary + secondary source newsroom model) with floor clamp
+- `GET /api/synthesis/diagnose/:writerId` + "Why no results?" UI button explains 0-cluster outcomes
+
+### Added — Audit + observability (Tier 1)
+
+- `logAudit` on all public user-auth endpoints: register, login success/fail/blocked, verify, forgot + reset password, account delete — with machine-readable `reason` codes on failure
+- `logAudit` on all Stripe webhook events: subscription activate/cancel/update, credit purchase/refund, payment failed — via pseudo-req helper that tags tenant + `stripe:<event_id>` identity
+- `middleware/rate-limit-log.js` — reusable handler emits structured `logger.warn` + audit row on security-sensitive 429s; wired into 10 limiters across server.js and user-auth.js
+- `log-retention` cron purges `app_logs` + `request_logs` (30d) and `analytics_events` (90d), per-tenant overrides with safety floors
+- Log viewer search matches JSONB `context` (app_logs) and `stack_sample` (error_aggregates) alongside `message`
+- Embedding provider cache busts on settings changes (parity with chat + image provider caches)
+
+### Added — SEO + agent activity
+
+- `generated_title` surfaces everywhere the user sees an article title: "Just published" messages (Discord/Telegram/Slack), newsroom brief, standup, writer status, agent tool returns, `findRelevantArticles` (vector + keyword)
+- `article.generated_title` kept in sync in memory after `prewarmSummary` writes it back to DB
+
+### Added — Tooling
+
+- TypeScript via `tsx` CJS preload scoped to `lib/agents/**` — no build step, runs in production
+- Railway `railway.json` `startCommand` preloads `tsx/cjs` so TS agent files resolve at boot
+- `MaxListeners` bumped to 100 for AbortSignal stacking in the tool loop
+
+### Fixed
+
+- Writer persona regenerate (refresh / rewrite modes) — two new prompts + `POST /admin/writers/:id/regenerate-persona`
+- Discord slash command writer avatar handling (object responses)
+- Chat agent hallucination: stronger tool description + grounding system prompt + structured `{status: "no_results"}` return
+- Truncation-safe JSON parser recovers partial first element when AI arrays get cut mid-string
+- `routes/ai-usage.js /sessions/:id` was calling sqlite-style `db.prepare().all()` against a pg pool
+
+---
+
 ## [3.0.0-beta.6] — 2026-03-26
 
 ### Added — Feature Toggle System

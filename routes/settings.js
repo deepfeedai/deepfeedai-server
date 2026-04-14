@@ -101,10 +101,11 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
   if (r2Keys.some(k => k in body)) storage.bustR2ConfigCache();
 
   // Bust AI provider caches when relevant keys change
-  const AI_CACHE_KEYS = ['gemini_api_key', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config', 'imagen_api_key'];
+  const AI_CACHE_KEYS = ['gemini_api_key', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config', 'imagen_api_key', 'image_provider_config'];
   if (AI_CACHE_KEYS.some(k => k in body)) {
     bustProviderConfigCache(req.tenantId);
     bustKeyCache(req.tenantId);
+    try { require('../lib/embeddings').bustEmbeddingConfigCache(req.tenantId); } catch { /* optional */ }
   }
 
   // Restart Discord gateway if bot token changed
@@ -192,6 +193,7 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
     bustGeminiKeyCache();
     bustProviderConfigCache();
     bustKeyCache();
+    try { require('../lib/embeddings').bustEmbeddingConfigCache(); } catch { /* optional */ }
   }
   if (savedKeys.some(k => STRIPE_KEYS.includes(k))) bustStripeConfigCache();
 

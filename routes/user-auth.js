@@ -28,6 +28,8 @@ const { getOAuthConfig } = require('../lib/oauth-config');
 const { getAppConfig }   = require('../lib/app-config');
 
 const { getSecrets } = require('../lib/secrets');
+const { logAudit }   = require('../middleware/audit');
+const { rateLimitHandler } = require('../middleware/rate-limit-log');
 
 /* ── OAuth state store (in-memory, 10-min TTL) ───────────────────── */
 const oauthStates = new Map();
@@ -320,6 +322,7 @@ const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10,
   message: { error: 'Too many registration attempts. Please try again later.' },
+  handler: rateLimitHandler('user.register'),
 });
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -397,6 +400,9 @@ router.post('/register', registerLimiter, async (req, res) => {
     sendVerificationEmail({ toEmail: cleanEmail, toName: safeName, code: verifyCode })
       .catch(err => console.error('[user-auth/register] verification email failed:', err.message));
 
+    req.user = { sub: user.id, email: user.email };
+    logAudit(req, 'user.register', 'public_user', user.id, { email: user.email, provider: 'local' }).catch(() => {});
+
     res.status(201).json({
       token,
       email_verified: false,
@@ -418,6 +424,7 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
   max: 10,
   message: { error: 'Too many login attempts. Please try again later.' },
+  handler: rateLimitHandler('user.login'),
 });
 
 router.post('/login', loginLimiter, async (req, res) => {
@@ -427,22 +434,31 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  const cleanEmail = email.toLowerCase().trim();
   try {
     const user = await db.prepare(
       "SELECT * FROM public_users WHERE LOWER(email) = LOWER($1) AND provider = 'local'"
-    ).get(email.toLowerCase().trim());
+    ).get(cleanEmail);
 
     if (!user || !user.password_hash) {
+      logAudit(req, 'user.login.failed', 'public_user', null, { email: cleanEmail, reason: 'unknown_email' }).catch(() => {});
       return res.status(401).json({ error: 'Invalid email or password' });
     }
     if (user.is_banned) {
+      req.user = { sub: user.id, email: user.email };
+      logAudit(req, 'user.login.blocked', 'public_user', user.id, { email: user.email, reason: 'banned' }).catch(() => {});
       return res.status(403).json({ error: 'Account suspended' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      req.user = { sub: user.id, email: user.email };
+      logAudit(req, 'user.login.failed', 'public_user', user.id, { email: user.email, reason: 'bad_password' }).catch(() => {});
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+
+    req.user = { sub: user.id, email: user.email };
+    logAudit(req, 'user.login', 'public_user', user.id, { email: user.email, provider: 'local' }).catch(() => {});
 
     const token = await issueJwt(user);
     res.json({
@@ -468,6 +484,7 @@ const verifyLimiter = rateLimit({
   keyGenerator: (req) => req.user?.sub || req.ip,
   message: { error: 'Too many verification attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.verify_email'),
 });
 
 router.post('/verify-email', requireUser, verifyLimiter, async (req, res) => {
@@ -498,6 +515,7 @@ router.post('/verify-email', requireUser, verifyLimiter, async (req, res) => {
     await db.prepare('UPDATE public_users SET email_verified = 1, updated_at = NOW() WHERE id = $1').run(req.user.sub);
 
     const freshUser = await db.prepare('SELECT * FROM public_users WHERE id = $1').get(req.user.sub);
+    logAudit(req, 'user.email_verified', 'public_user', req.user.sub, { email: freshUser?.email }).catch(() => {});
     const token = await issueJwt(freshUser);
     res.json({ verified: true, token });
   } catch (err) {
@@ -513,6 +531,7 @@ const resendVerifyLimiter = rateLimit({
   keyGenerator: (req) => req.user?.sub || req.ip,
   message: { error: 'Too many resend attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.resend_verification'),
 });
 
 router.post('/resend-verification', requireUser, resendVerifyLimiter, async (req, res) => {
@@ -562,6 +581,7 @@ const forgotPasswordLimiter = rateLimit({
   max: 5,
   message: { error: 'Too many attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.forgot_password'),
 });
 
 router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
@@ -602,6 +622,9 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
     sendPasswordResetEmail({ toEmail: user.email, toName: user.display_name, resetUrl })
       .catch(err => console.error('[user-auth/forgot-password] email failed:', err.message));
 
+    req.user = { sub: user.id, email: user.email };
+    logAudit(req, 'user.password_reset_requested', 'public_user', user.id, { email: user.email }).catch(() => {});
+
     res.json(successMsg);
   } catch (err) {
     console.error('[user-auth/forgot-password]', err.message);
@@ -615,6 +638,7 @@ const resetPasswordLimiter = rateLimit({
   max: 5,
   message: { error: 'Too many attempts. Please try again later.' },
   validate: false,
+  handler: rateLimitHandler('user.reset_password'),
 });
 
 router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
@@ -643,6 +667,9 @@ router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
     await db.prepare(
       'UPDATE public_users SET password_hash = $1, updated_at = NOW() WHERE id = $2'
     ).run(passwordHash, row.user_id);
+
+    req.user = { sub: row.user_id };
+    logAudit(req, 'user.password_reset', 'public_user', row.user_id, null).catch(() => {});
 
     res.json({ success: true, message: 'Password updated. You can now sign in.' });
   } catch (err) {
@@ -903,6 +930,9 @@ router.delete('/account', async (req, res) => {
 
     // Hard-delete the user (CASCADE cleans up FK references)
     await db.prepare('DELETE FROM public_users WHERE id = $1').run(userId);
+
+    req.user = { sub: userId, email: payload.email };
+    logAudit(req, 'user.account_deleted', 'public_user', userId, { email: payload.email }).catch(() => {});
 
     res.json({ success: true, message: 'Account deleted' });
   } catch (err) {

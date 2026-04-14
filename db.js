@@ -249,7 +249,7 @@ async function initDb() {
       is_auto                  BOOLEAN DEFAULT false,
       synthesis_schedule       TEXT DEFAULT 'daily',
       synthesis_lookback_hours INTEGER DEFAULT 168,
-      min_cluster_size         INTEGER DEFAULT 3,
+      min_cluster_size         INTEGER DEFAULT 2,
       voice_id                 INTEGER REFERENCES voices(id) ON DELETE SET NULL,
       created_at               TIMESTAMPTZ DEFAULT NOW()
     );
@@ -422,7 +422,7 @@ async function initDb() {
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS slug TEXT UNIQUE`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_schedule TEXT DEFAULT 'daily'`,
     `ALTER TABLE voices ADD COLUMN IF NOT EXISTS synthesis_lookback_hours INTEGER DEFAULT 168`,
-    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 3`,
+    `ALTER TABLE voices ADD COLUMN IF NOT EXISTS min_cluster_size INTEGER DEFAULT 2`,
     // AI usage tracking table
     `CREATE TABLE IF NOT EXISTS ai_usage (
       id              SERIAL PRIMARY KEY,
@@ -991,6 +991,11 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS disable_summary INTEGER NOT NULL DEFAULT 0`,
     // BYAI (Bring Your AI) — track whether an AI call used the tenant's own key
     `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS is_byai BOOLEAN DEFAULT false`,
+    // Agent session correlation + cached/fresh input token split (PR A: usage tracking rework)
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS agent_session_id UUID`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS input_tokens_cached INTEGER DEFAULT 0`,
+    `ALTER TABLE ai_usage ADD COLUMN IF NOT EXISTS input_tokens_fresh INTEGER DEFAULT 0`,
+    `CREATE INDEX IF NOT EXISTS idx_ai_usage_session ON ai_usage(agent_session_id) WHERE agent_session_id IS NOT NULL`,
     // Fix platform tenant site URLs — admin-tenants.js was generating slug.domain (e.g. deepfeedai.deepfeedai.com)
     `UPDATE settings SET value = 'deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_domain' AND value LIKE '%.deepfeedai.com' AND value != 'deepfeedai.com'`,
     `UPDATE settings SET value = 'https://deepfeedai.com' WHERE tenant_id = 1 AND key = 'site_url' AND value LIKE '%deepfeedai.deepfeedai.com%'`,
@@ -1144,6 +1149,63 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_messages_tenant ON newsroom_messages(tenant_id, created_at DESC)`,
     // Telegram group topics: thread_id column for per-topic writer mapping
     `ALTER TABLE messaging_channels ADD COLUMN IF NOT EXISTS thread_id TEXT`,
+    // Phase 17: pgvector for semantic article search (RAG)
+    // Note: CREATE EXTENSION may require superuser — Neon supports it natively
+    `DO $$ BEGIN CREATE EXTENSION IF NOT EXISTS vector; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pgvector extension not available — semantic search disabled'; END $$`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding vector(768)`,
+    // HNSW index: better cold-start behavior than IVFFlat, no minimum row requirement
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+         EXECUTE 'CREATE INDEX IF NOT EXISTS idx_articles_embedding ON articles USING hnsw (embedding vector_cosine_ops)';
+       END IF;
+     END $$`,
+    // Track which embedding model was used per tenant
+    `INSERT INTO settings (tenant_id, key, value)
+     SELECT t.id, 'embedding_model', 'text-embedding-004'
+     FROM tenants t
+     WHERE NOT EXISTS (SELECT 1 FROM settings WHERE tenant_id = t.id AND key = 'embedding_model')
+     ON CONFLICT (tenant_id, key) DO NOTHING`,
+    // Phase 17b: Conversational AI — persistent conversation history
+    `CREATE TABLE IF NOT EXISTS conversation_history (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      writer_id   INTEGER NOT NULL,
+      platform    TEXT NOT NULL,
+      channel_id  TEXT NOT NULL,
+      thread_id   TEXT,
+      user_id     TEXT,
+      role        TEXT NOT NULL,
+      content     TEXT NOT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_convo_history_lookup ON conversation_history(tenant_id, writer_id, channel_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_convo_history_cleanup ON conversation_history(created_at)`,
+    // Conversation summaries for long-term context
+    `CREATE TABLE IF NOT EXISTS conversation_summaries (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      writer_id   INTEGER NOT NULL,
+      context_key TEXT NOT NULL,
+      summary     TEXT NOT NULL,
+      turn_count  INTEGER NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_convo_summaries_key ON conversation_summaries(tenant_id, context_key)`,
+    // Phase 17c: Chat user profiles for personalization
+    `CREATE TABLE IF NOT EXISTS chat_user_profiles (
+      id                SERIAL PRIMARY KEY,
+      tenant_id         INTEGER NOT NULL,
+      platform          TEXT NOT NULL,
+      platform_user_id  TEXT NOT NULL,
+      display_name      TEXT,
+      topics_asked      TEXT[] DEFAULT '{}',
+      favorite_writers  INTEGER[] DEFAULT '{}',
+      last_interaction  TIMESTAMPTZ DEFAULT NOW(),
+      interaction_count INTEGER DEFAULT 0,
+      UNIQUE(tenant_id, platform, platform_user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_chat_user_profiles_lookup ON chat_user_profiles(tenant_id, platform, platform_user_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

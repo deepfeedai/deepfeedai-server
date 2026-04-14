@@ -95,7 +95,24 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
 
                 // Enrich: scrape full article text and generate structured summary
                 const { enrichArticle } = require('../lib/synthesis');
-                enrichArticle(inserted_row.id, tenantId).catch(() => {});
+                enrichArticle(inserted_row.id, tenantId)
+                  .then(async () => {
+                    // After enrichment, generate an embedding for semantic clustering.
+                    // Fire-and-forget; embedding failure must not break ingest.
+                    try {
+                      const { generateEmbedding, isPgvectorAvailable } = require('../lib/embeddings');
+                      if (!(await isPgvectorAvailable())) return;
+                      const row = await db.prepare(
+                        'SELECT id, title, COALESCE(enriched_summary, tldr_overview, LEFT(summary, 400)) AS text FROM articles WHERE id = $1 AND tenant_id = $2'
+                      ).get(inserted_row.id, tenantId);
+                      if (!row) return;
+                      const textToEmbed = `${row.title} — ${row.text || ''}`.slice(0, 1000);
+                      const vector = await generateEmbedding(tenantId, textToEmbed);
+                      await db.prepare('UPDATE articles SET embedding = $1 WHERE id = $2 AND tenant_id = $3')
+                        .run(JSON.stringify(vector), row.id, tenantId);
+                    } catch (err) { console.warn('[fetch] embedding failed for article', inserted_row.id, err.message); }
+                  })
+                  .catch(() => {});
               } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
             })();
           }

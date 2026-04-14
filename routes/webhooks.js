@@ -68,10 +68,26 @@ router.post('/telegram', asyncHandler(async (req, res) => {
     const { handleIncoming } = require('../lib/messaging');
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('telegram', parsed.chatId, parsed.threadId);
-    const response = await handleIncoming(channel.tenant_id, writerId, parsed.text, contextKey);
+    const userMeta = { userId: String(parsed.senderId || ''), userName: parsed.senderName, platform: 'telegram' };
+    const response = await handleIncoming(channel.tenant_id, writerId, parsed.text, contextKey, userMeta);
+
+    // Voice response: { text, voice: true, writerId }
+    if (response && typeof response === 'object' && response.voice) {
+      const { generateVoiceResponse } = require('../lib/media-helpers');
+      const voiceResult = await generateVoiceResponse(response.text, response.writerId, channel.tenant_id);
+      if (voiceResult) {
+        const { sendTelegramVoice } = require('../lib/messaging/telegram');
+        await sendTelegramVoice(parsed.chatId, voiceResult.buffer, response.text.slice(0, 200) + '...', channel.tenant_id, parsed.threadId);
+      } else {
+        const { sendTelegramMessage } = require('../lib/messaging/telegram');
+        await sendTelegramMessage(parsed.chatId, response.text + '\n\n(Voice not available — no ElevenLabs voice configured)', channel.tenant_id, parsed.threadId);
+      }
+      return;
+    }
 
     const { sendTelegramMessage } = require('../lib/messaging/telegram');
-    await sendTelegramMessage(parsed.chatId, response, channel.tenant_id, parsed.threadId);
+    const responseText = (typeof response === 'object' && response.text) ? response.text : response;
+    await sendTelegramMessage(parsed.chatId, responseText, channel.tenant_id, parsed.threadId);
   } catch (err) {
     console.error('[webhook:telegram] Error:', err.message, err.stack);
     try {
@@ -127,10 +143,12 @@ router.post('/slack', asyncHandler(async (req, res) => {
     const { handleIncoming } = require('../lib/messaging');
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('slack', parsed.chatId);
-    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text, contextKey);
+    const userMeta = { userId: parsed.senderId || '', userName: parsed.senderName, platform: 'slack' };
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, parsed.text, contextKey, userMeta);
 
     const { sendSlackMessage } = require('../lib/messaging/slack');
-    await sendSlackMessage(parsed.chatId, response, channel.tenant_id, parsed.threadId);
+    const responseText = (typeof response === 'object' && response.text) ? response.text : response;
+    await sendSlackMessage(parsed.chatId, responseText, channel.tenant_id, parsed.threadId);
   } catch (err) {
     console.error('[webhook:slack] Error:', err.message);
   }

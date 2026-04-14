@@ -1,7 +1,23 @@
 require('dotenv').config({ override: true });
+
+// LangGraph agent tool loops can stack multiple AbortSignal.timeout listeners
+// per request. Default Node max is 10; bump to 100 to silence the warning
+// while still catching genuine listener leaks.
+require('events').setMaxListeners(100);
+
+// Agent tracing bootstrap — no-op if OTEL_EXPORTER_OTLP_ENDPOINT is unset.
+// Must run before other requires so OTel can instrument them.
+try {
+  const { initTracing } = require('./lib/agents/tracing');
+  initTracing();
+} catch (err) {
+  console.warn('[server] agent tracing bootstrap failed:', err?.message);
+}
+
 const express   = require('express');
 const helmet    = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { rateLimitHandler } = require('./middleware/rate-limit-log');
 const path      = require('path');
 const db        = require('./db');
 const { toSlug } = require('./lib/utils');
@@ -48,6 +64,7 @@ const summaryLimiter = rateLimit({
   keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many summary requests. Please try again later.' },
   validate:       false,
+  handler:        rateLimitHandler('public.summary'),
 });
 
 const publicApiLimiter = rateLimit({
@@ -58,6 +75,7 @@ const publicApiLimiter = rateLimit({
   keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
   message:        { error: 'Too many requests. Please slow down.' },
   validate:       false,
+  handler:        rateLimitHandler('public.api'),
 });
 
 // Admin write rate limiter — protects mutation endpoints and AI-budget endpoints
@@ -70,6 +88,7 @@ const adminWriteLimiter = rateLimit({
   message:        { error: 'Too many admin write requests. Please slow down.' },
   validate:       false,
   skip:           (req) => req.method === 'GET' || req.method === 'OPTIONS',
+  handler:        rateLimitHandler('admin.write'),
 });
 
 // Tight limiter for AI-budget-consuming endpoints
@@ -81,6 +100,7 @@ const aiLimiter = rateLimit({
   keyGenerator:   (req) => req.user?.sub ? `ai:${req.user.sub}` : `ip:${req.ip}`,
   message:        { error: 'Too many AI generation requests. Please slow down.' },
   validate:       false,
+  handler:        rateLimitHandler('ai.generate'),
 });
 
 // ── CORS ───────────────────────────────────────────────────────────
@@ -822,6 +842,48 @@ registerJob({
 });
 
 registerJob({
+  name: 'log-retention',
+  description: 'App + request + analytics log retention cleanup',
+  category: 'Maintenance',
+  defaultSchedule: '15 3 * * *',
+  handler: async (tenantId) => {
+    // Retention tiers (days). Configurable per-tenant via settings keys.
+    const settings = await db.prepare(`
+      SELECT key, value FROM settings WHERE tenant_id = $1
+        AND key IN ('app_log_retention_days', 'request_log_retention_days', 'analytics_retention_days')
+    `).all(tenantId);
+    const byKey = Object.fromEntries((settings || []).map(s => [s.key, parseInt(s.value)]));
+    const appDays       = Math.max(byKey.app_log_retention_days       || 30, 7);
+    const reqDays       = Math.max(byKey.request_log_retention_days   || 30, 7);
+    const analyticsDays = Math.max(byKey.analytics_retention_days     || 90, 30);
+
+    const pool = db.getPool();
+    const results = {};
+    for (const [table, days, key] of [
+      ['app_logs',         appDays,       'app'],
+      ['request_logs',     reqDays,       'request'],
+      ['analytics_events', analyticsDays, 'analytics'],
+    ]) {
+      try {
+        const r = await pool.query(
+          `DELETE FROM ${table} WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
+          [tenantId, days]
+        );
+        results[key] = { deleted: r.rowCount, days };
+      } catch (err) {
+        results[key] = { error: err.message, days };
+      }
+    }
+
+    const total = Object.values(results).reduce((sum, r) => sum + (r.deleted || 0), 0);
+    if (total > 0) {
+      console.log(`[Cron] Log retention (tenant ${tenantId}): ${JSON.stringify(results)}`);
+    }
+    return results;
+  },
+});
+
+registerJob({
   name: 'tenant-cleanup',
   description: 'Clean up deleted tenant data after retention period',
   category: 'Maintenance',
@@ -920,6 +982,30 @@ registerJob({
     if (warnings.length) console.log(`[Cron] Tenant health (${tenantId}): ${warnings.join(', ')}`);
 
     return metrics;
+  },
+});
+
+registerJob({
+  name: 'conversation-retention',
+  description: 'Clean up old conversation history',
+  category: 'Maintenance',
+  defaultSchedule: '0 4 * * *',
+  handler: async (tenantId) => {
+    const RETENTION_DAYS = 90;
+    const result = await db.getPool().query(
+      `DELETE FROM conversation_history WHERE tenant_id = $1 AND created_at < NOW() - make_interval(days => $2)`,
+      [tenantId, RETENTION_DAYS]
+    );
+    const deleted = result.rowCount;
+    if (deleted > 0) {
+      console.log(`[Cron] Conversation retention (tenant ${tenantId}): deleted ${deleted} messages older than ${RETENTION_DAYS} days`);
+    }
+    // Also clean up orphaned summaries where no recent history exists
+    await db.getPool().query(
+      `DELETE FROM conversation_summaries WHERE tenant_id = $1 AND updated_at < NOW() - make_interval(days => $2)`,
+      [tenantId, RETENTION_DAYS]
+    );
+    return { deleted, retentionDays: RETENTION_DAYS };
   },
 });
 

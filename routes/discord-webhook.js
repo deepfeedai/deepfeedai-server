@@ -6,24 +6,105 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter } = require('../lib/messaging/discord');
+const { getTenantByAppId, getAppSettings, verifyInteraction, sendFollowup, deleteFollowup, sendAsWriter, sendVoiceMessage, sendVoiceFollowup } = require('../lib/messaging/discord');
 const { handleIncoming, handleNewsroomCommand } = require('../lib/messaging');
+const { generateVoiceResponse } = require('../lib/media-helpers');
 const { getAppConfig } = require('../lib/app-config');
 
 const NEWSROOM_COMMANDS = new Set(['standup', 'brief', 'assign', 'help']);
 
-// GET health check
-router.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Discord interactions endpoint is active' });
+// GET health check + diagnostic
+router.get('/', async (req, res) => {
+  let diag = {};
+  try {
+    const db = require('../db');
+    // Find the tenant that has the Discord app configured
+    const appIdRow = await db.prepare(
+      "SELECT tenant_id, value FROM settings WHERE key = 'discord_app_id' AND value IS NOT NULL AND value != '' LIMIT 1"
+    ).get();
+    const diagTenantId = appIdRow?.tenant_id || 1;
+    diag._tenant_id = diagTenantId;
+    const rows = await db.prepare(
+      "SELECT key, value FROM settings WHERE key IN ('discord_app_id', 'discord_public_key', 'discord_bot_token') AND tenant_id = $1"
+    ).all(diagTenantId);
+    for (const r of rows) {
+      if (r.key === 'discord_bot_token') {
+        diag[r.key] = r.value ? (r.value.startsWith('enc:') ? 'encrypted ✓' : `plain (${r.value.length} chars)`) : '(empty)';
+      } else if (r.key === 'discord_public_key') {
+        diag[r.key] = r.value ? `${r.value.length} chars, starts=${r.value.slice(0, 8)}` : '(empty)';
+      } else {
+        diag[r.key] = r.value || '(empty)';
+      }
+    }
+    // Tenant lookup
+    const appIdRaw = rows.find(r => r.key === 'discord_app_id')?.value;
+    if (appIdRaw) {
+      const tid = await getTenantByAppId(appIdRaw);
+      diag.tenant_lookup = tid ? `tenant ${tid}` : 'NOT FOUND';
+    }
+    // List registered commands from Discord API
+    try {
+      const { getBotToken } = require('../lib/messaging/discord');
+      const token = await getBotToken(diagTenantId);
+      if (token && appIdRaw) {
+        const cmdRes = await fetch(`https://discord.com/api/v10/applications/${appIdRaw}/commands`, {
+          headers: { Authorization: `Bot ${token}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (cmdRes.ok) {
+          const cmds = await cmdRes.json();
+          diag.registered_commands = cmds.map(c => c.name);
+          diag.command_count = cmds.length;
+        } else {
+          diag.commands_error = `HTTP ${cmdRes.status}`;
+        }
+      }
+    } catch (err) { diag.commands_error = err.message; }
+    // Check messaging channels + writer info (all tenants to find mismatches)
+    const channels = await db.prepare(
+      "SELECT mc.channel_id, mc.writer_id, mc.tenant_id, w.name, w.elevenlabs_voice_id FROM messaging_channels mc LEFT JOIN writers w ON w.id = mc.writer_id WHERE mc.platform = 'discord' AND mc.is_active = true"
+    ).all();
+    diag.messaging_channels = channels.map(c => ({
+      channel_id: c.channel_id,
+      tenant_id: c.tenant_id,
+      writer: c.name || 'none',
+      writer_id: c.writer_id,
+      has_voice: !!c.elevenlabs_voice_id,
+    }));
+    // Check if ElevenLabs API key is set for each tenant that has channels
+    const tenantIds = [...new Set(channels.map(c => c.tenant_id))];
+    diag.elevenlabs_by_tenant = {};
+    for (const tid of [diagTenantId, ...tenantIds]) {
+      const elKey = await db.prepare(
+        "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'elevenlabs_api_key'"
+      ).get(tid);
+      diag.elevenlabs_by_tenant[`tenant_${tid}`] = elKey?.value ? (elKey.value.startsWith('enc:') ? 'encrypted ✓' : `plain`) : '(NOT SET)';
+    }
+    // Count articles for each writer (using the channel's tenant, not the app tenant)
+    for (const ch of diag.messaging_channels) {
+      if (ch.writer_id) {
+        const cnt = await db.prepare(
+          "SELECT COUNT(*)::int AS total, SUM(CASE WHEN content_type IN ('original','deep-dive') THEN 1 ELSE 0 END)::int AS originals FROM articles WHERE writer_id = $1 AND tenant_id = $2 AND is_published = 1"
+        ).get(ch.writer_id, ch.tenant_id);
+        ch.articles_total = cnt?.total || 0;
+        ch.articles_originals = cnt?.originals || 0;
+      }
+    }
+  } catch (err) { diag.error = err.message; }
+  res.json({ status: 'ok', config: diag });
 });
 
 // POST — Discord interactions (raw body for signature verification)
 router.post('/', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
+    const rawBodyStr = req.body?.toString?.() || '';
+    console.log(`[webhook:discord] POST received, body type=${typeof req.body}, isBuffer=${Buffer.isBuffer(req.body)}, length=${rawBodyStr.length}`);
+
     let body;
     try {
-      body = JSON.parse(req.body.toString());
-    } catch {
+      body = JSON.parse(rawBodyStr);
+    } catch (parseErr) {
+      console.error(`[webhook:discord] JSON parse failed: ${parseErr.message}, raw=${rawBodyStr.slice(0, 100)}`);
       return res.status(400).json({ error: 'Invalid JSON' });
     }
 
@@ -86,6 +167,8 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
         commandText = '/update ' + (options.instruction || '');
       } else if (commandName === 'resync') {
         commandText = '/resync ' + (options.search || '');
+      } else if (commandName === 'voice') {
+        commandText = '/voice ' + (options.question || '');
       } else {
         commandText = '/' + commandName;
       }
@@ -109,7 +192,8 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       res.json({ type: 5 });
 
       // Fire-and-forget async processing
-      processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken).catch(err => {
+      const userId = body.member?.user?.id || body.user?.id || null;
+      processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken, { userId, userName, platform: 'discord' }).catch(err => {
         console.error('[discord] command processing error:', err.message, err.stack);
       });
       return;
@@ -126,7 +210,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 /**
  * Process a slash command asynchronously after deferring the interaction response.
  */
-async function processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken) {
+async function processCommand(tenantId, channelId, commandName, commandText, appId, interactionToken, userMeta = {}) {
   try {
     // Check newsroom commands first
     if (NEWSROOM_COMMANDS.has(commandName)) {
@@ -156,7 +240,19 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
 
     const { buildContextKey } = require('../lib/messaging/context');
     const contextKey = buildContextKey('discord', channelId);
-    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey);
+    const response = await handleIncoming(channel.tenant_id, channel.writer_id, commandText, contextKey, userMeta);
+
+    // /voice returns { text, voice: true, writerId } — generate audio and send as attachment
+    if (response && typeof response === 'object' && response.voice) {
+      const voiceResult = await generateVoiceResponse(response.text, response.writerId, tenantId);
+      if (voiceResult) {
+        await sendVoiceFollowup(appId, interactionToken, voiceResult.buffer, response.text.slice(0, 200) + '...');
+      } else {
+        // Voice unavailable — fall back to text with explanation
+        await sendFollowup(appId, interactionToken, response.text + '\n\n(Voice not available — no ElevenLabs voice configured for this writer)');
+      }
+      return;
+    }
 
     // /new returns an object with clearChannel flag — bulk delete via REST
     if (response && typeof response === 'object' && response.clearChannel) {
@@ -194,8 +290,8 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
     }
 
     // Try sending as the writer (with name + avatar) via channel webhook
+    const responseText = (typeof response === 'object' && response.text) ? response.text : response;
     if (channel.writer_name) {
-      // Resolve relative avatar URLs
       let avatarUrl = channel.writer_avatar;
       if (avatarUrl && !avatarUrl.startsWith('http')) {
         try {
@@ -206,16 +302,18 @@ async function processCommand(tenantId, channelId, commandName, commandText, app
         } catch { avatarUrl = null; }
       }
 
-      const sent = await sendAsWriter(channelId, response, tenantId, channel.writer_name, avatarUrl);
+      console.log(`[discord] Slash cmd: sending as "${channel.writer_name}" avatar=${avatarUrl || 'none'}`);
+      const sent = await sendAsWriter(channelId, responseText, tenantId, channel.writer_name, avatarUrl);
       if (sent) {
         // Delete the deferred "thinking" message since we sent via webhook
         await deleteFollowup(appId, interactionToken).catch(() => {});
         return;
       }
+      console.warn(`[discord] sendAsWriter failed — falling back to bot followup`);
     }
 
     // Fallback: send as bot via interaction follow-up
-    await sendFollowup(appId, interactionToken, response);
+    await sendFollowup(appId, interactionToken, responseText);
   } catch (err) {
     console.error('[discord] follow-up error:', err.message, err.stack);
     try {

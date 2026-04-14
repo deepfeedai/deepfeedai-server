@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": false,
+    "checkJs": false,
+    "outDir": "./dist-ts",
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": [
+    "lib/agents/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist-ts",
+    "**/*.test.ts"
+  ]
+}
