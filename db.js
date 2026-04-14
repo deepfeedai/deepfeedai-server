@@ -1288,6 +1288,50 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'standard'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_locked BOOLEAN DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(tenant_id, importance, published_at DESC)`,
+    // Notifications / Actions system — PR-A foundation.
+    // user_notifications: per-user feed of events (in-web bell + cross-channel).
+    // event_id optionally links to newsroom_events; payload holds renderable fields so reads don't require joins.
+    `CREATE TABLE IF NOT EXISTS user_notifications (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      user_id     INTEGER NOT NULL,
+      event_id    INTEGER,
+      kind        TEXT NOT NULL,
+      title       TEXT,
+      body        TEXT,
+      payload     JSONB DEFAULT '{}',
+      read_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_notifications_inbox
+       ON user_notifications(tenant_id, user_id, read_at NULLS FIRST, created_at DESC)`,
+    // notification_preferences: per-user, per-event-kind channel routing (web/email/discord/telegram/slack).
+    `CREATE TABLE IF NOT EXISTS notification_preferences (
+      tenant_id   INTEGER NOT NULL,
+      user_id     INTEGER NOT NULL,
+      event_kind  TEXT NOT NULL,
+      channels    TEXT[] DEFAULT ARRAY['web'],
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, user_id, event_kind)
+    )`,
+    // action_tokens: single-use HMAC-signed tokens for cross-channel actions (approve/reject/assign from
+    // Discord/Telegram/Slack/email). token_hash = HMAC-SHA256 of the raw token; raw is never persisted.
+    `CREATE TABLE IF NOT EXISTS action_tokens (
+      id            SERIAL PRIMARY KEY,
+      token_hash    TEXT UNIQUE NOT NULL,
+      tenant_id     INTEGER NOT NULL,
+      user_id       INTEGER NOT NULL,
+      action_kind   TEXT NOT NULL,
+      target_id     INTEGER,
+      target_type   TEXT,
+      payload       JSONB DEFAULT '{}',
+      expires_at    TIMESTAMPTZ NOT NULL,
+      used_at       TIMESTAMPTZ,
+      source        TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_hash ON action_tokens(token_hash)`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_expires ON action_tokens(expires_at)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

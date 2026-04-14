@@ -4,6 +4,14 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **feat(notifications):** schema foundation for cross-channel notifications + signed action tokens (PR-A of notifications/actions system). Adds `user_notifications`, `notification_preferences`, and `action_tokens` tables; feature flags `notifications_center` and `cross_channel_actions` (both default false); `lib/action-tokens.js` mint/verifyAndBurn skeleton. No endpoints or channel renderers yet.
+
+---
+
 ## [4.9.1] — 2026-04-16
 
 Same-day follow-up to v4.9.0 — Phase B polish, Story Levels backend, and the bug fix for enriched-articles missing from synthesized pitch output.
