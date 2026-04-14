@@ -36,6 +36,8 @@
     stream.innerHTML = events.map(renderCard).join('');
   }
 
+  var EMOJIS = ['🔥', '💡', '🚩', '👀'];
+
   function renderCard(e) {
     var actor = e.actor_writer_name || (e.actor_user_id ? 'Editor' : 'System');
     var avatar = e.actor_writer_avatar
@@ -44,6 +46,8 @@
     var when = relativeTime(new Date(e.created_at));
     var payload = e.payload || {};
     var tagClass = 'tag-' + e.event_type.replace(/\W/g, '_');
+    var reactions = e.reactions || {};
+    var replyCount = e.reply_count || 0;
 
     var inner = '';
     if (e.event_type === 'published') {
@@ -75,6 +79,24 @@
       inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
     }
 
+    var reactBtns = EMOJIS.map(function (em) {
+      var cnt = reactions[em] || 0;
+      var cls = 'react-btn' + (cnt > 0 ? ' has-count' : '');
+      return '<button class="' + cls + '" data-event="' + e.id + '" data-emoji="' + em + '">'
+        + em + (cnt > 0 ? ' ' + cnt : '') + '</button>';
+    }).join('');
+
+    var replyBtn = '<button class="reply-toggle" data-toggle-replies="' + e.id + '">'
+      + '💬 ' + (replyCount > 0 ? replyCount + ' ' : '') + 'Replies'
+      + '</button>';
+
+    var threadDiv = '<div class="reply-thread" data-thread="' + e.id + '">'
+      + '<div class="reply-list" data-replies="' + e.id + '">Loading…</div>'
+      + '<div class="reply-input-row">'
+      + '<input type="text" data-reply-input="' + e.id + '" placeholder="Reply…" />'
+      + '<button class="btn btn-primary btn-sm" data-reply-send="' + e.id + '">Send</button>'
+      + '</div></div>';
+
     return '<div class="feed-card">'
       + '<div class="feed-card-header">'
       + avatar
@@ -83,7 +105,72 @@
       + '<span class="feed-time">' + when + '</span>'
       + '</div>'
       + inner
+      + '<div class="feed-actions">' + reactBtns + replyBtn + '</div>'
+      + threadDiv
       + '</div>';
+  }
+
+  // Wire reaction + reply handlers (event-delegated on stream container)
+  document.addEventListener('click', async function (ev) {
+    var t = ev.target;
+    if (t.classList && t.classList.contains('react-btn')) {
+      var eventId = t.dataset.event;
+      var emoji = t.dataset.emoji;
+      try {
+        await apiFetch('/newsroom-feed/' + eventId + '/react', {
+          method: 'POST', body: JSON.stringify({ emoji: emoji }),
+        });
+        load(); // refetch to update tallies
+      } catch (err) {
+        if (err && err.message && err.message.includes('not enabled')) {
+          alert('Reactions need the Newsroom Social feature flag.');
+        } else {
+          alert('Reaction failed: ' + (err.message || err));
+        }
+      }
+    } else if (t.dataset && t.dataset.toggleReplies) {
+      var id = t.dataset.toggleReplies;
+      var thread = document.querySelector('[data-thread="' + id + '"]');
+      thread.classList.toggle('open');
+      if (thread.classList.contains('open')) loadReplies(id);
+    } else if (t.dataset && t.dataset.replySend) {
+      var id2 = t.dataset.replySend;
+      var input = document.querySelector('[data-reply-input="' + id2 + '"]');
+      var content = input.value.trim();
+      if (!content) return;
+      try {
+        await apiFetch('/newsroom-feed/' + id2 + '/replies', {
+          method: 'POST', body: JSON.stringify({ content: content }),
+        });
+        input.value = '';
+        await loadReplies(id2);
+      } catch (err) {
+        alert('Reply failed: ' + (err.message || err));
+      }
+    }
+  });
+
+  async function loadReplies(eventId) {
+    var listEl = document.querySelector('[data-replies="' + eventId + '"]');
+    if (!listEl) return;
+    try {
+      var data = await apiFetch('/newsroom-feed/' + eventId + '/replies');
+      var replies = data.replies || [];
+      if (!replies.length) {
+        listEl.innerHTML = '<div class="text-muted" style="font-size:12px;">No replies yet.</div>';
+        return;
+      }
+      listEl.innerHTML = replies.map(function (r) {
+        var who = r.author_writer_name || r.author_user_name || 'User';
+        return '<div class="reply-item">'
+          + '<span class="reply-author">' + esc(who) + '</span>'
+          + '<span class="reply-time">' + relativeTime(new Date(r.created_at)) + '</span>'
+          + '<div>' + esc(r.content) + '</div>'
+          + '</div>';
+      }).join('');
+    } catch (err) {
+      listEl.innerHTML = '<div class="text-muted" style="font-size:12px;color:var(--danger);">Failed: ' + esc(err.message || err) + '</div>';
+    }
   }
 
   function esc(str) {

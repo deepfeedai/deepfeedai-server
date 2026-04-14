@@ -48,7 +48,100 @@ router.get('/', auth, requirePermission('articles.read'), requireWorkspaceEnable
   sql += ` ORDER BY e.created_at DESC LIMIT $${params.length}`;
 
   const rows = await db.prepare(sql).all(...params);
+
+  // Attach reaction tallies + reply counts for the event ids returned
+  const ids = rows.map(r => r.id);
+  let reactions = {};
+  let replyCounts = {};
+  if (ids.length) {
+    const reactRows = await db.prepare(`
+      SELECT event_id, emoji, COUNT(*)::int AS cnt
+      FROM newsroom_reactions WHERE tenant_id = $1 AND event_id = ANY($2::int[])
+      GROUP BY event_id, emoji
+    `).all(req.tenantId, ids);
+    for (const r of reactRows) {
+      if (!reactions[r.event_id]) reactions[r.event_id] = {};
+      reactions[r.event_id][r.emoji] = r.cnt;
+    }
+    const replyRows = await db.prepare(`
+      SELECT event_id, COUNT(*)::int AS cnt FROM newsroom_replies
+      WHERE tenant_id = $1 AND event_id = ANY($2::int[])
+      GROUP BY event_id
+    `).all(req.tenantId, ids);
+    for (const r of replyRows) replyCounts[r.event_id] = r.cnt;
+  }
+  for (const ev of rows) {
+    ev.reactions = reactions[ev.id] || {};
+    ev.reply_count = replyCounts[ev.id] || 0;
+  }
+
   res.json({ events: rows, count: rows.length });
+}));
+
+const ALLOWED_EMOJI = new Set(['🔥', '💡', '🚩', '👀']);
+
+async function requireSocialEnabled(req, res, next) {
+  const on = await isFeatureEnabled(req.tenantId, 'newsroom_social').catch(() => false);
+  if (!on) return res.status(404).json({ error: 'Newsroom social features are not enabled' });
+  next();
+}
+
+// POST /api/newsroom-feed/:eventId/react — body: { emoji }
+router.post('/:eventId/react', auth, requirePermission('articles.read'), requireWorkspaceEnabled, requireSocialEnabled, asyncHandler(async (req, res) => {
+  const { emoji } = req.body || {};
+  if (!ALLOWED_EMOJI.has(emoji)) return res.status(400).json({ error: 'emoji must be one of: 🔥 💡 🚩 👀' });
+  const eventId = parseInt(req.params.eventId, 10);
+  const event = await db.prepare('SELECT id FROM newsroom_events WHERE id = $1 AND tenant_id = $2').get(eventId, req.tenantId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  // Toggle: if this user already has this emoji on this event, remove it; else add
+  const existing = await db.prepare(`
+    SELECT id FROM newsroom_reactions
+    WHERE tenant_id = $1 AND event_id = $2 AND emoji = $3 AND COALESCE(actor_user_id, 0) = $4
+  `).get(req.tenantId, eventId, emoji, req.user?.sub || 0);
+
+  if (existing) {
+    await db.prepare('DELETE FROM newsroom_reactions WHERE id = $1').run(existing.id);
+    res.json({ action: 'removed' });
+  } else {
+    await db.prepare(`
+      INSERT INTO newsroom_reactions (tenant_id, event_id, actor_user_id, emoji) VALUES ($1, $2, $3, $4)
+      ON CONFLICT DO NOTHING
+    `).run(req.tenantId, eventId, req.user?.sub || null, emoji);
+    res.json({ action: 'added' });
+  }
+}));
+
+// GET /api/newsroom-feed/:eventId/replies
+router.get('/:eventId/replies', auth, requirePermission('articles.read'), requireWorkspaceEnabled, requireSocialEnabled, asyncHandler(async (req, res) => {
+  const eventId = parseInt(req.params.eventId, 10);
+  const rows = await db.prepare(`
+    SELECT r.*, w.name AS author_writer_name, w.avatar_url AS author_writer_avatar,
+           u.name AS author_user_name
+    FROM newsroom_replies r
+    LEFT JOIN writers w ON w.id = r.author_writer_id AND w.tenant_id = r.tenant_id
+    LEFT JOIN users   u ON u.id = r.author_user_id
+    WHERE r.tenant_id = $1 AND r.event_id = $2
+    ORDER BY r.created_at ASC
+  `).all(req.tenantId, eventId);
+  res.json({ replies: rows });
+}));
+
+// POST /api/newsroom-feed/:eventId/replies — body: { content, parent_reply_id? }
+router.post('/:eventId/replies', auth, requirePermission('articles.read'), requireWorkspaceEnabled, requireSocialEnabled, asyncHandler(async (req, res) => {
+  const { content, parent_reply_id } = req.body || {};
+  if (!content || content.trim().length < 1) return res.status(400).json({ error: 'content required' });
+  if (content.length > 4000) return res.status(400).json({ error: 'content too long (max 4000)' });
+  const eventId = parseInt(req.params.eventId, 10);
+  const event = await db.prepare('SELECT id FROM newsroom_events WHERE id = $1 AND tenant_id = $2').get(eventId, req.tenantId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  const row = await db.prepare(`
+    INSERT INTO newsroom_replies (tenant_id, event_id, parent_reply_id, author_user_id, content)
+    VALUES ($1, $2, $3, $4, $5) RETURNING *
+  `).get(req.tenantId, eventId, parent_reply_id || null, req.user?.sub || null, content.trim());
+
+  res.status(201).json(row);
 }));
 
 module.exports = router;

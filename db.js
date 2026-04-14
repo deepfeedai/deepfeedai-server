@@ -1248,6 +1248,33 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_tenant_time ON newsroom_events(tenant_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
+    // Social newsroom Phase 3 — reactions + threading on feed cards.
+    // Reactions: signal-bearing emoji (🔥💡🚩👀). Unique per (event, actor, emoji)
+    // so an actor can't double-react with the same emoji but can use multiple.
+    `CREATE TABLE IF NOT EXISTS newsroom_reactions (
+      id              SERIAL PRIMARY KEY,
+      tenant_id       INTEGER NOT NULL,
+      event_id        INTEGER NOT NULL,
+      actor_writer_id INTEGER,
+      actor_user_id   INTEGER,
+      emoji           TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_reactions_event ON newsroom_reactions(event_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_newsroom_reactions_unique
+       ON newsroom_reactions(event_id, COALESCE(actor_writer_id, 0), COALESCE(actor_user_id, 0), emoji)`,
+    // Replies: threaded under each event card. Self-referential parent_reply_id allows nested replies.
+    `CREATE TABLE IF NOT EXISTS newsroom_replies (
+      id                SERIAL PRIMARY KEY,
+      tenant_id         INTEGER NOT NULL,
+      event_id          INTEGER NOT NULL,
+      parent_reply_id   INTEGER,
+      author_writer_id  INTEGER,
+      author_user_id    INTEGER,
+      content           TEXT NOT NULL,
+      created_at        TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_replies_event ON newsroom_replies(event_id, created_at ASC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

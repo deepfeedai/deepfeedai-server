@@ -26,6 +26,19 @@
     .feed-meta { font-size:11px; color:var(--muted); margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; }
     .feed-empty { text-align:center; padding:60px 20px; color:var(--muted); }
     .feed-link { font-size:12px; color:var(--primary); text-decoration:none; }
+    .feed-actions { display:flex; gap:6px; margin-top:10px; padding-top:8px; border-top:1px solid var(--border); align-items:center; flex-wrap:wrap; }
+    .react-btn { background:none; border:1px solid var(--border); padding:2px 8px; border-radius:14px; cursor:pointer; font-size:13px; color:var(--text); }
+    .react-btn:hover { background:var(--surface2); }
+    .react-btn.has-count { background:var(--surface2); }
+    .reply-toggle { background:none; border:none; color:var(--muted); font-size:12px; cursor:pointer; margin-left:auto; }
+    .reply-toggle:hover { color:var(--text); }
+    .reply-thread { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); display:none; }
+    .reply-thread.open { display:block; }
+    .reply-item { padding:8px 0; font-size:13px; }
+    .reply-author { font-weight:600; }
+    .reply-time { font-size:11px; color:var(--muted); margin-left:8px; }
+    .reply-input-row { display:flex; gap:6px; margin-top:8px; }
+    .reply-input-row input { flex:1; padding:6px 10px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); border-radius:6px; font-size:13px; }
   </style>
 </head>
 <body>
