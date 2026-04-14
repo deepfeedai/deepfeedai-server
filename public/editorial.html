@@ -73,8 +73,21 @@
                 <option value="">— Editor tip (assign later) —</option>
               </select>
             </label>
+            <label style="display:block;margin-bottom:6px;font-size:13px;">Template (optional starting point):
+              <select id="newPitchTemplate" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;">
+                <option value="">— Start blank —</option>
+                <option value="compliance">Compliance / regulatory angle</option>
+                <option value="technical">Technical deep-dive</option>
+                <option value="market">Market impact / business analysis</option>
+                <option value="contrarian">Contrarian take</option>
+                <option value="explainer">Explainer for non-experts</option>
+                <option value="forecast">Predictive forecast</option>
+                <option value="sentiment">Community sentiment / reaction</option>
+                <option value="historical">Historical context / pattern</option>
+              </select>
+            </label>
             <label style="display:block;font-size:13px;">Angle (10+ chars):
-              <textarea id="newPitchAngle" rows="3" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
+              <textarea id="newPitchAngle" rows="4" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
             </label>
           </div>
           <div class="modal-footer">

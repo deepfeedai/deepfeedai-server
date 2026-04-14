@@ -148,11 +148,32 @@
   }
 
   function wireNewPitch() {
+    var TEMPLATES = {
+      compliance: 'The compliance angle: explore how this affects regulatory obligations, audit posture, and the gap between current practice and what auditors will start asking about. Reference any specific frameworks (SOC 2, ISO 27001, GDPR, etc.) most relevant.',
+      technical: 'Technical deep-dive: walk through the actual mechanics — how the attack/system works at a protocol/code level, the specific primitives involved, and what defenders should look for in logs. Be concrete; assume a senior engineer audience.',
+      market: 'Market impact: who benefits, who loses, what shifts in vendor positioning or capital flows this signals, and what competitors are likely to do in the next 30-90 days. Cite specific market-cap or funding numbers if available.',
+      contrarian: 'Contrarian take: the prevailing narrative is X, but here\'s why I think the consensus is missing the point. Make a specific, defensible claim that runs against the wire.',
+      explainer: 'Explainer for non-experts: assume the reader has heard the headline but doesn\'t know why it matters. Build the why in three layers — what happened, what it means for them, what to watch next.',
+      forecast: 'Predictive forecast: based on this story plus the pattern of related events over the past N months, here\'s what I expect to happen in the next 1-4 weeks and what would falsify the prediction.',
+      sentiment: 'Community sentiment angle: what practitioners on HN/Reddit/Twitter are actually saying versus the corporate framing. Pull representative quotes (with attribution) and note where the gap is widest.',
+      historical: 'Historical context: this isn\'t the first time something like this has happened — here\'s the pattern, three prior incidents that rhyme, and what the field learned (or didn\'t) from them.',
+    };
+
+    document.getElementById('newPitchTemplate').addEventListener('change', function (e) {
+      var key = e.target.value;
+      var textarea = document.getElementById('newPitchAngle');
+      if (key && TEMPLATES[key] && (!textarea.value.trim() || confirm('Replace current angle text with template?'))) {
+        textarea.value = TEMPLATES[key];
+        textarea.focus();
+      }
+    });
+
     document.getElementById('newPitchBtn').addEventListener('click', async function () {
       await loadWritersList();
       fillWriterSelect(document.getElementById('newPitchWriter'), false);
       document.getElementById('newPitchSource').value = '';
       document.getElementById('newPitchAngle').value = '';
+      document.getElementById('newPitchTemplate').value = '';
       openModal('newPitchModal');
     });
 
