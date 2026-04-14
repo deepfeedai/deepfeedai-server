@@ -147,7 +147,28 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
     override: !!override,
     prior_original_count: currentCount,
   });
-  res.json({ status: 'approved', pitch_id: pitch.id });
+
+  // Kick off synthesis in the background unless the editor opted out (e.g.,
+  // for editor-tip pitches that need a writer assigned first). Returns
+  // immediately so the UI doesn't block on AI generation.
+  const skipSynthesis = req.body?.skip_synthesis === true || !pitch.pitched_by_writer_id;
+  if (!skipSynthesis) {
+    const { synthesizeFromPitch } = require('../lib/synthesis');
+    setImmediate(() => {
+      synthesizeFromPitch(pitch.id, req.tenantId)
+        .then(r => {
+          if (r.ok) console.log(`[pitches] pitch #${pitch.id} synthesized → article ${r.article.id}`);
+          else console.warn(`[pitches] pitch #${pitch.id} synthesis skipped: ${r.reason}`);
+        })
+        .catch(err => console.error(`[pitches] pitch #${pitch.id} synthesis failed:`, err.message));
+    });
+  }
+
+  res.json({
+    status: 'approved',
+    pitch_id: pitch.id,
+    synthesis_queued: !skipSynthesis,
+  });
 }));
 
 // POST /api/pitches/:id/reject — body: { note? }
