@@ -4,6 +4,27 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.8.2] — 2026-04-16
+
+### Added — Hybrid newsroom Phase A + agent tools
+
+- **Shared curated wire** — new feature flag `curated_shared_wire` (default off). When on, writers see curated source articles matching their beats, not only ones stamped `writer_id` at ingest. Synthesis stays `writer_id`-scoped so one-lead-per-cluster holds. (#432)
+- **`listArticlesInBeat` tool** — broad browse of recent articles in a writer's beats (originals by writer_id + curated by beat-category when shared-wire allows). Covers "what's in your beat?" questions the semantic `searchArticles` tool was the wrong shape for. (#433)
+- **`getArticleSources` tool** — returns the actual publisher + URL citations behind a writer's original via `source_article_ids`, or the single source row for a curated item. Stops the agent from inventing publisher names when asked "what sources are reporting on this?" (#435)
+
+### Changed
+
+- `searchArticles` tool gained explicit `status` values (ok / no_results / error / tool_unavailable) with guidance in each message so the agent stops characterizing successful-but-empty responses as "search is down." (#433)
+- Writer persona honors explicit formatting requests (bullet lists, tables, numbered steps) over default narrative voice. (#437, #438)
+- Writer persona's citation nudge is now gated on `chat_agent_engine='langgraph'` — single-shot tenants get an honest-fallback instruction instead, preventing the model from emitting tool-call syntax as plain text. (#436)
+
+### Fixed
+
+- `/clear` and `/new` now delete `conversation_history` and `conversation_summaries` rows in addition to the in-memory buffer. Previously the next turn reloaded prior history from DB and the conversation appeared to continue. (#434)
+- Pre-existing arg-order bug in `searchArticles`: `limit` was being passed as `siteUrl` to `findRelevantArticles`, which caused malformed article links. (#433)
+
+---
+
 ## [4.8.1] — 2026-04-15
 
 ### Added — Feed Inbox usability
