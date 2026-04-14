@@ -117,7 +117,7 @@ router.get('/:eventId/replies', auth, requirePermission('articles.read'), requir
   const eventId = parseInt(req.params.eventId, 10);
   const rows = await db.prepare(`
     SELECT r.*, w.name AS author_writer_name, w.avatar_url AS author_writer_avatar,
-           u.name AS author_user_name
+           u.username AS author_user_name
     FROM newsroom_replies r
     LEFT JOIN writers w ON w.id = r.author_writer_id AND w.tenant_id = r.tenant_id
     LEFT JOIN users   u ON u.id = r.author_user_id
