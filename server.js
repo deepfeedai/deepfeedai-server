@@ -333,6 +333,7 @@ app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
 app.use('/api/pitches',   require('./routes/pitches'));
+app.use('/api/actions',   require('./routes/actions'));   // cross-channel signed-token action dispatch (PR-B)
 app.use('/api/research',  require('./routes/research'));
 app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
 app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));

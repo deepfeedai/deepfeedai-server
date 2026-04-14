@@ -1332,6 +1332,8 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_action_tokens_hash ON action_tokens(token_hash)`,
     `CREATE INDEX IF NOT EXISTS idx_action_tokens_expires ON action_tokens(expires_at)`,
+    // PR-B: revise action needs a place to record editor feedback.
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS review_notes TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

@@ -9,6 +9,8 @@ All notable changes to Deep Feed AI Admin are documented here.
 ### Added
 
 - **feat(notifications):** schema foundation for cross-channel notifications + signed action tokens (PR-A of notifications/actions system). Adds `user_notifications`, `notification_preferences`, and `action_tokens` tables; feature flags `notifications_center` and `cross_channel_actions` (both default false); `lib/action-tokens.js` mint/verifyAndBurn skeleton. No endpoints or channel renderers yet.
+- feat(notifications): unified `POST /api/actions/:token` endpoint + handler registry for approve/reject/assign/publish/revise/kill/dismiss (PR-B of notifications/actions system)
+- feat(notifications): fire-and-forget `lib/notifications.js` service writing to user_notifications with optional action-button tokens
 
 ---
 
