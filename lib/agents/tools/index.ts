@@ -69,7 +69,7 @@ function buildSearchArticles(ctx: ToolContext) {
       const results = await findRelevantArticles(ctx.writerId, ctx.tenantId, query, limit || 5);
       const compact = (results || []).slice(0, limit || 5).map((r: any) => ({
         id: r.id,
-        title: r.title,
+        title: r.generated_title || r.title,
         slug: r.slug,
         snippet: truncate(r.snippet || ''),
         similarity: r.similarity,
@@ -111,7 +111,8 @@ function buildFetchArticle(ctx: ToolContext) {
       if (!row) return JSON.stringify({ error: 'not found' });
       return JSON.stringify({
         id: row.id,
-        title: row.title,
+        title: row.generated_title || row.title,
+        original_title: row.title,
         slug: row.slug,
         category: row.category,
         summary: truncate(row.tldr_overview || row.summary || ''),
@@ -212,7 +213,7 @@ function buildCheckRecentColleagueWork(ctx: ToolContext) {
     async ({ category, hours }: { category?: string; hours?: number }) => {
       const lookback = Math.min(hours || 48, 720);
       let sql = `
-        SELECT a.title, a.slug, a.published_at, w.name AS writer_name, a.category
+        SELECT COALESCE(a.generated_title, a.title) AS title, a.slug, a.published_at, w.name AS writer_name, a.category
         FROM articles a
         JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
         WHERE a.tenant_id = $1
