@@ -37,7 +37,9 @@ const truncate = (s: string) => (s?.length > TRUNCATE ? s.slice(0, TRUNCATE) + '
 export function buildTools(ctx: ToolContext) {
   const baseTools = [
     buildSearchArticles(ctx),
+    buildListArticlesInBeat(ctx),
     buildFetchArticle(ctx),
+    buildGetArticleSources(ctx),
     buildListWriterBeats(ctx),
     buildGetWriterMemory(ctx),
     buildCheckRecentColleagueWork(ctx),
@@ -64,9 +66,20 @@ function buildSearchArticles(ctx: ToolContext) {
     async ({ query, limit }: { query: string; limit?: number }) => {
       const { findRelevantArticles } = messaging;
       if (typeof findRelevantArticles !== 'function') {
-        return JSON.stringify({ status: 'tool_unavailable', message: 'Search backend not available.' });
+        return JSON.stringify({
+          status: 'tool_unavailable',
+          message: 'Search backend is not wired up. Answer honestly that search is not available right now; do NOT invent articles.',
+        });
       }
-      const results = await findRelevantArticles(ctx.writerId, ctx.tenantId, query, limit || 5);
+      let results: any[] = [];
+      try {
+        results = await findRelevantArticles(ctx.writerId, ctx.tenantId, query, '', limit || 5);
+      } catch (err: any) {
+        return JSON.stringify({
+          status: 'error',
+          message: `Search failed: ${err?.message || 'unknown error'}. Tell the user search is unavailable right now. Do NOT retry and do NOT invent articles.`,
+        });
+      }
       const compact = (results || []).slice(0, limit || 5).map((r: any) => ({
         id: r.id,
         title: r.generated_title || r.title,
@@ -77,7 +90,7 @@ function buildSearchArticles(ctx: ToolContext) {
       if (compact.length === 0) {
         return JSON.stringify({
           status: 'no_results',
-          message: 'No articles found matching this query. This writer has not published anything matching that topic. Do NOT retry with a different query — answer the user honestly that you have not written about this yet.',
+          message: 'The query ran successfully but matched zero articles. This writer has not published anything matching that topic, and no curated sources in the writer\'s beats matched either. Do NOT retry with a different query. Answer the user honestly: you have not written about this yet. Do NOT say search is "down" — it ran and returned no results.',
           results: [],
         });
       }
@@ -86,13 +99,85 @@ function buildSearchArticles(ctx: ToolContext) {
     {
       name: 'searchArticles',
       description:
-        'REQUIRED when the user asks what you wrote, published, or covered on a topic. ' +
-        'Searches the writer\'s published articles AND curated source articles by meaning. ' +
-        'Call this AT MOST ONCE per user question — if it returns status:"no_results", do NOT retry with different queries; answer honestly that you have not published on that topic. ' +
-        'NEVER fabricate article titles, topics, or links.',
+        'Search by topic/meaning. Use when the user asks what you wrote or covered on a SPECIFIC topic. ' +
+        'Searches the writer\'s own published articles and, when shared-wire is enabled, curated source articles within the writer\'s beats. ' +
+        'Call at most ONCE per question. Response has status: ok | no_results | error | tool_unavailable. ' +
+        'If status=no_results, the query succeeded — do NOT say search is "down"; answer that you have not covered this. ' +
+        'If status=error or tool_unavailable, tell the user search is not working right now. ' +
+        'NEVER fabricate article titles, topics, or links. ' +
+        'For broad "what\'s in your beat" questions with NO specific topic, prefer listArticlesInBeat instead.',
       schema: z.object({
         query: z.string().describe('What to search for, in natural language.'),
         limit: z.number().int().min(1).max(10).optional().describe('Max results to return (1-10).'),
+      }),
+    },
+  );
+}
+
+function buildListArticlesInBeat(ctx: ToolContext) {
+  return tool(
+    async ({ days, limit, includeCurated }: { days?: number; limit?: number; includeCurated?: boolean }) => {
+      const lookbackDays = Math.min(Math.max(days ?? 30, 1), 365);
+      const cap = Math.min(Math.max(limit ?? 10, 1), 25);
+      try {
+        const rows = await db.prepare(`
+          SELECT id, COALESCE(generated_title, title) AS title, slug, category,
+                 content_type, source,
+                 COALESCE(tldr_overview, LEFT(summary, 150)) AS snippet,
+                 published_at
+          FROM articles
+          WHERE tenant_id = $1
+            AND is_published = 1
+            AND published_at > NOW() - make_interval(days => $3)
+            AND (
+              (content_type IN ('original','deep-dive') AND writer_id = $2)
+              ${includeCurated === false ? '' : `OR (
+                (content_type IS NULL OR content_type = 'curated')
+                AND category IN (
+                  SELECT c.name FROM writer_beats wb
+                  JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
+                  WHERE wb.writer_id = $2 AND wb.tenant_id = $1
+                )
+              )`}
+            )
+          ORDER BY published_at DESC
+          LIMIT $4
+        `).all(ctx.tenantId, ctx.writerId, lookbackDays, cap);
+        if (!rows.length) {
+          return JSON.stringify({
+            status: 'no_results',
+            message: `No articles in your beats in the last ${lookbackDays} days.`,
+            results: [],
+          });
+        }
+        return JSON.stringify({
+          status: 'ok',
+          lookback_days: lookbackDays,
+          results: rows.map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            slug: r.slug,
+            category: r.category,
+            content_type: r.content_type || 'curated',
+            source: r.source,
+            snippet: truncate(r.snippet || ''),
+            published_at: r.published_at,
+          })),
+        });
+      } catch (err: any) {
+        return JSON.stringify({ status: 'error', message: `Lookup failed: ${err?.message || 'unknown'}` });
+      }
+    },
+    {
+      name: 'listArticlesInBeat',
+      description:
+        'Browse recent articles in the writer\'s beats — useful when the user asks a broad "what\'s in your beat?" or "what articles do you have?" question without a specific topic. ' +
+        'Returns both the writer\'s own originals AND curated source articles in the writer\'s beat categories (when shared-wire allows). ' +
+        'Prefer this over searchArticles when there is no specific topic to search for. Default lookback is 30 days.',
+      schema: z.object({
+        days: z.number().int().min(1).max(365).optional().describe('Lookback window in days (default 30).'),
+        limit: z.number().int().min(1).max(25).optional().describe('Max results (default 10, max 25).'),
+        includeCurated: z.boolean().optional().describe('Include curated sources in addition to originals (default true).'),
       }),
     },
   );
@@ -129,6 +214,76 @@ function buildFetchArticle(ctx: ToolContext) {
       schema: z.object({
         id: z.number().int().optional().describe('Article id from searchArticles results.'),
         slug: z.string().optional().describe('Article slug (url-safe identifier).'),
+      }),
+    },
+  );
+}
+
+function buildGetArticleSources(ctx: ToolContext) {
+  return tool(
+    async ({ id, slug }: { id?: number; slug?: string }) => {
+      if (!id && !slug) return JSON.stringify({ error: 'id or slug required' });
+      let row: any;
+      if (id) {
+        row = await db.prepare(
+          'SELECT id, title, source, source_url, content_type, source_article_ids FROM articles WHERE id = $1 AND tenant_id = $2'
+        ).get(id, ctx.tenantId);
+      } else {
+        row = await db.prepare(
+          'SELECT id, title, source, source_url, content_type, source_article_ids FROM articles WHERE slug = $1 AND tenant_id = $2'
+        ).get(slug, ctx.tenantId);
+      }
+      if (!row) return JSON.stringify({ error: 'not found' });
+
+      // Curated article: its own source IS the citation
+      if (row.content_type == null || row.content_type === 'curated') {
+        if (!row.source && !row.source_url) {
+          return JSON.stringify({ status: 'no_sources', message: 'This article has no recorded source.' });
+        }
+        return JSON.stringify({
+          status: 'ok',
+          article_type: 'curated',
+          sources: [{ source: row.source, source_url: row.source_url }],
+        });
+      }
+
+      // Original / deep-dive: resolve source_article_ids → curated rows
+      const ids = Array.isArray(row.source_article_ids) ? row.source_article_ids : [];
+      if (!ids.length) {
+        return JSON.stringify({
+          status: 'no_sources',
+          message: 'This article has no recorded source articles.',
+          article_type: row.content_type,
+        });
+      }
+      const sources = await db.prepare(`
+        SELECT id, title, source AS publisher, source_url, published_at
+        FROM articles
+        WHERE id = ANY($1::int[]) AND tenant_id = $2
+        ORDER BY published_at DESC NULLS LAST
+      `).all(ids, ctx.tenantId);
+      return JSON.stringify({
+        status: 'ok',
+        article_type: row.content_type,
+        sources: sources.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          publisher: s.publisher,
+          url: s.source_url,
+          published_at: s.published_at,
+        })),
+      });
+    },
+    {
+      name: 'getArticleSources',
+      description:
+        'REQUIRED whenever the user asks where information came from, what sources you used, what publishers are reporting on something, or where to verify a specific figure. ' +
+        'Returns the actual curated source articles (publisher name + URL) behind one of your originals, or the single source of a curated item. ' +
+        'Do NOT guess publisher names or invent citations — call this tool. ' +
+        'Status values: ok (sources array populated) | no_sources (article has no recorded sources — tell the user honestly) | error.',
+      schema: z.object({
+        id: z.number().int().optional().describe('Article id (from searchArticles or listArticlesInBeat results).'),
+        slug: z.string().optional().describe('Article slug.'),
       }),
     },
   );
