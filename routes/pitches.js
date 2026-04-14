@@ -78,6 +78,9 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
     targetPitchId: row.id,
     payload: { angle_summary: row.angle_summary, source_title: source.title || null },
   });
+  if (pitched_by_writer_id) {
+    require('../lib/presence').setPresence(pitched_by_writer_id, req.tenantId, 'waiting-on-editor').catch(() => {});
+  }
   res.status(201).json(row);
 }));
 

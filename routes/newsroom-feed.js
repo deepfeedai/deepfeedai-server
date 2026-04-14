@@ -30,7 +30,8 @@ router.get('/', auth, requirePermission('articles.read'), requireWorkspaceEnable
 
   const params = [req.tenantId, days];
   let sql = `
-    SELECT e.*, w.name AS actor_writer_name, w.avatar_url AS actor_writer_avatar
+    SELECT e.*, w.name AS actor_writer_name, w.avatar_url AS actor_writer_avatar,
+           w.presence_state AS actor_writer_presence
     FROM newsroom_events e
     LEFT JOIN writers w ON w.id = e.actor_writer_id AND w.tenant_id = e.tenant_id
     WHERE e.tenant_id = $1

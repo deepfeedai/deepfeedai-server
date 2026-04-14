@@ -1275,6 +1275,10 @@ async function initDb() {
       created_at        TIMESTAMPTZ DEFAULT NOW()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_replies_event ON newsroom_replies(event_id, created_at ASC)`,
+    // Social newsroom Phase 4 — agent presence indicators.
+    // States: idle | chatting | drafting | researching | waiting-on-editor
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_state TEXT DEFAULT 'idle'`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_updated_at TIMESTAMPTZ`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

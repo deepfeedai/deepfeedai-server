@@ -25,14 +25,16 @@
         return;
       }
       roster.innerHTML = writers.map(function (w) {
-        var avatar = w.avatar_url
+        var avatarInner = w.avatar_url
           ? '<img class="roster-avatar" src="' + esc(w.avatar_url) + '" alt="" />'
           : '<div class="roster-avatar" style="display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--muted);">' + esc((w.name || '?').charAt(0).toUpperCase()) + '</div>';
+        var state = w.presence_state || 'idle';
+        var dot = '<span class="presence-dot presence-' + esc(state) + '" title="' + esc(state) + '"></span>';
         return '<div class="roster-item" data-id="' + w.id + '">'
-          + avatar
+          + '<div class="roster-avatar-wrap">' + avatarInner + dot + '</div>'
           + '<div class="roster-meta">'
           + '<div class="roster-name">' + esc(w.name) + '</div>'
-          + '<div class="roster-beat">' + esc(w.beat || 'newsroom') + ' · ' + (w.published_count || 0) + ' published</div>'
+          + '<div class="roster-beat">' + esc(w.beat || 'newsroom') + ' · ' + esc(state) + ' · ' + (w.published_count || 0) + ' published</div>'
           + '</div></div>';
       }).join('');
       roster.querySelectorAll('.roster-item').forEach(function (el) {

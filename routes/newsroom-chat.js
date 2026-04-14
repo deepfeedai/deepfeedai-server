@@ -33,6 +33,7 @@ function buildWebContextKey(userId, writerId) {
 router.get('/writers', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT w.id, w.name, w.slug, w.avatar_url, w.beat,
+           w.presence_state, w.presence_updated_at,
            (SELECT COUNT(*)::int FROM articles a
               WHERE a.writer_id = w.id AND a.tenant_id = w.tenant_id
                 AND a.content_type IN ('original','deep-dive') AND a.is_published = 1) AS published_count

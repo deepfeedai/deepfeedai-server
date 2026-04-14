@@ -23,6 +23,8 @@ const writerMemory: any = require('../../writer-memory');
 const featureRegistry: any = require('../../feature-registry');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const research: any = require('../../research');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const presence: any = require('../../presence');
 
 /** Context passed to every tool via closure — NEVER via LLM args. */
 export interface ToolContext {
@@ -457,6 +459,7 @@ function buildEnrichSources(ctx: ToolContext) {
       if (!topic || topic.trim().length < 4) {
         return JSON.stringify({ status: 'error', message: 'Topic must be at least 4 characters.' });
       }
+      presence.setPresence(ctx.writerId, ctx.tenantId, 'researching').catch(() => {});
       const r = await research.searchAll(ctx.tenantId, topic, {
         sources: Array.isArray(sources) ? sources : undefined,
         count: count || 8,

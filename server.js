@@ -1013,6 +1013,17 @@ registerJob({
   },
 });
 
+registerJob({
+  name: 'presence-sweep',
+  description: 'Reset stale agent presence states to idle',
+  category: 'Maintenance',
+  defaultSchedule: '*/5 * * * *',
+  handler: async (tenantId) => {
+    await require('./lib/presence').clearStale(tenantId);
+    return { ok: true };
+  },
+});
+
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
   // ── Load saved deployment mode from DB if env var not set ────

@@ -11,7 +11,14 @@
     .roster-item { display:flex; gap:10px; align-items:center; padding:10px; border-radius:8px; cursor:pointer; margin-bottom:4px; }
     .roster-item:hover { background:var(--surface2); }
     .roster-item.active { background:var(--surface2); border:1px solid var(--primary); }
-    .roster-avatar { width:36px; height:36px; border-radius:50%; background:var(--surface2); flex-shrink:0; object-fit:cover; }
+    .roster-avatar { width:36px; height:36px; border-radius:50%; background:var(--surface2); flex-shrink:0; object-fit:cover; position:relative; }
+    .presence-dot { position:absolute; bottom:-2px; right:-2px; width:11px; height:11px; border-radius:50%; border:2px solid var(--bg-card); display:inline-block; }
+    .presence-idle { background:#9ca3af; }
+    .presence-chatting { background:#3b82f6; }
+    .presence-drafting { background:#fbbf24; }
+    .presence-researching { background:#a78bfa; }
+    .presence-waiting-on-editor { background:#f97316; }
+    .roster-avatar-wrap { position:relative; flex-shrink:0; }
     .roster-meta { flex:1; min-width:0; }
     .roster-name { font-weight:600; font-size:14px; line-height:1.2; }
     .roster-beat { font-size:11px; color:var(--muted); margin-top:2px; }
