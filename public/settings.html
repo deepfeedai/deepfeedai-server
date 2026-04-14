@@ -272,40 +272,6 @@
           </div>
         </div>
 
-        <!-- Gemini AI card -->
-        <div class="settings-card">
-          <div class="settings-card-header">
-            <div class="settings-card-icon">✨</div>
-            <div>
-              <div class="settings-card-title">Google Gemini</div>
-              <div class="settings-card-subtitle">AI summaries, categorization, synthesis, and image generation</div>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">API Key</label>
-            <div class="input-action-row">
-              <input type="password" class="form-control" id="imagenApiKey" placeholder="AIza…"
-                     autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="toggleImagenKeyBtn" type="button" title="Show/hide">👁️</button>
-            </div>
-            <p class="form-help">
-              Used for TLDR summaries, article categorization, writer synthesis, visual concepts, and image generation. Overrides the <code>GEMINI_API_KEY</code> environment variable.
-            </p>
-            <div id="imagenKeyStatus" class="settings-status"></div>
-          </div>
-
-          <!-- Hidden: image model now configured via Image Provider card below.
-               Element kept so legacy save handler continues to work. -->
-          <select id="imagenModel" hidden>
-            <option value="imagen-4.0-generate-001">imagen-4.0-generate-001</option>
-            <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001</option>
-            <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001</option>
-          </select>
-
-          <button class="btn btn-primary" id="saveImagenBtn">Save Gemini API Key</button>
-        </div>
-
         <!-- Image Provider (unified) card -->
         <div class="settings-card" id="imageProviderCard">
           <div class="settings-card-header">
@@ -357,14 +323,25 @@
           <button class="btn btn-primary" id="saveImageProviderBtn">Save Image Provider Settings</button>
         </div>
 
-        <!-- AI Providers (BYAI) card -->
+        <!-- AI Providers (BYOK) card -->
         <div class="settings-card" id="aiProvidersCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">🤖</div>
             <div>
               <div class="settings-card-title">AI Providers</div>
-              <div class="settings-card-subtitle">Use OpenAI, Anthropic, or self-hosted Ollama instead of (or alongside) Gemini</div>
+              <div class="settings-card-subtitle">Bring your own keys for Gemini, OpenAI, Anthropic, OpenRouter, or self-hosted Ollama</div>
             </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Google Gemini API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="geminiApiKeyPortal" placeholder="AIza…"
+                     autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testGeminiPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For Gemini 2.5 Flash, Imagen, embeddings. Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
+            <div id="geminiKeyStatus" class="settings-status"></div>
           </div>
 
           <div class="form-group">
@@ -415,13 +392,13 @@
             <label class="form-label">Default AI Provider</label>
             <div class="form-grid-2">
               <select class="form-control" id="defaultProviderPortal">
-                <option value="">Gemini (default)</option>
+                <option value="">— use platform default —</option>
               </select>
               <select class="form-control" id="defaultModelPortal">
                 <option value="">Default for tier</option>
               </select>
             </div>
-            <p class="form-help">Override the default AI provider for all operations. Requires a valid API key above.</p>
+            <p class="form-help">Pick which provider handles operations by default. Requires a valid API key above.</p>
           </div>
 
           <details style="margin-top:12px;">

@@ -199,60 +199,6 @@ let apiKeyVisible = false;
     }
   });
 
-  // ── Image Generation settings ──────────────────────────────────
-  const IMAGEN_MODELS = [
-    'imagen-4.0-generate-001',
-    'imagen-4.0-ultra-generate-001',
-    'imagen-4.0-fast-generate-001',
-  ];
-  let imagenKeyVisible = false;
-
-  function loadImagenSettings(settings) {
-    const modelEl  = document.getElementById('imagenModel');
-    const statusEl = document.getElementById('imagenKeyStatus');
-
-    // Set model dropdown
-    const savedModel = settings.imagen_model || 'imagen-4.0-generate-001';
-    modelEl.value = IMAGEN_MODELS.includes(savedModel) ? savedModel : 'imagen-4.0-generate-001';
-
-    // API key status
-    if (settings.imagen_api_key) {
-      statusEl.textContent = '✅ API key is set (leave blank to keep current value)';
-      document.getElementById('imagenApiKey').placeholder = '••••••••••••••••••••••••••••••••';
-    } else {
-      statusEl.textContent = '⚠️ No API key set — using GEMINI_API_KEY environment variable';
-    }
-  }
-
-  document.getElementById('toggleImagenKeyBtn').addEventListener('click', function() {
-    imagenKeyVisible = !imagenKeyVisible;
-    document.getElementById('imagenApiKey').type = imagenKeyVisible ? 'text' : 'password';
-    this.textContent = imagenKeyVisible ? '🙈' : '👁️';
-  });
-
-  document.getElementById('saveImagenBtn').addEventListener('click', async function() {
-    const model  = document.getElementById('imagenModel').value;
-    const apiKey = document.getElementById('imagenApiKey').value.trim();
-    try {
-      this.disabled = true;
-      this.textContent = 'Saving…';
-      await apiFetch('/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imagen_model: model, ...(apiKey !== '' && { imagen_api_key: apiKey }) })
-      });
-      showAlert('Image settings saved ✓');
-      document.getElementById('imagenApiKey').value = '';
-      const fresh = await apiFetch('/settings');
-      loadImagenSettings(fresh);
-    } catch (err) {
-      showAlert('Save failed: ' + err.message, 'error');
-    } finally {
-      this.disabled = false;
-      this.textContent = 'Save Image Settings';
-    }
-  });
-
   // ── Unified Image Provider config ───────────────────────────────
   const IMAGE_PROVIDER_MODELS = {
     imagen: [
@@ -364,7 +310,7 @@ let apiKeyVisible = false;
     }
   });
 
-  // ── AI Providers (BYAI) ──────────────────────────────────────────
+  // ── AI Providers (BYOK) ──────────────────────────────────────────
   var aiProvidersInfo = null;
 
   var OP_LABELS = {
@@ -403,6 +349,12 @@ let apiKeyVisible = false;
     var providers = aiProvidersInfo.providers || [];
 
     // Key status indicators
+    if (settings.gemini_api_key || settings.imagen_api_key) {
+      document.getElementById('geminiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+      document.getElementById('geminiKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+    } else {
+      document.getElementById('geminiKeyStatus').textContent = '⚠️ No key set — using GEMINI_API_KEY environment variable';
+    }
     if (settings.openai_api_key) {
       document.getElementById('openaiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
       document.getElementById('openaiKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
@@ -420,10 +372,9 @@ let apiKeyVisible = false;
       document.getElementById('ollamaUrlStatus').textContent = '✅ Ollama URL is configured';
     }
 
-    // Populate default provider dropdown
+    // Populate default provider dropdown (now includes Gemini as a first-class choice)
     var defProvEl = document.getElementById('defaultProviderPortal');
     for (var p of providers) {
-      if (p === 'gemini') continue;
       var opt = document.createElement('option');
       opt.value = p;
       opt.textContent = p.charAt(0).toUpperCase() + p.slice(1);
@@ -515,6 +466,7 @@ let apiKeyVisible = false;
       }
     });
   }
+  wirePortalTest('testGeminiPortal', 'gemini');
   wirePortalTest('testOpenaiPortal', 'openai');
   wirePortalTest('testAnthropicPortal', 'anthropic');
   wirePortalTest('testOpenrouterPortal', 'openrouter');
@@ -528,6 +480,8 @@ let apiKeyVisible = false;
     try {
       var payload = {};
 
+      var geminiKey = document.getElementById('geminiApiKeyPortal').value.trim();
+      if (geminiKey) payload.gemini_api_key = geminiKey;
       var openaiKey = document.getElementById('openaiApiKeyPortal').value.trim();
       if (openaiKey) payload.openai_api_key = openaiKey;
       var anthropicKey = document.getElementById('anthropicApiKeyPortal').value.trim();
@@ -608,7 +562,6 @@ let apiKeyVisible = false;
       }
 
       // Image generation
-      loadImagenSettings(settings);
       loadImageProviderSettings(settings);
     } catch (err) {
       showAlert('Failed to load settings: ' + err.message, 'error');
@@ -2090,28 +2043,16 @@ let apiKeyVisible = false;
       }
     }
 
-    // BYOK — gate API key cards (ElevenLabs, Gemini, Perspective, etc.)
+    // BYOK — gate API key cards (ElevenLabs, AI Providers, Perspective, etc.)
     if (!isFeatureOn('byok')) {
       var integrationCards = document.querySelectorAll('.tab-panel[data-tab="integrations"] .settings-card');
       integrationCards.forEach(function(card) {
-        // Only lock cards that have API key inputs (but skip the AI Providers card — gated by byai)
-        if (card.id === 'aiProvidersCard') return;
         if (card.querySelector('input[type="password"], input[id*="ApiKey"], input[id*="apiKey"]')) {
           card.classList.add('feature-locked');
           card.insertAdjacentHTML('afterbegin',
             '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Bring Your Own Key') + '</div>');
         }
       });
-    }
-
-    // BYAI — gate the AI Providers card separately
-    if (!isFeatureOn('byai')) {
-      var aiCard = document.getElementById('aiProvidersCard');
-      if (aiCard) {
-        aiCard.classList.add('feature-locked');
-        aiCard.insertAdjacentHTML('afterbegin',
-          '<div style="pointer-events:auto;padding:12px 20px 0;">' + featureGateBanner('Bring Your Own AI') + '</div>');
-      }
     }
   });
 
