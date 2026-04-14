@@ -87,7 +87,7 @@ function buildSearchArticles(ctx: ToolContext) {
       name: 'searchArticles',
       description:
         'REQUIRED when the user asks what you wrote, published, or covered on a topic. ' +
-        'Searches the writer\'s published articles AND curated source articles by meaning. ' +
+        'Searches the writer\'s own published articles and, when the shared-wire feature is enabled, curated source articles within the writer\'s beats. ' +
         'Call this AT MOST ONCE per user question — if it returns status:"no_results", do NOT retry with different queries; answer honestly that you have not published on that topic. ' +
         'NEVER fabricate article titles, topics, or links.',
       schema: z.object({
