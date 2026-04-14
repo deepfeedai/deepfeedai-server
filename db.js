@@ -1231,6 +1231,9 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_tenant_status ON article_pitches(tenant_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_source ON article_pitches(source_article_id)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_writer ON article_pitches(pitched_by_writer_id) WHERE pitched_by_writer_id IS NOT NULL`,
+    // Phase B follow-up — enriched articles explicitly attached to a pitch so synthesis
+    // includes them regardless of embedding-similarity / beat-category / timing
+    `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS attached_article_ids JSONB DEFAULT '[]'`,
     // Social newsroom Phase 2 — activity feed events
     // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
     // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
@@ -1279,6 +1282,12 @@ async function initDb() {
     // States: idle | chatting | drafting | researching | waiting-on-editor
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_state TEXT DEFAULT 'idle'`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_updated_at TIMESTAMPTZ`,
+    // Story levels — importance signal for the article + frontend rails.
+    // Values: 'standard' (default) | 'trending' | 'major' | 'breaking'
+    // Computed by lib/story-levels.js from velocity + source diversity + editorial score; editor can manually override.
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'standard'`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_locked BOOLEAN DEFAULT false`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(tenant_id, importance, published_at DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

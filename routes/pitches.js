@@ -122,6 +122,29 @@ router.get('/:id', auth, requirePermission('articles.read'), requirePitchesEnabl
   res.json(row);
 }));
 
+// PATCH /api/pitches/:id/assign — body: { writer_id }
+// Assigns/reassigns the pitching writer on a proposed pitch. Useful for editor-tip
+// pitches (created with NULL writer) before approval triggers synthesis.
+router.patch('/:id/assign', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
+  const { writer_id } = req.body || {};
+  const writerId = parseInt(writer_id, 10);
+  if (!writerId) return res.status(400).json({ error: 'writer_id required (numeric)' });
+
+  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
+  if (pitch.status !== 'proposed') return res.status(409).json({ error: `Pitch is already ${pitch.status}` });
+
+  const writer = await db.prepare('SELECT id, name FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found in this tenant' });
+
+  await db.prepare(
+    'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
+  ).run(writerId, pitch.id, req.tenantId);
+
+  logAudit(req, 'pitch.assigned', 'article_pitches', pitch.id, { writer_id: writerId, prior_writer_id: pitch.pitched_by_writer_id });
+  res.json({ status: 'assigned', pitch_id: pitch.id, writer: writer });
+}));
+
 // POST /api/pitches/:id/approve — body: { note?, override?: boolean }
 router.post('/:id/approve', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
   const { note, override } = req.body || {};

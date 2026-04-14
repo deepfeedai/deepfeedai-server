@@ -88,6 +88,7 @@ function renderResults() {
       + '<td><span class="badge badge-muted">' + esc(category) + '</span></td>'
       + '<td class="text-muted text-sm">' + age + '</td>'
       + '<td>' + statusBadge + '</td>'
+      + '<td><button class="btn btn-ghost btn-sm" onclick="openDiscoverPitch(' + i + ')" title="Pitch a counter-angle on this story">📌</button></td>'
       + '</tr>';
   }).join('');
 }
@@ -395,4 +396,95 @@ onReady(async function() {
   if (isFeatureOn('saved_searches')) {
     loadSavedSearches();
   }
+  initDiscoverPitch();
 });
+
+// ── Pitch from Discover ────────────────────────────────────────
+var DISCOVER_TEMPLATES = {
+  compliance: 'The compliance angle: explore how this affects regulatory obligations, audit posture, and the gap between current practice and what auditors will start asking about.',
+  technical: 'Technical deep-dive: walk through the actual mechanics — how it works at a protocol/code level, the specific primitives, and what defenders should look for in logs.',
+  market: 'Market impact: who benefits, who loses, what shifts in vendor positioning or capital flows this signals, and what competitors are likely to do next.',
+  contrarian: 'Contrarian take: the prevailing narrative is X, but here\'s why I think the consensus is missing the point.',
+  explainer: 'Explainer for non-experts: assume the reader has heard the headline but doesn\'t know why it matters. Build the why in three layers.',
+  forecast: 'Predictive forecast: based on this story plus the pattern of related events, here\'s what I expect to happen in the next 1-4 weeks.',
+  sentiment: 'Community sentiment angle: what practitioners are actually saying versus the corporate framing.',
+  historical: 'Historical context: this isn\'t the first time — here\'s the pattern, three prior incidents that rhyme, and what the field learned.',
+};
+
+var discoverPitchWriters = [];
+var discoverPitchActive = null;
+
+window.openDiscoverPitch = async function (idx) {
+  var r = searchResults[idx];
+  if (!r) return;
+  discoverPitchActive = r;
+  if (!discoverPitchWriters.length) {
+    try {
+      var data = await apiFetch('/writers');
+      discoverPitchWriters = Array.isArray(data) ? data : (data.writers || []);
+    } catch { discoverPitchWriters = []; }
+  }
+  document.getElementById('discoverPitchSourcePreview').innerHTML =
+    '<div style="font-weight:600;">' + esc(r.title) + '</div>'
+    + '<div class="text-muted text-xs" style="margin-top:4px;">' + esc(r.sourceName || r.source || '') + ' · <a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div>';
+  var sel = document.getElementById('discoverPitchWriter');
+  sel.innerHTML = discoverPitchWriters.map(function (w) {
+    return '<option value="' + w.id + '">' + esc(w.name) + (w.beat ? ' (' + esc(w.beat) + ')' : '') + '</option>';
+  }).join('');
+  document.getElementById('discoverPitchTemplate').value = '';
+  document.getElementById('discoverPitchAngle').value = '';
+  openModal('discoverPitchModal');
+};
+
+function initDiscoverPitch() {
+  document.getElementById('discoverPitchTemplate').addEventListener('change', function (e) {
+    var key = e.target.value;
+    var ta = document.getElementById('discoverPitchAngle');
+    if (key && DISCOVER_TEMPLATES[key] && (!ta.value.trim() || confirm('Replace current angle with template?'))) {
+      ta.value = DISCOVER_TEMPLATES[key];
+      ta.focus();
+    }
+  });
+
+  document.getElementById('submitDiscoverPitchBtn').addEventListener('click', async function () {
+    if (!discoverPitchActive) return;
+    var writerId = parseInt(document.getElementById('discoverPitchWriter').value, 10);
+    var angle = document.getElementById('discoverPitchAngle').value.trim();
+    if (!writerId) { alert('Pick a writer.'); return; }
+    if (angle.length < 10) { alert('Angle must be 10+ chars.'); return; }
+    var btn = this; btn.disabled = true; btn.textContent = 'Working…';
+    try {
+      // Step 1: ingest the discover result via /research/ingest as a curated article
+      var result = {
+        source: discoverPitchActive.source || 'discover',
+        url: discoverPitchActive.url,
+        title: discoverPitchActive.title,
+        snippet: discoverPitchActive.description || '',
+        publisher: discoverPitchActive.sourceName || '',
+        published: discoverPitchActive.publishedAt || null,
+      };
+      var ingest = await apiFetch('/research/ingest', {
+        method: 'POST', body: JSON.stringify({ results: [result] }),
+      });
+      var sourceId = (ingest.ingested && ingest.ingested[0] && ingest.ingested[0].id)
+        || (ingest.skipped && ingest.skipped[0] && ingest.skipped[0].existing_id);
+      if (!sourceId) { alert('Ingest returned no article id.'); btn.disabled = false; btn.textContent = 'Ingest + create pitch'; return; }
+
+      // Step 2: create the pitch
+      var pitch = await apiFetch('/pitches', {
+        method: 'POST',
+        body: JSON.stringify({ source_article_id: sourceId, pitched_by_writer_id: writerId, angle_summary: angle }),
+      });
+      closeModal('discoverPitchModal');
+      showToast('Pitch #' + pitch.id + ' created on ingested source.');
+      // Mark the discover row as imported so editor doesn't double-pitch
+      discoverPitchActive.alreadyImported = true;
+      renderResults();
+      discoverPitchActive = null;
+    } catch (err) {
+      alert('Pitch failed: ' + (err.message || err));
+    } finally {
+      btn.disabled = false; btn.textContent = 'Ingest + create pitch';
+    }
+  });
+}

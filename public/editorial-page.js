@@ -18,6 +18,8 @@
     wireTabs();
     wireOverrideModal();
     wireEnrichModal();
+    wireNewPitch();
+    wireReassign();
     await loadReviewQueue();
     // Best-effort load — pitches feature may be disabled (404) and that's fine
     loadPitches().catch(function () {
@@ -125,6 +127,152 @@
     });
   }
 
+  // ── New pitch + reassign ──────────────────────────────────
+  var writersList = [];
+  var reassignPitchId = null;
+
+  async function loadWritersList() {
+    if (writersList.length) return writersList;
+    try {
+      var data = await apiFetch('/writers');
+      writersList = Array.isArray(data) ? data : (data.writers || []);
+    } catch { writersList = []; }
+    return writersList;
+  }
+
+  function fillWriterSelect(sel, includeBlank) {
+    sel.innerHTML = (includeBlank ? '<option value="">— Editor tip (use /tip in chat) —</option>' : '')
+      + writersList.map(function (w) {
+        return '<option value="' + w.id + '">' + esc(w.name) + (w.beat ? ' (' + esc(w.beat) + ')' : '') + '</option>';
+      }).join('');
+  }
+
+  function wireNewPitch() {
+    var TEMPLATES = {
+      compliance: 'The compliance angle: explore how this affects regulatory obligations, audit posture, and the gap between current practice and what auditors will start asking about. Reference any specific frameworks (SOC 2, ISO 27001, GDPR, etc.) most relevant.',
+      technical: 'Technical deep-dive: walk through the actual mechanics — how the attack/system works at a protocol/code level, the specific primitives involved, and what defenders should look for in logs. Be concrete; assume a senior engineer audience.',
+      market: 'Market impact: who benefits, who loses, what shifts in vendor positioning or capital flows this signals, and what competitors are likely to do in the next 30-90 days. Cite specific market-cap or funding numbers if available.',
+      contrarian: 'Contrarian take: the prevailing narrative is X, but here\'s why I think the consensus is missing the point. Make a specific, defensible claim that runs against the wire.',
+      explainer: 'Explainer for non-experts: assume the reader has heard the headline but doesn\'t know why it matters. Build the why in three layers — what happened, what it means for them, what to watch next.',
+      forecast: 'Predictive forecast: based on this story plus the pattern of related events over the past N months, here\'s what I expect to happen in the next 1-4 weeks and what would falsify the prediction.',
+      sentiment: 'Community sentiment angle: what practitioners on HN/Reddit/Twitter are actually saying versus the corporate framing. Pull representative quotes (with attribution) and note where the gap is widest.',
+      historical: 'Historical context: this isn\'t the first time something like this has happened — here\'s the pattern, three prior incidents that rhyme, and what the field learned (or didn\'t) from them.',
+    };
+
+    document.getElementById('newPitchTemplate').addEventListener('change', function (e) {
+      var key = e.target.value;
+      var textarea = document.getElementById('newPitchAngle');
+      if (key && TEMPLATES[key] && (!textarea.value.trim() || confirm('Replace current angle text with template?'))) {
+        textarea.value = TEMPLATES[key];
+        textarea.focus();
+      }
+    });
+
+    document.getElementById('newPitchBtn').addEventListener('click', async function () {
+      await loadWritersList();
+      fillWriterSelect(document.getElementById('newPitchWriter'), false);
+      document.getElementById('newPitchSource').value = '';
+      document.getElementById('newPitchAngle').value = '';
+      document.getElementById('newPitchTemplate').value = '';
+      openModal('newPitchModal');
+    });
+
+    document.getElementById('submitNewPitchBtn').addEventListener('click', async function () {
+      var sourceRef = document.getElementById('newPitchSource').value.trim();
+      var writerId = parseInt(document.getElementById('newPitchWriter').value, 10);
+      var angle = document.getElementById('newPitchAngle').value.trim();
+      if (!sourceRef) { alert('Source required.'); return; }
+      if (!writerId) { alert('Writer required (use /tip chat command for unassigned editor tips).'); return; }
+      if (angle.length < 10) { alert('Angle must be 10+ chars.'); return; }
+
+      // Resolve source. Three paths:
+      //   (1) numeric id → use directly
+      //   (2) URL/slug that matches an internal article → use that id
+      //   (3) external URL → scrape OG metadata via /api/fetch-url, ingest as
+      //       enrichment-sourced curated article via /api/research/ingest, use new id
+      var sourceId = parseInt(sourceRef, 10);
+      if (!sourceId) {
+        var slugMatch = sourceRef.match(/\/article\/([a-z0-9-]+)/i);
+        var slug = slugMatch ? slugMatch[1] : sourceRef.replace(/^https?:\/\/[^/]+\//, '');
+        try {
+          var prev = await apiFetch('/articles/preview-by-slug?slug=' + encodeURIComponent(slug));
+          sourceId = prev.article && prev.article.id;
+        } catch (err) {
+          // Not an internal article — try external URL ingest path
+          if (/^https?:\/\//i.test(sourceRef)) {
+            try {
+              var meta = await apiFetch('/fetch-url?url=' + encodeURIComponent(sourceRef));
+              var result = {
+                source: 'manual',
+                url: sourceRef,
+                title: meta.title || sourceRef,
+                snippet: meta.summary || '',
+                publisher: meta.source || '',
+                published: meta.published_at || null,
+              };
+              var ingested = await apiFetch('/research/ingest', {
+                method: 'POST',
+                body: JSON.stringify({ results: [result] }),
+              });
+              if (ingested.ingested && ingested.ingested.length) {
+                sourceId = ingested.ingested[0].id;
+              } else if (ingested.skipped && ingested.skipped[0] && ingested.skipped[0].existing_id) {
+                sourceId = ingested.skipped[0].existing_id;
+              }
+            } catch (err2) {
+              alert('Could not ingest external URL: ' + (err2.message || err2)
+                + (String(err2.message || '').includes('not enabled') ? '\n\nEnable Agent Web Research to allow external URL pitches.' : ''));
+              return;
+            }
+          } else {
+            alert('Could not find article for "' + sourceRef + '"'); return;
+          }
+        }
+      }
+      if (!sourceId) { alert('Could not resolve source.'); return; }
+
+      var btn = this; btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        await apiFetch('/pitches', {
+          method: 'POST',
+          body: JSON.stringify({ source_article_id: sourceId, pitched_by_writer_id: writerId, angle_summary: angle }),
+        });
+        closeModal('newPitchModal');
+        await loadPitches();
+      } catch (err) {
+        alert('Pitch failed: ' + (err.message || err));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Submit pitch';
+      }
+    });
+  }
+
+  window.openReassign = async function (pitchId) {
+    reassignPitchId = pitchId;
+    await loadWritersList();
+    fillWriterSelect(document.getElementById('reassignWriter'), false);
+    openModal('reassignModal');
+  };
+
+  function wireReassign() {
+    document.getElementById('confirmReassignBtn').addEventListener('click', async function () {
+      var writerId = parseInt(document.getElementById('reassignWriter').value, 10);
+      if (!writerId || !reassignPitchId) return;
+      var btn = this; btn.disabled = true; btn.textContent = 'Assigning…';
+      try {
+        await apiFetch('/pitches/' + reassignPitchId + '/assign', {
+          method: 'PATCH', body: JSON.stringify({ writer_id: writerId }),
+        });
+        closeModal('reassignModal');
+        await loadPitches();
+      } catch (err) {
+        alert('Assign failed: ' + (err.message || err));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Assign';
+      }
+    });
+  }
+
   function wireOverrideModal() {
     document.getElementById('confirmOverrideBtn').addEventListener('click', async function () {
       if (!pendingOverride) return;
@@ -204,6 +352,9 @@
       html += '<button class="btn btn-primary btn-sm" onclick="approvePitch(' + p.id + ')">Approve</button>';
       html += '<button class="btn btn-outline btn-sm" onclick="rejectPitch(' + p.id + ')">Reject</button>';
       html += '<button class="btn btn-ghost btn-sm" onclick="openEnrich(' + p.id + ', ' + JSON.stringify(p.source_title || '').replace(/"/g, '&quot;') + ')">Enrich sources</button>';
+      if (!p.pitched_by_writer_id) {
+        html += '<button class="btn btn-ghost btn-sm" onclick="openReassign(' + p.id + ')">Assign writer</button>';
+      }
       html += '</div>';
       html += '</div>';
       return html;

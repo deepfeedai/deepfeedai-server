@@ -77,6 +77,7 @@
                   <th style="width:120px;">Category</th>
                   <th style="width:140px;">Published</th>
                   <th style="width:80px;">Status</th>
+                  <th style="width:80px;">Pitch</th>
                 </tr>
               </thead>
               <tbody id="resultsBody">
@@ -112,6 +113,42 @@
       </div>
     </div>
   </div>
+  <!-- Pitch from Discover modal -->
+  <div class="modal-overlay" id="discoverPitchModal">
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">Pitch this story</div>
+        <button class="modal-close" data-close-modal>✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="discoverPitchSourcePreview" style="background:var(--surface2);padding:10px;border-radius:6px;margin-bottom:10px;font-size:13px;"></div>
+        <label style="display:block;margin-bottom:10px;font-size:13px;">Writer:
+          <select id="discoverPitchWriter" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></select>
+        </label>
+        <label style="display:block;margin-bottom:6px;font-size:13px;">Template (optional):
+          <select id="discoverPitchTemplate" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;">
+            <option value="">— Start blank —</option>
+            <option value="compliance">Compliance / regulatory angle</option>
+            <option value="technical">Technical deep-dive</option>
+            <option value="market">Market impact / business analysis</option>
+            <option value="contrarian">Contrarian take</option>
+            <option value="explainer">Explainer for non-experts</option>
+            <option value="forecast">Predictive forecast</option>
+            <option value="sentiment">Community sentiment / reaction</option>
+            <option value="historical">Historical context / pattern</option>
+          </select>
+        </label>
+        <label style="display:block;font-size:13px;">Angle (10+ chars):
+          <textarea id="discoverPitchAngle" rows="4" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="submitDiscoverPitchBtn">Ingest + create pitch</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/admin.js"></script>
   <script src="/discover-page.js"></script>
 </body>

@@ -116,19 +116,19 @@ router.post('/ingest', auth, requirePermission('articles.create'), requireResear
 
   if (results.length > remaining) cap_reached = true;
 
-  // If a pitch_id was provided, the caller wants these attached. We don't
-  // have a junction table for this — the existing pitch's synthesizeFromPitch
-  // does cluster expansion via embeddings, so freshly-ingested articles in
-  // the writer's beat will be picked up automatically. Just record the link
-  // in audit + a synthesis_meta hint if the pitch is still proposed.
+  // If a pitch_id was provided, append the new article ids to the pitch's
+  // attached_article_ids. synthesizeFromPitch reads this and unions it with
+  // embedding-similar items, so attached sources are included regardless of
+  // similarity score, beat match, or async-embedding timing.
   if (pitch_id && ingested.length) {
     try {
+      const newIds = ingested.map(i => i.id);
       await db.prepare(`
         UPDATE article_pitches
-        SET decision_note = COALESCE(decision_note, '') || E'\\n[enrichment]: attached articles ' || $1
+        SET attached_article_ids = COALESCE(attached_article_ids, '[]'::jsonb) || $1::jsonb
         WHERE id = $2 AND tenant_id = $3
-      `).run(ingested.map(i => i.id).join(','), pitch_id, req.tenantId);
-    } catch { /* non-fatal */ }
+      `).run(JSON.stringify(newIds), pitch_id, req.tenantId);
+    } catch (err) { console.warn('[research] attach to pitch failed:', err.message); }
   }
 
   logAudit(req, 'research.ingest', 'articles', null, {

@@ -4,6 +4,26 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.9.1] — 2026-04-16
+
+Same-day follow-up to v4.9.0 — Phase B polish, Story Levels backend, and the bug fix for enriched-articles missing from synthesized pitch output.
+
+### Added
+
+- **Story Levels backend** — `articles.importance` (standard / trending / major / breaking) auto-computed on publish from cluster velocity + source diversity + editorial score. Manual override via `PATCH /api/articles/:id/importance` sets `importance_locked=true`. Feature flag `story_levels`. Frontend badge deferred to `deepfeedai-web`. (#461)
+- **+ New pitch modal** on the Pitches tab — pick source (id, internal URL, or external URL), writer, optional template, angle. (#460)
+- **External URL support** in New Pitch modal — non-internal URLs are OG-scraped via `/api/fetch-url` then ingested via `/research/ingest` before pitch creation. (#462)
+- **Angle templates** — 8 starter templates (compliance / technical / market / contrarian / explainer / forecast / sentiment / historical) prefill the angle textarea. (#464)
+- **Pitch from Discover** — 📌 button on every Discover result; opens pitch modal pre-filled with that result; ingests + creates pitch in one step. (#465)
+- **Reassign writer** — `PATCH /api/pitches/:id/assign` plus an "Assign writer" button on unassigned editor-tip pitches in the Pitches tab. (#460)
+- **Editor identity in `/tip`** — when a `/tip` chat command comes from web chat (numeric admin user id), `requested_by_editor_id` is now populated. Discord/Telegram remain NULL since their userIds are platform snowflakes. (#460)
+
+### Fixed
+
+- **Enriched articles missing from synthesized pitch output** — clicking "Enrich sources" on a pitch then approving it didn't include the enriched articles in the generated piece. Three converging issues: async embedding timing, beat-category mismatch, 0.72 cosine threshold. Fixed via new `article_pitches.attached_article_ids JSONB` column populated by `/research/ingest` with `pitch_id`; `synthesizeFromPitch` now unconditionally unions attached + similarity-matched + source articles into the cluster. (#463)
+
+---
+
 ## [4.9.0] — 2026-04-16
 
 Major release. Three multi-phase initiatives shipped together: hybrid newsroom counter-angle pitches, on-demand external research, and the social-newsroom editor's workspace.

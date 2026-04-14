@@ -297,6 +297,24 @@ router.get('/rotation-log', auth, requirePermission('articles.read'), asyncHandl
   res.json(logs);
 }));
 
+// PATCH /api/articles/:id/importance — manual story-level override
+// Body: { importance: 'standard'|'trending'|'major'|'breaking', unlock?: boolean }
+router.patch('/:id/importance', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { importance, unlock } = req.body || {};
+  const { setImportanceManual, unlockImportance, LEVELS } = require('../lib/story-levels');
+  if (unlock) {
+    await unlockImportance(req.params.id, req.tenantId);
+    logAudit(req, 'article.importance.unlocked', 'articles', req.params.id, {});
+    return res.json({ ok: true, unlocked: true });
+  }
+  if (!LEVELS.includes(importance)) {
+    return res.status(400).json({ error: `importance must be one of: ${LEVELS.join(', ')}` });
+  }
+  await setImportanceManual(req.params.id, req.tenantId, importance);
+  logAudit(req, 'article.importance.set', 'articles', req.params.id, { importance });
+  res.json({ ok: true, importance, locked: true });
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
