@@ -56,6 +56,11 @@ export function buildTools(ctx: ToolContext) {
     baseTools.push(buildEnrichSources(ctx));
   }
 
+  // Editors can additionally ingest external research as curated articles
+  if (ctx.writerRole === 'editor') {
+    baseTools.push(buildIngestExternalAsCurated(ctx));
+  }
+
   // Editors get publish tools (placeholder — wires into existing publish pipeline in a later PR)
   // if (ctx.writerRole === 'editor') {
   //   baseTools.push(buildPublishArticle(ctx));
@@ -497,6 +502,103 @@ function buildEnrichSources(ctx: ToolContext) {
         topic: z.string().min(4).describe('Topic to research, in natural language.'),
         sources: z.array(z.enum(['brave', 'hackernews', 'reddit'])).optional().describe('Subset of backends. Default: all three.'),
         count: z.number().int().min(1).max(15).optional().describe('Max combined results to return (default 8).'),
+      }),
+    },
+  );
+}
+
+function buildIngestExternalAsCurated(ctx: ToolContext) {
+  return tool(
+    async ({ results, pitchId }: { results: any[]; pitchId?: number }) => {
+      const enabled = await featureRegistry.isFeatureEnabled(ctx.tenantId, 'agent_web_research').catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Web research is not enabled.' });
+      }
+      if (!Array.isArray(results) || !results.length) {
+        return JSON.stringify({ status: 'error', message: 'results must be a non-empty array of search-result objects.' });
+      }
+
+      const { toSlug } = require('../../utils');
+      const { detectCategory } = require('../../categorize');
+      const { generateEmbedding, isPgvectorAvailable } = require('../../embeddings');
+      const pgvector = await isPgvectorAvailable().catch(() => false);
+
+      // Reuse cap logic by reading feature
+      const feats = await featureRegistry.getAllFeatures(ctx.tenantId);
+      const cap = parseInt(feats.external_research_daily_cap, 10) || 50;
+      const usedRow = await db.prepare(`
+        SELECT COUNT(*)::int AS cnt FROM articles
+        WHERE tenant_id = $1 AND ingest_source = 'enrichment'
+          AND created_at > NOW() - INTERVAL '24 hours'
+      `).get(ctx.tenantId);
+      const used = usedRow?.cnt || 0;
+      const remaining = Math.max(0, cap - used);
+      if (remaining <= 0) {
+        return JSON.stringify({ status: 'quota_exceeded', message: `Daily ingest cap reached (${used}/${cap}).` });
+      }
+
+      const ingested: any[] = [];
+      const skipped: any[] = [];
+      for (const item of results.slice(0, remaining)) {
+        if (!item.url || !item.title) { skipped.push({ url: item.url, reason: 'missing url or title' }); continue; }
+        const dup = await db.prepare(
+          'SELECT id FROM articles WHERE tenant_id = $1 AND source_url = $2 LIMIT 1'
+        ).get(ctx.tenantId, item.url);
+        if (dup) { skipped.push({ url: item.url, reason: 'duplicate', existing_id: dup.id }); continue; }
+
+        const title = String(item.title).slice(0, 500);
+        const summary = String(item.snippet || '').slice(0, 1000);
+        const publisher = String(item.publisher || item.source || 'Unknown').slice(0, 200);
+        const slug = toSlug(title) || `enrich-${Date.now()}`;
+        let category = 'General';
+        try { category = await detectCategory({ title, contentSnippet: summary }, { tenantId: ctx.tenantId }) || 'General'; } catch {}
+
+        const inserted = await db.prepare(`
+          INSERT INTO articles
+            (tenant_id, title, slug, summary, source, source_url, category, content_type, ingest_source, is_published, status, published_at, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'curated', 'enrichment', 1, 'published', NOW(), NOW(), NOW())
+          RETURNING id
+        `).get(ctx.tenantId, title, slug, summary, publisher, item.url, category);
+
+        if (inserted) {
+          ingested.push({ id: inserted.id, title, url: item.url });
+          if (pgvector) {
+            generateEmbedding(ctx.tenantId, `${title}\n\n${summary}`)
+              .then((v: number[]) => db.prepare('UPDATE articles SET embedding = $1::vector WHERE id = $2 AND tenant_id = $3')
+                .run(JSON.stringify(v), inserted.id, ctx.tenantId))
+              .catch(() => {});
+          }
+        }
+      }
+
+      if (pitchId && ingested.length) {
+        try {
+          await db.prepare(`
+            UPDATE article_pitches
+            SET decision_note = COALESCE(decision_note, '') || E'\\n[enrichment]: attached articles ' || $1
+            WHERE id = $2 AND tenant_id = $3
+          `).run(ingested.map((i: any) => i.id).join(','), pitchId, ctx.tenantId);
+        } catch { /* non-fatal */ }
+      }
+
+      return JSON.stringify({
+        status: 'ok',
+        ingested,
+        skipped,
+        daily_cap: cap,
+        daily_used: used + ingested.length,
+      });
+    },
+    {
+      name: 'ingestExternalAsCurated',
+      description:
+        'Editor-only. Ingest selected external search results (from enrichSources) as curated articles in the newsroom. ' +
+        'Use AFTER calling enrichSources and reviewing the candidates — pass the chosen result objects in. ' +
+        'Optionally attach to a pitch via pitchId so they show up in synthesis context. ' +
+        'Returns ingested[] (new article ids) and skipped[] (duplicates / invalid). Status: ok | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        results: z.array(z.any()).min(1).describe('Array of result objects from enrichSources (must include url + title at minimum).'),
+        pitchId: z.number().int().optional().describe('Optional: attach ingested articles to this pitch.'),
       }),
     },
   );
