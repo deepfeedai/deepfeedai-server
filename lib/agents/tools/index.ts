@@ -39,6 +39,7 @@ export function buildTools(ctx: ToolContext) {
     buildSearchArticles(ctx),
     buildListArticlesInBeat(ctx),
     buildFetchArticle(ctx),
+    buildGetArticleSources(ctx),
     buildListWriterBeats(ctx),
     buildGetWriterMemory(ctx),
     buildCheckRecentColleagueWork(ctx),
@@ -213,6 +214,76 @@ function buildFetchArticle(ctx: ToolContext) {
       schema: z.object({
         id: z.number().int().optional().describe('Article id from searchArticles results.'),
         slug: z.string().optional().describe('Article slug (url-safe identifier).'),
+      }),
+    },
+  );
+}
+
+function buildGetArticleSources(ctx: ToolContext) {
+  return tool(
+    async ({ id, slug }: { id?: number; slug?: string }) => {
+      if (!id && !slug) return JSON.stringify({ error: 'id or slug required' });
+      let row: any;
+      if (id) {
+        row = await db.prepare(
+          'SELECT id, title, source, source_url, content_type, source_article_ids FROM articles WHERE id = $1 AND tenant_id = $2'
+        ).get(id, ctx.tenantId);
+      } else {
+        row = await db.prepare(
+          'SELECT id, title, source, source_url, content_type, source_article_ids FROM articles WHERE slug = $1 AND tenant_id = $2'
+        ).get(slug, ctx.tenantId);
+      }
+      if (!row) return JSON.stringify({ error: 'not found' });
+
+      // Curated article: its own source IS the citation
+      if (row.content_type == null || row.content_type === 'curated') {
+        if (!row.source && !row.source_url) {
+          return JSON.stringify({ status: 'no_sources', message: 'This article has no recorded source.' });
+        }
+        return JSON.stringify({
+          status: 'ok',
+          article_type: 'curated',
+          sources: [{ source: row.source, source_url: row.source_url }],
+        });
+      }
+
+      // Original / deep-dive: resolve source_article_ids → curated rows
+      const ids = Array.isArray(row.source_article_ids) ? row.source_article_ids : [];
+      if (!ids.length) {
+        return JSON.stringify({
+          status: 'no_sources',
+          message: 'This article has no recorded source articles.',
+          article_type: row.content_type,
+        });
+      }
+      const sources = await db.prepare(`
+        SELECT id, title, source AS publisher, source_url, published_at
+        FROM articles
+        WHERE id = ANY($1::int[]) AND tenant_id = $2
+        ORDER BY published_at DESC NULLS LAST
+      `).all(ids, ctx.tenantId);
+      return JSON.stringify({
+        status: 'ok',
+        article_type: row.content_type,
+        sources: sources.map((s: any) => ({
+          id: s.id,
+          title: s.title,
+          publisher: s.publisher,
+          url: s.source_url,
+          published_at: s.published_at,
+        })),
+      });
+    },
+    {
+      name: 'getArticleSources',
+      description:
+        'REQUIRED whenever the user asks where information came from, what sources you used, what publishers are reporting on something, or where to verify a specific figure. ' +
+        'Returns the actual curated source articles (publisher name + URL) behind one of your originals, or the single source of a curated item. ' +
+        'Do NOT guess publisher names or invent citations — call this tool. ' +
+        'Status values: ok (sources array populated) | no_sources (article has no recorded sources — tell the user honestly) | error.',
+      schema: z.object({
+        id: z.number().int().optional().describe('Article id (from searchArticles or listArticlesInBeat results).'),
+        slug: z.string().optional().describe('Article slug.'),
       }),
     },
   );
