@@ -164,7 +164,11 @@
       if (!writerId) { alert('Writer required (use /tip chat command for unassigned editor tips).'); return; }
       if (angle.length < 10) { alert('Angle must be 10+ chars.'); return; }
 
-      // Resolve source: numeric id or slug from URL
+      // Resolve source. Three paths:
+      //   (1) numeric id → use directly
+      //   (2) URL/slug that matches an internal article → use that id
+      //   (3) external URL → scrape OG metadata via /api/fetch-url, ingest as
+      //       enrichment-sourced curated article via /api/research/ingest, use new id
       var sourceId = parseInt(sourceRef, 10);
       if (!sourceId) {
         var slugMatch = sourceRef.match(/\/article\/([a-z0-9-]+)/i);
@@ -173,7 +177,35 @@
           var prev = await apiFetch('/articles/preview-by-slug?slug=' + encodeURIComponent(slug));
           sourceId = prev.article && prev.article.id;
         } catch (err) {
-          alert('Could not find article for "' + sourceRef + '"'); return;
+          // Not an internal article — try external URL ingest path
+          if (/^https?:\/\//i.test(sourceRef)) {
+            try {
+              var meta = await apiFetch('/fetch-url?url=' + encodeURIComponent(sourceRef));
+              var result = {
+                source: 'manual',
+                url: sourceRef,
+                title: meta.title || sourceRef,
+                snippet: meta.summary || '',
+                publisher: meta.source || '',
+                published: meta.published_at || null,
+              };
+              var ingested = await apiFetch('/research/ingest', {
+                method: 'POST',
+                body: JSON.stringify({ results: [result] }),
+              });
+              if (ingested.ingested && ingested.ingested.length) {
+                sourceId = ingested.ingested[0].id;
+              } else if (ingested.skipped && ingested.skipped[0] && ingested.skipped[0].existing_id) {
+                sourceId = ingested.skipped[0].existing_id;
+              }
+            } catch (err2) {
+              alert('Could not ingest external URL: ' + (err2.message || err2)
+                + (String(err2.message || '').includes('not enabled') ? '\n\nEnable Agent Web Research to allow external URL pitches.' : ''));
+              return;
+            }
+          } else {
+            alert('Could not find article for "' + sourceRef + '"'); return;
+          }
         }
       }
       if (!sourceId) { alert('Could not resolve source.'); return; }
