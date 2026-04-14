@@ -138,6 +138,19 @@ router.post('/ingest', auth, requirePermission('articles.create'), requireResear
     skipped_reasons: skipped.map(s => s.reason),
   });
 
+  if (ingested.length) {
+    const { recordEvent } = require('../lib/newsroom-events');
+    recordEvent({
+      tenantId: req.tenantId, type: 'enriched',
+      actorUserId: req.user?.sub || null,
+      targetPitchId: pitch_id || null,
+      payload: {
+        ingested_count: ingested.length,
+        sample_titles: ingested.slice(0, 3).map(i => i.title),
+      },
+    });
+  }
+
   res.json({ ingested, skipped, cap_reached, daily_cap: cap, daily_used: used + ingested.length });
 }));
 

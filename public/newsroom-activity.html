@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Newsroom Activity Feed</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    .feed-shell { max-width:760px; margin:0 auto; padding:16px; }
+    .feed-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; align-items:center; }
+    .feed-filters select, .feed-filters input { padding:6px 10px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); border-radius:6px; font-size:13px; }
+    .feed-stream { display:flex; flex-direction:column; gap:10px; }
+    .feed-card { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+    .feed-card-header { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+    .feed-avatar { width:32px; height:32px; border-radius:50%; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:var(--muted); flex-shrink:0; object-fit:cover; }
+    .feed-actor { font-weight:600; font-size:13px; }
+    .feed-time { font-size:12px; color:var(--muted); margin-left:auto; }
+    .feed-event-tag { font-size:10px; text-transform:uppercase; letter-spacing:.5px; padding:2px 8px; border-radius:6px; font-weight:700; }
+    .tag-published    { background:rgba(34,197,94,0.15);  color:#22c55e; }
+    .tag-pitched      { background:rgba(124,58,237,0.15); color:#a78bfa; }
+    .tag-pitch_approved { background:rgba(34,197,94,0.15); color:#22c55e; }
+    .tag-pitch_rejected { background:rgba(239,68,68,0.15); color:#ef4444; }
+    .tag-enriched     { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .feed-title { font-weight:700; font-size:15px; line-height:1.3; margin:4px 0; }
+    .feed-snippet { font-size:13px; color:var(--text); line-height:1.55; margin-top:6px; }
+    .feed-meta { font-size:11px; color:var(--muted); margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; }
+    .feed-empty { text-align:center; padding:60px 20px; color:var(--muted); }
+    .feed-link { font-size:12px; color:var(--primary); text-decoration:none; }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <div class="topbar">
+      <button class="hamburger" id="hamburger">&#9776;</button>
+      <div class="topbar-title">Newsroom Activity</div>
+    </div>
+    <div class="feed-shell">
+      <div class="feed-filters">
+        <label for="typeFilter">Show:</label>
+        <select id="typeFilter">
+          <option value="">All events</option>
+          <option value="published">Published articles</option>
+          <option value="pitched">Pitches</option>
+          <option value="pitch_approved,pitch_rejected">Pitch decisions</option>
+          <option value="enriched">External research</option>
+        </select>
+        <label for="daysFilter">Last:</label>
+        <select id="daysFilter">
+          <option value="1">24h</option>
+          <option value="7" selected>7d</option>
+          <option value="30">30d</option>
+          <option value="90">90d</option>
+        </select>
+        <button class="btn btn-outline btn-sm" id="refreshBtn">↻ Refresh</button>
+      </div>
+      <div class="feed-stream" id="feedStream">
+        <div class="feed-empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/admin.js"></script>
+<script src="/newsroom-activity-page.js"></script>
+</body>
+</html>

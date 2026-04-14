@@ -1231,6 +1231,23 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_tenant_status ON article_pitches(tenant_id, status, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_source ON article_pitches(source_article_id)`,
     `CREATE INDEX IF NOT EXISTS idx_article_pitches_writer ON article_pitches(pitched_by_writer_id) WHERE pitched_by_writer_id IS NOT NULL`,
+    // Social newsroom Phase 2 — activity feed events
+    // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
+    // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
+    `CREATE TABLE IF NOT EXISTS newsroom_events (
+      id                   SERIAL PRIMARY KEY,
+      tenant_id            INTEGER NOT NULL,
+      event_type           TEXT NOT NULL,
+      actor_writer_id      INTEGER,
+      actor_user_id        INTEGER,
+      target_article_id    INTEGER,
+      target_pitch_id      INTEGER,
+      payload              JSONB DEFAULT '{}',
+      created_at           TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_tenant_time ON newsroom_events(tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

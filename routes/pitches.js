@@ -11,6 +11,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { logAudit } = require('../middleware/audit');
 const { isFeatureEnabled, getAllFeatures } = require('../lib/feature-registry');
+const { recordEvent } = require('../lib/newsroom-events');
 
 async function requirePitchesEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'article_pitches').catch(() => false);
@@ -68,6 +69,14 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
 
   logAudit(req, 'pitch.created', 'article_pitches', row.id, {
     source_article_id, pitched_by_writer_id, requested_by_editor_id,
+  });
+  recordEvent({
+    tenantId: req.tenantId, type: 'pitched',
+    actorWriterId: pitched_by_writer_id || null,
+    actorUserId: requested_by_editor_id || req.user?.sub || null,
+    targetArticleId: source_article_id,
+    targetPitchId: row.id,
+    payload: { angle_summary: row.angle_summary, source_title: source.title || null },
   });
   res.status(201).json(row);
 }));
@@ -147,6 +156,13 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
     override: !!override,
     prior_original_count: currentCount,
   });
+  recordEvent({
+    tenantId: req.tenantId, type: 'pitch_approved',
+    actorUserId: req.user?.sub || null,
+    targetArticleId: pitch.source_article_id,
+    targetPitchId: pitch.id,
+    payload: { override: !!override, note: note || null },
+  });
 
   // Kick off synthesis in the background unless the editor opted out (e.g.,
   // for editor-tip pitches that need a writer assigned first). Returns
@@ -192,6 +208,12 @@ router.post('/:id/reject', auth, requirePermission('articles.update'), requirePi
   `).run(req.user?.sub || null, note || null, req.params.id, req.tenantId);
 
   logAudit(req, 'pitch.rejected', 'article_pitches', req.params.id, { note: note || null });
+  recordEvent({
+    tenantId: req.tenantId, type: 'pitch_rejected',
+    actorUserId: req.user?.sub || null,
+    targetPitchId: Number(req.params.id),
+    payload: { note: note || null },
+  });
   res.json({ status: 'rejected', pitch_id: Number(req.params.id) });
 }));
 
