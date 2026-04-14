@@ -1279,6 +1279,12 @@ async function initDb() {
     // States: idle | chatting | drafting | researching | waiting-on-editor
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_state TEXT DEFAULT 'idle'`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_updated_at TIMESTAMPTZ`,
+    // Story levels — importance signal for the article + frontend rails.
+    // Values: 'standard' (default) | 'trending' | 'major' | 'breaking'
+    // Computed by lib/story-levels.js from velocity + source diversity + editorial score; editor can manually override.
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'standard'`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_locked BOOLEAN DEFAULT false`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(tenant_id, importance, published_at DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
