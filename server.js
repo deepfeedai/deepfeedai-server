@@ -1055,6 +1055,17 @@ registerJob({
   },
 });
 
+registerJob({
+  name: 'recomputeImportanceDecay',
+  description: 'Decay story-level importance for aging articles (last 72h window)',
+  category: 'Content',
+  defaultSchedule: '0 * * * *',
+  handler: async (tenantId) => {
+    const { recomputeDecay } = require('./lib/story-levels');
+    return await recomputeDecay(tenantId);
+  },
+});
+
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
   // ── Load saved deployment mode from DB if env var not set ────

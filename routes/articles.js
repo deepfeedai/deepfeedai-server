@@ -66,11 +66,18 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   ]);
   const totalCount = parseInt(countRow.rows[0]?.cnt ?? 0, 10);
 
+  const { computeEffectiveImportance } = require('../lib/story-levels');
+  const articles = result.rows.map(row => {
+    const s = serializeRow(row);
+    s.effective_importance = computeEffectiveImportance(s);
+    return s;
+  });
+
   res.json({
-    articles: result.rows.map(serializeRow),
-    count: result.rows.length,
+    articles,
+    count: articles.length,
     totalCount,
-    hasMore: offset + result.rows.length < totalCount,
+    hasMore: offset + articles.length < totalCount,
   });
 }));
 

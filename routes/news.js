@@ -16,6 +16,8 @@ const router                               = express.Router();
 const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
+const { computeEffectiveImportance, RANK: IMPORTANCE_RANK } = require('../lib/story-levels');
+const { isFeatureEnabled } = require('../lib/feature-registry');
 
 const { getSecrets } = require('../lib/secrets');
 
@@ -166,7 +168,12 @@ router.get('/', asyncHandler(async (req, res) => {
     params.push(writer);
     conditions.push(`w.slug = $${params.length}`);
   }
-  if (req.query.content_type) {
+  // Alias: ?originals_only=1 forces the default originals+deep-dive filter even
+  // if a content_type override is present. Kept as an explicit param so clients
+  // that want curated can still opt in with ?content_type=curated.
+  const originalsOnly = req.query.originals_only === '1' || req.query.originals_only === 'true';
+
+  if (req.query.content_type && !originalsOnly) {
     const types = req.query.content_type.split(',').map(t => t.trim()).filter(Boolean);
     if (types.length === 1) {
       params.push(types[0]);
@@ -252,8 +259,58 @@ router.get('/', asyncHandler(async (req, res) => {
     };
   });
 
-  const hasMore = offset + enriched.length < totalCount;
-  res.json({ status: 'ok', items: enriched, count: enriched.length, totalCount, hasMore });
+  // ── Story levels: attach effective_importance + re-order by tier, and compute
+  // perspective grouping (sibling counts on each lead). Flag-gated per tenant.
+  let finalItems = enriched;
+  const storyLevelsOn = await isFeatureEnabled(req.tenantId, 'story_levels').catch(() => false);
+  if (storyLevelsOn) {
+    finalItems = enriched.map(a => ({
+      ...a,
+      effective_importance: computeEffectiveImportance(a),
+    }));
+
+    // Perspective grouping: for each original with a synthesis_meta.from_pitch
+    // (or topic_tag), count sibling originals in the same cluster published
+    // earlier (those are the "perspectives" hanging off the lead).
+    const leadsByTopic = new Map(); // topic_tag -> lead article id (earliest)
+    for (const a of finalItems) {
+      if (!a.topic_tag) continue;
+      const prior = leadsByTopic.get(a.topic_tag);
+      if (!prior || new Date(a.published_at) < new Date(prior.published_at)) {
+        leadsByTopic.set(a.topic_tag, a);
+      }
+    }
+    const perspectivesByLead = new Map();
+    for (const a of finalItems) {
+      if (!a.topic_tag) continue;
+      const lead = leadsByTopic.get(a.topic_tag);
+      if (!lead || lead.id === a.id) continue;
+      a.lead_article_id = lead.id;
+      perspectivesByLead.set(lead.id, (perspectivesByLead.get(lead.id) || 0) + 1);
+    }
+    for (const a of finalItems) {
+      a.perspectives_count = perspectivesByLead.get(a.id) || 0;
+    }
+
+    // Re-order: tier DESC, then published_at DESC. Featured pin still wins.
+    finalItems.sort((a, b) => {
+      const aFeat = a.is_featured && (!a.featured_until || new Date(a.featured_until) > new Date()) ? 1 : 0;
+      const bFeat = b.is_featured && (!b.featured_until || new Date(b.featured_until) > new Date()) ? 1 : 0;
+      if (aFeat !== bFeat) return bFeat - aFeat;
+      if (aFeat && bFeat) {
+        const aPri = a.featured_priority ?? 99;
+        const bPri = b.featured_priority ?? 99;
+        if (aPri !== bPri) return aPri - bPri;
+      }
+      const aRank = IMPORTANCE_RANK[a.effective_importance] || 1;
+      const bRank = IMPORTANCE_RANK[b.effective_importance] || 1;
+      if (aRank !== bRank) return bRank - aRank;
+      return new Date(b.published_at) - new Date(a.published_at);
+    });
+  }
+
+  const hasMore = offset + finalItems.length < totalCount;
+  res.json({ status: 'ok', items: finalItems, count: finalItems.length, totalCount, hasMore });
 }));
 
 // GET /api/news/hot — top articles ranked by hot_score

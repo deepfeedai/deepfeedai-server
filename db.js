@@ -1295,6 +1295,7 @@ async function initDb() {
     // Computed by lib/story-levels.js from velocity + source diversity + editorial score; editor can manually override.
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'standard'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_locked BOOLEAN DEFAULT false`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_updated_at TIMESTAMPTZ`,
     `CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(tenant_id, importance, published_at DESC)`,
     // Notifications / Actions system — PR-A foundation.
     // user_notifications: per-user feed of events (in-web bell + cross-channel).

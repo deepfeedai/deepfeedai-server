@@ -195,4 +195,47 @@ router.get('/related', asyncHandler(async (req, res) => {
   res.json(related);
 }));
 
+// GET /api/article/:id/perspectives — siblings in the same cluster
+// (articles sharing the topic_tag, published after the lead). Public endpoint.
+router.get('/:id/perspectives', asyncHandler(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+
+  const lead = await db.prepare(
+    `SELECT id, topic_tag, published_at, category
+     FROM articles
+     WHERE id = $1 AND tenant_id = $2 AND is_published = 1`
+  ).get(id, req.tenantId);
+  if (!lead) return res.status(404).json({ error: 'article not found' });
+
+  // If we have no topic_tag, return empty — no reliable clustering key.
+  if (!lead.topic_tag) return res.json({ status: 'ok', items: [], count: 0 });
+
+  const siblings = await db.prepare(
+    `SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.category,
+            a.source, a.image_url, a.published_at, a.content_type,
+            a.importance, a.importance_locked, a.importance_updated_at,
+            w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+     FROM articles a
+     LEFT JOIN writers w ON w.id = a.writer_id
+     WHERE a.tenant_id = $1
+       AND a.is_published = 1
+       AND (a.is_archived = 0 OR a.is_archived IS NULL)
+       AND a.content_type IN ('original', 'deep-dive')
+       AND a.topic_tag = $2
+       AND a.id != $3
+     ORDER BY a.published_at DESC
+     LIMIT 20`
+  ).all(req.tenantId, lead.topic_tag, lead.id);
+
+  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  const items = siblings.map(s => {
+    if (s.image_url && s.image_url.startsWith('/')) s.image_url = mediaBase + s.image_url;
+    s.effective_importance = require('../lib/story-levels').computeEffectiveImportance(s);
+    return s;
+  });
+
+  res.json({ status: 'ok', items, count: items.length });
+}));
+
 module.exports = router;

@@ -261,7 +261,7 @@ let articles = [];
 
   // ── Per-row HTML generators (extracted for reuse by rerenderRow) ──
 
-  const ROW_TOTAL_COLS = 11;
+  const ROW_TOTAL_COLS = 12;
 
   function renderRowHtml(a) {
     const isArchived = !!a.is_archived;
@@ -292,6 +292,7 @@ let articles = [];
         : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
         : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
       </td>
+      <td class="td-importance">${renderImportanceCell(a)}</td>
       <td>${isArchived ? '—' : `
         <div class="featured-picker" style="display:flex;align-items:center;gap:4px;">
           <span class="badge ${a.is_featured ? 'badge-accent' : 'badge-muted'}" style="min-width:44px;text-align:center;">
@@ -501,7 +502,7 @@ let articles = [];
     const tbody = document.getElementById('articlesBody');
     const mobileList = document.getElementById('articlesMobileList');
     if (articles.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10">
+      tbody.innerHTML = `<tr><td colspan="12">
         <div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>
       </td></tr>`;
       if (mobileList) mobileList.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>No articles found — try adjusting filters</p></div>';
@@ -534,6 +535,94 @@ let articles = [];
 
     applyViewMode();
   }
+
+  /* ---------- Story levels (importance) ---------- */
+  const IMPORTANCE_COLORS = {
+    breaking: { bg: '#dc2626', fg: '#fff' },      // red
+    major:    { bg: '#f97316', fg: '#fff' },      // orange
+    trending: { bg: '#eab308', fg: '#111' },      // yellow
+    standard: { bg: 'var(--border)', fg: 'var(--text-muted, #94a3b8)' },
+  };
+
+  function renderImportanceCell(a) {
+    const eff = a.effective_importance || a.importance || 'standard';
+    const locked = !!a.importance_locked;
+    const c = IMPORTANCE_COLORS[eff] || IMPORTANCE_COLORS.standard;
+    const label = eff.charAt(0).toUpperCase() + eff.slice(1);
+    const lockIcon = locked ? ' 🔒' : '';
+    return `
+      <div class="importance-cell" style="display:inline-flex;align-items:center;gap:4px;">
+        <span class="importance-badge" onclick="toggleImportanceMenu(${a.id})"
+          style="cursor:pointer;background:${c.bg};color:${c.fg};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;user-select:none;"
+          title="${locked ? 'Manual override (locked). Click to change.' : 'Auto-computed. Click to override.'}">
+          ${label}${lockIcon}
+        </span>
+        <div id="imp-menu-${a.id}" class="importance-menu" style="display:none;position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);margin-top:24px;">
+          ${['breaking','major','trending','standard'].map(l => `
+            <div onclick="setImportance(${a.id}, '${l}')" style="padding:4px 10px;cursor:pointer;font-size:12px;border-radius:4px;" onmouseover="this.style.background='var(--hover,#222)'" onmouseout="this.style.background=''">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${IMPORTANCE_COLORS[l].bg};margin-right:6px;"></span>${l}
+            </div>`).join('')}
+          ${locked ? `<div onclick="unlockImportance(${a.id})" style="padding:4px 10px;cursor:pointer;font-size:12px;border-top:1px solid var(--border);color:var(--accent);">🔓 Unlock (auto)</div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  window.toggleImportanceMenu = function(id) {
+    document.querySelectorAll('.importance-menu').forEach(m => {
+      if (m.id !== `imp-menu-${id}`) m.style.display = 'none';
+    });
+    const menu = document.getElementById(`imp-menu-${id}`);
+    if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+  };
+
+  window.setImportance = async function(id, level) {
+    const menu = document.getElementById(`imp-menu-${id}`);
+    if (menu) menu.style.display = 'none';
+    try {
+      await apiFetch(`/articles/${id}/importance`, {
+        method: 'PATCH',
+        body: JSON.stringify({ importance: level }),
+      });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx >= 0) {
+        allArticles[idx].importance = level;
+        allArticles[idx].importance_locked = true;
+        allArticles[idx].effective_importance = level;
+        rerenderRow(id);
+      }
+      if (typeof toast === 'function') toast(`Importance set to ${level}`, 'success');
+    } catch (e) {
+      console.error('[importance] set failed', e);
+      if (typeof toast === 'function') toast('Failed to set importance', 'error');
+    }
+  };
+
+  window.unlockImportance = async function(id) {
+    const menu = document.getElementById(`imp-menu-${id}`);
+    if (menu) menu.style.display = 'none';
+    try {
+      await apiFetch(`/articles/${id}/importance`, {
+        method: 'PATCH',
+        body: JSON.stringify({ unlock: true }),
+      });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx >= 0) {
+        allArticles[idx].importance_locked = false;
+        rerenderRow(id);
+      }
+      if (typeof toast === 'function') toast('Importance unlocked', 'success');
+    } catch (e) {
+      console.error('[importance] unlock failed', e);
+      if (typeof toast === 'function') toast('Failed to unlock', 'error');
+    }
+  };
+
+  // Close importance menus on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.importance-cell')) {
+      document.querySelectorAll('.importance-menu').forEach(m => { m.style.display = 'none'; });
+    }
+  });
 
   /* ---------- Image helpers ---------- */
   function renderImageCell(a) {
