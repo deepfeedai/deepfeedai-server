@@ -5,14 +5,32 @@
 
   var writers = [];
   var activeWriter = null;
+  var currentUser = null;
   var sending = false;
+
+  // Stable 12-hue palette matching lib/writer-colors.js (used as a fallback
+  // when the signed-in editor hasn't set an avatar yet).
+  var USER_PALETTE = ['#8b5cf6','#3b82f6','#06b6d4','#10b981','#22c55e','#eab308','#f97316','#ef4444','#ec4899','#a855f7','#14b8a6','#6366f1'];
+  function userAccent(u) {
+    var n = Number(u && u.id);
+    if (!Number.isFinite(n)) return USER_PALETTE[0];
+    return USER_PALETTE[((n % USER_PALETTE.length) + USER_PALETTE.length) % USER_PALETTE.length];
+  }
 
   init();
 
   async function init() {
-    await loadWriters();
+    await Promise.all([loadWriters(), loadCurrentUser()]);
     wireInput();
     document.getElementById('clearBtn').addEventListener('click', clearChat);
+  }
+
+  async function loadCurrentUser() {
+    try {
+      currentUser = await apiFetch('/auth/me');
+    } catch (err) {
+      currentUser = null;
+    }
   }
 
   async function loadWriters() {
@@ -83,11 +101,22 @@
       esc(writerInitial(w && w.name)) + '</div>';
   }
 
+  function userAvatarHtml() {
+    var accent = userAccent(currentUser);
+    if (currentUser && currentUser.avatar_url) {
+      return '<img class="chat-avatar" src="' + esc(currentUser.avatar_url) + '" alt="" />';
+    }
+    var initial = (currentUser && (currentUser.display_name || currentUser.username || '')).trim().charAt(0).toUpperCase() || 'Y';
+    return '<div class="chat-avatar chat-avatar-fallback" ' +
+      'style="background:' + esc(accent) + ';color:#fff;">' + esc(initial) + '</div>';
+  }
+
   function bubbleHtml(role, text, w) {
     if (role === 'user') {
-      // Editor (you) — right-aligned, neutral. No avatar on editor messages.
+      // Editor (you) — right-aligned with your avatar mirroring writers on the left.
       return '<div class="chat-row chat-row-user">' +
         '<div class="chat-bubble user">' + linkify(esc(text)) + '</div>' +
+        userAvatarHtml() +
         '</div>';
     }
     var accent = (w && w.accent) || '#8b5cf6';

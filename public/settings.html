@@ -31,6 +31,37 @@
       <!-- ═══ General Tab ═══ -->
       <div class="tab-panel active" data-tab="general">
 
+        <!-- Your Profile (self-service) -->
+        <div class="dash-panel mb-6">
+          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Your Profile</h3>
+          <p class="form-help" style="margin-top:-8px;margin-bottom:12px;">These show up in the newsroom chat and anywhere your account is shown to other admins.</p>
+
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="profileUsername">Username</label>
+              <input type="text" class="form-control" id="profileUsername" readonly style="opacity:0.7;" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="profileDisplayName">Display Name</label>
+              <input type="text" class="form-control" id="profileDisplayName" placeholder="How your name appears" maxlength="120" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="profileAvatarUrl">Avatar URL</label>
+            <div style="display:flex;gap:12px;align-items:center;">
+              <img id="profileAvatarPreview" src="" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg-surface, #141414);flex-shrink:0;" onerror="this.style.visibility='hidden';" />
+              <input type="text" class="form-control" id="profileAvatarUrl" placeholder="https://.../avatar.png (paste a URL)" style="flex:1;" />
+            </div>
+            <p class="form-help">v1: paste an image URL. File upload will come later.</p>
+          </div>
+
+          <div class="btn-group mt-5">
+            <button class="btn btn-primary" id="saveProfileBtn">Save Profile</button>
+          </div>
+          <div id="profileStatus" class="settings-status"></div>
+        </div>
+
         <!-- Branding -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Branding</h3>

@@ -1,4 +1,5 @@
 let writers = [];
+let activeRoleFilter = 'all'; // 'all' | 'writer' | 'editor' | 'other'
 let categoriesList = [];
 let perfData = [];
 let pendingDeleteId = null;
@@ -25,14 +26,43 @@ async function loadCategoriesList() {
 
 // ── Writers Table ────────────────────────────────────────────────
 
+function roleBucket(role) {
+  var r = (role || 'writer').toLowerCase();
+  if (r === 'writer') return 'writer';
+  if (r === 'editor') return 'editor';
+  return 'other';
+}
+
+function filteredWriters() {
+  if (activeRoleFilter === 'all') return writers;
+  return writers.filter(function(w) { return roleBucket(w.role) === activeRoleFilter; });
+}
+
+function groupedWriters() {
+  var groups = { editor: [], writer: [], other: [] };
+  filteredWriters().forEach(function(w) { groups[roleBucket(w.role)].push(w); });
+  return groups;
+}
+
+var ROLE_GROUP_LABELS = { editor: 'Editors', writer: 'Writers', other: 'Other' };
+var ROLE_GROUP_ORDER = ['editor', 'writer', 'other'];
+
 function renderWriters() {
   var tbody = document.getElementById('writersBody');
   if (!writers.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No writers configured &mdash; add one to get started</p></div></td></tr>';
+    renderWriterCards();
     return;
   }
 
-  tbody.innerHTML = writers.map(function(w) {
+  var groups = groupedWriters();
+  var tbodyHtml = '';
+  ROLE_GROUP_ORDER.forEach(function(key) {
+    var list = groups[key];
+    if (!list.length) return;
+    tbodyHtml += '<tr class="writers-group-header"><td colspan="7" style="background:var(--bg-surface, #141414);padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">'
+      + esc(ROLE_GROUP_LABELS[key]) + ' <span style="color:var(--text-muted);font-weight:500;">(' + list.length + ')</span></td></tr>';
+    tbodyHtml += list.map(function(w) {
     var avatarHtml = w.avatar_url
       ? '<img src="' + esc(w.avatar_url) + '" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" onerror="this.outerHTML=\'<div style=\\\'width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;\\\'>&#9997;&#65039;</div>\'" />'
       : '<div style="width:36px;height:36px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:18px;">&#9997;&#65039;</div>';
@@ -62,7 +92,10 @@ function renderWriters() {
       + '</div>'
       + '</td>'
       + '</tr>';
-  }).join('');
+    }).join('');
+  });
+
+  tbody.innerHTML = tbodyHtml || '<tr><td colspan="7"><div class="empty-state"><p>No writers match this filter.</p></div></td></tr>';
 
   // Card grid view
   renderWriterCards();
@@ -76,8 +109,15 @@ function renderWriterCards() {
     return;
   }
 
-  container.innerHTML = writers.map(function(w) {
-    var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
+  var groups = groupedWriters();
+  var sectionsHtml = '';
+  ROLE_GROUP_ORDER.forEach(function(key) {
+    var list = groups[key];
+    if (!list.length) return;
+    sectionsHtml += '<div style="grid-column:1/-1;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-top:8px;">'
+      + esc(ROLE_GROUP_LABELS[key]) + ' (' + list.length + ')</div>';
+    sectionsHtml += list.map(function(w) {
+      var beats = (w.beats || []).map(function(b) { return typeof b === 'string' ? b : b.name; });
     var beatsHtml = beats.slice(0, 3).map(function(n) { return '<span class="badge badge-muted" style="font-size:10px;">' + esc(n) + '</span>'; }).join(' ');
     var angleSnippet = w.beat_angle ? '<div class="text-muted text-sm" style="margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(w.beat_angle) + '">' + esc(w.beat_angle) + '</div>' : '';
     var autoBadge = w.is_auto ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>' : '';
@@ -106,7 +146,9 @@ function renderWriterCards() {
       + '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openDelete(' + w.id + ')">&#128465;&#65039;</button>'
       + '</div>'
       + '</div>';
-  }).join('');
+    }).join('');
+  });
+  container.innerHTML = sectionsHtml || '<div class="empty-state"><p>No writers match this filter.</p></div>';
 }
 
 function esc(str) {
@@ -1218,6 +1260,20 @@ async function init() {
   await loadCategoriesList();
   await loadWriters();
   applyWriterViewMode();
+
+  // Role filter chips
+  var roleFilterEl = document.getElementById('writerRoleFilter');
+  if (roleFilterEl) {
+    roleFilterEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('button[data-role-filter]');
+      if (!btn) return;
+      activeRoleFilter = btn.dataset.roleFilter;
+      roleFilterEl.querySelectorAll('button').forEach(function(b) {
+        b.classList.toggle('active', b === btn);
+      });
+      renderWriters();
+    });
+  }
 
   // Voice preview handler
   document.getElementById('previewVoiceBtn').addEventListener('click', async function() {

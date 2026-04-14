@@ -2289,4 +2289,53 @@ let apiKeyVisible = false;
     } catch {}
   };
 
+  // ── Your Profile (self-service) ───────────────────────────────
+  async function loadProfile() {
+    try {
+      var me = await apiFetch('/auth/me');
+      var u = document.getElementById('profileUsername');
+      var d = document.getElementById('profileDisplayName');
+      var a = document.getElementById('profileAvatarUrl');
+      var p = document.getElementById('profileAvatarPreview');
+      if (u) u.value = me.username || '';
+      if (d) d.value = me.display_name || '';
+      if (a) a.value = me.avatar_url || '';
+      if (p && me.avatar_url) { p.src = me.avatar_url; p.style.visibility = ''; }
+    } catch (err) {
+      console.warn('profile load failed', err);
+    }
+  }
+  var avatarUrlEl = document.getElementById('profileAvatarUrl');
+  if (avatarUrlEl) {
+    avatarUrlEl.addEventListener('input', function () {
+      var p = document.getElementById('profileAvatarPreview');
+      if (!p) return;
+      var v = avatarUrlEl.value.trim();
+      if (v) { p.src = v; p.style.visibility = ''; } else { p.removeAttribute('src'); p.style.visibility = 'hidden'; }
+    });
+  }
+  var saveProfileBtn = document.getElementById('saveProfileBtn');
+  if (saveProfileBtn) {
+    saveProfileBtn.addEventListener('click', async function () {
+      var status = document.getElementById('profileStatus');
+      var d = document.getElementById('profileDisplayName').value.trim();
+      var a = document.getElementById('profileAvatarUrl').value.trim();
+      saveProfileBtn.disabled = true;
+      if (status) { status.textContent = 'Saving...'; status.className = 'settings-status'; }
+      try {
+        await apiFetch('/auth/me', {
+          method: 'PATCH',
+          body: JSON.stringify({ display_name: d, avatar_url: a || null }),
+        });
+        if (status) { status.textContent = 'Saved.'; status.className = 'settings-status success'; }
+        showAlert('Profile saved');
+      } catch (err) {
+        if (status) { status.textContent = 'Save failed: ' + (err.message || err); status.className = 'settings-status error'; }
+      } finally {
+        saveProfileBtn.disabled = false;
+      }
+    });
+  }
+  loadProfile();
+
   loadSettings();
