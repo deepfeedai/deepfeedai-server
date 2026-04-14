@@ -19,6 +19,12 @@ const db: any = require('../../../db');
 const messaging: any = require('../../messaging');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const writerMemory: any = require('../../writer-memory');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const featureRegistry: any = require('../../feature-registry');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const research: any = require('../../research');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const presence: any = require('../../presence');
 
 /** Context passed to every tool via closure — NEVER via LLM args. */
 export interface ToolContext {
@@ -45,9 +51,16 @@ export function buildTools(ctx: ToolContext) {
     buildCheckRecentColleagueWork(ctx),
   ];
 
-  // Writers and above can write memory
+  // Writers and above can write memory + pitch counter-angles + research the web
   if (['writer', 'editor', 'analyst'].includes(ctx.writerRole)) {
     baseTools.push(buildUpdateWriterMemory(ctx));
+    baseTools.push(buildProposeAngle(ctx));
+    baseTools.push(buildEnrichSources(ctx));
+  }
+
+  // Editors can additionally ingest external research as curated articles
+  if (ctx.writerRole === 'editor') {
+    baseTools.push(buildIngestExternalAsCurated(ctx));
   }
 
   // Editors get publish tools (placeholder — wires into existing publish pipeline in a later PR)
@@ -358,6 +371,237 @@ function buildUpdateWriterMemory(ctx: ToolContext) {
         subject: z.string().min(3).max(200).describe('Short subject line for this memory.'),
         content: z.string().min(5).max(2000).describe('The memory content itself.'),
         threadId: z.string().optional().describe('Optional thread id to link related memories.'),
+      }),
+    },
+  );
+}
+
+function buildProposeAngle(ctx: ToolContext) {
+  return tool(
+    async ({ sourceArticleId, angleSummary }: { sourceArticleId: number; angleSummary: string }) => {
+      // Feature gate — silently no-op when pitches aren't enabled, so persona
+      // nudges that mention this tool don't trigger errors on tenants that
+      // haven't opted in yet.
+      const enabled = await featureRegistry.isFeatureEnabled(ctx.tenantId, 'article_pitches').catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({
+          status: 'tool_unavailable',
+          message: 'Counter-angle pitches are not enabled for this newsroom. Tell the user this is something the editor would need to turn on.',
+        });
+      }
+      if (!sourceArticleId || !angleSummary || angleSummary.trim().length < 10) {
+        return JSON.stringify({ status: 'error', message: 'sourceArticleId and a substantive angleSummary (10+ chars) are required.' });
+      }
+      // Verify source belongs to this tenant
+      const source = await db.prepare(
+        'SELECT id, COALESCE(generated_title, title) AS title, content_type, writer_id FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(sourceArticleId, ctx.tenantId);
+      if (!source) {
+        return JSON.stringify({ status: 'error', message: `Article ${sourceArticleId} not found in this newsroom.` });
+      }
+      // Curated articles are the intended pitch target. Pitching against another
+      // writer's original is allowed but unusual — surface it without blocking.
+      const isOwnSource = source.writer_id === ctx.writerId;
+
+      // Don't allow duplicate open pitches from the same writer on the same source
+      const existing = await db.prepare(`
+        SELECT id FROM article_pitches
+        WHERE tenant_id = $1 AND source_article_id = $2 AND pitched_by_writer_id = $3 AND status = 'proposed'
+      `).get(ctx.tenantId, sourceArticleId, ctx.writerId);
+      if (existing) {
+        return JSON.stringify({
+          status: 'duplicate',
+          message: `You already have an open pitch on \"${source.title}\" awaiting editor review.`,
+          pitch_id: existing.id,
+        });
+      }
+
+      const row = await db.prepare(`
+        INSERT INTO article_pitches
+          (tenant_id, source_article_id, pitched_by_writer_id, angle_summary, status)
+        VALUES ($1, $2, $3, $4, 'proposed')
+        RETURNING id
+      `).get(ctx.tenantId, sourceArticleId, ctx.writerId, angleSummary.trim().slice(0, 2000));
+
+      return JSON.stringify({
+        status: 'ok',
+        pitch_id: row.id,
+        source_title: source.title,
+        is_own_source: isOwnSource,
+        message: `Pitch submitted on \"${source.title}\". Editor will review and approve or reject.`,
+      });
+    },
+    {
+      name: 'proposeAngle',
+      description:
+        'Propose a counter-angle on a source article that another writer leads (or to add a second take on your own source). ' +
+        'Use when you spot a story your beat would cover differently — e.g., Marcus owns a security breach but you see the regulatory angle. ' +
+        'Submits a pitch to the editor; nothing publishes automatically. Status values: ok | duplicate | tool_unavailable | error. ' +
+        'Use sparingly — one strong pitch beats five weak ones.',
+      schema: z.object({
+        sourceArticleId: z.number().int().describe('Article id of the curated source you want to pitch against (from searchArticles, listArticlesInBeat, or fetchArticle results).'),
+        angleSummary: z.string().min(10).max(2000).describe('1–3 sentences describing your specific angle and why it matters.'),
+      }),
+    },
+  );
+}
+
+function buildEnrichSources(ctx: ToolContext) {
+  return tool(
+    async ({ topic, sources, count }: { topic: string; sources?: string[]; count?: number }) => {
+      const enabled = await featureRegistry.isFeatureEnabled(ctx.tenantId, 'agent_web_research').catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({
+          status: 'tool_unavailable',
+          message: 'Web research is not enabled for this newsroom. Tell the user the editor would need to turn it on.',
+        });
+      }
+      if (!topic || topic.trim().length < 4) {
+        return JSON.stringify({ status: 'error', message: 'Topic must be at least 4 characters.' });
+      }
+      presence.setPresence(ctx.writerId, ctx.tenantId, 'researching').catch(() => {});
+      const r = await research.searchAll(ctx.tenantId, topic, {
+        sources: Array.isArray(sources) ? sources : undefined,
+        count: count || 8,
+      });
+      if (r.errors.some((e: any) => e.reason === 'daily_cap_reached')) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily search quota reached (${r.quota_used}/${r.quota_cap}). Tell the user research is rate-limited until tomorrow.`,
+        });
+      }
+      if (!r.results.length) {
+        return JSON.stringify({
+          status: 'no_results',
+          message: `No external coverage found for "${topic}". Errors: ${JSON.stringify(r.errors)}`,
+          results: [],
+        });
+      }
+      return JSON.stringify({
+        status: 'ok',
+        topic,
+        quota: { used: r.quota_used, cap: r.quota_cap },
+        results: r.results.slice(0, count || 8).map((x: any) => ({
+          source: x.source,
+          url: x.url,
+          title: x.title,
+          publisher: x.publisher,
+          published: x.published,
+          score: x.score,
+          comments: x.comments,
+          snippet: truncate(x.snippet || ''),
+        })),
+      });
+    },
+    {
+      name: 'enrichSources',
+      description:
+        'Search the external web (Brave news + Hacker News + Reddit) for fresh coverage of a topic. ' +
+        'Use when the user asks about a topic the newsroom hasn\'t covered, or when you need more sources to back up a story. ' +
+        'Returns RANKED CANDIDATES — does NOT publish or ingest anything. To ingest selected results as curated articles, the editor must explicitly call ingestExternalAsCurated (separate tool, may not be available to you). ' +
+        'Always tag results as external when discussing them — never blur with newsroom-curated material. ' +
+        'Status: ok | no_results | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        topic: z.string().min(4).describe('Topic to research, in natural language.'),
+        sources: z.array(z.enum(['brave', 'hackernews', 'reddit'])).optional().describe('Subset of backends. Default: all three.'),
+        count: z.number().int().min(1).max(15).optional().describe('Max combined results to return (default 8).'),
+      }),
+    },
+  );
+}
+
+function buildIngestExternalAsCurated(ctx: ToolContext) {
+  return tool(
+    async ({ results, pitchId }: { results: any[]; pitchId?: number }) => {
+      const enabled = await featureRegistry.isFeatureEnabled(ctx.tenantId, 'agent_web_research').catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Web research is not enabled.' });
+      }
+      if (!Array.isArray(results) || !results.length) {
+        return JSON.stringify({ status: 'error', message: 'results must be a non-empty array of search-result objects.' });
+      }
+
+      const { toSlug } = require('../../utils');
+      const { detectCategory } = require('../../categorize');
+      const { generateEmbedding, isPgvectorAvailable } = require('../../embeddings');
+      const pgvector = await isPgvectorAvailable().catch(() => false);
+
+      // Reuse cap logic by reading feature
+      const feats = await featureRegistry.getAllFeatures(ctx.tenantId);
+      const cap = parseInt(feats.external_research_daily_cap, 10) || 50;
+      const usedRow = await db.prepare(`
+        SELECT COUNT(*)::int AS cnt FROM articles
+        WHERE tenant_id = $1 AND ingest_source = 'enrichment'
+          AND created_at > NOW() - INTERVAL '24 hours'
+      `).get(ctx.tenantId);
+      const used = usedRow?.cnt || 0;
+      const remaining = Math.max(0, cap - used);
+      if (remaining <= 0) {
+        return JSON.stringify({ status: 'quota_exceeded', message: `Daily ingest cap reached (${used}/${cap}).` });
+      }
+
+      const ingested: any[] = [];
+      const skipped: any[] = [];
+      for (const item of results.slice(0, remaining)) {
+        if (!item.url || !item.title) { skipped.push({ url: item.url, reason: 'missing url or title' }); continue; }
+        const dup = await db.prepare(
+          'SELECT id FROM articles WHERE tenant_id = $1 AND source_url = $2 LIMIT 1'
+        ).get(ctx.tenantId, item.url);
+        if (dup) { skipped.push({ url: item.url, reason: 'duplicate', existing_id: dup.id }); continue; }
+
+        const title = String(item.title).slice(0, 500);
+        const summary = String(item.snippet || '').slice(0, 1000);
+        const publisher = String(item.publisher || item.source || 'Unknown').slice(0, 200);
+        const slug = toSlug(title) || `enrich-${Date.now()}`;
+        let category = 'General';
+        try { category = await detectCategory({ title, contentSnippet: summary }, { tenantId: ctx.tenantId }) || 'General'; } catch {}
+
+        const inserted = await db.prepare(`
+          INSERT INTO articles
+            (tenant_id, title, slug, summary, source, source_url, category, content_type, ingest_source, is_published, status, published_at, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'curated', 'enrichment', 1, 'published', NOW(), NOW(), NOW())
+          RETURNING id
+        `).get(ctx.tenantId, title, slug, summary, publisher, item.url, category);
+
+        if (inserted) {
+          ingested.push({ id: inserted.id, title, url: item.url });
+          if (pgvector) {
+            generateEmbedding(ctx.tenantId, `${title}\n\n${summary}`)
+              .then((v: number[]) => db.prepare('UPDATE articles SET embedding = $1::vector WHERE id = $2 AND tenant_id = $3')
+                .run(JSON.stringify(v), inserted.id, ctx.tenantId))
+              .catch(() => {});
+          }
+        }
+      }
+
+      if (pitchId && ingested.length) {
+        try {
+          await db.prepare(`
+            UPDATE article_pitches
+            SET decision_note = COALESCE(decision_note, '') || E'\\n[enrichment]: attached articles ' || $1
+            WHERE id = $2 AND tenant_id = $3
+          `).run(ingested.map((i: any) => i.id).join(','), pitchId, ctx.tenantId);
+        } catch { /* non-fatal */ }
+      }
+
+      return JSON.stringify({
+        status: 'ok',
+        ingested,
+        skipped,
+        daily_cap: cap,
+        daily_used: used + ingested.length,
+      });
+    },
+    {
+      name: 'ingestExternalAsCurated',
+      description:
+        'Editor-only. Ingest selected external search results (from enrichSources) as curated articles in the newsroom. ' +
+        'Use AFTER calling enrichSources and reviewing the candidates — pass the chosen result objects in. ' +
+        'Optionally attach to a pitch via pitchId so they show up in synthesis context. ' +
+        'Returns ingested[] (new article ids) and skipped[] (duplicates / invalid). Status: ok | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        results: z.array(z.any()).min(1).describe('Array of result objects from enrichSources (must include url + title at minimum).'),
+        pitchId: z.number().int().optional().describe('Optional: attach ingested articles to this pitch.'),
       }),
     },
   );

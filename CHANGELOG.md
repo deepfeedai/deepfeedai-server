@@ -4,6 +4,55 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.9.0] — 2026-04-16
+
+Major release. Three multi-phase initiatives shipped together: hybrid newsroom counter-angle pitches, on-demand external research, and the social-newsroom editor's workspace.
+
+### Added — Hybrid Newsroom Phase B (counter-angle pitches)
+
+- `article_pitches` table + feature flags `article_pitches` (boolean) and `max_originals_per_source` (numeric, default 2 — soft cap, editor override per pitch) (#441)
+- REST endpoints: `POST/GET /api/pitches`, `POST /api/pitches/:id/approve`, `POST /api/pitches/:id/reject` with audit logging and override-required cap enforcement (#442)
+- Writer-agent tool `proposeAngle(sourceArticleId, angleSummary)` for autonomous pitch submission, with dedupe + own-source detection (#443)
+- `synthesizeFromPitch(pitchId)` synthesis fork — clusters around source via embedding similarity in writer's beats, generates an original under the pitching writer; `synthesis_meta.from_pitch` for provenance. Auto-triggers on approve via `setImmediate` (#444)
+- Pitches tab on `/editorial` with override modal requiring justification when over cap (#445)
+- Chat commands: `/pitch <id-or-url> -- <angle>` (writer) and `/tip <topic>` (editor) with backward-compat preserved on bare `/pitch` (#446)
+
+### Added — External Research Phase 1 (web search + on-demand ingest)
+
+- `articles.ingest_source` column (`rss` | `live` | `manual` | `enrichment`) for provenance filtering (#447)
+- Feature flags: `agent_web_research` (boolean), `external_search_daily_cap` (200), `external_research_daily_cap` (50)
+- `lib/research/` — Brave news + Hacker News (Algolia) + Reddit (public JSON) backends with normalized result shape, per-tenant quota, 12h response cache (#448)
+- Writer/editor agent tool `enrichSources(topic, sources?, count?)` returning ranked candidates with publisher, score, snippet, age (#448)
+- REST: `POST /api/research/search`, `POST /api/research/ingest` (dedupes by `source_url`, embeds, attaches to optional `pitch_id`) (#449)
+- Editor-only agent tool `ingestExternalAsCurated(results, pitchId?)` (#449)
+- `/tip <topic>` falls back to external research when no internal source matches — auto-ingests top 3 candidates and creates a pitch on the strongest (#450)
+- "Enrich sources" button on Pitches tab opens search modal, editor checkboxes results to ingest, attaches to pitch (#451)
+
+### Added — Social Newsroom (Editor's Workspace, 4 phases)
+
+- **Phase 1** — In-admin per-writer chat (`/newsroom-chat.html` + `/api/newsroom-chat`) routed through the existing `messaging.handleIncoming` so single-shot vs LangGraph + all slash commands work identically. Feature flag `editor_workspace` (#452)
+- **Phase 2** — Activity feed (`/newsroom-activity.html` + `/api/newsroom-feed`) with chronological cards for `published` / `pitched` / `pitch_approved` / `pitch_rejected` / `enriched` events. New `newsroom_events` table; fire-and-forget `recordEvent()` helper called from publish + pitch + research hooks (#453)
+- **Phase 3** — Reactions (🔥💡🚩👀, toggle behavior, unique per actor+emoji) and threaded replies on feed cards. New tables `newsroom_reactions` + `newsroom_replies`. Feature flag `newsroom_social` (#454)
+- **Phase 4a** — Agent presence (`writers.presence_state`: idle / chatting / drafting / researching / waiting-on-editor) with state TTLs auto-reset by a 5-min cron sweep. UI dot indicators on chat roster (#456)
+- **Phase 4b** — `@mentions` in feed replies dispatch to the named writer's agent via `messaging.handleIncoming` with contextKey `feed:<eventId>`. Agent reply posts back as a threaded reply attributed to the writer. Loop-guarded (agent replies don't re-trigger) and per-event capped at 5 autonomous agent replies (#457)
+
+### Fixed
+
+- `users` table join used non-existent `u.name` column — corrected to `u.username` in `/api/newsroom-feed/.../replies` and `/api/pitches` queries (#455)
+
+### Migration / rollout notes
+
+- All new tables use `CREATE TABLE IF NOT EXISTS`; new columns use `ADD COLUMN IF NOT EXISTS` — no manual migrations
+- All new behavior is feature-flagged off by default; tenants opt in via:
+  - `article_pitches` (Phase B)
+  - `agent_web_research` (External Research)
+  - `editor_workspace` (Social Newsroom Phases 1+2)
+  - `newsroom_social` (Social Newsroom Phases 3+4 — requires editor_workspace)
+- New cron job `presence-sweep` runs every 5 minutes per tenant
+- Existing routes/UI unaffected when flags are off
+
+---
+
 ## [4.8.2] — 2026-04-16
 
 ### Added — Hybrid newsroom Phase A + agent tools

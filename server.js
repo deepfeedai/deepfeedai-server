@@ -332,6 +332,10 @@ app.use('/api/media/file', (req, res, next) => {
 app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
+app.use('/api/pitches',   require('./routes/pitches'));
+app.use('/api/research',  require('./routes/research'));
+app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
+app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
 app.use('/api/sources',   require('./routes/sources'));
 app.use('/api/article',   publicApiLimiter, require('./routes/article'));    // public — single article by slug
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
@@ -1006,6 +1010,17 @@ registerJob({
       [tenantId, RETENTION_DAYS]
     );
     return { deleted, retentionDays: RETENTION_DAYS };
+  },
+});
+
+registerJob({
+  name: 'presence-sweep',
+  description: 'Reset stale agent presence states to idle',
+  category: 'Maintenance',
+  defaultSchedule: '*/5 * * * *',
+  handler: async (tenantId) => {
+    await require('./lib/presence').clearStale(tenantId);
+    return { ok: true };
   },
 });
 

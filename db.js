@@ -1153,6 +1153,10 @@ async function initDb() {
     // Note: CREATE EXTENSION may require superuser — Neon supports it natively
     `DO $$ BEGIN CREATE EXTENSION IF NOT EXISTS vector; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pgvector extension not available — semantic search disabled'; END $$`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding vector(768)`,
+    // External research Phase 1 — provenance for how a curated article entered the system.
+    // Values: 'rss' (default, scheduled feed ingest) | 'live' (live news APIs) | 'manual' (admin add) | 'enrichment' (Brave/HN/Reddit on-demand ingest)
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ingest_source TEXT DEFAULT 'rss'`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_ingest_source ON articles(tenant_id, ingest_source, created_at DESC)`,
     // HNSW index: better cold-start behavior than IVFFlat, no minimum row requirement
     `DO $$ BEGIN
        IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
@@ -1206,6 +1210,75 @@ async function initDb() {
       UNIQUE(tenant_id, platform, platform_user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_chat_user_profiles_lookup ON chat_user_profiles(tenant_id, platform, platform_user_id)`,
+    // Hybrid newsroom Phase B — pitches + editor-initiated research requests.
+    // Either pitched_by_writer_id (writer-initiated) or requested_by_editor_id
+    // (editor tip) is populated. Status lifecycle: proposed → approved | rejected;
+    // approved pitches eventually publish and populate spawned_article_id.
+    `CREATE TABLE IF NOT EXISTS article_pitches (
+      id                      SERIAL PRIMARY KEY,
+      tenant_id               INTEGER NOT NULL,
+      source_article_id       INTEGER NOT NULL,
+      pitched_by_writer_id    INTEGER,
+      requested_by_editor_id  INTEGER,
+      angle_summary           TEXT NOT NULL,
+      status                  TEXT NOT NULL DEFAULT 'proposed',
+      decided_by_user_id      INTEGER,
+      decided_at              TIMESTAMPTZ,
+      decision_note           TEXT,
+      spawned_article_id      INTEGER,
+      created_at              TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_tenant_status ON article_pitches(tenant_id, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_source ON article_pitches(source_article_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_writer ON article_pitches(pitched_by_writer_id) WHERE pitched_by_writer_id IS NOT NULL`,
+    // Social newsroom Phase 2 — activity feed events
+    // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
+    // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
+    `CREATE TABLE IF NOT EXISTS newsroom_events (
+      id                   SERIAL PRIMARY KEY,
+      tenant_id            INTEGER NOT NULL,
+      event_type           TEXT NOT NULL,
+      actor_writer_id      INTEGER,
+      actor_user_id        INTEGER,
+      target_article_id    INTEGER,
+      target_pitch_id      INTEGER,
+      payload              JSONB DEFAULT '{}',
+      created_at           TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_tenant_time ON newsroom_events(tenant_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
+    // Social newsroom Phase 3 — reactions + threading on feed cards.
+    // Reactions: signal-bearing emoji (🔥💡🚩👀). Unique per (event, actor, emoji)
+    // so an actor can't double-react with the same emoji but can use multiple.
+    `CREATE TABLE IF NOT EXISTS newsroom_reactions (
+      id              SERIAL PRIMARY KEY,
+      tenant_id       INTEGER NOT NULL,
+      event_id        INTEGER NOT NULL,
+      actor_writer_id INTEGER,
+      actor_user_id   INTEGER,
+      emoji           TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_reactions_event ON newsroom_reactions(event_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_newsroom_reactions_unique
+       ON newsroom_reactions(event_id, COALESCE(actor_writer_id, 0), COALESCE(actor_user_id, 0), emoji)`,
+    // Replies: threaded under each event card. Self-referential parent_reply_id allows nested replies.
+    `CREATE TABLE IF NOT EXISTS newsroom_replies (
+      id                SERIAL PRIMARY KEY,
+      tenant_id         INTEGER NOT NULL,
+      event_id          INTEGER NOT NULL,
+      parent_reply_id   INTEGER,
+      author_writer_id  INTEGER,
+      author_user_id    INTEGER,
+      content           TEXT NOT NULL,
+      created_at        TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_replies_event ON newsroom_replies(event_id, created_at ASC)`,
+    // Social newsroom Phase 4 — agent presence indicators.
+    // States: idle | chatting | drafting | researching | waiting-on-editor
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_state TEXT DEFAULT 'idle'`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS presence_updated_at TIMESTAMPTZ`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
