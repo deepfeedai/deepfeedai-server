@@ -1075,6 +1075,10 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_writer_memory_lookup ON writer_memory(writer_id, tenant_id, memory_type)`,
     // Writer personality enhancements
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS signature_phrases TEXT[]`,
+    // Newsroom chat personality (2026-04): per-writer accent color for chat bubbles
+    // and username highlight. Nullable — falls back to a deterministic hash of writer.id
+    // into a fixed palette (see lib/writer-colors.js).
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS accent_color TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS contrarian_level NUMERIC(2,1) DEFAULT 0.5`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS chat_prompt TEXT`,
