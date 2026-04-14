@@ -295,19 +295,15 @@
             <div id="imagenKeyStatus" class="settings-status"></div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Image Generation Model</label>
-            <select class="form-control input-wide" id="imagenModel">
-              <option value="imagen-4.0-generate-001">imagen-4.0-generate-001 (Standard)</option>
-              <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001 (Ultra)</option>
-              <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001 (Fast)</option>
-            </select>
-            <p class="form-help">
-              Select the Imagen model for AI thumbnail generation. Ultra produces the highest quality. Fast is cheaper and quicker.
-            </p>
-          </div>
+          <!-- Hidden: image model now configured via Image Provider card below.
+               Element kept so legacy save handler continues to work. -->
+          <select id="imagenModel" hidden>
+            <option value="imagen-4.0-generate-001">imagen-4.0-generate-001</option>
+            <option value="imagen-4.0-ultra-generate-001">imagen-4.0-ultra-generate-001</option>
+            <option value="imagen-4.0-fast-generate-001">imagen-4.0-fast-generate-001</option>
+          </select>
 
-          <button class="btn btn-primary" id="saveImagenBtn">Save Gemini Settings</button>
+          <button class="btn btn-primary" id="saveImagenBtn">Save Gemini API Key</button>
         </div>
 
         <!-- Image Provider (unified) card -->

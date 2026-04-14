@@ -281,18 +281,37 @@ let apiKeyVisible = false;
       opt.textContent = m.label;
       selectEl.appendChild(opt);
     }
-    selectEl.value = currentValue && (models.some(m => m.id === currentValue) || allowEmpty && currentValue === '') ? currentValue : (allowEmpty ? '' : (models[0]?.id || ''));
+    // Pick the selected value:
+    //   - currentValue if it matches a known model
+    //   - otherwise: empty string when allowEmpty, else first model
+    let nextValue;
+    if (currentValue && models.some(m => m.id === currentValue)) {
+      nextValue = currentValue;
+    } else if (allowEmpty) {
+      nextValue = '';
+    } else {
+      nextValue = models[0] ? models[0].id : '';
+    }
+    selectEl.value = nextValue;
     selectEl.disabled = !provider;
   }
 
   function loadImageProviderSettings(settings) {
     let cfg = {};
-    try { cfg = settings.image_provider_config ? JSON.parse(settings.image_provider_config) : {}; } catch { cfg = {}; }
+    try {
+      const raw = settings.image_provider_config;
+      cfg = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {};
+    } catch { cfg = {}; }
+
+    // Fall back to legacy imagen_model setting when no new config exists yet
+    const legacyImagenModel = cfg.default?.model ? null : (settings.imagen_model || null);
 
     const defaultProvider = cfg.default?.provider || 'imagen';
-    const defaultModel    = cfg.default?.model    || '';
-    document.getElementById('imgDefaultProvider').value = defaultProvider;
-    populateImgModelDropdown(document.getElementById('imgDefaultModel'), defaultProvider, defaultModel, false);
+    const defaultModel    = cfg.default?.model || legacyImagenModel || '';
+    const defaultEl = document.getElementById('imgDefaultProvider');
+    const defaultModelEl = document.getElementById('imgDefaultModel');
+    defaultEl.value = defaultProvider;
+    populateImgModelDropdown(defaultModelEl, defaultProvider, defaultModel, false);
 
     for (const op of ['thumbnail-render', 'inline-image']) {
       const opCfg = cfg.operations?.[op] || {};
