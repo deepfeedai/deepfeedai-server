@@ -14,7 +14,6 @@
   let dateFilter = 'all';
   let statusFilter = 'all';
   let scoreFilter = 'all';
-  let beatFilter = 'all';
   let activeTab = 'all';
   let page = 1;
   let pageSize = 50;
@@ -119,9 +118,6 @@
       });
     }
 
-    // Beat assignment
-    if (beatFilter === 'assigned')   filtered = filtered.filter(a => a.writer_id != null);
-    else if (beatFilter === 'unassigned') filtered = filtered.filter(a => a.writer_id == null);
 
     // Sort
     filtered.sort((a, b) => {
@@ -142,7 +138,7 @@
 
     // Filter count indicator
     const countEl = document.getElementById('filterCount');
-    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all' || beatFilter !== 'all';
+    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all';
     if (countEl) {
       countEl.textContent = anyFilter ? `${filtered.length} of ${allArticles.length}` : `${filtered.length} articles`;
       countEl.classList.toggle('filter-count-active', anyFilter);
@@ -413,10 +409,6 @@
     scoreFilter = e.target.value;
     applyFilters();
   });
-  document.getElementById('beatFilter')?.addEventListener('change', e => {
-    beatFilter = e.target.value;
-    applyFilters();
-  });
 
   // Select all
   document.getElementById('selectAll')?.addEventListener('change', e => {
@@ -572,6 +564,9 @@
     if (!requireAuth()) return;
     renderSidebar();
     initModals();
+    if (typeof loadCategories === 'function') {
+      try { await loadCategories(); } catch { /* best-effort */ }
+    }
     loadArticles();
   });
 })();
