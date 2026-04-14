@@ -128,9 +128,31 @@ router.get('/:eventId/replies', auth, requirePermission('articles.read'), requir
   res.json({ replies: rows });
 }));
 
-// POST /api/newsroom-feed/:eventId/replies — body: { content, parent_reply_id? }
+// Per-event cap on autonomous agent replies — guards against ping-pong loops + budget burn
+const MAX_AGENT_REPLIES_PER_EVENT = 5;
+
+// Parse @<slug-or-name> mentions from reply text. Matches both slug-style
+// (@marcus, @marcus-cole) and word-boundary names. Case-insensitive lookup
+// against writers in this tenant. Returns deduped writer rows.
+async function _parseMentions(text, tenantId, excludeWriterId) {
+  const handles = new Set();
+  const re = /@([A-Za-z][A-Za-z0-9_-]{1,40})/g;
+  let m;
+  while ((m = re.exec(text)) !== null) handles.add(m[1].toLowerCase());
+  if (!handles.size) return [];
+  const arr = Array.from(handles);
+  const writers = await db.prepare(`
+    SELECT id, name, slug FROM writers
+    WHERE tenant_id = $1
+      AND (LOWER(slug) = ANY($2::text[]) OR LOWER(REPLACE(name, ' ', '')) = ANY($2::text[]) OR LOWER(SPLIT_PART(name, ' ', 1)) = ANY($2::text[]))
+  `).all(tenantId, arr);
+  // Don't dispatch to a writer mentioned by themselves (loop guard)
+  return writers.filter(w => w.id !== excludeWriterId);
+}
+
+// POST /api/newsroom-feed/:eventId/replies — body: { content, parent_reply_id?, author_writer_id? }
 router.post('/:eventId/replies', auth, requirePermission('articles.read'), requireWorkspaceEnabled, requireSocialEnabled, asyncHandler(async (req, res) => {
-  const { content, parent_reply_id } = req.body || {};
+  const { content, parent_reply_id, author_writer_id } = req.body || {};
   if (!content || content.trim().length < 1) return res.status(400).json({ error: 'content required' });
   if (content.length > 4000) return res.status(400).json({ error: 'content too long (max 4000)' });
   const eventId = parseInt(req.params.eventId, 10);
@@ -138,9 +160,48 @@ router.post('/:eventId/replies', auth, requirePermission('articles.read'), requi
   if (!event) return res.status(404).json({ error: 'Event not found' });
 
   const row = await db.prepare(`
-    INSERT INTO newsroom_replies (tenant_id, event_id, parent_reply_id, author_user_id, content)
-    VALUES ($1, $2, $3, $4, $5) RETURNING *
-  `).get(req.tenantId, eventId, parent_reply_id || null, req.user?.sub || null, content.trim());
+    INSERT INTO newsroom_replies (tenant_id, event_id, parent_reply_id, author_writer_id, author_user_id, content)
+    VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+  `).get(
+    req.tenantId, eventId, parent_reply_id || null,
+    author_writer_id || null,
+    author_writer_id ? null : (req.user?.sub || null),
+    content.trim()
+  );
+
+  // Fan out to mentioned writer agents in the background (loop guard: don't
+  // re-dispatch when the reply itself was authored by an agent)
+  if (!author_writer_id) {
+    const mentioned = await _parseMentions(content, req.tenantId, null);
+    if (mentioned.length) {
+      // Cap the number of autonomous agent replies per event lifetime
+      const cnt = await db.prepare(
+        `SELECT COUNT(*)::int AS n FROM newsroom_replies WHERE tenant_id = $1 AND event_id = $2 AND author_writer_id IS NOT NULL`
+      ).get(req.tenantId, eventId);
+      const slotsLeft = Math.max(0, MAX_AGENT_REPLIES_PER_EVENT - (cnt?.n || 0));
+      const targets = mentioned.slice(0, slotsLeft);
+
+      const messaging = require('../lib/messaging');
+      for (const w of targets) {
+        setImmediate(async () => {
+          try {
+            const stripped = content.replace(new RegExp('@' + w.slug + '\\b', 'gi'), '').trim();
+            const ctxKey = `feed:${eventId}`;
+            const meta = { platform: 'feed', userId: String(req.user?.sub || 'editor'), userName: req.user?.username || 'editor' };
+            const resp = await messaging.handleIncoming(req.tenantId, w.id, stripped || content, ctxKey, meta);
+            const text = typeof resp === 'string' ? resp : (resp?.text || '');
+            if (!text) return;
+            await db.prepare(`
+              INSERT INTO newsroom_replies (tenant_id, event_id, parent_reply_id, author_writer_id, content)
+              VALUES ($1, $2, $3, $4, $5)
+            `).run(req.tenantId, eventId, row.id, w.id, text.slice(0, 4000));
+          } catch (err) {
+            console.warn('[newsroom-feed] mention dispatch failed for writer', w.id, err.message);
+          }
+        });
+      }
+    }
+  }
 
   res.status(201).json(row);
 }));
