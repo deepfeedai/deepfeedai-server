@@ -49,8 +49,57 @@
       </div>
 
       <div id="pitchesPanel" style="display:none;">
+        <div style="margin-bottom:12px;">
+          <button class="btn btn-primary btn-sm" id="newPitchBtn">+ New pitch</button>
+        </div>
         <div class="review-grid" id="pitchesGrid">
           <div class="review-empty">Loading pitches...</div>
+        </div>
+      </div>
+
+      <!-- New pitch modal -->
+      <div class="modal-overlay" id="newPitchModal">
+        <div class="modal" style="max-width:560px;">
+          <div class="modal-header">
+            <div class="modal-title">New pitch</div>
+            <button class="modal-close" data-close-modal>✕</button>
+          </div>
+          <div class="modal-body">
+            <label style="display:block;margin-bottom:10px;font-size:13px;">Source (id or URL):
+              <input id="newPitchSource" type="text" placeholder="1234 or https://yoursite.com/article/..." style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
+            </label>
+            <label style="display:block;margin-bottom:10px;font-size:13px;">Writer:
+              <select id="newPitchWriter" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;">
+                <option value="">— Editor tip (assign later) —</option>
+              </select>
+            </label>
+            <label style="display:block;font-size:13px;">Angle (10+ chars):
+              <textarea id="newPitchAngle" rows="3" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
+            </label>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" data-close-modal>Cancel</button>
+            <button class="btn btn-primary" id="submitNewPitchBtn">Submit pitch</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reassign writer modal -->
+      <div class="modal-overlay" id="reassignModal">
+        <div class="modal modal-sm">
+          <div class="modal-header">
+            <div class="modal-title">Assign writer</div>
+            <button class="modal-close" data-close-modal>✕</button>
+          </div>
+          <div class="modal-body">
+            <label style="display:block;font-size:13px;">Pick a writer:
+              <select id="reassignWriter" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></select>
+            </label>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" data-close-modal>Cancel</button>
+            <button class="btn btn-primary" id="confirmReassignBtn">Assign</button>
+          </div>
         </div>
       </div>
     </div>

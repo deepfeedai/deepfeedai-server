@@ -18,6 +18,8 @@
     wireTabs();
     wireOverrideModal();
     wireEnrichModal();
+    wireNewPitch();
+    wireReassign();
     await loadReviewQueue();
     // Best-effort load — pitches feature may be disabled (404) and that's fine
     loadPitches().catch(function () {
@@ -125,6 +127,99 @@
     });
   }
 
+  // ── New pitch + reassign ──────────────────────────────────
+  var writersList = [];
+  var reassignPitchId = null;
+
+  async function loadWritersList() {
+    if (writersList.length) return writersList;
+    try {
+      var data = await apiFetch('/writers');
+      writersList = Array.isArray(data) ? data : (data.writers || []);
+    } catch { writersList = []; }
+    return writersList;
+  }
+
+  function fillWriterSelect(sel, includeBlank) {
+    sel.innerHTML = (includeBlank ? '<option value="">— Editor tip (use /tip in chat) —</option>' : '')
+      + writersList.map(function (w) {
+        return '<option value="' + w.id + '">' + esc(w.name) + (w.beat ? ' (' + esc(w.beat) + ')' : '') + '</option>';
+      }).join('');
+  }
+
+  function wireNewPitch() {
+    document.getElementById('newPitchBtn').addEventListener('click', async function () {
+      await loadWritersList();
+      fillWriterSelect(document.getElementById('newPitchWriter'), false);
+      document.getElementById('newPitchSource').value = '';
+      document.getElementById('newPitchAngle').value = '';
+      openModal('newPitchModal');
+    });
+
+    document.getElementById('submitNewPitchBtn').addEventListener('click', async function () {
+      var sourceRef = document.getElementById('newPitchSource').value.trim();
+      var writerId = parseInt(document.getElementById('newPitchWriter').value, 10);
+      var angle = document.getElementById('newPitchAngle').value.trim();
+      if (!sourceRef) { alert('Source required.'); return; }
+      if (!writerId) { alert('Writer required (use /tip chat command for unassigned editor tips).'); return; }
+      if (angle.length < 10) { alert('Angle must be 10+ chars.'); return; }
+
+      // Resolve source: numeric id or slug from URL
+      var sourceId = parseInt(sourceRef, 10);
+      if (!sourceId) {
+        var slugMatch = sourceRef.match(/\/article\/([a-z0-9-]+)/i);
+        var slug = slugMatch ? slugMatch[1] : sourceRef.replace(/^https?:\/\/[^/]+\//, '');
+        try {
+          var prev = await apiFetch('/articles/preview-by-slug?slug=' + encodeURIComponent(slug));
+          sourceId = prev.article && prev.article.id;
+        } catch (err) {
+          alert('Could not find article for "' + sourceRef + '"'); return;
+        }
+      }
+      if (!sourceId) { alert('Could not resolve source.'); return; }
+
+      var btn = this; btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        await apiFetch('/pitches', {
+          method: 'POST',
+          body: JSON.stringify({ source_article_id: sourceId, pitched_by_writer_id: writerId, angle_summary: angle }),
+        });
+        closeModal('newPitchModal');
+        await loadPitches();
+      } catch (err) {
+        alert('Pitch failed: ' + (err.message || err));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Submit pitch';
+      }
+    });
+  }
+
+  window.openReassign = async function (pitchId) {
+    reassignPitchId = pitchId;
+    await loadWritersList();
+    fillWriterSelect(document.getElementById('reassignWriter'), false);
+    openModal('reassignModal');
+  };
+
+  function wireReassign() {
+    document.getElementById('confirmReassignBtn').addEventListener('click', async function () {
+      var writerId = parseInt(document.getElementById('reassignWriter').value, 10);
+      if (!writerId || !reassignPitchId) return;
+      var btn = this; btn.disabled = true; btn.textContent = 'Assigning…';
+      try {
+        await apiFetch('/pitches/' + reassignPitchId + '/assign', {
+          method: 'PATCH', body: JSON.stringify({ writer_id: writerId }),
+        });
+        closeModal('reassignModal');
+        await loadPitches();
+      } catch (err) {
+        alert('Assign failed: ' + (err.message || err));
+      } finally {
+        btn.disabled = false; btn.textContent = 'Assign';
+      }
+    });
+  }
+
   function wireOverrideModal() {
     document.getElementById('confirmOverrideBtn').addEventListener('click', async function () {
       if (!pendingOverride) return;
@@ -204,6 +299,9 @@
       html += '<button class="btn btn-primary btn-sm" onclick="approvePitch(' + p.id + ')">Approve</button>';
       html += '<button class="btn btn-outline btn-sm" onclick="rejectPitch(' + p.id + ')">Reject</button>';
       html += '<button class="btn btn-ghost btn-sm" onclick="openEnrich(' + p.id + ', ' + JSON.stringify(p.source_title || '').replace(/"/g, '&quot;') + ')">Enrich sources</button>';
+      if (!p.pitched_by_writer_id) {
+        html += '<button class="btn btn-ghost btn-sm" onclick="openReassign(' + p.id + ')">Assign writer</button>';
+      }
       html += '</div>';
       html += '</div>';
       return html;
