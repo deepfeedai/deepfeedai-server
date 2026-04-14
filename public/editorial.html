@@ -36,9 +36,42 @@
       <div class="topbar-title">Editorial Review</div>
     </div>
     <div class="page-content" style="max-width:900px;">
-      <div class="review-stats" id="reviewStats"></div>
-      <div class="review-grid" id="reviewGrid">
-        <div class="review-empty">Loading...</div>
+      <div class="tabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);">
+        <button class="tab-btn active" data-tab="articles" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid var(--primary);color:var(--text);cursor:pointer;font-weight:600;">Articles <span id="articlesTabCount" class="badge" style="margin-left:6px;"></span></button>
+        <button class="tab-btn" data-tab="pitches" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-weight:600;">Pitches <span id="pitchesTabCount" class="badge" style="margin-left:6px;"></span></button>
+      </div>
+
+      <div id="articlesPanel">
+        <div class="review-stats" id="reviewStats"></div>
+        <div class="review-grid" id="reviewGrid">
+          <div class="review-empty">Loading...</div>
+        </div>
+      </div>
+
+      <div id="pitchesPanel" style="display:none;">
+        <div class="review-grid" id="pitchesGrid">
+          <div class="review-empty">Loading pitches...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Override-cap modal -->
+    <div class="modal-overlay" id="overrideModal">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <div class="modal-title">Approve over the cap?</div>
+          <button class="modal-close" data-close-modal>✕</button>
+        </div>
+        <div class="modal-body">
+          <p id="overrideMessage" class="text-muted"></p>
+          <label style="display:block;margin-top:12px;font-size:13px;">Editor justification (logged):
+            <textarea id="overrideNote" rows="3" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" data-close-modal>Cancel</button>
+          <button class="btn btn-primary" id="confirmOverrideBtn">Approve with override</button>
+        </div>
       </div>
     </div>
   </div>
