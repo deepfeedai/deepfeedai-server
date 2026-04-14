@@ -333,6 +333,8 @@ app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
 app.use('/api/pitches',   require('./routes/pitches'));
+app.use('/api/actions',   require('./routes/actions'));   // cross-channel signed-token action dispatch (PR-B)
+app.use('/api/admin-notifications', require('./routes/admin-notifications')); // admin bell + notifications page (PR-D)
 app.use('/api/research',  require('./routes/research'));
 app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
 app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
@@ -1010,6 +1012,35 @@ registerJob({
       [tenantId, RETENTION_DAYS]
     );
     return { deleted, retentionDays: RETENTION_DAYS };
+  },
+});
+
+registerJob({
+  name: 'sweepExpiredActionTokens',
+  description: 'Delete action_tokens rows whose expiry is more than 7 days old',
+  category: 'Maintenance',
+  // Daily at 03:15 — off-peak, after most other maintenance has run.
+  defaultSchedule: '15 3 * * *',
+  handler: async (tenantId) => {
+    const result = await db.getPool().query(
+      `DELETE FROM action_tokens
+        WHERE tenant_id = $1
+          AND expires_at < NOW() - INTERVAL '7 days'`,
+      [tenantId]
+    );
+    const deleted = result.rowCount || 0;
+    if (deleted > 0) {
+      console.log(`[Cron] sweepExpiredActionTokens (tenant ${tenantId}): deleted ${deleted}`);
+      try {
+        const { logAudit } = require('./middleware/audit');
+        await logAudit(
+          { user: { sub: 0 }, tenantId, headers: {}, ip: 'cron' },
+          'action_tokens.sweep', 'action_tokens', null,
+          { deleted }
+        );
+      } catch { /* non-fatal */ }
+    }
+    return { deleted };
   },
 });
 

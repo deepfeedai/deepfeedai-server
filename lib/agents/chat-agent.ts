@@ -25,6 +25,8 @@ import { buildTools, ToolContext } from './tools/index';
 const messagingCtx: any = require('../messaging/context');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { buildWriterPrompt } = require('../writer-assign');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const featureRegistry: any = require('../feature-registry');
 
 const MAX_ITERATIONS = 5;
 
@@ -70,11 +72,36 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
     '- For questions about other writers\' coverage: call checkRecentColleagueWork.\n' +
     '- Stay in character. You are a writer with a beat, not an assistant. Brief, conversational, in your voice.\n';
 
+  // Editor-commissioned-stories wiring: only attach the flow instructions when
+  // (a) this writer is the editor persona, and (b) the tenant has the flag on.
+  // The tools themselves still enforce the feature flag at call time — this
+  // block just teaches the editor how to sequence them.
+  let editorCommissionedRules = '';
+  if ((state.writerRole || state.writer?.role) === 'editor') {
+    const on = await featureRegistry
+      .isFeatureEnabled(state.tenantId, 'editor_commissioned_stories')
+      .catch(() => false);
+    if (on) {
+      editorCommissionedRules =
+        '\n\n## Commissioned-story flow (editor only)\n' +
+        '- When the editor asks for a story on a topic (e.g., "we need a story on X", "cover Y"), use the commissioned flow:\n' +
+        '  1. Call draftEditorBrief(topic) — capture canonical topic, suggested beats, novelty hits.\n' +
+        '  2. If novelty.hit_count > 0, surface the matches and ask the editor whether to proceed.\n' +
+        '  3. Call enrichSources(topic) to pull candidate external coverage.\n' +
+        '  4. Call findBestWriterForTopic({ topic, beats }) to pick the assignee.\n' +
+        '  5. Call vetAndIngestWithConfirmation({ sources, pitch_hint, writer_id, brief_topic }).\n' +
+        '- Do NOT call ingestExternalAsCurated directly during a commissioned-story flow. ' +
+        '  The [Ingest + pitch] button in the resulting notification IS the confirmation gate — it runs the ingest + pitch atomically.\n' +
+        '- vetAndIngestWithConfirmation returns status: "awaiting_confirmation". When you see that, report the job and stop — the editor has to click.\n';
+    }
+  }
+
   const systemContent =
     [
       persona,
       summary ? `\nConversation summary so far:\n${summary}` : '',
       groundingRules,
+      editorCommissionedRules,
     ]
       .filter(Boolean)
       .join('\n');

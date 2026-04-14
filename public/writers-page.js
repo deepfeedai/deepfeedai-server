@@ -243,6 +243,14 @@ function openEdit(id) {
   document.getElementById('fWriterContrarian').value = contLevel;
   updateContrarianLabel(contLevel);
 
+  // Accent color — explicit override or blank for auto-palette fallback.
+  var accentText = document.getElementById('fWriterAccentColorText');
+  var accentPicker = document.getElementById('fWriterAccentColor');
+  if (accentText && accentPicker) {
+    accentText.value = w.accent_color || '';
+    accentPicker.value = w.accent_color || '#8b5cf6';
+  }
+
   // Show profile panel and load data
   document.getElementById('writerProfilePanel').style.display = '';
   loadWriterProfile(w.id);
@@ -260,6 +268,23 @@ function openDelete(id) {
 }
 
 // ── Avatar Preview ───────────────────────────────────────────────
+
+// Accent color picker ↔ text input sync, plus "Reset to auto" button.
+(function wireAccentColor() {
+  var picker = document.getElementById('fWriterAccentColor');
+  var text   = document.getElementById('fWriterAccentColorText');
+  var reset  = document.getElementById('fWriterAccentResetBtn');
+  if (!picker || !text) return;
+  picker.addEventListener('input', function() { text.value = picker.value; });
+  text.addEventListener('input', function() {
+    var v = text.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) picker.value = v;
+  });
+  if (reset) reset.addEventListener('click', function() {
+    text.value = '';
+    picker.value = '#8b5cf6';
+  });
+})();
 
 document.getElementById('fWriterAvatar').addEventListener('change', function() {
   var file = this.files[0];
@@ -299,8 +324,15 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var sigRaw = document.getElementById('fWriterSignaturePhrases').value.trim();
   var signature_phrases = sigRaw ? sigRaw.split(',').map(function(s) { return s.trim(); }).filter(Boolean).slice(0, 5) : null;
   var contrarian_level = parseFloat(document.getElementById('fWriterContrarian').value);
+  var accentRaw = (document.getElementById('fWriterAccentColorText') || {}).value || '';
+  accentRaw = accentRaw.trim();
+  var accent_color = accentRaw ? (accentRaw.charAt(0) === '#' ? accentRaw : '#' + accentRaw) : null;
 
   if (!name) { showAlert('Name is required', 'error'); return; }
+  if (accent_color && !/^#[0-9a-fA-F]{3,8}$/.test(accent_color)) {
+    showAlert('Accent color must be a hex string like #8b5cf6', 'error');
+    return;
+  }
 
   var payload = {
     name: name,
@@ -323,6 +355,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     beat_angle: beat_angle,
     signature_phrases: signature_phrases,
     contrarian_level: contrarian_level,
+    accent_color: accent_color,
   };
 
   try {

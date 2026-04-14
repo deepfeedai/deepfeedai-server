@@ -4,6 +4,21 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## Unreleased
+
+### Added
+
+- **feat(newsroom-chat):** chat now shows writer avatar + per-writer accent color (stored on writer, auto-generated fallback). New `writers.accent_color` column (nullable); `lib/writer-colors.js` hashes writer id into a 12-hue palette when no override is set. Admin writer settings gains a color picker + "Reset to auto". Chat bubbles use `color-mix` for a soft accent tint and the username renders in the writer's accent; avatar falls back to a monogram circle tinted with the accent.
+- **feat(notifications):** stale-action cleanup + cohort cascade. Tokens minted in one `notify()` fanout now share a `cohort_id`; a successful action in any channel cascades `used_by_source=cascade` to siblings (web bell, Telegram, etc.) without deleting the audit trail. `user_notifications` payloads are rewritten in place so used buttons render as disabled `✓ <label> (from <source>, <relative time>)` pills and expired tokens render as `⌛ Expired`. Telegram sibling keyboards are stripped via `editMessageReplyMarkup`. New daily cron `sweepExpiredActionTokens` deletes tokens whose expiry is >7 days old. Adds `cohort_id`, `notification_id`, `used_by_source`, `used_by_user_id`, `telegram_chat_id`, `telegram_message_id` to `action_tokens`.
+- feat(editor): "We need a story on X" Maxwell flow — draftEditorBrief + vetSources + findBestWriterForTopic + button-gated ingest-and-pitch via the notifications/actions system (project_editor_initiated_pitch)
+- **feat(notifications):** schema foundation for cross-channel notifications + signed action tokens (PR-A of notifications/actions system). Adds `user_notifications`, `notification_preferences`, and `action_tokens` tables; feature flags `notifications_center` and `cross_channel_actions` (both default false); `lib/action-tokens.js` mint/verifyAndBurn skeleton. No endpoints or channel renderers yet.
+- feat(notifications): unified `POST /api/actions/:token` endpoint + handler registry for approve/reject/assign/publish/revise/kill/dismiss (PR-B of notifications/actions system)
+- feat(notifications): fire-and-forget `lib/notifications.js` service writing to user_notifications with optional action-button tokens
+- feat(notifications): Telegram inline-keyboard renderer + callback_query action handling — pitch_created + review_needed events now dispatch to editor Telegram DMs with approve/reject buttons (PR-C of notifications/actions system)
+- feat(notifications): web bell dropdown + `/notifications` page; polling-based unread count; inline action buttons hit `/api/actions/:token` end-to-end (PR-D of notifications/actions system)
+
+---
+
 ## [4.9.1] — 2026-04-16
 
 Same-day follow-up to v4.9.0 — Phase B polish, Story Levels backend, and the bug fix for enriched-articles missing from synthesized pitch output.

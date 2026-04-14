@@ -68,6 +68,43 @@
     }
   }
 
+  function writerInitial(name) {
+    return (name || '?').trim().charAt(0).toUpperCase() || '?';
+  }
+
+  function avatarHtml(w) {
+    var accent = (w && w.accent) || '#8b5cf6';
+    if (w && w.avatar_url) {
+      return '<img class="chat-avatar" src="' + esc(w.avatar_url) + '" alt="" />';
+    }
+    // Fallback monogram circle tinted with the writer's accent.
+    return '<div class="chat-avatar chat-avatar-fallback" ' +
+      'style="background:' + esc(accent) + ';color:#fff;">' +
+      esc(writerInitial(w && w.name)) + '</div>';
+  }
+
+  function bubbleHtml(role, text, w) {
+    if (role === 'user') {
+      // Editor (you) — right-aligned, neutral. No avatar on editor messages.
+      return '<div class="chat-row chat-row-user">' +
+        '<div class="chat-bubble user">' + linkify(esc(text)) + '</div>' +
+        '</div>';
+    }
+    var accent = (w && w.accent) || '#8b5cf6';
+    var name = esc((w && w.name) || 'Writer');
+    // color-mix gives us a soft accent tint on the bubble background while
+    // honoring whatever --bg-card the admin theme is using.
+    var bg = 'color-mix(in oklab, var(--bg-card) 85%, ' + accent + ' 15%)';
+    return '<div class="chat-row chat-row-assistant">' +
+      avatarHtml(w) +
+      '<div class="chat-bubble-wrap">' +
+        '<div class="chat-bubble-name" style="color:' + esc(accent) + ';">' + name + '</div>' +
+        '<div class="chat-bubble assistant" style="background:' + bg + ';">' +
+          linkify(esc(text)) +
+        '</div>' +
+      '</div></div>';
+  }
+
   function renderThread(messages) {
     var thread = document.getElementById('chatThread');
     if (!messages.length) {
@@ -75,8 +112,7 @@
       return;
     }
     thread.innerHTML = messages.map(function (m) {
-      var cls = m.role === 'user' ? 'user' : 'assistant';
-      return '<div class="chat-bubble ' + cls + '">' + linkify(esc(m.content)) + '</div>';
+      return bubbleHtml(m.role === 'user' ? 'user' : 'assistant', m.content, activeWriter);
     }).join('');
     thread.scrollTop = thread.scrollHeight;
   }
@@ -84,10 +120,9 @@
   function appendBubble(role, text) {
     var thread = document.getElementById('chatThread');
     if (thread.querySelector('.chat-empty')) thread.innerHTML = '';
-    var div = document.createElement('div');
-    div.className = 'chat-bubble ' + (role === 'user' ? 'user' : 'assistant');
-    div.innerHTML = linkify(esc(text));
-    thread.appendChild(div);
+    var temp = document.createElement('div');
+    temp.innerHTML = bubbleHtml(role, text, activeWriter);
+    thread.appendChild(temp.firstChild);
     thread.scrollTop = thread.scrollHeight;
   }
 

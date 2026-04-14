@@ -624,6 +624,8 @@ async function initDb() {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    // PR-C notifications: per-user Telegram DM target. Linking UI lands in PR-E.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT`,
     `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key`,
     `CREATE UNIQUE INDEX IF NOT EXISTS users_tenant_username ON users(tenant_id, username)`,
     // 1b. Create roles table
@@ -1073,6 +1075,10 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_writer_memory_lookup ON writer_memory(writer_id, tenant_id, memory_type)`,
     // Writer personality enhancements
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS signature_phrases TEXT[]`,
+    // Newsroom chat personality (2026-04): per-writer accent color for chat bubbles
+    // and username highlight. Nullable — falls back to a deterministic hash of writer.id
+    // into a fixed palette (see lib/writer-colors.js).
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS accent_color TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS contrarian_level NUMERIC(2,1) DEFAULT 0.5`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS beat_angle TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS chat_prompt TEXT`,
@@ -1288,6 +1294,66 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance TEXT DEFAULT 'standard'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS importance_locked BOOLEAN DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(tenant_id, importance, published_at DESC)`,
+    // Notifications / Actions system — PR-A foundation.
+    // user_notifications: per-user feed of events (in-web bell + cross-channel).
+    // event_id optionally links to newsroom_events; payload holds renderable fields so reads don't require joins.
+    `CREATE TABLE IF NOT EXISTS user_notifications (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      user_id     INTEGER NOT NULL,
+      event_id    INTEGER,
+      kind        TEXT NOT NULL,
+      title       TEXT,
+      body        TEXT,
+      payload     JSONB DEFAULT '{}',
+      read_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_notifications_inbox
+       ON user_notifications(tenant_id, user_id, read_at NULLS FIRST, created_at DESC)`,
+    // notification_preferences: per-user, per-event-kind channel routing (web/email/discord/telegram/slack).
+    `CREATE TABLE IF NOT EXISTS notification_preferences (
+      tenant_id   INTEGER NOT NULL,
+      user_id     INTEGER NOT NULL,
+      event_kind  TEXT NOT NULL,
+      channels    TEXT[] DEFAULT ARRAY['web'],
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (tenant_id, user_id, event_kind)
+    )`,
+    // action_tokens: single-use HMAC-signed tokens for cross-channel actions (approve/reject/assign from
+    // Discord/Telegram/Slack/email). token_hash = HMAC-SHA256 of the raw token; raw is never persisted.
+    `CREATE TABLE IF NOT EXISTS action_tokens (
+      id            SERIAL PRIMARY KEY,
+      token_hash    TEXT UNIQUE NOT NULL,
+      tenant_id     INTEGER NOT NULL,
+      user_id       INTEGER NOT NULL,
+      action_kind   TEXT NOT NULL,
+      target_id     INTEGER,
+      target_type   TEXT,
+      payload       JSONB DEFAULT '{}',
+      expires_at    TIMESTAMPTZ NOT NULL,
+      used_at       TIMESTAMPTZ,
+      source        TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_hash ON action_tokens(token_hash)`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_expires ON action_tokens(expires_at)`,
+    // Stale-action cleanup (2026-04): cohort_id groups siblings minted in the same notify()
+    // fanout so a successful action can cascade "used_by_source=cascade" to the rest.
+    // notification_id back-links each token to the user_notifications row it lives on so
+    // we can rewrite payload.actionable[] entries in place.
+    // telegram_chat_id / telegram_message_id let the Telegram callback handler strip the
+    // inline keyboard off sibling messages when a cohort cascade fires.
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS cohort_id TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS notification_id BIGINT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS used_by_source TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS used_by_user_id INTEGER`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT`,
+    `ALTER TABLE action_tokens ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_cohort ON action_tokens(cohort_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_action_tokens_notification ON action_tokens(notification_id)`,
+    // PR-B: revise action needs a place to record editor feedback.
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS review_notes TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

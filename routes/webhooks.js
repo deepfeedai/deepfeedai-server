@@ -15,6 +15,15 @@ router.get('/telegram', (req, res) => {
 router.post('/telegram', asyncHandler(async (req, res) => {
   res.json({ ok: true });
 
+  // Inline-keyboard button presses (PR-C of notifications/actions).
+  // These never go through the writer chat pipeline.
+  if (req.body && req.body.callback_query) {
+    await handleTelegramCallback(req.body.callback_query, req.tenantId).catch(err => {
+      console.error('[webhook:telegram] callback handler crashed:', err.message);
+    });
+    return;
+  }
+
   const { parseUpdate } = require('../lib/messaging/telegram');
   const parsed = parseUpdate(req.body);
   if (!parsed) return;
@@ -96,6 +105,97 @@ router.post('/telegram', asyncHandler(async (req, res) => {
     } catch {}
   }
 }));
+
+/**
+ * Handle an inline-keyboard button press. Our buttons have callback_data
+ * formatted as `act:<token>`. We verify+burn the token, dispatch via the
+ * shared handler registry (same path as POST /api/actions/:token), toast
+ * the user, and strip the keyboard off the original message.
+ */
+async function handleTelegramCallback(cq, tenantId) {
+  const {
+    answerCallbackQuery,
+    editMessageReplyMarkup,
+  } = require('../lib/messaging/telegram');
+
+  const data = cq.data || '';
+  if (!data.startsWith('act:')) {
+    await answerCallbackQuery(cq.id, '', tenantId);
+    return;
+  }
+  const rawToken = data.slice('act:'.length);
+  const chatId = cq.message?.chat?.id;
+  const messageId = cq.message?.message_id;
+
+  const { verifyAndBurn } = require('../lib/action-tokens');
+  const { getHandler } = require('../lib/actions/handlers');
+  const { isFeatureEnabled } = require('../lib/feature-registry');
+  const { logAudit } = require('../middleware/audit');
+
+  let row;
+  try {
+    row = await verifyAndBurn(rawToken, 'telegram');
+  } catch (err) {
+    const toast =
+      err.message === 'already_used' ? 'Already actioned' :
+      err.message === 'expired'      ? 'Link expired' :
+      'Invalid or unknown action';
+    await answerCallbackQuery(cq.id, toast, tenantId);
+    return;
+  }
+
+  // Feature flag scoped to the token's tenant.
+  const enabled = await isFeatureEnabled(row.tenant_id, 'cross_channel_actions').catch(() => false);
+  if (!enabled) {
+    await answerCallbackQuery(cq.id, 'Cross-channel actions disabled', row.tenant_id);
+    return;
+  }
+
+  const handler = getHandler(row.action_kind);
+  if (!handler) {
+    await answerCallbackQuery(cq.id, `Unknown action: ${row.action_kind}`, row.tenant_id);
+    return;
+  }
+
+  const pseudoReq = {
+    user: { sub: row.user_id },
+    tenantId: row.tenant_id,
+    headers: {},
+    ip: 'telegram',
+  };
+
+  let result;
+  try {
+    result = await handler(row, pseudoReq);
+  } catch (err) {
+    logAudit(pseudoReq, `${row.action_kind}.failed`, row.target_type || 'action',
+      row.target_id || row.id, { source: 'telegram', error: err.message }).catch(() => {});
+    await answerCallbackQuery(cq.id, `Error: ${err.message}`, row.tenant_id);
+    return;
+  }
+
+  logAudit(pseudoReq, row.action_kind, row.target_type || 'action',
+    row.target_id || row.id, { source: 'telegram', ok: result.ok, via: 'action_token' });
+
+  const toast = result.ok
+    ? (result.message || 'Done')
+    : (result.message || 'Action not applied');
+  await answerCallbackQuery(cq.id, toast, row.tenant_id);
+
+  // Remove the buttons from the original message so it can't be pressed again.
+  if (chatId && messageId) {
+    await editMessageReplyMarkup(chatId, messageId, row.tenant_id, []);
+  }
+
+  // Cascade to sibling tokens in the same cohort (web bell, other chats, etc.)
+  if (result.ok) {
+    try {
+      const { cascade: cascadeAction } = require('../lib/actions/post-action');
+      cascadeAction(row, 'telegram').catch(err =>
+        console.error('[webhook:telegram] cascade failed:', err.message));
+    } catch { /* non-fatal */ }
+  }
+}
 
 // ── Slack Webhook ───────────────────────────────────────────────
 

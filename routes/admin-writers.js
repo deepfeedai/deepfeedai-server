@@ -247,7 +247,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-          signature_phrases, contrarian_level, beat_angle, role, team_id, is_system } = body;
+          signature_phrases, contrarian_level, beat_angle, role, team_id, is_system,
+          accent_color } = body;
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);
@@ -259,7 +260,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       tone = $13, expertise_level = $14, style_guide = $15, few_shot_examples = $16,
       gender = $17, ethnicity = $18,
       signature_phrases = $19, contrarian_level = $20, beat_angle = $21,
-      role = $22, team_id = $23, is_system = $24
+      role = $22, team_id = $23, is_system = $24,
+      accent_color = $27
     WHERE id = $25 AND tenant_id = $26
     RETURNING *
   `).get(
@@ -288,7 +290,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     team_id !== undefined ? (team_id || null) : existing.team_id,
     is_system !== undefined ? (is_system || false) : (existing.is_system || false),
     id,
-    req.tenantId
+    req.tenantId,
+    accent_color !== undefined ? (accent_color || null) : (existing.accent_color || null),
   );
 
   if (beats !== undefined) await syncBeats(id, beats, req.tenantId);

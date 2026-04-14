@@ -32,7 +32,7 @@ function buildWebContextKey(userId, writerId) {
 // GET /api/newsroom-chat/writers — roster for the chat sidebar
 router.get('/writers', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
-    SELECT w.id, w.name, w.slug, w.avatar_url, w.beat,
+    SELECT w.id, w.name, w.slug, w.avatar_url, w.beat, w.accent_color,
            w.presence_state, w.presence_updated_at,
            (SELECT COUNT(*)::int FROM articles a
               WHERE a.writer_id = w.id AND a.tenant_id = w.tenant_id
@@ -41,6 +41,10 @@ router.get('/writers', auth, requirePermission('articles.read'), requireWorkspac
     WHERE w.tenant_id = $1
     ORDER BY w.name ASC
   `).all(req.tenantId);
+  // Resolve the effective accent (explicit or deterministic palette fallback)
+  // server-side so the chat UI doesn't have to duplicate the palette logic.
+  const { resolveAccent } = require('../lib/writer-colors');
+  for (const w of rows) w.accent = resolveAccent(w);
   res.json({ writers: rows });
 }));
 

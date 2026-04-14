@@ -61,6 +61,11 @@ export function buildTools(ctx: ToolContext) {
   // Editors can additionally ingest external research as curated articles
   if (ctx.writerRole === 'editor') {
     baseTools.push(buildIngestExternalAsCurated(ctx));
+    // Editor-commissioned-stories flow (gated — tool closures still check the flag
+    // at call time so a stale tool binding cannot bypass a disabled tenant).
+    baseTools.push(buildDraftEditorBrief(ctx));
+    baseTools.push(buildFindBestWriterForTopic(ctx));
+    baseTools.push(buildVetAndIngestWithConfirmation(ctx));
   }
 
   // Editors get publish tools (placeholder — wires into existing publish pipeline in a later PR)
@@ -602,6 +607,354 @@ function buildIngestExternalAsCurated(ctx: ToolContext) {
       schema: z.object({
         results: z.array(z.any()).min(1).describe('Array of result objects from enrichSources (must include url + title at minimum).'),
         pitchId: z.number().int().optional().describe('Optional: attach ingested articles to this pitch.'),
+      }),
+    },
+  );
+}
+
+// ── Editor-commissioned-stories tools ────────────────────────────────
+//
+// These are bundled with the editor-agent tool set and additionally check
+// the `editor_commissioned_stories` feature flag at call time. When disabled,
+// they return `status: "tool_unavailable"` — which makes it safe to include
+// them unconditionally from the graph-builder side.
+
+function buildDraftEditorBrief(ctx: ToolContext) {
+  return tool(
+    async ({ topic }: { topic: string }) => {
+      const enabled = await featureRegistry
+        .isFeatureEnabled(ctx.tenantId, 'editor_commissioned_stories')
+        .catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({
+          status: 'tool_unavailable',
+          message: 'Editor-commissioned stories are not enabled for this newsroom.',
+        });
+      }
+      const t = String(topic || '').trim();
+      if (t.length < 4) return JSON.stringify({ status: 'error', message: 'Topic must be at least 4 characters.' });
+
+      // ── Novelty check: cosine similarity against recent articles ──
+      let noveltyHits: any[] = [];
+      let noveltyCount = 0;
+      try {
+        const { generateEmbedding, isPgvectorAvailable } = require('../../embeddings');
+        if (await isPgvectorAvailable().catch(() => false)) {
+          const vec = await generateEmbedding(ctx.tenantId, t);
+          if (Array.isArray(vec)) {
+            const rows = await db.prepare(`
+              SELECT id, COALESCE(generated_title, title) AS title, published_at,
+                     1 - (embedding <=> $1::vector) AS similarity
+              FROM articles
+              WHERE tenant_id = $2
+                AND is_published = 1
+                AND embedding IS NOT NULL
+                AND published_at > NOW() - INTERVAL '14 days'
+              ORDER BY embedding <=> $1::vector
+              LIMIT 10
+            `).all(JSON.stringify(vec), ctx.tenantId);
+            noveltyHits = (rows || [])
+              .filter((r: any) => Number(r.similarity) > 0.75)
+              .map((r: any) => ({ id: r.id, title: r.title, published_at: r.published_at, similarity: Number(r.similarity) }));
+            noveltyCount = noveltyHits.length;
+          }
+        }
+      } catch (err: any) {
+        // Novelty check degrades gracefully — brief still returns, with a note.
+        console.warn('[tools:draftEditorBrief] novelty check failed:', err?.message);
+      }
+
+      // ── Beat suggestion: top categories for this tenant ──
+      // Ideal: project topic embedding onto beat centroids. That pattern does
+      // not yet exist; fall back to the top 3 most-used tenant categories.
+      let beats: string[] = [];
+      try {
+        const rows = await db.prepare(`
+          SELECT name FROM categories
+          WHERE tenant_id = $1
+          ORDER BY sort_order ASC NULLS LAST, name ASC
+          LIMIT 3
+        `).all(ctx.tenantId);
+        beats = (rows || []).map((r: any) => r.name);
+      } catch { /* non-fatal */ }
+
+      return JSON.stringify({
+        status: 'ok',
+        topic: t,
+        beats,
+        novelty: {
+          hit_count: noveltyCount,
+          recent_matches: noveltyHits.slice(0, 5),
+        },
+      });
+    },
+    {
+      name: 'draftEditorBrief',
+      description:
+        'Editor-only. Drafts a research brief for a topic the editor wants commissioned. ' +
+        'Returns the canonical topic string, suggested beats (tenant categories), and a novelty check ' +
+        '(recent articles — last 14 days — with cosine similarity > 0.75 on title+topic embedding). ' +
+        'If hit_count > 0, warn the editor the topic may already be covered before proceeding. ' +
+        'Status: ok | tool_unavailable | error.',
+      schema: z.object({
+        topic: z.string().min(4).describe('The story topic, in natural language.'),
+      }),
+    },
+  );
+}
+
+function buildFindBestWriterForTopic(ctx: ToolContext) {
+  return tool(
+    async ({ topic, beats }: { topic: string; beats?: string[] }) => {
+      const enabled = await featureRegistry
+        .isFeatureEnabled(ctx.tenantId, 'editor_commissioned_stories')
+        .catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Editor-commissioned stories are not enabled.' });
+      }
+      const t = String(topic || '').trim();
+      if (t.length < 4) return JSON.stringify({ status: 'error', message: 'Topic must be at least 4 characters.' });
+
+      const { findBestWriter } = require('../../writer-assign');
+      // Use the best-guess beat as article.category so beat scoring kicks in.
+      const category = Array.isArray(beats) && beats.length ? beats[0] : null;
+      const pseudoArticle = { title: t, summary: '', category };
+
+      // Pre-fetch the full auto-writer list so we can enrich with load + recent score.
+      const writers = await db.prepare(`
+        SELECT w.*, array_agg(c.name) FILTER (WHERE c.name IS NOT NULL) AS beat_names
+        FROM writers w
+        LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
+        LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
+        WHERE w.is_auto = true AND w.tenant_id = $1
+        GROUP BY w.id
+      `).all(ctx.tenantId);
+
+      const primary = await findBestWriter(pseudoArticle, ctx.tenantId, writers);
+
+      // Enrich each candidate with current load + recent avg score.
+      const ranked: any[] = [];
+      for (const w of writers) {
+        if (!w || !w.id) continue;
+        let current_load = 0;
+        let recent_avg_score: number | null = null;
+        try {
+          const loadRow = await db.prepare(`
+            SELECT COUNT(*)::int AS cnt FROM articles
+            WHERE writer_id = $1 AND tenant_id = $2
+              AND created_at > NOW() - INTERVAL '7 days'
+          `).get(w.id, ctx.tenantId);
+          current_load = loadRow?.cnt || 0;
+        } catch { /* ignore */ }
+        try {
+          const scoreRow = await db.prepare(`
+            SELECT AVG(editorial_score)::float AS avg_score FROM articles
+            WHERE writer_id = $1 AND tenant_id = $2
+              AND editorial_score IS NOT NULL
+              AND published_at > NOW() - INTERVAL '30 days'
+          `).get(w.id, ctx.tenantId);
+          recent_avg_score = scoreRow?.avg_score != null ? Number(scoreRow.avg_score) : null;
+        } catch { /* ignore — editorial_score column may not exist */ }
+
+        // Quick match score: +3 if beat matches, +1 per keyword hit in topic
+        const beatNames = (w.beat_names || []).map((b: string) => (b || '').toLowerCase());
+        let match_score = 0;
+        if (category && beatNames.includes(String(category).toLowerCase())) match_score += 3;
+        const tLower = t.toLowerCase();
+        const keywords = Array.isArray(w.keywords) ? w.keywords : [];
+        for (const kw of keywords) if (tLower.includes(String(kw || '').toLowerCase())) match_score += 1;
+
+        ranked.push({
+          writer_id: w.id,
+          name: w.name,
+          beats: w.beat_names || [],
+          match_score,
+          current_load,
+          recent_avg_score,
+          is_primary: primary && primary.id === w.id,
+        });
+      }
+      ranked.sort((a, b) => {
+        if (b.match_score !== a.match_score) return b.match_score - a.match_score;
+        return a.current_load - b.current_load;
+      });
+
+      return JSON.stringify({
+        status: 'ok',
+        topic: t,
+        beats: beats || [],
+        recommended_writer_id: primary?.id || (ranked[0]?.writer_id ?? null),
+        candidates: ranked.slice(0, 8),
+      });
+    },
+    {
+      name: 'findBestWriterForTopic',
+      description:
+        'Editor-only. Ranks the newsroom\'s auto-writers for a commissioned topic, exposing beat match, ' +
+        'current load (last 7 days), and recent avg editorial score (last 30 days, where tracked). ' +
+        'Use this to choose who to assign the resulting pitch to. ' +
+        'Status: ok | tool_unavailable | error.',
+      schema: z.object({
+        topic: z.string().min(4).describe('The story topic.'),
+        beats: z.array(z.string()).optional().describe('Candidate beats (category names) from draftEditorBrief.'),
+      }),
+    },
+  );
+}
+
+function buildVetAndIngestWithConfirmation(ctx: ToolContext) {
+  return tool(
+    async ({ sources, pitch_hint, writer_id, brief_topic }: {
+      sources: any[];
+      pitch_hint: string;
+      writer_id?: number;
+      brief_topic?: string;
+    }) => {
+      const enabled = await featureRegistry
+        .isFeatureEnabled(ctx.tenantId, 'editor_commissioned_stories')
+        .catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Editor-commissioned stories are not enabled.' });
+      }
+      if (!Array.isArray(sources) || !sources.length) {
+        return JSON.stringify({ status: 'error', message: 'sources must be a non-empty array.' });
+      }
+      const angle = String(pitch_hint || '').trim();
+      if (angle.length < 10) {
+        return JSON.stringify({ status: 'error', message: 'pitch_hint must be at least 10 characters — describe the angle.' });
+      }
+
+      // 1. Vet the sources (dedupe + credibility + recency).
+      const { vetSources } = require('../../research/vet');
+      const vetted = await vetSources(sources, { tenantId: ctx.tenantId, maxResults: 4 });
+      if (!vetted.length) {
+        return JSON.stringify({ status: 'no_vetted_sources', message: 'Vetting removed every candidate (duplicates or near-duplicates).' });
+      }
+
+      // 2. Resolve the editor user id for the notification recipient. In the
+      //    LangGraph chat-agent, userId is a string (oauth sub) when present.
+      //    Only dispatch when we have a concrete editor to notify.
+      let editorUserId: number | null = null;
+      if (ctx.userId) {
+        try {
+          const parsed = parseInt(String(ctx.userId), 10);
+          if (Number.isFinite(parsed) && parsed > 0) editorUserId = parsed;
+        } catch { /* ignore */ }
+      }
+      if (!editorUserId) {
+        // Fall back to the first owner/admin/editor so the confirmation still
+        // surfaces — better than silently swallowing the flow.
+        try {
+          const row = await db.prepare(`
+            SELECT id FROM users
+            WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor')
+            ORDER BY id ASC LIMIT 1
+          `).get(ctx.tenantId);
+          if (row?.id) editorUserId = row.id;
+        } catch { /* ignore */ }
+      }
+
+      if (!editorUserId) {
+        return JSON.stringify({
+          status: 'error',
+          message: 'No editor user available to receive the confirmation notification.',
+        });
+      }
+
+      // 3. Resolve writer name for the preview body, if any.
+      let writerName: string | null = null;
+      if (writer_id) {
+        try {
+          const w = await db.prepare(
+            'SELECT name FROM writers WHERE id = $1 AND tenant_id = $2'
+          ).get(writer_id, ctx.tenantId);
+          writerName = w?.name || null;
+        } catch { /* ignore */ }
+      }
+
+      // 4. Build the confirmation notification with inline action buttons.
+      //    The action payload carries the full vetted source list so the
+      //    handler can complete ingest + pitch creation without re-running the LLM.
+      const jobId = `eb_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const topicForPayload = String(brief_topic || '').slice(0, 500);
+      const actionPayload = {
+        sources: vetted.map((s: any) => ({
+          url: s.url, title: s.title, publisher: s.publisher, source: s.source,
+          snippet: s.snippet, published: s.published,
+        })),
+        writer_id: writer_id || null,
+        angle,
+        brief_topic: topicForPayload,
+        requested_by_editor_id: editorUserId,
+        job_id: jobId,
+      };
+
+      const body =
+        `Proposed pitch: ${angle}\n` +
+        (writerName ? `Assignee: ${writerName}\n` : 'Assignee: (unassigned)\n') +
+        `Vetted sources (${vetted.length}):\n` +
+        vetted.map((s: any, i: number) => `  ${i + 1}. ${s.title} — ${s.publisher || s.source || 'unknown'}`).join('\n');
+
+      try {
+        const { notify } = require('../../notifications');
+        await notify({
+          tenantId: ctx.tenantId,
+          userId: editorUserId,
+          kind: 'enrichment_ready',
+          title: topicForPayload ? `Commission: ${topicForPayload}` : 'Editor brief ready for confirmation',
+          body,
+          payload: {
+            job_id: jobId,
+            brief_topic: topicForPayload,
+            vetted_count: vetted.length,
+            writer_id: writer_id || null,
+            writer_name: writerName,
+          },
+          actionable: [
+            { label: 'Ingest + pitch', actionKind: 'editor_brief.ingest_and_pitch', targetId: null, targetType: 'editor_brief', payload: actionPayload, style: 'primary' },
+            { label: 'Preview sources', actionKind: 'notification.dismiss',        targetId: null, targetType: 'editor_brief', payload: { job_id: jobId, preview: true } },
+            { label: 'Cancel',          actionKind: 'editor_brief.cancel',          targetId: null, targetType: 'editor_brief', payload: { job_id: jobId, brief_topic: topicForPayload } },
+          ],
+        });
+      } catch (err: any) {
+        return JSON.stringify({
+          status: 'error',
+          message: `Failed to dispatch confirmation: ${err?.message || 'unknown'}`,
+        });
+      }
+
+      return JSON.stringify({
+        status: 'awaiting_confirmation',
+        job_id: jobId,
+        notified_user_id: editorUserId,
+        vetted_count: vetted.length,
+        message:
+          `Sent confirmation to the editor with ${vetted.length} vetted source${vetted.length === 1 ? '' : 's'}. ` +
+          'Nothing has been ingested yet — the editor must tap "Ingest + pitch" to complete. ' +
+          'Do NOT call ingestExternalAsCurated directly; that confirmation gate is the whole point.',
+        vetted: vetted.map((s: any) => ({
+          title: s.title,
+          url: s.url,
+          publisher: s.publisher || s.source,
+          vet_score: s.vet_score,
+        })),
+      });
+    },
+    {
+      name: 'vetAndIngestWithConfirmation',
+      description:
+        'Editor-only. The gated multi-stage version of ingestExternalAsCurated for commissioned stories. ' +
+        'Vets candidate sources (dedupe + near-duplicate title filter + credibility + recency), then sends ' +
+        'the editor an actionable notification [Ingest + pitch] [Preview sources] [Cancel]. ' +
+        'Does NOT ingest anything synchronously — returns a job_id and status: awaiting_confirmation. ' +
+        'Use this after draftEditorBrief + enrichSources + findBestWriterForTopic. ' +
+        'Do NOT call ingestExternalAsCurated directly during a commissioned-story flow — the button is the gate. ' +
+        'Status: awaiting_confirmation | no_vetted_sources | tool_unavailable | error.',
+      schema: z.object({
+        sources: z.array(z.any()).min(1).describe('Raw candidate results from enrichSources.'),
+        pitch_hint: z.string().min(10).max(2000).describe('Draft angle for the resulting pitch (1–3 sentences).'),
+        writer_id: z.number().int().optional().describe('Recommended writer id from findBestWriterForTopic.'),
+        brief_topic: z.string().optional().describe('The canonical topic string from draftEditorBrief.'),
       }),
     },
   );
