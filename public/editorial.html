@@ -55,6 +55,30 @@
       </div>
     </div>
 
+    <!-- Enrich-sources modal -->
+    <div class="modal-overlay" id="enrichModal">
+      <div class="modal" style="max-width:720px;">
+        <div class="modal-header">
+          <div class="modal-title">Enrich sources</div>
+          <button class="modal-close" data-close-modal>✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input id="enrichQuery" type="text" placeholder="Search topic…" style="flex:1;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
+            <button class="btn btn-primary btn-sm" id="enrichSearchBtn">Search</button>
+          </div>
+          <div id="enrichResults" style="max-height:50vh;overflow-y:auto;font-size:13px;">
+            <div class="text-muted" style="padding:24px 8px;text-align:center;">Enter a topic and press Search.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span id="enrichQuotaInfo" class="text-muted" style="font-size:12px;flex:1;"></span>
+          <button class="btn btn-outline" data-close-modal>Cancel</button>
+          <button class="btn btn-primary" id="enrichIngestBtn" disabled>Ingest selected</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Override-cap modal -->
     <div class="modal-overlay" id="overrideModal">
       <div class="modal modal-sm">
