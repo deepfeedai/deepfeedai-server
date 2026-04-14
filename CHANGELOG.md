@@ -4,6 +4,20 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.8.1] — 2026-04-15
+
+### Added — Feed Inbox usability
+
+- **Recategorize bulk action** — 🏷️ button on `/feed-inbox` re-runs category detection through the same dry-run preview modal pattern as `/articles` (#427)
+- **Status, Score, and Category filters** — Published/Draft/Review/Archived; score bucket (High ≥7 / Mid 5–6 / Low / No score); Category dropdown mirroring `/articles` filter bar (#428, #429)
+
+### Fixed
+
+- Curated articles stuck as "Uncategorized" on re-run — the recategorize loop was dropping `source_url` and the source's `default_category` when calling `detectCategory`, losing the source-affinity (+2) and default-category (+3) scoring boosts that applied at ingest time (#427)
+- Category filter on `/feed-inbox` was already in the HTML but hidden because `window._siteCategories` was never loaded on that page — now calls `loadCategories()` on init (#429)
+
+---
+
 ## [4.8.0] — 2026-04-14
 
 ### Added — LangGraph chat agent (pilot)
