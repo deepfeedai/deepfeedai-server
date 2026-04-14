@@ -1318,7 +1318,7 @@ let apiKeyVisible = false;
       } else {
         statusEl.textContent = '⚠️ No API key set — using ELEVENLABS_API_KEY environment variable';
       }
-      loadImagenSettings(settings);
+      loadImageProviderSettings(settings);
       loadAiProviders(settings);
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
