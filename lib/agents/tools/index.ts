@@ -21,6 +21,8 @@ const messaging: any = require('../../messaging');
 const writerMemory: any = require('../../writer-memory');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const featureRegistry: any = require('../../feature-registry');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const research: any = require('../../research');
 
 /** Context passed to every tool via closure — NEVER via LLM args. */
 export interface ToolContext {
@@ -47,10 +49,11 @@ export function buildTools(ctx: ToolContext) {
     buildCheckRecentColleagueWork(ctx),
   ];
 
-  // Writers and above can write memory + pitch counter-angles
+  // Writers and above can write memory + pitch counter-angles + research the web
   if (['writer', 'editor', 'analyst'].includes(ctx.writerRole)) {
     baseTools.push(buildUpdateWriterMemory(ctx));
     baseTools.push(buildProposeAngle(ctx));
+    baseTools.push(buildEnrichSources(ctx));
   }
 
   // Editors get publish tools (placeholder — wires into existing publish pipeline in a later PR)
@@ -431,6 +434,69 @@ function buildProposeAngle(ctx: ToolContext) {
       schema: z.object({
         sourceArticleId: z.number().int().describe('Article id of the curated source you want to pitch against (from searchArticles, listArticlesInBeat, or fetchArticle results).'),
         angleSummary: z.string().min(10).max(2000).describe('1–3 sentences describing your specific angle and why it matters.'),
+      }),
+    },
+  );
+}
+
+function buildEnrichSources(ctx: ToolContext) {
+  return tool(
+    async ({ topic, sources, count }: { topic: string; sources?: string[]; count?: number }) => {
+      const enabled = await featureRegistry.isFeatureEnabled(ctx.tenantId, 'agent_web_research').catch(() => false);
+      if (!enabled) {
+        return JSON.stringify({
+          status: 'tool_unavailable',
+          message: 'Web research is not enabled for this newsroom. Tell the user the editor would need to turn it on.',
+        });
+      }
+      if (!topic || topic.trim().length < 4) {
+        return JSON.stringify({ status: 'error', message: 'Topic must be at least 4 characters.' });
+      }
+      const r = await research.searchAll(ctx.tenantId, topic, {
+        sources: Array.isArray(sources) ? sources : undefined,
+        count: count || 8,
+      });
+      if (r.errors.some((e: any) => e.reason === 'daily_cap_reached')) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily search quota reached (${r.quota_used}/${r.quota_cap}). Tell the user research is rate-limited until tomorrow.`,
+        });
+      }
+      if (!r.results.length) {
+        return JSON.stringify({
+          status: 'no_results',
+          message: `No external coverage found for "${topic}". Errors: ${JSON.stringify(r.errors)}`,
+          results: [],
+        });
+      }
+      return JSON.stringify({
+        status: 'ok',
+        topic,
+        quota: { used: r.quota_used, cap: r.quota_cap },
+        results: r.results.slice(0, count || 8).map((x: any) => ({
+          source: x.source,
+          url: x.url,
+          title: x.title,
+          publisher: x.publisher,
+          published: x.published,
+          score: x.score,
+          comments: x.comments,
+          snippet: truncate(x.snippet || ''),
+        })),
+      });
+    },
+    {
+      name: 'enrichSources',
+      description:
+        'Search the external web (Brave news + Hacker News + Reddit) for fresh coverage of a topic. ' +
+        'Use when the user asks about a topic the newsroom hasn\'t covered, or when you need more sources to back up a story. ' +
+        'Returns RANKED CANDIDATES — does NOT publish or ingest anything. To ingest selected results as curated articles, the editor must explicitly call ingestExternalAsCurated (separate tool, may not be available to you). ' +
+        'Always tag results as external when discussing them — never blur with newsroom-curated material. ' +
+        'Status: ok | no_results | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        topic: z.string().min(4).describe('Topic to research, in natural language.'),
+        sources: z.array(z.enum(['brave', 'hackernews', 'reddit'])).optional().describe('Subset of backends. Default: all three.'),
+        count: z.number().int().min(1).max(15).optional().describe('Max combined results to return (default 8).'),
       }),
     },
   );
