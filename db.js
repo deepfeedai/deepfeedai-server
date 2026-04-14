@@ -1153,6 +1153,10 @@ async function initDb() {
     // Note: CREATE EXTENSION may require superuser — Neon supports it natively
     `DO $$ BEGIN CREATE EXTENSION IF NOT EXISTS vector; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pgvector extension not available — semantic search disabled'; END $$`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embedding vector(768)`,
+    // External research Phase 1 — provenance for how a curated article entered the system.
+    // Values: 'rss' (default, scheduled feed ingest) | 'live' (live news APIs) | 'manual' (admin add) | 'enrichment' (Brave/HN/Reddit on-demand ingest)
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS ingest_source TEXT DEFAULT 'rss'`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_ingest_source ON articles(tenant_id, ingest_source, created_at DESC)`,
     // HNSW index: better cold-start behavior than IVFFlat, no minimum row requirement
     `DO $$ BEGIN
        IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
