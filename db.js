@@ -1206,6 +1206,27 @@ async function initDb() {
       UNIQUE(tenant_id, platform, platform_user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_chat_user_profiles_lookup ON chat_user_profiles(tenant_id, platform, platform_user_id)`,
+    // Hybrid newsroom Phase B — pitches + editor-initiated research requests.
+    // Either pitched_by_writer_id (writer-initiated) or requested_by_editor_id
+    // (editor tip) is populated. Status lifecycle: proposed → approved | rejected;
+    // approved pitches eventually publish and populate spawned_article_id.
+    `CREATE TABLE IF NOT EXISTS article_pitches (
+      id                      SERIAL PRIMARY KEY,
+      tenant_id               INTEGER NOT NULL,
+      source_article_id       INTEGER NOT NULL,
+      pitched_by_writer_id    INTEGER,
+      requested_by_editor_id  INTEGER,
+      angle_summary           TEXT NOT NULL,
+      status                  TEXT NOT NULL DEFAULT 'proposed',
+      decided_by_user_id      INTEGER,
+      decided_at              TIMESTAMPTZ,
+      decision_note           TEXT,
+      spawned_article_id      INTEGER,
+      created_at              TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_tenant_status ON article_pitches(tenant_id, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_source ON article_pitches(source_article_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_pitches_writer ON article_pitches(pitched_by_writer_id) WHERE pitched_by_writer_id IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
