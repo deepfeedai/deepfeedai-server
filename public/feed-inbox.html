@@ -62,6 +62,34 @@
             <option value="30d">30d</option>
           </select>
         </div>
+        <div class="filter-group">
+          <label class="filter-label" for="statusFilter">Status</label>
+          <select class="filter-select" id="statusFilter">
+            <option value="all">All</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="review">Review</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label" for="scoreFilter">Score</label>
+          <select class="filter-select" id="scoreFilter">
+            <option value="all">All</option>
+            <option value="high">High (≥7)</option>
+            <option value="mid">Mid (5–6)</option>
+            <option value="low">Low (&lt;5)</option>
+            <option value="none">No score</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label" for="beatFilter">Beat</label>
+          <select class="filter-select" id="beatFilter">
+            <option value="all">All</option>
+            <option value="assigned">Assigned</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+        </div>
         <span class="filter-count" id="filterCount"></span>
       </div>
 

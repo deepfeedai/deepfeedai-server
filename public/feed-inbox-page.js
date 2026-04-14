@@ -12,6 +12,9 @@
   let sourceFilter = 'all';
   let categoryFilter = 'all';
   let dateFilter = 'all';
+  let statusFilter = 'all';
+  let scoreFilter = 'all';
+  let beatFilter = 'all';
   let activeTab = 'all';
   let page = 1;
   let pageSize = 50;
@@ -97,6 +100,29 @@
       filtered = filtered.filter(a => (now - new Date(a.created_at).getTime()) < cutoff);
     }
 
+    // Status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(a => (a.status || 'draft') === statusFilter);
+    }
+
+    // Score bucket
+    if (scoreFilter !== 'all') {
+      filtered = filtered.filter(a => {
+        const s = a.editorial_score;
+        if (scoreFilter === 'none') return s == null;
+        if (s == null) return false;
+        const n = Number(s);
+        if (scoreFilter === 'high') return n >= 7;
+        if (scoreFilter === 'mid')  return n >= 5 && n < 7;
+        if (scoreFilter === 'low')  return n < 5;
+        return true;
+      });
+    }
+
+    // Beat assignment
+    if (beatFilter === 'assigned')   filtered = filtered.filter(a => a.writer_id != null);
+    else if (beatFilter === 'unassigned') filtered = filtered.filter(a => a.writer_id == null);
+
     // Sort
     filtered.sort((a, b) => {
       let va = a[sortCol], vb = b[sortCol];
@@ -116,7 +142,7 @@
 
     // Filter count indicator
     const countEl = document.getElementById('filterCount');
-    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all';
+    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all' || beatFilter !== 'all';
     if (countEl) {
       countEl.textContent = anyFilter ? `${filtered.length} of ${allArticles.length}` : `${filtered.length} articles`;
       countEl.classList.toggle('filter-count-active', anyFilter);
@@ -377,6 +403,18 @@
   });
   document.getElementById('dateFilter')?.addEventListener('change', e => {
     dateFilter = e.target.value;
+    applyFilters();
+  });
+  document.getElementById('statusFilter')?.addEventListener('change', e => {
+    statusFilter = e.target.value;
+    applyFilters();
+  });
+  document.getElementById('scoreFilter')?.addEventListener('change', e => {
+    scoreFilter = e.target.value;
+    applyFilters();
+  });
+  document.getElementById('beatFilter')?.addEventListener('change', e => {
+    beatFilter = e.target.value;
     applyFilters();
   });
 
