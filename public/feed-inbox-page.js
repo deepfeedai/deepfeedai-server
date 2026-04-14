@@ -12,6 +12,8 @@
   let sourceFilter = 'all';
   let categoryFilter = 'all';
   let dateFilter = 'all';
+  let statusFilter = 'all';
+  let scoreFilter = 'all';
   let activeTab = 'all';
   let page = 1;
   let pageSize = 50;
@@ -97,6 +99,26 @@
       filtered = filtered.filter(a => (now - new Date(a.created_at).getTime()) < cutoff);
     }
 
+    // Status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(a => (a.status || 'draft') === statusFilter);
+    }
+
+    // Score bucket
+    if (scoreFilter !== 'all') {
+      filtered = filtered.filter(a => {
+        const s = a.editorial_score;
+        if (scoreFilter === 'none') return s == null;
+        if (s == null) return false;
+        const n = Number(s);
+        if (scoreFilter === 'high') return n >= 7;
+        if (scoreFilter === 'mid')  return n >= 5 && n < 7;
+        if (scoreFilter === 'low')  return n < 5;
+        return true;
+      });
+    }
+
+
     // Sort
     filtered.sort((a, b) => {
       let va = a[sortCol], vb = b[sortCol];
@@ -116,7 +138,7 @@
 
     // Filter count indicator
     const countEl = document.getElementById('filterCount');
-    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all';
+    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all';
     if (countEl) {
       countEl.textContent = anyFilter ? `${filtered.length} of ${allArticles.length}` : `${filtered.length} articles`;
       countEl.classList.toggle('filter-count-active', anyFilter);
@@ -379,6 +401,14 @@
     dateFilter = e.target.value;
     applyFilters();
   });
+  document.getElementById('statusFilter')?.addEventListener('change', e => {
+    statusFilter = e.target.value;
+    applyFilters();
+  });
+  document.getElementById('scoreFilter')?.addEventListener('change', e => {
+    scoreFilter = e.target.value;
+    applyFilters();
+  });
 
   // Select all
   document.getElementById('selectAll')?.addEventListener('change', e => {
@@ -413,6 +443,74 @@
   document.getElementById('bulkClearBtn')?.addEventListener('click', () => {
     selectedIds.clear();
     applyFilters({ preservePage: true });
+  });
+
+  // ── Recategorize ─────────────────────────────────────────
+  let _recatPending = null;
+
+  function renderRecatPreview(data) {
+    const el = document.getElementById('recategorizePreview');
+    const confirmBtn = document.getElementById('confirmRecategorizeBtn');
+    if (!data || data.updated === 0) {
+      el.innerHTML = '<p class="text-muted">All selected articles are already correctly categorized. No changes needed.</p>';
+      confirmBtn.style.display = 'none';
+      return;
+    }
+    confirmBtn.style.display = '';
+    const rows = Object.entries(data.moves).map(([move, count]) =>
+      `<tr><td style="padding:6px 12px;">${escHtml(move)}</td><td style="padding:6px 12px;text-align:right;font-weight:600;">${count}</td></tr>`
+    ).join('');
+    el.innerHTML = `
+      <p style="margin-bottom:12px;">Scanned <strong>${data.total}</strong> articles. <strong>${data.updated}</strong> would be re-categorized:</p>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);"><th style="padding:6px 12px;text-align:left;">Move</th><th style="padding:6px 12px;text-align:right;">Count</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  document.getElementById('bulkRecategorizeBtn')?.addEventListener('click', async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) { showAlert('Select articles first', 'error'); return; }
+    _recatPending = { articleIds: ids };
+    const el = document.getElementById('recategorizePreview');
+    el.innerHTML = '<p class="text-muted">Analyzing articles…</p>';
+    document.getElementById('confirmRecategorizeBtn').style.display = 'none';
+    openModal('recategorizeModal');
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ..._recatPending, dryRun: true }),
+      });
+      renderRecatPreview(data);
+    } catch (err) {
+      el.innerHTML = `<p class="text-danger">Preview failed: ${escHtml(err.message)}</p>`;
+    }
+  });
+
+  document.getElementById('confirmRecategorizeBtn')?.addEventListener('click', async () => {
+    if (!_recatPending) return;
+    const btn = document.getElementById('confirmRecategorizeBtn');
+    btn.disabled = true; btn.textContent = 'Applying…';
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ..._recatPending, dryRun: false }),
+      });
+      closeModal('recategorizeModal');
+      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
+      showAlert(`Re-categorized ${data.updated} of ${data.total} articles${writerMsg}`, 'success');
+      selectedIds.clear();
+      _recatPending = null;
+      loadArticles();
+    } catch (err) {
+      showAlert('Re-categorize failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Apply Changes';
+    }
+  });
+
+  document.querySelectorAll('#recategorizeModal [data-close-modal]').forEach(el => {
+    el.addEventListener('click', () => { _recatPending = null; });
   });
 
   // Fetch sources
@@ -466,6 +564,9 @@
     if (!requireAuth()) return;
     renderSidebar();
     initModals();
+    if (typeof loadCategories === 'function') {
+      try { await loadCategories(); } catch { /* best-effort */ }
+    }
     loadArticles();
   });
 })();

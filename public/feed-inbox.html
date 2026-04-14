@@ -62,12 +62,33 @@
             <option value="30d">30d</option>
           </select>
         </div>
+        <div class="filter-group">
+          <label class="filter-label" for="statusFilter">Status</label>
+          <select class="filter-select" id="statusFilter">
+            <option value="all">All</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="review">Review</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label" for="scoreFilter">Score</label>
+          <select class="filter-select" id="scoreFilter">
+            <option value="all">All</option>
+            <option value="high">High (≥7)</option>
+            <option value="mid">Mid (5–6)</option>
+            <option value="low">Low (&lt;5)</option>
+            <option value="none">No score</option>
+          </select>
+        </div>
         <span class="filter-count" id="filterCount"></span>
       </div>
 
       <!-- Bulk action toolbar -->
       <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
         <span id="bulkCount" class="bulk-count">0 selected</span>
+        <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn" title="Re-run category detection on selected">🏷️ Recategorize</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
@@ -127,6 +148,21 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-danger" id="confirmPurgeBtn">Purge All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recategorize preview modal -->
+<div class="modal-overlay" id="recategorizeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Recategorize articles</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="recategorizePreview" style="max-height:60vh;overflow-y:auto;">Loading preview…</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="confirmRecategorizeBtn" style="display:none;">Apply Changes</button>
     </div>
   </div>
 </div>
