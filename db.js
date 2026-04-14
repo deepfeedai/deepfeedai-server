@@ -624,6 +624,8 @@ async function initDb() {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INTEGER`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    // PR-C notifications: per-user Telegram DM target. Linking UI lands in PR-E.
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT`,
     `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key`,
     `CREATE UNIQUE INDEX IF NOT EXISTS users_tenant_username ON users(tenant_id, username)`,
     // 1b. Create roles table

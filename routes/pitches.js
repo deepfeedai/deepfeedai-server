@@ -12,6 +12,7 @@ const { asyncHandler } = require('../lib/utils');
 const { logAudit } = require('../middleware/audit');
 const { isFeatureEnabled, getAllFeatures } = require('../lib/feature-registry');
 const { recordEvent } = require('../lib/newsroom-events');
+const { notify } = require('../lib/notifications');
 
 async function requirePitchesEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'article_pitches').catch(() => false);
@@ -81,6 +82,43 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
   if (pitched_by_writer_id) {
     require('../lib/presence').setPresence(pitched_by_writer_id, req.tenantId, 'waiting-on-editor').catch(() => {});
   }
+
+  // Fire `pitch_created` notifications to every editor/admin/owner in this tenant.
+  // Fire-and-forget — response must not wait on delivery. Flags gate dispatch.
+  (async () => {
+    try {
+      const editors = await db.prepare(`
+        SELECT id FROM users
+        WHERE tenant_id = $1
+          AND is_active = 1
+          AND role IN ('owner', 'admin', 'editor')
+      `).all(req.tenantId);
+      const sourceTitle = source.title || null;
+      for (const ed of editors) {
+        notify({
+          tenantId: req.tenantId,
+          userId:   ed.id,
+          kind:     'pitch_created',
+          title:    'New pitch',
+          body:     row.angle_summary,
+          payload: {
+            pitch_id: row.id,
+            source_article_id: source_article_id,
+            source_title: sourceTitle,
+            angle_summary: row.angle_summary,
+            pitched_by_writer_name: null,
+          },
+          actionable: [
+            { label: 'Approve', actionKind: 'pitch.approve', targetId: row.id, targetType: 'pitch' },
+            { label: 'Reject',  actionKind: 'pitch.reject',  targetId: row.id, targetType: 'pitch' },
+          ],
+        }).catch(err => console.error('[pitches] notify pitch_created failed:', err.message));
+      }
+    } catch (err) {
+      console.error('[pitches] pitch_created fanout failed:', err.message);
+    }
+  })();
+
   res.status(201).json(row);
 }));
 
