@@ -415,6 +415,74 @@
     applyFilters({ preservePage: true });
   });
 
+  // ── Recategorize ─────────────────────────────────────────
+  let _recatPending = null;
+
+  function renderRecatPreview(data) {
+    const el = document.getElementById('recategorizePreview');
+    const confirmBtn = document.getElementById('confirmRecategorizeBtn');
+    if (!data || data.updated === 0) {
+      el.innerHTML = '<p class="text-muted">All selected articles are already correctly categorized. No changes needed.</p>';
+      confirmBtn.style.display = 'none';
+      return;
+    }
+    confirmBtn.style.display = '';
+    const rows = Object.entries(data.moves).map(([move, count]) =>
+      `<tr><td style="padding:6px 12px;">${escHtml(move)}</td><td style="padding:6px 12px;text-align:right;font-weight:600;">${count}</td></tr>`
+    ).join('');
+    el.innerHTML = `
+      <p style="margin-bottom:12px;">Scanned <strong>${data.total}</strong> articles. <strong>${data.updated}</strong> would be re-categorized:</p>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;">
+        <thead><tr style="border-bottom:1px solid var(--border);"><th style="padding:6px 12px;text-align:left;">Move</th><th style="padding:6px 12px;text-align:right;">Count</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  document.getElementById('bulkRecategorizeBtn')?.addEventListener('click', async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) { showAlert('Select articles first', 'error'); return; }
+    _recatPending = { articleIds: ids };
+    const el = document.getElementById('recategorizePreview');
+    el.innerHTML = '<p class="text-muted">Analyzing articles…</p>';
+    document.getElementById('confirmRecategorizeBtn').style.display = 'none';
+    openModal('recategorizeModal');
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ..._recatPending, dryRun: true }),
+      });
+      renderRecatPreview(data);
+    } catch (err) {
+      el.innerHTML = `<p class="text-danger">Preview failed: ${escHtml(err.message)}</p>`;
+    }
+  });
+
+  document.getElementById('confirmRecategorizeBtn')?.addEventListener('click', async () => {
+    if (!_recatPending) return;
+    const btn = document.getElementById('confirmRecategorizeBtn');
+    btn.disabled = true; btn.textContent = 'Applying…';
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ ..._recatPending, dryRun: false }),
+      });
+      closeModal('recategorizeModal');
+      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
+      showAlert(`Re-categorized ${data.updated} of ${data.total} articles${writerMsg}`, 'success');
+      selectedIds.clear();
+      _recatPending = null;
+      loadArticles();
+    } catch (err) {
+      showAlert('Re-categorize failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Apply Changes';
+    }
+  });
+
+  document.querySelectorAll('#recategorizeModal [data-close-modal]').forEach(el => {
+    el.addEventListener('click', () => { _recatPending = null; });
+  });
+
   // Fetch sources
   document.getElementById('fetchSourcesBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('fetchSourcesBtn');

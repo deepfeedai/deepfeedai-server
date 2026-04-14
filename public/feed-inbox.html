@@ -68,6 +68,7 @@
       <!-- Bulk action toolbar -->
       <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
         <span id="bulkCount" class="bulk-count">0 selected</span>
+        <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn" title="Re-run category detection on selected">🏷️ Recategorize</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
       </div>
@@ -127,6 +128,21 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-danger" id="confirmPurgeBtn">Purge All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recategorize preview modal -->
+<div class="modal-overlay" id="recategorizeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Recategorize articles</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="recategorizePreview" style="max-height:60vh;overflow-y:auto;">Loading preview…</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="confirmRecategorizeBtn" style="display:none;">Apply Changes</button>
     </div>
   </div>
 </div>

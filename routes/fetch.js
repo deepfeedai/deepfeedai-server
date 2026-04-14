@@ -341,14 +341,27 @@ router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHand
     idx++;
   }
 
-  const sql = `SELECT id, title, summary, category, writer_id FROM articles WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 2000`;
+  const sql = `SELECT id, title, summary, category, writer_id, source, source_url FROM articles WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 2000`;
   const articles = await db.prepare(sql).all(...params);
+
+  // Pre-fetch source default categories so curated articles benefit from the same
+  // source-level bias applied at ingest time.
+  const sourceRows = await db.prepare(
+    'SELECT name, default_category FROM sources WHERE tenant_id = $1'
+  ).all(req.tenantId).catch(() => []);
+  const sourceDefaults = {};
+  for (const s of sourceRows) {
+    if (s.name && s.default_category) sourceDefaults[s.name] = s.default_category;
+  }
 
   const moves = {};
   const toUpdate = [];
 
   for (const a of articles) {
-    const newCat = await detectCategory({ title: a.title, contentSnippet: a.summary }, { tenantId: req.tenantId });
+    const newCat = await detectCategory(
+      { title: a.title, contentSnippet: a.summary, link: a.source_url, sourceUrl: a.source_url },
+      { tenantId: req.tenantId, defaultCategory: sourceDefaults[a.source] }
+    );
     if (newCat !== a.category) {
       const key = `${a.category} → ${newCat}`;
       moves[key] = (moves[key] || 0) + 1;
