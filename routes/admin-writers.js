@@ -350,12 +350,11 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   const conceptDesc = `Portrait of a ${ethnicityDesc}${genderDesc}journalist who covers ${beatNames}${toneDesc}`;
 
   // Run through the shared style composer for brand coherence with thumbnails.
+  // Reads the avatar-specific setting with a fallback to the legacy unified key.
+  const { getArtDirection } = require('../lib/media-helpers');
   let tenantArtDirection = null;
   try {
-    const adRow = await db.prepare(
-      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'art_direction'"
-    ).get(req.tenantId);
-    tenantArtDirection = adRow && adRow.value ? adRow.value : null;
+    tenantArtDirection = await getArtDirection(req.tenantId, 'avatars');
   } catch { /* best effort */ }
 
   const { composeImagePrompt } = require('../lib/prompts/composer');

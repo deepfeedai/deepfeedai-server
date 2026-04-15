@@ -145,41 +145,58 @@ async function designerEnabled(tenantId: number): Promise<boolean> {
 
 function buildSetTenantStyleGuide(ctx: ToolContext) {
   return tool(
-    async ({ family, customPrompt, notes }: { family?: string; customPrompt?: string; notes?: string }) => {
+    async ({ family, customPrompt, notes, target }: { family?: string; customPrompt?: string; notes?: string; target?: 'thumbnails' | 'avatars' | 'both' }) => {
       if (!(await designerEnabled(ctx.tenantId))) {
         return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled for this newsroom.' });
       }
       const trimmedNotes = notes ? String(notes).slice(0, 2000) : null;
+      const resolvedTarget: 'thumbnails' | 'avatars' | 'both' =
+        target === 'thumbnails' || target === 'avatars' || target === 'both' ? target : 'both';
       let value: string;
       let summary: string;
       if (customPrompt && String(customPrompt).trim()) {
         const cp = String(customPrompt).slice(0, 5000);
-        value = JSON.stringify({ prompt: cp, applies_to: ['thumbnails', 'avatars'], notes: trimmedNotes });
-        summary = `Tenant style guide set to custom prompt.`;
+        const appliesTo =
+          resolvedTarget === 'both' ? ['thumbnails', 'avatars']
+          : resolvedTarget === 'thumbnails' ? ['thumbnails']
+          : ['avatars'];
+        value = JSON.stringify({ prompt: cp, applies_to: appliesTo, notes: trimmedNotes });
+        summary = `Tenant style guide set to custom prompt for ${resolvedTarget}.`;
       } else {
         if (!family || !STYLE_FAMILIES_LIST.includes(family)) {
           return JSON.stringify({ status: 'error', message: `Must provide either customPrompt or a valid family. Families: ${STYLE_FAMILIES_LIST.join(', ')}.` });
         }
         value = JSON.stringify({ style: family, notes: trimmedNotes || undefined });
-        summary = `Tenant style guide set to "${family}".`;
+        summary = `Tenant style guide set to "${family}" for ${resolvedTarget}.`;
       }
+
+      // Write to per-target key(s). For 'both', we write the same value to BOTH
+      // per-target keys — avoiding the legacy key so there's no dual-source-of-
+      // truth drift. The legacy `art_direction` remains for read-fallback only.
+      const keys: string[] =
+        resolvedTarget === 'thumbnails' ? ['art_direction_thumbnails']
+        : resolvedTarget === 'avatars' ? ['art_direction_avatars']
+        : ['art_direction_thumbnails', 'art_direction_avatars'];
       try {
-        await db.prepare(`
-          INSERT INTO settings (tenant_id, key, value)
-          VALUES ($1, 'art_direction', $2)
-          ON CONFLICT (tenant_id, key)
-          DO UPDATE SET value = $2
-        `).run(ctx.tenantId, value);
+        for (const key of keys) {
+          await db.prepare(`
+            INSERT INTO settings (tenant_id, key, value)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (tenant_id, key)
+            DO UPDATE SET value = $3
+          `).run(ctx.tenantId, key, value);
+        }
       } catch (err: any) {
         return JSON.stringify({ status: 'error', message: `Failed to save style guide: ${err?.message || 'unknown'}` });
       }
-      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.set_style_guide', 'settings', 'art_direction', { family: family || null, customPrompt: customPrompt ? true : false, notes: trimmedNotes });
-      return JSON.stringify({ status: 'ok', family: family || null, customPrompt: customPrompt || null, notes: trimmedNotes, message: summary });
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.set_style_guide', 'settings', keys.join(','), { family: family || null, customPrompt: customPrompt ? true : false, notes: trimmedNotes, target: resolvedTarget });
+      return JSON.stringify({ status: 'ok', family: family || null, customPrompt: customPrompt || null, notes: trimmedNotes, target: resolvedTarget, message: summary });
     },
     {
       name: 'setTenantStyleGuide',
       description:
         'Designer/editor-only. Set the tenant-wide art direction: either one of the 8 style families OR a freeform customPrompt for fully custom styles. ' +
+        'Use `target` to scope the change: "thumbnails" (article images only), "avatars" (writer portraits only), or "both" (default, newsroom-wide). ' +
         'Optional `notes` are prepended/appended to subsequent image prompts. Prefer proposeStylePivot for significant brand changes — setTenantStyleGuide is unilateral.',
       schema: z.object({
         family: z.enum([
@@ -188,6 +205,7 @@ function buildSetTenantStyleGuide(ctx: ToolContext) {
         ]).optional().describe('Style family name (omit if using customPrompt).'),
         customPrompt: z.string().max(5000).optional().describe('Freeform style prompt that bypasses presets — e.g. "Attack on Titan anime aesthetic, cross-hatching, sharp line work".'),
         notes: z.string().max(2000).optional().describe('Freeform notes appended to image prompts.'),
+        target: z.enum(['thumbnails', 'avatars', 'both']).optional().describe('Which surface to apply the style to. Defaults to "both" for backward compatibility.'),
       }),
     },
   );
@@ -694,7 +712,7 @@ function buildGenerateStandaloneImage(ctx: ToolContext) {
       const aiRouter = require('../../ai-router');
 
       let tenantArtDirection: any = null;
-      try { tenantArtDirection = await getArtDirection(ctx.tenantId); } catch { /* ignore */ }
+      try { tenantArtDirection = await getArtDirection(ctx.tenantId, 'thumbnails'); } catch { /* ignore */ }
 
       const composed = composeImagePrompt({
         concept: trimmedConcept.slice(0, 1000),

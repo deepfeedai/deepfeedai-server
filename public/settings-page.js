@@ -267,26 +267,42 @@ let apiKeyVisible = false;
       populateImgModelDropdown(modelEl, opCfg.provider || '', opCfg.model || '', true);
     }
 
-    // Art direction — string (family name) or JSON object ({style} or {prompt}).
-    const adEl = document.getElementById('artDirectionSelect');
-    const adCustomEl = document.getElementById('artDirectionCustom');
-    let adFamily = '';
-    let adCustom = '';
-    const rawAd = settings.art_direction;
-    if (rawAd) {
-      const s = String(rawAd).trim();
-      if (s.startsWith('{')) {
-        try {
-          const obj = JSON.parse(s);
-          if (obj.prompt) adCustom = String(obj.prompt);
-          else if (obj.style) adFamily = String(obj.style);
-        } catch { adFamily = s; }
-      } else {
-        adFamily = s;
+    // Art direction — parse a string (family name) or JSON object ({style} or {prompt}).
+    // Each target has its own setting key (art_direction_thumbnails / _avatars)
+    // with fallback to legacy `art_direction` for display when the per-target
+    // key is unset.
+    function parseArtDirection(raw) {
+      let family = '';
+      let custom = '';
+      if (raw) {
+        const s = String(raw).trim();
+        if (s.startsWith('{')) {
+          try {
+            const obj = JSON.parse(s);
+            if (obj.prompt) custom = String(obj.prompt);
+            else if (obj.style) family = String(obj.style);
+          } catch { family = s; }
+        } else {
+          family = s;
+        }
       }
+      return { family, custom };
     }
-    if (adEl) adEl.value = adFamily;
-    if (adCustomEl) adCustomEl.value = adCustom;
+
+    const legacyAd = settings.art_direction;
+    const thumbRaw = settings.art_direction_thumbnails || legacyAd;
+    const avatarRaw = settings.art_direction_avatars || legacyAd;
+    const thumbParsed = parseArtDirection(thumbRaw);
+    const avatarParsed = parseArtDirection(avatarRaw);
+
+    const thumbSel = document.getElementById('artDirectionThumbSelect');
+    const thumbCustom = document.getElementById('artDirectionThumbCustom');
+    const avatarSel = document.getElementById('artDirectionAvatarSelect');
+    const avatarCustom = document.getElementById('artDirectionAvatarCustom');
+    if (thumbSel) thumbSel.value = thumbParsed.family;
+    if (thumbCustom) thumbCustom.value = thumbParsed.custom;
+    if (avatarSel) avatarSel.value = avatarParsed.family;
+    if (avatarCustom) avatarCustom.value = avatarParsed.custom;
   }
 
   document.getElementById('imgDefaultProvider').addEventListener('change', function() {
@@ -314,19 +330,23 @@ let apiKeyVisible = false;
     }
     if (!Object.keys(cfg.operations).length) delete cfg.operations;
 
-    const artDirectionFamily = (document.getElementById('artDirectionSelect')?.value || '').trim();
-    const artDirectionCustom = (document.getElementById('artDirectionCustom')?.value || '').trim();
-    // Textarea wins when both are filled. Empty both = clear the setting.
-    let artDirection = '';
-    if (artDirectionCustom) {
-      artDirection = JSON.stringify({
-        prompt: artDirectionCustom,
-        applies_to: ['thumbnails', 'avatars'],
-        notes: null,
-      });
-    } else if (artDirectionFamily) {
-      artDirection = JSON.stringify({ style: artDirectionFamily });
+    // Build per-target art direction values. Textarea wins over dropdown.
+    // Empty both = clear that target's setting.
+    function buildArtDirectionValue(family, custom, appliesTo) {
+      if (custom) {
+        return JSON.stringify({ prompt: custom, applies_to: appliesTo, notes: null });
+      }
+      if (family) {
+        return JSON.stringify({ style: family });
+      }
+      return '';
     }
+    const thumbFamily = (document.getElementById('artDirectionThumbSelect')?.value || '').trim();
+    const thumbCustom = (document.getElementById('artDirectionThumbCustom')?.value || '').trim();
+    const avatarFamily = (document.getElementById('artDirectionAvatarSelect')?.value || '').trim();
+    const avatarCustom = (document.getElementById('artDirectionAvatarCustom')?.value || '').trim();
+    const artDirectionThumbnails = buildArtDirectionValue(thumbFamily, thumbCustom, ['thumbnails']);
+    const artDirectionAvatars = buildArtDirectionValue(avatarFamily, avatarCustom, ['avatars']);
 
     try {
       this.disabled = true;
@@ -336,7 +356,8 @@ let apiKeyVisible = false;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image_provider_config: JSON.stringify(cfg),
-          art_direction: artDirection,
+          art_direction_thumbnails: artDirectionThumbnails,
+          art_direction_avatars: artDirectionAvatars,
         }),
       });
       showAlert('Image provider settings saved ✓');

@@ -8,6 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(designer): separate art direction for thumbnails vs writer avatars — two independent settings cards (art_direction_thumbnails, art_direction_avatars) so avatars can stay consistent while thumbnails rotate per category. Iris's setTenantStyleGuide tool gains a target param ('thumbnails' | 'avatars' | 'both'). Legacy art_direction setting kept as a read-fallback for existing tenants.
 - feat(designer): custom freeform art direction prompt — Settings now has a textarea for advanced tenant-wide style (bypasses the 8 family presets). Iris's setTenantStyleGuide tool accepts customPrompt too. Useful for niche aesthetics like anime styles, specific illustrators, or brand-locked visual languages.
 - feat(designer): per-writer avatar style (family + freeform notes) on writer edit form; "Regenerate avatar" and "Reset to auto" buttons; new Iris tool batchRegenerateWriterAvatars for bulk restyling across the team. Overrides stay persisted so subsequent regenerations remain consistent with the chosen look.
 - feat(settings): Chat Agent Engine selector (single-shot vs langgraph) in admin Settings UI. Required for LangGraph-dependent features (editor-commissioned stories, Graphic Designer agent) without SQL.
