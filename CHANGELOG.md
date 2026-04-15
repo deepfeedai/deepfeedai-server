@@ -8,6 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(notifications): legacy PUT /articles/:id/approve + /reject now fire article_published + article_revision_requested events; editorial-review role query expanded to include superadmin + is_admin; added diagnostic log in notify() to surface silent failures.
 - fix(editorial): optimistic UI on pitch approve/reject/assign — card removes immediately on click, re-inserts on error; Pitches tab now polls every 15s while visible so cross-channel actions reflect without manual refresh.
 
 ### Added
