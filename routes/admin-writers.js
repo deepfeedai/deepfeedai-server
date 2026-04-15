@@ -248,7 +248,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
           signature_phrases, contrarian_level, beat_angle, role, team_id, is_system,
-          accent_color } = body;
+          accent_color, avatar_style_family, avatar_style_notes } = body;
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);
@@ -261,7 +261,9 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       gender = $17, ethnicity = $18,
       signature_phrases = $19, contrarian_level = $20, beat_angle = $21,
       role = $22, team_id = $23, is_system = $24,
-      accent_color = $27
+      accent_color = $27,
+      avatar_style_family = $28,
+      avatar_style_notes = $29
     WHERE id = $25 AND tenant_id = $26
     RETURNING *
   `).get(
@@ -292,6 +294,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     id,
     req.tenantId,
     accent_color !== undefined ? (accent_color || null) : (existing.accent_color || null),
+    avatar_style_family !== undefined ? (avatar_style_family || null) : (existing.avatar_style_family || null),
+    avatar_style_notes !== undefined ? (avatar_style_notes || null) : (existing.avatar_style_notes || null),
   );
 
   if (beats !== undefined) await syncBeats(id, beats, req.tenantId);
@@ -360,6 +364,8 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
     tenantArtDirection,
     articleType: 'writer-avatar',
     writerTone: writer.tone || null,
+    styleOverride: writer.avatar_style_family || null,
+    customNotes: writer.avatar_style_notes || null,
   });
   const prompt = `${composed.prompt} Square 1:1 aspect ratio.`;
 

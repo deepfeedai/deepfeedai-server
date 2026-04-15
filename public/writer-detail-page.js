@@ -229,7 +229,7 @@
     html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Agent name" />');
     html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">';
     html += field('Slug', '<input type="text" class="form-control" id="fSlug" value="' + esc(w.slug || '') + '" placeholder="Auto-generated from name" />');
-    html += field('Role', '<select class="form-control" id="fRole"><option value="writer"' + sel(w.role, 'writer') + '>Writer</option><option value="editor"' + sel(w.role, 'editor') + '>Editor</option><option value="analyst"' + sel(w.role, 'analyst') + '>Analyst</option><option value="moderator"' + sel(w.role, 'moderator') + '>Moderator</option></select>');
+    html += field('Role', '<select class="form-control" id="fRole"><option value="writer"' + sel(w.role, 'writer') + '>Writer</option><option value="editor"' + sel(w.role, 'editor') + '>Editor</option><option value="designer"' + sel(w.role, 'designer') + '>Designer</option><option value="analyst"' + sel(w.role, 'analyst') + '>Analyst</option><option value="moderator"' + sel(w.role, 'moderator') + '>Moderator</option></select>');
     html += '</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
     html += field('Gender', '<select class="form-control" id="fGender"><option value="">— Not set —</option><option value="male"' + sel(w.gender, 'male') + '>Male</option><option value="female"' + sel(w.gender, 'female') + '>Female</option><option value="non-binary"' + sel(w.gender, 'non-binary') + '>Non-binary</option></select>');
@@ -237,6 +237,27 @@
     html += '</div>';
     html += field('Bio', '<textarea class="form-control" id="fBio" rows="2" placeholder="Short bio">' + esc(w.bio || '') + '</textarea>');
     html += '</div>';
+
+    // Avatar Style Overrides
+    if (!isNewWriter) {
+      var styleFamilies = [
+        'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+        'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+      ];
+      html += '<div class="wd-card" style="margin-bottom:20px;">';
+      html += '<div class="wd-section-title">Avatar Style</div>';
+      html += '<div class="text-muted text-sm" style="margin-bottom:10px;">Pin a style family and freeform notes so avatar regenerations stay consistent. Leave blank to use tenant art direction.</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
+      html += field('Style Family', '<select class="form-control" id="fAvatarStyleFamily"><option value="">— Auto (tenant default) —</option>' + styleFamilies.map(function(f) { return '<option value="' + f + '"' + sel(w.avatar_style_family, f) + '>' + f + '</option>'; }).join('') + '</select>');
+      html += field('Accent Color', '<input type="color" class="form-control" id="fAccentColor" value="' + esc(w.accent_color || '#8b5cf6') + '" style="height:38px;padding:4px;" />');
+      html += '</div>';
+      html += field('Style Notes', '<textarea class="form-control" id="fAvatarStyleNotes" rows="2" placeholder="e.g. older, greying beard, warm smile, mid-conversation">' + esc(w.avatar_style_notes || '') + '</textarea>');
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">';
+      html += '<button class="btn btn-accent btn-sm" type="button" id="regenAvatarBtn">Regenerate avatar</button>';
+      html += '<button class="btn btn-outline btn-sm" type="button" id="resetAvatarStyleBtn">Reset to auto</button>';
+      html += '</div>';
+      html += '</div>';
+    }
 
     // Beats + Keywords
     html += '<div class="wd-card" style="margin-bottom:20px;">';
@@ -395,6 +416,79 @@
       });
     }
 
+    // Avatar style: Regenerate + Reset to auto
+    var regenAvatarBtn = document.getElementById('regenAvatarBtn');
+    if (regenAvatarBtn) {
+      regenAvatarBtn.addEventListener('click', async function () {
+        if (!writerData.id) { alert('Save the writer first.'); return; }
+        // Persist the style overrides first so the server picks them up.
+        var famEl = document.getElementById('fAvatarStyleFamily');
+        var notesEl = document.getElementById('fAvatarStyleNotes');
+        regenAvatarBtn.disabled = true;
+        var origLabel = regenAvatarBtn.textContent;
+        regenAvatarBtn.textContent = 'Regenerating...';
+        try {
+          await apiFetch('/admin/writers/' + writerData.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: document.getElementById('fName').value.trim() || writerData.name,
+              avatar_style_family: (famEl && famEl.value) || null,
+              avatar_style_notes: (notesEl && notesEl.value.trim()) || null,
+            }),
+          });
+          writerData.avatar_style_family = (famEl && famEl.value) || null;
+          writerData.avatar_style_notes = (notesEl && notesEl.value.trim()) || null;
+          var data = await apiFetch('/admin/writers/' + writerData.id + '/generate-avatar', { method: 'POST' });
+          var newUrl = data.avatar_url ? (data.avatar_url + (data.avatar_url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now()) : null;
+          if (newUrl) {
+            writerData.avatar_url = data.avatar_url;
+            var img = document.getElementById('writerAvatarImg');
+            if (img && img.tagName === 'IMG') {
+              img.src = newUrl;
+            } else if (img) {
+              img.outerHTML = '<img id="writerAvatarImg" src="' + newUrl + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+            }
+          }
+          showAlert('Avatar regenerated');
+        } catch (err) {
+          showAlert('Regenerate failed: ' + (err.message || err), 'error');
+        } finally {
+          regenAvatarBtn.disabled = false;
+          regenAvatarBtn.textContent = origLabel;
+        }
+      });
+    }
+
+    var resetAvatarStyleBtn = document.getElementById('resetAvatarStyleBtn');
+    if (resetAvatarStyleBtn) {
+      resetAvatarStyleBtn.addEventListener('click', async function () {
+        if (!writerData.id) { alert('Save the writer first.'); return; }
+        if (!confirm('Reset avatar style overrides to auto (tenant default)?')) return;
+        resetAvatarStyleBtn.disabled = true;
+        try {
+          await apiFetch('/admin/writers/' + writerData.id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: document.getElementById('fName').value.trim() || writerData.name,
+              avatar_style_family: null,
+              avatar_style_notes: null,
+            }),
+          });
+          var famEl = document.getElementById('fAvatarStyleFamily'); if (famEl) famEl.value = '';
+          var notesEl = document.getElementById('fAvatarStyleNotes'); if (notesEl) notesEl.value = '';
+          writerData.avatar_style_family = null;
+          writerData.avatar_style_notes = null;
+          showAlert('Avatar style reset to auto');
+        } catch (err) {
+          showAlert('Reset failed: ' + (err.message || err), 'error');
+        } finally {
+          resetAvatarStyleBtn.disabled = false;
+        }
+      });
+    }
+
     var rewriteBtn = document.getElementById('rewritePersonaBtn');
     if (rewriteBtn) {
       rewriteBtn.addEventListener('click', async function () {
@@ -468,6 +562,20 @@
       gender: document.getElementById('fGender').value || null,
       ethnicity: document.getElementById('fEthnicity').value || null,
     };
+
+    // Avatar style overrides (only present for existing writers)
+    var fAvatarStyleFamily = document.getElementById('fAvatarStyleFamily');
+    if (fAvatarStyleFamily) {
+      payload.avatar_style_family = fAvatarStyleFamily.value || null;
+    }
+    var fAvatarStyleNotes = document.getElementById('fAvatarStyleNotes');
+    if (fAvatarStyleNotes) {
+      payload.avatar_style_notes = fAvatarStyleNotes.value.trim() || null;
+    }
+    var fAccentColor = document.getElementById('fAccentColor');
+    if (fAccentColor && fAccentColor.value) {
+      payload.accent_color = fAccentColor.value;
+    }
 
     try {
       var saved;

@@ -1360,6 +1360,10 @@ async function initDb() {
     // feature_definitions.sort_order was INTEGER; decimals (29.5, 29.7, ...) silently
     // failed to seed because INSERT would floor-cast. Widen to NUMERIC.
     `ALTER TABLE feature_definitions ALTER COLUMN sort_order TYPE NUMERIC`,
+    // Per-writer avatar style overrides — designer can pin a specific style
+    // family + freeform notes for each writer so regenerations stay consistent.
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS avatar_style_family TEXT`,
+    `ALTER TABLE writers ADD COLUMN IF NOT EXISTS avatar_style_notes TEXT`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
@@ -1579,6 +1583,11 @@ async function initDb() {
     }
     console.log(`✅ Seeded ${FEATURE_DEFINITIONS.length} feature definitions across ${plans.length} plans`);
   } catch (err) { console.error('[DB] Feature seed error:', err.message); }
+
+  // Backfill: if an existing Iris writer was seeded before role='designer' was added, upgrade her role.
+  try {
+    await p.query(`UPDATE writers SET role = 'designer' WHERE LOWER(name) = 'iris' AND role != 'designer'`).catch(() => {});
+  } catch (_) { /* writers table may not exist yet in fresh envs — ignore */ }
 
   // Seed admin user (only if ADMIN_PASSWORD env var is set — otherwise setup wizard handles it)
   if (process.env.ADMIN_PASSWORD) {

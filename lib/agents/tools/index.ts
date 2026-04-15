@@ -85,6 +85,7 @@ export function buildTools(ctx: ToolContext) {
     baseTools.push(buildRegenerateWriterAvatar(ctx));
     baseTools.push(buildProposeStylePivot(ctx));
     baseTools.push(buildBatchRegenerateWeakThumbnails(ctx));
+    baseTools.push(buildBatchRegenerateWriterAvatars(ctx));
     baseTools.push(buildGenerateStandaloneImage(ctx));
   }
 
@@ -535,6 +536,111 @@ function buildBatchRegenerateWeakThumbnails(ctx: ToolContext) {
         'Status: queued | quota_exceeded | tool_unavailable | error.',
       schema: z.object({
         articleIds: z.array(z.number().int()).min(1).max(20),
+        reason: z.string().min(5).max(500),
+      }),
+    },
+  );
+}
+
+function buildBatchRegenerateWriterAvatars(ctx: ToolContext) {
+  return tool(
+    async ({ writerIds, styleFamily, notes, reason }: {
+      writerIds?: number[]; styleFamily?: string; notes?: string; reason: string;
+    }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      if (!reason || String(reason).trim().length < 5) {
+        return JSON.stringify({ status: 'error', message: 'reason (>= 5 chars) required.' });
+      }
+      if (styleFamily && !STYLE_FAMILIES_LIST.includes(styleFamily)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${styleFamily}".` });
+      }
+      const trimmedNotes = notes ? String(notes).slice(0, 1000) : null;
+
+      // Resolve writer ids: explicit list (tenant-scoped) OR all non-designer writers in this tenant (cap 50).
+      const MAX_BATCH = 50;
+      let targetIds: number[] = [];
+      if (Array.isArray(writerIds) && writerIds.length) {
+        const ids = writerIds.map(Number).filter(n => Number.isFinite(n) && n > 0);
+        if (!ids.length) return JSON.stringify({ status: 'error', message: 'No valid writer ids provided.' });
+        const rows = await db.prepare(
+          `SELECT id FROM writers WHERE id = ANY($1::int[]) AND tenant_id = $2 AND (role IS NULL OR role != 'designer')`
+        ).all(ids, ctx.tenantId);
+        targetIds = (rows || []).map((r: any) => r.id).slice(0, MAX_BATCH);
+        if (!targetIds.length) {
+          return JSON.stringify({ status: 'error', message: 'None of the writer ids belong to this newsroom (or all were designers).' });
+        }
+      } else {
+        const rows = await db.prepare(
+          `SELECT id FROM writers WHERE tenant_id = $1 AND (role IS NULL OR role != 'designer') ORDER BY id ASC LIMIT $2`
+        ).all(ctx.tenantId, MAX_BATCH);
+        targetIds = (rows || []).map((r: any) => r.id);
+        if (!targetIds.length) {
+          return JSON.stringify({ status: 'error', message: 'No writers found in this newsroom.' });
+        }
+      }
+
+      const budget = await checkDesignerBudget(ctx.tenantId);
+      const remaining = budget.cap - budget.used;
+      if (remaining <= 0) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily regeneration budget reached (${budget.used}/${budget.cap}).`,
+        });
+      }
+      const toQueue = targetIds.slice(0, remaining);
+
+      // Persist the overrides BEFORE queuing so the image pipeline picks them up
+      // (and they stay pinned for future regenerations).
+      if (styleFamily || trimmedNotes) {
+        try {
+          await db.prepare(
+            `UPDATE writers
+               SET avatar_style_family = COALESCE($1, avatar_style_family),
+                   avatar_style_notes  = COALESCE($2, avatar_style_notes)
+             WHERE id = ANY($3::int[]) AND tenant_id = $4`
+          ).run(styleFamily || null, trimmedNotes || null, toQueue, ctx.tenantId);
+        } catch (err: any) {
+          console.warn('[designer] batch avatar style persist failed:', err?.message);
+        }
+      }
+
+      for (const wid of toQueue) {
+        await designerAudit(ctx.tenantId, ctx.writerId, 'designer.regenerate_avatar', 'writer', String(wid), {
+          reason, batch: true, styleFamily: styleFamily || null, notes: trimmedNotes,
+        });
+        setImmediate(() => {
+          const { regenerateWriterAvatarImage } = require('../../media-helpers');
+          regenerateWriterAvatarImage(wid, ctx.tenantId, {
+            styleOverride: styleFamily || undefined,
+            customNotes: trimmedNotes || undefined,
+          }).catch((err: any) => console.error(`[designer] batch avatar regen writer ${wid} failed:`, err?.message));
+        });
+      }
+
+      return JSON.stringify({
+        status: 'queued',
+        queued: toQueue.length,
+        queued_ids: toQueue,
+        skipped_count: targetIds.length - toQueue.length,
+        budget: { used: budget.used + toQueue.length, cap: budget.cap },
+        message: `Queued avatar regeneration for ${toQueue.length} writer${toQueue.length === 1 ? '' : 's'}${styleFamily ? ` with style "${styleFamily}"` : ''}.`,
+      });
+    },
+    {
+      name: 'batchRegenerateWriterAvatars',
+      description:
+        'Designer/editor-only. Restyle writer avatars in bulk. Pass `writerIds` to target specific writers, or omit to apply to all non-designer writers in this newsroom (capped at 50). ' +
+        'Optional `styleFamily` + `notes` are persisted on each writer as their avatar style override so future regenerations stay consistent. ' +
+        'Honors the daily regen budget — extras are dropped. Status: queued | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        writerIds: z.array(z.number().int()).max(50).optional(),
+        styleFamily: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]).optional(),
+        notes: z.string().max(1000).optional(),
         reason: z.string().min(5).max(500),
       }),
     },
