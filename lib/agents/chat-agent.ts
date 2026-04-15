@@ -248,7 +248,7 @@ export async function runChatAgent(opts: RunChatAgentOpts): Promise<string> {
       agentSessionId,
       trigger: 'chat-agent',
       temperature: 0.7,
-      maxTokens: 1024,
+      maxTokens: 2048,
     });
 
   const graph = new StateGraph(ChatState)

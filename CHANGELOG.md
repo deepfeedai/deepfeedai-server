@@ -13,6 +13,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(gemini): surface finishReason + safety ratings on empty responses; return a helpful fallback text on MAX_TOKENS instead of silently empty; bump chat-agent maxTokens 1024→2048 to reduce truncation during tool calls.
 - fix(providers): strip JSON Schema keywords Gemini function-calling rejects (additionalProperties, $schema, default). Unblocks LangGraph tool use on Gemini-chat tenants — was silently falling back to single-shot on every tool-bound conversation.
 - fix(designer): tightened Iris persona to generate images immediately instead of asking clarifying questions; hard rule against "I can't generate images"; repair migration upgrades any legacy Iris writer to role='designer'.
 - fix(security): atomic action-token burn (closes double-approve race), idempotency guards on article.publish/revise/kill handlers, slug collision prevention in editor-commissioned ingest, Telegram webhook secret-token verification, synchronous cohort-sibling burn to preserve single-use guarantee across channels.
