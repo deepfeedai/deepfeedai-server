@@ -94,7 +94,10 @@ router.post('/ingest', auth, requirePermission('articles.create'), requireResear
     const title = String(item.title).slice(0, 500);
     const summary = String(item.snippet || '').slice(0, 1000);
     const publisher = String(item.publisher || item.source || 'Unknown').slice(0, 200);
-    const slug = toSlug(title) || `enrich-${Date.now()}`;
+    // Random suffix prevents slug collisions across concurrent ingests.
+    const crypto = require('crypto');
+    const baseSlug = toSlug(title) || 'enrich';
+    const slug = `${baseSlug}-${crypto.randomBytes(3).toString('hex')}`;
 
     let category = 'General';
     try {

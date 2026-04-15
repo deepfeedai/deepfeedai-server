@@ -6,6 +6,15 @@ const router = express.Router();
 const db = require('../db');
 const { asyncHandler } = require('../lib/utils');
 
+// One-time startup warning if the webhook secret-token isn't configured.
+// Telegram lets you set a secret on setWebhook and echoes it back as the
+// X-Telegram-Bot-Api-Secret-Token header on every update. Without it, anyone
+// who learns our webhook URL can spoof updates.
+if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
+  console.warn('[webhook:telegram] TELEGRAM_WEBHOOK_SECRET not set — webhook is unauthenticated. ' +
+    'Set the env var and call Telegram setWebhook with the matching secret_token to enable verification.');
+}
+
 // GET /api/webhooks/telegram — health check
 router.get('/telegram', (req, res) => {
   res.json({ status: 'ok', message: 'Telegram webhook endpoint is active' });
@@ -13,6 +22,17 @@ router.get('/telegram', (req, res) => {
 
 // POST /api/webhooks/telegram — incoming Telegram updates
 router.post('/telegram', asyncHandler(async (req, res) => {
+  // Verify the secret-token header if configured. If the env var is unset we
+  // allow through for backward compat (with the startup warning above).
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expectedSecret) {
+    const got = req.headers['x-telegram-bot-api-secret-token'];
+    if (got !== expectedSecret) {
+      console.warn('[webhook:telegram] rejected: bad or missing secret-token header');
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+  }
+
   res.json({ ok: true });
 
   // Inline-keyboard button presses (PR-C of notifications/actions).
@@ -187,12 +207,19 @@ async function handleTelegramCallback(cq, tenantId) {
     await editMessageReplyMarkup(chatId, messageId, row.tenant_id, []);
   }
 
-  // Cascade to sibling tokens in the same cohort (web bell, other chats, etc.)
+  // SYNC: burn sibling cohort tokens immediately to preserve single-use across
+  // channels. ASYNC: notification rewrites + remote keyboard cleanup.
   if (result.ok) {
     try {
-      const { cascade: cascadeAction } = require('../lib/actions/post-action');
-      cascadeAction(row, 'telegram').catch(err =>
-        console.error('[webhook:telegram] cascade failed:', err.message));
+      const { cascadeBurn, cascadeCleanup } = require('../lib/actions/post-action');
+      let siblings = [];
+      try {
+        siblings = await cascadeBurn(row);
+      } catch (err) {
+        console.error('[webhook:telegram] cascadeBurn failed:', err.message);
+      }
+      cascadeCleanup(row, siblings, 'telegram').catch(err =>
+        console.error('[webhook:telegram] cascadeCleanup failed:', err.message));
     } catch { /* non-fatal */ }
   }
 }
