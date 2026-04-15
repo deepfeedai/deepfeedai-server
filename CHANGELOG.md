@@ -13,6 +13,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(imagen): per-operation personGeneration — writer avatars, user avatars, and Iris's standalone-design generation now pass personGeneration='allow_adult'; article thumbnails stay on 'dont_allow' to avoid unintended faces. Fixes silent "no image bytes returned" on every portrait prompt since the style system landed.
 - fix(gemini): surface finishReason + safety ratings on empty responses; return a helpful fallback text on MAX_TOKENS instead of silently empty; bump chat-agent maxTokens 1024→2048 to reduce truncation during tool calls.
 - fix(providers): strip JSON Schema keywords Gemini function-calling rejects (additionalProperties, $schema, default). Unblocks LangGraph tool use on Gemini-chat tenants — was silently falling back to single-shot on every tool-bound conversation.
 - fix(designer): tightened Iris persona to generate images immediately instead of asking clarifying questions; hard rule against "I can't generate images"; repair migration upgrades any legacy Iris writer to role='designer'.
