@@ -259,7 +259,7 @@ let apiKeyVisible = false;
     defaultEl.value = defaultProvider;
     populateImgModelDropdown(defaultModelEl, defaultProvider, defaultModel, false);
 
-    for (const op of ['thumbnail-render', 'inline-image']) {
+    for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
       const opCfg = cfg.operations?.[op] || {};
       const provEl  = document.getElementById('imgOpProvider-' + op);
       const modelEl = document.getElementById('imgOpModel-' + op);
@@ -308,7 +308,7 @@ let apiKeyVisible = false;
   document.getElementById('imgDefaultProvider').addEventListener('change', function() {
     populateImgModelDropdown(document.getElementById('imgDefaultModel'), this.value, '', false);
   });
-  for (const op of ['thumbnail-render', 'inline-image']) {
+  for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
     document.getElementById('imgOpProvider-' + op).addEventListener('change', function() {
       populateImgModelDropdown(document.getElementById('imgOpModel-' + op), this.value, '', true);
     });
@@ -322,7 +322,7 @@ let apiKeyVisible = false;
       },
       operations: {},
     };
-    for (const op of ['thumbnail-render', 'inline-image']) {
+    for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
       const provider = document.getElementById('imgOpProvider-' + op).value;
       if (!provider) continue;
       const model = document.getElementById('imgOpModel-' + op).value;

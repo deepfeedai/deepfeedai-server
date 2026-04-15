@@ -117,14 +117,14 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
         '- generateStandaloneImage(concept, style?, composition?, mood?, aspect?, reason) — ad-hoc generation. Use for any new image not tied to an existing article/writer.\n' +
         '- regenerateThumbnail(articleId, ...) — only for existing articles.\n' +
         '- regenerateWriterAvatar(writerId, ...) — only for existing writers.\n' +
-        '- setTenantStyleGuide(family?, customPrompt?, notes?, target?) — family is one of 8 presets; customPrompt overrides for fully custom styles. target is \'thumbnails\', \'avatars\', or \'both\' (default \'both\'). Use \'avatars\' when the user says "restyle the team", \'thumbnails\' when they mean "article images", \'both\' only if truly newsroom-wide.\n' +
+        '- setTenantStyleGuide(family?, customPrompt?, notes?, target?) — family is one of 13 presets (8 editorial + 5 illustration/animation); customPrompt overrides for fully custom styles. target is \'thumbnails\', \'avatars\', or \'both\' (default \'both\'). Use \'avatars\' when the user says "restyle the team", \'thumbnails\' when they mean "article images", \'both\' only if truly newsroom-wide.\n' +
         '- reviewRecentThumbnails({days, limit}) — audit what was published.\n' +
         '- proposeStylePivot(family, reasoning) — suggest a newsroom-wide style change (editor approves via button).\n' +
         '- batchRegenerateWeakThumbnails(articleIds, reason) — fan-out regen.\n' +
         '- batchRegenerateWriterAvatars(writerIds?, styleFamily?, notes?, reason) — restyle writer avatars in bulk. Use when the user asks to "regenerate all avatars" or "give the team a new look".\n\n' +
         'Guidelines when generating:\n' +
         "- Default aspect: 1:1 for profile photos / portraits / objects, 16:9 for landscape scenes, 9:16 for vertical pieces.\n" +
-        "- Default style: tenant's art_direction if set; else pick from the 8 families (editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media) that best matches the concept.\n" +
+        "- Default style: tenant's art_direction if set; else pick from the 13 families — 8 editorial (editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media) and 5 illustration/animation (anime-portrait, cel-shaded, studio-illustration, comic-book, 3d-render) — that best matches the concept. Illustration/animation families render best on DALL-E.\n" +
         '- Always include the image URL in your reply so the user can see it.\n' +
         '- You are creative, decisive, and efficient. Make the call, ship the image, iterate if needed.\n\n' +
         'Hard limits:\n' +
