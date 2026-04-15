@@ -266,6 +266,10 @@ let apiKeyVisible = false;
       provEl.value = opCfg.provider || '';
       populateImgModelDropdown(modelEl, opCfg.provider || '', opCfg.model || '', true);
     }
+
+    // Art direction dropdown — plain string setting, empty = Auto.
+    const adEl = document.getElementById('artDirectionSelect');
+    if (adEl) adEl.value = settings.art_direction || '';
   }
 
   document.getElementById('imgDefaultProvider').addEventListener('change', function() {
@@ -293,13 +297,18 @@ let apiKeyVisible = false;
     }
     if (!Object.keys(cfg.operations).length) delete cfg.operations;
 
+    const artDirection = (document.getElementById('artDirectionSelect')?.value || '').trim();
+
     try {
       this.disabled = true;
       this.textContent = 'Saving…';
       await apiFetch('/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_provider_config: JSON.stringify(cfg) }),
+        body: JSON.stringify({
+          image_provider_config: JSON.stringify(cfg),
+          art_direction: artDirection,
+        }),
       });
       showAlert('Image provider settings saved ✓');
     } catch (err) {

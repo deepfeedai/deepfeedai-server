@@ -343,9 +343,25 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
 
   const genderDesc = writer.gender ? `${writer.gender} ` : '';
   const ethnicityDesc = writer.ethnicity ? `${writer.ethnicity} ` : '';
-  const prompt = `Professional headshot portrait of a ${ethnicityDesc}${genderDesc}journalist who covers ${beatNames}${toneDesc}. `
-    + `Clean background, studio lighting, photorealistic, high quality, sharp focus. `
-    + `No text, no logos, no watermarks. Square 1:1 aspect ratio.`;
+  const conceptDesc = `Portrait of a ${ethnicityDesc}${genderDesc}journalist who covers ${beatNames}${toneDesc}`;
+
+  // Run through the shared style composer for brand coherence with thumbnails.
+  let tenantArtDirection = null;
+  try {
+    const adRow = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'art_direction'"
+    ).get(req.tenantId);
+    tenantArtDirection = adRow && adRow.value ? adRow.value : null;
+  } catch { /* best effort */ }
+
+  const { composeImagePrompt } = require('../lib/prompts/composer');
+  const composed = composeImagePrompt({
+    concept: conceptDesc,
+    tenantArtDirection,
+    articleType: 'writer-avatar',
+    writerTone: writer.tone || null,
+  });
+  const prompt = `${composed.prompt} Square 1:1 aspect ratio.`;
 
   console.log(`[AvatarGen] Writer ${id} (${writer.name}): ${prompt}`);
 
