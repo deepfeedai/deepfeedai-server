@@ -14,6 +14,8 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(admin): mobile-usable high-value pages — Editorial, Pitches, Notifications, Feed Inbox, Activity Feed. Tables stack as cards under 768px, tab bars scroll horizontally with snap, action buttons go full-width on narrow viewports. "Approve from bed" flow is now actually usable on a phone.
+- feat(admin): mobile primitives — responsive breakpoints, touch-friendly button sizing, bottom-sheet modals under 600px, off-canvas sidebar drawer with hamburger toggle, table horizontal-scroll affordances, iOS-zoom-safe form inputs. Foundation for mobile-friendly admin.
 - feat(media): image prompt style system — 8 style families (editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media); category-aware rotation with deterministic jitter; mood library tied to story tier; composition variety; shared negative prompt banning stock tropes; unified between article thumbnails + writer avatars. Tenant-level art_direction setting overrides rotation. Creativity target: 6-7/10 (was 3/10).
 - chore(ai-router): embeddings now route through ai-router (was parallel resolver); deleted legacy lib/gemini-config.js (superseded by ai-key-resolver).
 - feat(ai-router): voice provider abstraction (ElevenLabs wrapped behind lib/providers/elevenlabs.js) — audio + voice-chat now honor per-tenant provider overrides; visual-concept pre-pass also routed through ai-router (was Gemini-locked). Closes the last BYOK bypasses in the media pipeline.

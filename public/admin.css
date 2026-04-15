@@ -2056,6 +2056,242 @@ tr:hover .td-edit-btn { opacity: 1; }
   .launch-stats { flex-direction: column; gap: var(--space-4); }
 }
 
+/* ── Mobile (≤768px) primitives ──────────────────────────
+   Additive only — desktop (≥769px) is unchanged. Foundation
+   for mobile-friendly admin: touch sizing, off-canvas drawer,
+   bottom-sheet modals, table scroll affordances, iOS-safe inputs.
+   ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  body, .admin-layout { min-width: 0; }
+  html, body { overflow-x: hidden; }
+
+  /* Topbar — slimmer + smaller text */
+  .topbar { height: 52px; padding: 0 var(--space-3); gap: var(--space-3); }
+  .topbar-title { font-size: var(--text-md); }
+  .topbar-user { display: none; }
+
+  /* Tighter page padding */
+  .page-body { padding: 12px; }
+
+  /* Touch-friendly buttons everywhere on mobile */
+  .btn,
+  button.btn,
+  .btn-icon,
+  .modal-close,
+  .hamburger {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  .btn-xs { min-height: 32px; min-width: 32px; }
+
+  /* Inline button groups wrap, gap-spaced */
+  .btn-group,
+  .actions,
+  .row-sub-actions,
+  .article-card-actions {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .btn-group > *,
+  .actions > * { margin: 0; }
+
+  /* Form controls full-width + iOS-zoom-safe */
+  .form-control,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .input-narrow,
+  .input-wide { max-width: 100%; }
+
+  /* Table scroll affordance — soft right-edge gradient hint */
+  .table-scroll,
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+    background-image: linear-gradient(to right, transparent calc(100% - 24px), rgba(0,0,0,0.18) 100%);
+    background-attachment: local;
+  }
+
+  /* Bell dropdown — never overflow viewport */
+  .dfa-bell-dropdown { max-width: calc(100vw - 24px); }
+}
+
+/* Bottom-sheet modals on small phones */
+@media (max-width: 600px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal {
+    max-width: 100%;
+    width: 100%;
+    max-height: 85vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    transform: translateY(100%);
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-footer { flex-wrap: wrap; gap: var(--space-2); }
+  .modal-footer .btn { flex: 1 1 auto; }
+}
+
+/* ── Mobile high-value pages (≤768px) ──────────────────
+   Editorial, Pitches, Notifications, Feed Inbox, Activity.
+   Pure additive — desktop unchanged.
+   ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Tab bars: horizontal scroll + snap */
+  .tab-bar,
+  .tabs,
+  .notif-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tab-bar::-webkit-scrollbar,
+  .tabs::-webkit-scrollbar,
+  .notif-tabs::-webkit-scrollbar { display: none; }
+  .tab-btn,
+  .notif-tab { scroll-snap-align: start; flex-shrink: 0; }
+
+  /* Pitches grid -> single column */
+  .pitch-grid { grid-template-columns: 1fr !important; gap: 12px !important; }
+  .pitch-card { padding: 14px !important; }
+
+  /* Notifications page cards */
+  .notif-page { max-width: 100% !important; }
+  .notif-card { padding: 12px !important; }
+  .notif-card-head { flex-wrap: wrap; }
+  .notif-card-actions { width: 100%; }
+  .notif-card-actions > * { flex: 1 1 auto; min-height: 40px; }
+  .notif-toolbar { flex-wrap: wrap; gap: 8px; }
+
+  /* Sticky day-group headers (if rendered as h3.notif-day) */
+  .notif-day,
+  .notif-day-header {
+    position: sticky;
+    top: 52px; /* mobile topbar height */
+    background: var(--bg);
+    z-index: 5;
+    padding: 8px 0;
+  }
+
+  /* Newsroom activity feed */
+  .feed-shell { padding: 12px !important; }
+  .feed-filters { gap: 6px; }
+  .feed-card { padding: 12px 14px !important; }
+  .reply-input-row { flex-wrap: wrap; }
+  .reply-input-row input { flex: 1 1 100%; min-width: 0; font-size: 16px; }
+  .reply-input-row .btn { width: 100%; }
+
+  /* Bell dropdown — full-width sheet under 480px handled below */
+
+  /* Feed-inbox: convert table rows to stacked cards */
+  .feed-inbox-table { min-width: 0 !important; }
+  .feed-inbox-table thead { display: none; }
+  .feed-inbox-table,
+  .feed-inbox-table tbody,
+  .feed-inbox-table tr,
+  .feed-inbox-table td { display: block; width: 100%; }
+  .feed-inbox-table tr {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+  }
+  .feed-inbox-table td {
+    border: none !important;
+    padding: 4px 0 !important;
+    text-align: left !important;
+    max-width: none !important;
+  }
+  .feed-inbox-table td.td-title { font-weight: 600; font-size: 14px; }
+  .feed-inbox-table td[data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    margin-right: 6px;
+  }
+  .feed-inbox-table td.td-actions {
+    border-top: 1px solid var(--border) !important;
+    padding-top: 8px !important;
+    margin-top: 6px;
+    display: flex !important;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+  .feed-inbox-table td.td-actions .btn { flex: 0 0 auto; }
+
+  /* Feed-inbox filter bar -> collapsible */
+  .filter-bar.filter-bar-collapsible {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-bar.filter-bar-collapsible.collapsed .filter-group,
+  .filter-bar.filter-bar-collapsible.collapsed .filter-search-wrap { display: none; }
+  .filter-bar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    width: 100%;
+    min-height: 40px;
+  }
+}
+@media (min-width: 769px) {
+  /* Toggle button is mobile-only */
+  .filter-bar-toggle { display: none !important; }
+}
+
+/* Editorial review action buttons stack under 480px */
+@media (max-width: 480px) {
+  .review-actions,
+  .review-card-actions,
+  .pitch-actions,
+  .pitch-card-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .review-actions .btn,
+  .review-card-actions .btn,
+  .pitch-actions .btn,
+  .pitch-card-actions .btn { width: 100%; min-height: 44px; }
+
+  /* Notification bell -> full-width top sheet */
+  .dfa-bell-dropdown {
+    position: fixed !important;
+    top: 56px !important;
+    right: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    border-radius: 0 0 12px 12px !important;
+  }
+}
+
 /* ===== Feature Gating ===== */
 .feature-locked { opacity: 0.5; pointer-events: none; position: relative; }
 .feature-gate-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
