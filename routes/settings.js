@@ -146,7 +146,6 @@ router.put('/', requireAdmin, requirePermission('settings.update'), asyncHandler
 // ── Platform-level config (always tenant_id=1) ────────────────────
 // In multi-tenant mode, R2/S3 credentials and AI API keys are platform-wide.
 // These endpoints read/write from tenant_id=1 regardless of the caller's tenant.
-const { bustGeminiKeyCache } = require('../lib/gemini-config');
 const { bustStripeConfigCache } = require('../lib/stripe-config');
 
 // GET /api/settings/platform-storage — platform admin reads platform config
@@ -190,10 +189,8 @@ router.put('/platform-storage', requireAdmin, requirePlatformAdmin, asyncHandler
   // Bust relevant caches
   if (savedKeys.some(k => R2_KEYS.includes(k))) storage.bustR2ConfigCache();
   if (savedKeys.some(k => AI_KEYS.includes(k))) {
-    bustGeminiKeyCache();
     bustProviderConfigCache();
     bustKeyCache();
-    try { require('../lib/embeddings').bustEmbeddingConfigCache(); } catch { /* optional */ }
   }
   if (savedKeys.some(k => STRIPE_KEYS.includes(k))) bustStripeConfigCache();
 

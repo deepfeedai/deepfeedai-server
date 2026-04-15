@@ -8,6 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- chore(ai-router): embeddings now route through ai-router (was parallel resolver); deleted legacy lib/gemini-config.js (superseded by ai-key-resolver).
 - feat(ai-router): voice provider abstraction (ElevenLabs wrapped behind lib/providers/elevenlabs.js) — audio + voice-chat now honor per-tenant provider overrides; visual-concept pre-pass also routed through ai-router (was Gemini-locked). Closes the last BYOK bypasses in the media pipeline.
 - feat(feed): originals-only public feed with story-level tiers, decay, and perspective grouping; admin articles list gains importance column + manual override; breaking-story dispatch gated through notifications/actions system.
 - feat(admin): hide editor-role writers (Maxwell) from public site; admin Writers page gains role filter + grouping; admin users can set their own avatar + display name, rendered in newsroom chat.

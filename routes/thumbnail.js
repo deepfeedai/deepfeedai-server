@@ -17,7 +17,7 @@ const router           = express.Router();
 const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { logUsage } = require('../lib/ai-usage');
-const { getGeminiKey } = require('../lib/gemini-config');
+const { resolveKey } = require('../lib/ai-key-resolver');
 
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_IMAGE_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
@@ -55,7 +55,7 @@ async function setCached(key, payload, tenantId) {
 }
 
 router.get('/', asyncHandler(async (req, res) => {
-  const apiKey = await getGeminiKey(req.tenantId);
+  const apiKey = await resolveKey('gemini', req.tenantId);
   if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY not configured.' });
 
   const { title = '', category = 'Industry' } = req.query;
