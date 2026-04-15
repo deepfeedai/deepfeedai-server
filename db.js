@@ -945,7 +945,7 @@ async function initDb() {
       category      TEXT NOT NULL,
       value_type    TEXT NOT NULL DEFAULT 'boolean',
       default_value TEXT NOT NULL DEFAULT 'false',
-      sort_order    INTEGER DEFAULT 0,
+      sort_order    NUMERIC DEFAULT 0,
       created_at    TIMESTAMPTZ DEFAULT NOW()
     )`,
     `CREATE TABLE IF NOT EXISTS plan_features (
@@ -1357,6 +1357,9 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_action_tokens_notification ON action_tokens(notification_id)`,
     // PR-B: revise action needs a place to record editor feedback.
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS review_notes TEXT`,
+    // feature_definitions.sort_order was INTEGER; decimals (29.5, 29.7, ...) silently
+    // failed to seed because INSERT would floor-cast. Widen to NUMERIC.
+    `ALTER TABLE feature_definitions ALTER COLUMN sort_order TYPE NUMERIC`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
