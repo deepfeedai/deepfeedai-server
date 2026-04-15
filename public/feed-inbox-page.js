@@ -159,15 +159,15 @@
       <td class="td-title" title="${escHtml(a.title)}">
         <span>${escHtml(a.title)}</span>
       </td>
-      <td class="text-muted text-sm">${escHtml(a.source || '—')}</td>
-      <td class="td-category">
+      <td class="text-muted text-sm" data-label="Source">${escHtml(a.source || '—')}</td>
+      <td class="td-category" data-label="Category">
         <span class="badge badge-muted">${escHtml(a.category || '—')}</span>
       </td>
-      <td class="text-center">${a.editorial_score != null
+      <td class="text-center" data-label="Score">${a.editorial_score != null
         ? `<span class="badge ${a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger'}" style="min-width:24px;">${a.editorial_score}</span>`
         : '<span class="text-muted">—</span>'}</td>
-      <td class="text-muted text-sm"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
-      <td style="text-align:center;">
+      <td class="text-muted text-sm" data-label="Fetched"><span title="${fmtDate(a.created_at)}">${relativeTime(a.created_at)}</span></td>
+      <td class="td-actions" style="text-align:center;">
         <div style="display:flex;gap:2px;justify-content:center;">
           ${safeUrl(a.source_url) ? `<a class="btn btn-ghost btn-sm" href="${escHtml(safeUrl(a.source_url))}" target="_blank" rel="noopener" title="View source">🔗</a>` : ''}
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁</button>
@@ -389,6 +389,15 @@
   }
 
   // Filters
+  // Mobile filter-bar collapse toggle
+  const filterToggle = document.getElementById('filterBarToggle');
+  const filterBarEl = document.getElementById('filterBar');
+  filterToggle?.addEventListener('click', () => {
+    if (!filterBarEl) return;
+    const collapsed = filterBarEl.classList.toggle('collapsed');
+    filterToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  });
+
   document.getElementById('sourceFilter')?.addEventListener('change', e => {
     sourceFilter = e.target.value;
     applyFilters();

@@ -35,7 +35,10 @@
       </div>
 
       <!-- Filter Bar -->
-      <div class="filter-bar" id="filterBar">
+      <button type="button" class="filter-bar-toggle" id="filterBarToggle" aria-expanded="false">
+        <span>Filters</span><span aria-hidden="true">▾</span>
+      </button>
+      <div class="filter-bar filter-bar-collapsible collapsed" id="filterBar">
         <div class="filter-search-wrap">
           <span class="filter-search-icon">🔍</span>
           <input type="text" id="articleSearch" class="filter-search-input" placeholder="Search title or summary…" autocomplete="off" />
@@ -95,7 +98,7 @@
 
       <!-- Table view -->
       <div class="table-wrap"><div class="table-scroll">
-        <table id="inboxTable">
+        <table id="inboxTable" class="feed-inbox-table">
           <thead>
             <tr>
               <th class="th-check">
