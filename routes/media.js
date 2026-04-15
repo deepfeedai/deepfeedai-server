@@ -6,7 +6,6 @@
  */
 const express = require('express');
 const router  = require('express').Router();
-const https   = require('https');
 const crypto  = require('crypto');
 const multer  = require('multer');
 const db      = require('../db');
@@ -18,7 +17,7 @@ const storage = require('../lib/storage');
 const { getGeminiKey, getImagenModel, getImagenUrl } = require('../lib/gemini-config');
 const { getAppConfig } = require('../lib/app-config');
 const { logUsage } = require('../lib/ai-usage');
-const { complete: aiComplete } = require('../lib/ai-router');
+const { complete: aiComplete, generateVoice } = require('../lib/ai-router');
 const { checkPlanLimit } = require('../lib/plan-limits');
 const { requireFeature }               = require('../middleware/feature-gate');
 const { logAudit }                      = require('../middleware/audit');
@@ -60,41 +59,23 @@ async function buildTtsText(title, summary, source, tenantId) {
   return `From ${source}. ${title}. ${body}`.slice(0, MAX_CHARS);
 }
 
-function generateSpeech(text, voiceId, apiKey) {
-  const resolvedVoiceId = voiceId;
-  const resolvedApiKey  = apiKey;
-  return new Promise((resolve, reject) => {
-    if (!resolvedApiKey || !resolvedVoiceId) return reject(new Error('ElevenLabs credentials not configured'));
-    const body = JSON.stringify({
-      text,
-      model_id: 'eleven_turbo_v2',
-      voice_settings: { stability: 0.4, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true },
-    });
-    const req = https.request({
-      hostname: 'api.elevenlabs.io',
-      path:     `/v1/text-to-speech/${resolvedVoiceId}`,
-      method:   'POST',
-      headers: {
-        'Content-Type':   'application/json',
-        'xi-api-key':     resolvedApiKey,
-        'Accept':         'audio/mpeg',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      if (res.statusCode !== 200) {
-        let err = '';
-        res.on('data', c => err += c);
-        res.on('end', () => reject(new Error(`ElevenLabs ${res.statusCode}: ${err.slice(0, 200)}`)));
-        return;
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+/**
+ * Generate TTS through ai-router. voiceId is required. tenantId + operation drive
+ * provider selection + usage logging. Returns the raw mp3 Buffer for backward compat.
+ */
+async function generateSpeech(text, voiceId, tenantId, operation = 'voice-chat', articleSlug = null) {
+  if (!voiceId) throw new Error('Voice ID not configured');
+  const result = await generateVoice({
+    operation,
+    tenantId,
+    text,
+    voiceId,
+    articleSlug,
+    trigger: 'manual',
+    skipBudget: true,
   });
+  if (!result) throw new Error('Voice generation denied by budget');
+  return result.audio;
 }
 
 async function storeAudio(mp3Buf, filename, tenantId) {
@@ -170,13 +151,8 @@ router.post('/generate-audio', auth, requirePermission('media.create'), requireF
       }
     }
 
-    // Resolve API key via centralized config (settings table → env var)
-    const resolvedApiKey = appCfg.elevenlabs_api_key;
-
-    const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
-    const _elStart = Date.now();
-    const mp3Buf   = await generateSpeech(text, resolvedVoiceId, resolvedApiKey);
-    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', characters: text.length, durationMs: Date.now() - _elStart, tenantId: req.tenantId }).catch(() => {});
+    const text   = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
+    const mp3Buf = await generateSpeech(text, resolvedVoiceId, req.tenantId, 'audio', article.slug);
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;
     const audioUrl = await storeAudio(mp3Buf, filename, req.tenantId);
@@ -193,7 +169,8 @@ router.post('/generate-audio', auth, requirePermission('media.create'), requireF
   } catch (err) {
     await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = $1 AND tenant_id = $2").run(articleId, req.tenantId);
     console.error('[Media] Error:', err.message);
-    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message, tenantId: req.tenantId }).catch(() => {});
+    // ai-router already logged the underlying provider failure — log a thin wrapper failure for visibility.
+    logUsage({ provider: 'ai-router', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message, tenantId: req.tenantId }).catch(() => {});
     res.status(500).json({ error: err.message });
   }
 }));
@@ -203,11 +180,8 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
   const { voice_id, text } = req.body || {};
   if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
 
-  const appCfg = await getAppConfig(req.tenantId);
-  const apiKey = appCfg.elevenlabs_api_key;
-
   const previewText = (text && text.trim()) ? text.trim().slice(0, 500) : 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest updates.';
-  const mp3Buf = await generateSpeech(previewText, voice_id, apiKey);
+  const mp3Buf = await generateSpeech(previewText, voice_id, req.tenantId, 'voice-chat', null);
   res.json({ audio: mp3Buf.toString('base64'), mimeType: 'audio/mpeg' });
 }));
 
