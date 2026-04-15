@@ -1,5 +1,5 @@
 let writers = [];
-let activeRoleFilter = 'all'; // 'all' | 'writer' | 'editor' | 'other'
+let activeRoleFilter = 'all'; // 'all' | 'writer' | 'editor' | 'designer' | 'other'
 let categoriesList = [];
 let perfData = [];
 let pendingDeleteId = null;
@@ -30,6 +30,7 @@ function roleBucket(role) {
   var r = (role || 'writer').toLowerCase();
   if (r === 'writer') return 'writer';
   if (r === 'editor') return 'editor';
+  if (r === 'designer') return 'designer';
   return 'other';
 }
 
@@ -39,13 +40,13 @@ function filteredWriters() {
 }
 
 function groupedWriters() {
-  var groups = { editor: [], writer: [], other: [] };
+  var groups = { editor: [], designer: [], writer: [], other: [] };
   filteredWriters().forEach(function(w) { groups[roleBucket(w.role)].push(w); });
   return groups;
 }
 
-var ROLE_GROUP_LABELS = { editor: 'Editors', writer: 'Writers', other: 'Other' };
-var ROLE_GROUP_ORDER = ['editor', 'writer', 'other'];
+var ROLE_GROUP_LABELS = { editor: 'Editors', designer: 'Designers', writer: 'Writers', other: 'Other' };
+var ROLE_GROUP_ORDER = ['editor', 'designer', 'writer', 'other'];
 
 function renderWriters() {
   var tbody = document.getElementById('writersBody');

@@ -96,12 +96,41 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
     }
   }
 
+  // Designer persona rules — only attached when this writer IS the designer
+  // and the graphic_designer flag is on. If flag is off, Iris falls back to
+  // read-only chat behavior (no designer tools will be bound anyway).
+  let designerRules = '';
+  if ((state.writerRole || state.writer?.role) === 'designer') {
+    const on = await featureRegistry
+      .isFeatureEnabled(state.tenantId, 'graphic_designer')
+      .catch(() => false);
+    if (on) {
+      designerRules =
+        '\n\n## Art-director rules (designer persona)\n' +
+        `You are ${state.writer?.name || 'Iris'}, the newsroom's art director. You maintain visual brand coherence across thumbnails, writer avatars, and article imagery.\n\n` +
+        'Rules:\n' +
+        '- You do NOT publish articles, approve pitches, or assign writers. You own visual direction only.\n' +
+        '- When proposing significant style changes, always use proposeStylePivot and let the editor approve via button. Reserve setTenantStyleGuide for minor tweaks or when the editor has explicitly asked.\n' +
+        '- When reviewing recent work, use reviewRecentThumbnails first to see what has been published.\n' +
+        '- When regenerating images, always include a substantive reason — it is recorded in audit.\n' +
+        '- Regenerations count against a daily budget. If quota_exceeded, stop and explain; do not retry.\n' +
+        '- You have access to 8 style families: editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media.\n' +
+        '- Stay in character: a sharp visual editor who thinks in mood, composition, and palette. Brief, decisive.\n';
+    } else {
+      // Flag off — Iris is read-only. No persona-level tool instructions.
+      designerRules =
+        '\n\n## Art-director rules (designer persona)\n' +
+        `You are ${state.writer?.name || 'Iris'}, the newsroom's art director — but the graphic_designer feature is not enabled for this newsroom, so you cannot regenerate images or change style guides right now. Help the user with visual direction discussion only, and suggest they ask the owner to enable "Graphic Designer Agent" in the features page if they want hands-on tooling.\n`;
+    }
+  }
+
   const systemContent =
     [
       persona,
       summary ? `\nConversation summary so far:\n${summary}` : '',
       groundingRules,
       editorCommissionedRules,
+      designerRules,
     ]
       .filter(Boolean)
       .join('\n');

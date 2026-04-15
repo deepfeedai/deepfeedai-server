@@ -139,6 +139,18 @@ router.put('/tenants/:id/features/:key', asyncHandler(async (req, res) => {
 
   bustFeatureCache(tenantId);
 
+  // Flag-flip hooks — idempotent side-effects that run when a feature is turned on.
+  // Kept inline (not a registry) because today there's only one such hook.
+  if (key === 'graphic_designer' && (strValue === 'true' || strValue === '1')) {
+    try {
+      const { ensureDesignerSeeded } = require('../lib/editorial');
+      ensureDesignerSeeded(tenantId).catch(err =>
+        console.warn('[admin-features] ensureDesignerSeeded failed:', err.message));
+    } catch (err) {
+      console.warn('[admin-features] designer seed hook dispatch failed:', err.message);
+    }
+  }
+
   await logAudit(req, 'features.set_override', 'feature', key, { tenantId, value: strValue, reason, expires_at });
   res.json({ ok: true, feature: key, value: strValue, source: 'override' });
 }));
