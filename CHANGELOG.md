@@ -6,6 +6,10 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ## Unreleased
 
+### Added
+
+- feat(designer): generateStandaloneImage tool — Iris can now directly generate images from freeform concepts (profile photos, reference mockups, concept art) with style/composition/mood/aspect overrides. Counts against daily regen budget. Persona updated to surface the capability.
+
 ### Fixed
 
 - fix(security): atomic action-token burn (closes double-approve race), idempotency guards on article.publish/revise/kill handlers, slug collision prevention in editor-commissioned ingest, Telegram webhook secret-token verification, synchronous cohort-sibling burn to preserve single-use guarantee across channels.

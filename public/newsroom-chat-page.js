@@ -223,6 +223,21 @@
   }
 
   function linkify(html) {
-    return html.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    // URLs ending in an image extension render as inline <img>; other URLs as
+    // clickable links. Lets Iris drop a generated image_url straight into a
+    // reply and have it appear in the bubble. Strip a trailing markdown ")"
+    // so "![...](url)" syntax works too.
+    return html.replace(/(https?:\/\/[^\s<]+)/g, function (full) {
+      var url = full.replace(/[)\].,;!?]+$/, '');
+      var trailing = full.slice(url.length);
+      var isImage = /\.(png|jpe?g|webp|gif)(\?[^\s]*)?$/i.test(url);
+      if (isImage) {
+        return '<a href="' + url + '" target="_blank" rel="noopener">' +
+          '<img src="' + url + '" alt="" class="chat-inline-image" ' +
+          'style="display:block;max-width:100%;max-height:360px;border-radius:8px;margin:6px 0;" />' +
+          '</a>' + trailing;
+      }
+      return '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' + trailing;
+    });
   }
 })();
