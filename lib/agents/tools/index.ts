@@ -85,6 +85,7 @@ export function buildTools(ctx: ToolContext) {
     baseTools.push(buildRegenerateWriterAvatar(ctx));
     baseTools.push(buildProposeStylePivot(ctx));
     baseTools.push(buildBatchRegenerateWeakThumbnails(ctx));
+    baseTools.push(buildGenerateStandaloneImage(ctx));
   }
 
   return baseTools;
@@ -102,10 +103,12 @@ async function checkDesignerBudget(tenantId: number) {
     if (Number.isFinite(parsed) && parsed > 0) cap = parsed;
   } catch { /* use default */ }
 
+  // Count both regenerations AND standalone ad-hoc generations against the
+  // same daily cap — they all hit the same image-provider budget.
   const row = await db.prepare(`
     SELECT COUNT(*)::int AS cnt FROM audit_log
     WHERE tenant_id = $1
-      AND action LIKE 'designer.regenerate_%'
+      AND (action LIKE 'designer.regenerate_%' OR action = 'designer.standalone_image')
       AND created_at > NOW() - INTERVAL '24 hours'
   `).get(tenantId);
   const used = row?.cnt || 0;
@@ -533,6 +536,131 @@ function buildBatchRegenerateWeakThumbnails(ctx: ToolContext) {
       schema: z.object({
         articleIds: z.array(z.number().int()).min(1).max(20),
         reason: z.string().min(5).max(500),
+      }),
+    },
+  );
+}
+
+function buildGenerateStandaloneImage(ctx: ToolContext) {
+  return tool(
+    async ({ concept, style, composition, mood, aspect, reason }: {
+      concept: string; style?: string; composition?: string; mood?: string;
+      aspect?: '1:1' | '16:9' | '9:16'; reason: string;
+    }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      const trimmedConcept = String(concept || '').trim();
+      if (trimmedConcept.length < 4) {
+        return JSON.stringify({ status: 'error', message: 'concept must be at least 4 characters — describe what to generate.' });
+      }
+      if (!reason || String(reason).trim().length < 5) {
+        return JSON.stringify({ status: 'error', message: 'reason (>= 5 chars) is required — explain why you are generating this image.' });
+      }
+      if (style && !STYLE_FAMILIES_LIST.includes(style)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${style}". Must be one of: ${STYLE_FAMILIES_LIST.join(', ')}.` });
+      }
+      const aspectRatio = aspect && ['1:1', '16:9', '9:16'].includes(aspect) ? aspect : '16:9';
+
+      // Budget guard — shared cap with the regen tools.
+      const budget = await checkDesignerBudget(ctx.tenantId);
+      if (!budget.allowed) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily image-generation budget reached (${budget.used}/${budget.cap}). Try again tomorrow.`,
+        });
+      }
+
+      // Compose the prompt — same machinery thumbnails use, so style families /
+      // tenant art direction / negative tropes all apply.
+      const { composeImagePrompt } = require('../../prompts/composer');
+      const { getArtDirection, storeImage } = require('../../media-helpers');
+      const aiRouter = require('../../ai-router');
+
+      let tenantArtDirection: any = null;
+      try { tenantArtDirection = await getArtDirection(ctx.tenantId); } catch { /* ignore */ }
+
+      const composed = composeImagePrompt({
+        concept: trimmedConcept.slice(0, 1000),
+        tenantArtDirection,
+        articleType: 'article',
+        styleOverride: style,
+        moodOverride: mood,
+        compositionOverride: composition,
+      });
+
+      let result: any;
+      try {
+        result = await aiRouter.generateImage({
+          tenantId: ctx.tenantId,
+          prompt: composed.prompt,
+          operation: 'standalone-design',
+          aspectRatio,
+          trigger: 'designer-agent',
+        });
+      } catch (err: any) {
+        await designerAudit(ctx.tenantId, ctx.writerId, 'designer.standalone_image', 'design', null, {
+          concept: trimmedConcept, reason, style: composed.style, success: false, error: err?.message,
+        });
+        return JSON.stringify({ status: 'error', message: `Image generation failed: ${err?.message || 'unknown'}` });
+      }
+
+      let imageUrl: string;
+      try {
+        const buf = Buffer.from(result.b64, 'base64');
+        const randHex = require('crypto').randomBytes(8).toString('hex');
+        const key = `design/${Date.now()}-${randHex}.png`;
+        // storeImage prefixes 'images/' — call storage.upload directly so the
+        // key lands under design/<timestamp>-<hex>.png as the spec requires.
+        const storage = require('../../storage');
+        imageUrl = await storage.upload(buf, 'image/png', key, ctx.tenantId);
+      } catch (err: any) {
+        await designerAudit(ctx.tenantId, ctx.writerId, 'designer.standalone_image', 'design', null, {
+          concept: trimmedConcept, reason, style: composed.style, success: false, error: `storage: ${err?.message}`,
+        });
+        return JSON.stringify({ status: 'error', message: `Image stored failed: ${err?.message || 'unknown'}` });
+      }
+
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.standalone_image', 'design', null, {
+        concept: trimmedConcept,
+        reason,
+        style: composed.style,
+        mood: composed.mood,
+        composition: composed.composition,
+        aspect: aspectRatio,
+        image_url: imageUrl,
+        prompt_used: composed.prompt,
+      });
+
+      return JSON.stringify({
+        status: 'ok',
+        image_url: imageUrl,
+        style: composed.style,
+        mood: composed.mood,
+        composition: composed.composition,
+        aspect: aspectRatio,
+        prompt_used: composed.prompt,
+        budget: { used: budget.used + 1, cap: budget.cap },
+        message: `Generated. Reference the image_url in your reply so the user can see it.`,
+      });
+    },
+    {
+      name: 'generateStandaloneImage',
+      description:
+        'Designer/editor-only. Generate a one-off image from a freeform concept (profile photos, reference mockups, concept art for a beat) — NOT tied to an existing article or writer. ' +
+        'Use this when the user asks for a brand-new image rather than regenerating an existing thumbnail/avatar. ' +
+        'Counts against the daily designer regen budget. After generating, include the returned image_url in your chat reply so the user can see it. ' +
+        'Status: ok | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        concept: z.string().min(4).max(1000).describe('What to generate, in natural language (e.g. "vector profile photo for a male business professional, 30s, neutral background").'),
+        style: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]).optional().describe('Force a style family. Defaults to tenant art direction or category-inferred.'),
+        composition: z.string().max(200).optional().describe('Composition override (e.g. "centered portrait, shoulders up").'),
+        mood: z.string().max(100).optional().describe('Mood override (e.g. "calm", "energetic").'),
+        aspect: z.enum(['1:1', '16:9', '9:16']).optional().describe('Aspect ratio. Default 16:9. Use 1:1 for profile photos.'),
+        reason: z.string().min(5).max(500).describe('Why you are generating this — recorded in audit.'),
       }),
     },
   );
