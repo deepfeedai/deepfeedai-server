@@ -16,7 +16,7 @@ const router  = express.Router();
 const { asyncHandler } = require('../lib/utils');
 const { verifyAndBurn } = require('../lib/action-tokens');
 const { getHandler } = require('../lib/actions/handlers');
-const { cascade: cascadeAction } = require('../lib/actions/post-action');
+const { cascadeBurn, cascadeCleanup } = require('../lib/actions/post-action');
 const { isFeatureEnabled } = require('../lib/feature-registry');
 const { logAudit } = require('../middleware/audit');
 
@@ -36,10 +36,13 @@ router.post('/:token', asyncHandler(async (req, res) => {
   const raw = req.params.token;
   const source = (req.body && typeof req.body.source === 'string' && req.body.source) || 'web';
 
-  // 1. Verify + burn (atomic single-use enforcement).
+  // 1. Verify + burn (atomic single-use enforcement). The token's own user_id
+  // is the actor — the signed token IS the auth on this endpoint.
   let row;
   try {
-    row = await verifyAndBurn(raw, source);
+    // We don't know user_id until after the lookup; pass null and let
+    // verifyAndBurn record the actor as null. Post-action will re-stamp.
+    row = await verifyAndBurn(raw, source, null);
   } catch (err) {
     return res.status(statusFor(err)).json({ error: err.message });
   }
@@ -84,12 +87,19 @@ router.post('/:token', asyncHandler(async (req, res) => {
     row.target_id || row.id,
     { source, ok: result.ok, via: 'action_token' });
 
-  // Fire-and-forget: annotate the user_notifications row(s) + cascade burn to
-  // sibling tokens in the same cohort (multi-channel fanout). Only cascade on
-  // a "real" success — no sense marking siblings used when the handler bailed.
+  // SYNC: burn sibling tokens in the same cohort BEFORE responding so the
+  // single-use guarantee holds across channels even if the cleanup phase is
+  // interrupted. ASYNC: notification-payload rewrite + Telegram keyboard
+  // stripping stay fire-and-forget — they're cosmetic and re-runnable.
+  let siblings = [];
   if (result.ok) {
-    cascadeAction(row, source).catch(err =>
-      console.error('[actions] cascade failed:', err.message));
+    try {
+      siblings = await cascadeBurn(row);
+    } catch (err) {
+      console.error('[actions] cascadeBurn failed:', err.message);
+    }
+    cascadeCleanup(row, siblings, source).catch(err =>
+      console.error('[actions] cascadeCleanup failed:', err.message));
   }
 
   const status = result.ok ? 200 : 409;
