@@ -673,6 +673,39 @@ router.put('/:id/approve', auth, requirePermission('articles.update'), asyncHand
   `).get(req.user?.sub || null, req.params.id, req.tenantId);
   onArticlePublished(article.id, req.tenantId).catch(() => {});
   logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
+
+  // Fire-and-forget: notify editors that the article was published.
+  // Writers are AI agents (not users) so we fan out to the editor cohort only.
+  setImmediate(() => {
+    (async () => {
+      try {
+        const { notify } = require('../lib/notifications');
+        const editors = await db.prepare(`
+          SELECT id FROM users
+          WHERE tenant_id = $1
+            AND is_active = 1
+            AND role IN ('owner', 'admin', 'editor', 'superadmin')
+        `).all(req.tenantId);
+        for (const ed of editors) {
+          notify({
+            tenantId: req.tenantId,
+            userId:   ed.id,
+            kind:     'article_published',
+            title:    'Article published',
+            body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
+            payload:  {
+              article_id: article.id,
+              title:      article.title,
+              score:      article.editorial_score ?? null,
+            },
+          }).catch(err => console.error('[articles.approve] notify failed:', err.message));
+        }
+      } catch (err) {
+        console.error('[articles.approve] notify fanout failed:', err.message);
+      }
+    })();
+  });
+
   res.json(updated);
 }));
 
@@ -687,6 +720,47 @@ router.put('/:id/reject', auth, requirePermission('articles.update'), asyncHandl
     WHERE id = $1 AND tenant_id = $2 RETURNING *
   `).get(req.params.id, req.tenantId);
   logAudit(req, 'article.reject', 'article', parseInt(req.params.id), { title: article.title });
+
+  // Fire-and-forget: article_revision_requested notification.
+  // Writers are AI agents (not users), so we fan out to editors; the writer
+  // agent picks up revision work via the newsroom-events / review queue.
+  setImmediate(() => {
+    (async () => {
+      try {
+        const { notify } = require('../lib/notifications');
+        const editors = await db.prepare(`
+          SELECT id FROM users
+          WHERE tenant_id = $1
+            AND is_active = 1
+            AND role IN ('owner', 'admin', 'editor', 'superadmin')
+        `).all(req.tenantId);
+        const feedback = article.review_notes || req.body?.feedback || '';
+        const body = feedback
+          ? `"${article.title}" sent back for revision: ${feedback}`
+          : `"${article.title}" sent back for revision.`;
+        for (const ed of editors) {
+          notify({
+            tenantId: req.tenantId,
+            userId:   ed.id,
+            kind:     'article_revision_requested',
+            title:    'Revision requested',
+            body,
+            payload:  {
+              article_id: article.id,
+              title:      article.title,
+              feedback:   feedback || null,
+            },
+            actionable: [
+              { label: 'Open article', actionKind: 'article.open', targetId: article.id, targetType: 'article' },
+            ],
+          }).catch(err => console.error('[articles.reject] notify failed:', err.message));
+        }
+      } catch (err) {
+        console.error('[articles.reject] notify fanout failed:', err.message);
+      }
+    })();
+  });
+
   res.json(updated);
 }));
 
