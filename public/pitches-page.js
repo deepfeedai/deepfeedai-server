@@ -77,7 +77,7 @@
         actions = statusBadge;
       }
 
-      return '<div class="pitch-card">'
+      return '<div class="pitch-card" data-pitch="' + p.id + '">'
         + '<div class="pitch-priority" title="Priority ' + p.priority + '">' + priorityStars + '</div>'
         + '<div class="pitch-card-header">'
         + avatar
@@ -98,7 +98,27 @@
     }).join('');
   }
 
+  function optimisticRemoveCard(pitchId) {
+    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"]');
+    if (!card) return function () {};
+    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    card.classList.add('optimistic-removing');
+    var removed = false;
+    var timer = setTimeout(function () {
+      if (card.parentNode) card.parentNode.removeChild(card);
+      removed = true;
+    }, 200);
+    return function restore() {
+      clearTimeout(timer);
+      if (!removed && card.parentNode) {
+        card.classList.remove('optimistic-removing');
+        card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      }
+    };
+  }
+
   window.approvePitch = async function (id) {
+    var restore = optimisticRemoveCard(id);
     try {
       var data = await apiFetch('/admin/pitches/' + id + '/approve', { method: 'POST' });
       if (data.article) {
@@ -108,19 +128,42 @@
       }
       loadPitches();
     } catch (err) {
+      restore();
       showAlert('Approve failed: ' + err.message, 'error');
+      loadPitches();
     }
   };
 
   window.dismissPitch = async function (id) {
+    var restore = optimisticRemoveCard(id);
     try {
       await apiFetch('/admin/pitches/' + id + '/dismiss', { method: 'POST' });
       showAlert('Pitch dismissed.');
       loadPitches();
     } catch (err) {
+      restore();
       showAlert('Dismiss failed: ' + err.message, 'error');
+      loadPitches();
     }
   };
+
+  // ── Polling ───────────────────────────────────────────────
+  var pollTimer = null;
+  function updatePolling() {
+    var active = activeTab === 'pitches' && document.visibilityState !== 'hidden';
+    if (active && !pollTimer) {
+      pollTimer = setInterval(function () {
+        if (document.visibilityState === 'hidden') return;
+        loadPitches();
+      }, 15000);
+    } else if (!active && pollTimer) {
+      clearInterval(pollTimer); pollTimer = null;
+    }
+  }
+  document.addEventListener('visibilitychange', updatePolling);
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', updatePolling);
+  });
 
   // ── Newsroom Feed ─────────────────────────────────────────
 
@@ -185,6 +228,7 @@
     } catch {}
 
     loadPitches();
+    updatePolling();
   }
 
   onReady(function () {

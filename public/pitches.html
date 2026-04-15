@@ -8,6 +8,7 @@
   <style>
     .pitch-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:16px; }
     .pitch-card { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:18px; position:relative; }
+    .pitch-card.optimistic-removing { opacity: 0.4; transition: opacity 0.15s; pointer-events: none; }
     .pitch-card-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
     .pitch-avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; }
     .pitch-avatar-placeholder { width:36px; height:36px; border-radius:50%; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:16px; }

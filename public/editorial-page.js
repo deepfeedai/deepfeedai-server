@@ -44,8 +44,57 @@
         });
         document.getElementById('articlesPanel').style.display = tab === 'articles' ? '' : 'none';
         document.getElementById('pitchesPanel').style.display = tab === 'pitches' ? '' : 'none';
+        updatePitchesPolling();
       });
     });
+  }
+
+  // ── Pitches polling ───────────────────────────────────────
+  var pitchesPollTimer = null;
+  function startPitchesPolling() {
+    if (pitchesPollTimer) return;
+    pitchesPollTimer = setInterval(function () {
+      if (document.visibilityState === 'hidden') return;
+      loadPitches().catch(function () {});
+    }, 15000);
+  }
+  function stopPitchesPolling() {
+    if (pitchesPollTimer) { clearInterval(pitchesPollTimer); pitchesPollTimer = null; }
+  }
+  function updatePitchesPolling() {
+    if (activeTab === 'pitches' && document.visibilityState !== 'hidden') startPitchesPolling();
+    else stopPitchesPolling();
+  }
+  document.addEventListener('visibilitychange', updatePitchesPolling);
+
+  // ── Optimistic card removal helper ────────────────────────
+  function optimisticRemoveCard(pitchId) {
+    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
+    if (!card) return function () {};
+    // Disable all action buttons on the card
+    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    card.classList.add('optimistic-removing');
+    var removed = false;
+    var removeTimer = setTimeout(function () {
+      if (card.parentNode) card.parentNode.removeChild(card);
+      removed = true;
+    }, 200);
+    // Return a restore function for use on API failure
+    return function restore() {
+      clearTimeout(removeTimer);
+      if (!removed && card.parentNode) {
+        card.classList.remove('optimistic-removing');
+        card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      }
+    };
+  }
+
+  function toast(msg, type) {
+    if (typeof window.showAlert === 'function') {
+      window.showAlert(msg, type || 'success');
+    } else if (type === 'error') {
+      alert(msg);
+    }
   }
 
   // ── Enrich sources modal ──────────────────────────────────
@@ -232,17 +281,22 @@
       if (!sourceId) { alert('Could not resolve source.'); return; }
 
       var btn = this; btn.disabled = true; btn.textContent = 'Submitting…';
+      // Disable all buttons in the modal footer while submitting
+      var modalBtns = document.querySelectorAll('#newPitchModal button');
+      modalBtns.forEach(function (b) { b.disabled = true; });
+      closeModal('newPitchModal');
       try {
         await apiFetch('/pitches', {
           method: 'POST',
           body: JSON.stringify({ source_article_id: sourceId, pitched_by_writer_id: writerId, angle_summary: angle }),
         });
-        closeModal('newPitchModal');
+        toast('Pitch submitted.', 'success');
         await loadPitches();
       } catch (err) {
-        alert('Pitch failed: ' + (err.message || err));
+        toast('Pitch failed: ' + (err.message || err), 'error');
       } finally {
         btn.disabled = false; btn.textContent = 'Submit pitch';
+        modalBtns.forEach(function (b) { b.disabled = false; });
       }
     });
   }
@@ -259,14 +313,19 @@
       var writerId = parseInt(document.getElementById('reassignWriter').value, 10);
       if (!writerId || !reassignPitchId) return;
       var btn = this; btn.disabled = true; btn.textContent = 'Assigning…';
+      closeModal('reassignModal');
+      var restore = optimisticRemoveCard(reassignPitchId);
+      var pitchId = reassignPitchId;
       try {
-        await apiFetch('/pitches/' + reassignPitchId + '/assign', {
+        await apiFetch('/pitches/' + pitchId + '/assign', {
           method: 'PATCH', body: JSON.stringify({ writer_id: writerId }),
         });
-        closeModal('reassignModal');
+        toast('Writer assigned.', 'success');
         await loadPitches();
       } catch (err) {
-        alert('Assign failed: ' + (err.message || err));
+        restore();
+        toast('Assign failed: ' + (err.message || err), 'error');
+        await loadPitches();
       } finally {
         btn.disabled = false; btn.textContent = 'Assign';
       }
@@ -280,17 +339,22 @@
       if (!note) { alert('Justification is required for override.'); return; }
       var btn = this;
       btn.disabled = true; btn.textContent = 'Approving…';
+      var pitchId = pendingOverride.pitchId;
+      closeModal('overrideModal');
+      var restore = optimisticRemoveCard(pitchId);
       try {
-        await apiFetch('/pitches/' + pendingOverride.pitchId + '/approve', {
+        await apiFetch('/pitches/' + pitchId + '/approve', {
           method: 'POST',
           body: JSON.stringify({ note: note, override: true }),
         });
-        closeModal('overrideModal');
         pendingOverride = null;
         document.getElementById('overrideNote').value = '';
+        toast('Pitch approved with override.', 'success');
         await loadPitches();
       } catch (err) {
-        alert('Override approve failed: ' + (err.message || err));
+        restore();
+        toast('Override approve failed: ' + (err.message || err), 'error');
+        await loadPitches();
       } finally {
         btn.disabled = false; btn.textContent = 'Approve with override';
       }
@@ -362,19 +426,24 @@
   }
 
   window.approvePitch = async function (id) {
+    var restore = optimisticRemoveCard(id);
     try {
       var resp = await apiFetch('/pitches/' + id + '/approve', {
         method: 'POST',
         body: JSON.stringify({}),
       });
       if (resp && resp.synthesis_queued === false) {
-        alert('Approved. No synthesis queued (likely an editor tip awaiting writer assignment).');
+        toast('Approved. No synthesis queued (editor tip awaiting writer assignment).', 'success');
+      } else {
+        toast('Pitch approved.', 'success');
       }
       await loadPitches();
     } catch (err) {
       // Cap-reached: open override modal. apiFetch surfaces the server's
       // {error: 'cap_reached'} as err.message, so detect by message.
       if (err && err.message === 'cap_reached') {
+        restore();
+        await loadPitches();
         pendingOverride = { pitchId: id };
         document.getElementById('overrideMessage').textContent =
           'This source already has the maximum number of originals (per the max_originals_per_source setting). Approve anyway?';
@@ -382,20 +451,27 @@
         openModal('overrideModal');
         return;
       }
-      alert('Approve failed: ' + (err.message || err));
+      restore();
+      toast('Approve failed: ' + (err.message || err), 'error');
+      await loadPitches();
     }
   };
 
   window.rejectPitch = async function (id) {
-    var note = prompt('Optional note for this rejection (blank to skip):') || '';
+    var note = prompt('Optional note for this rejection (blank to skip):');
+    if (note === null) return; // user cancelled
+    var restore = optimisticRemoveCard(id);
     try {
       await apiFetch('/pitches/' + id + '/reject', {
         method: 'POST',
         body: JSON.stringify({ note: note || undefined }),
       });
+      toast('Pitch rejected.', 'success');
       await loadPitches();
     } catch (err) {
-      alert('Reject failed: ' + (err.message || err));
+      restore();
+      toast('Reject failed: ' + (err.message || err), 'error');
+      await loadPitches();
     }
   };
 

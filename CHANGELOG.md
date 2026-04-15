@@ -6,6 +6,10 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- fix(editorial): optimistic UI on pitch approve/reject/assign — card removes immediately on click, re-inserts on error; Pitches tab now polls every 15s while visible so cross-channel actions reflect without manual refresh.
+
 ### Added
 
 - chore(ai-router): embeddings now route through ai-router (was parallel resolver); deleted legacy lib/gemini-config.js (superseded by ai-key-resolver).
