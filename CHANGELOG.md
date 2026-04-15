@@ -13,6 +13,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(media): image prompt style system — 8 style families (editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media); category-aware rotation with deterministic jitter; mood library tied to story tier; composition variety; shared negative prompt banning stock tropes; unified between article thumbnails + writer avatars. Tenant-level art_direction setting overrides rotation. Creativity target: 6-7/10 (was 3/10).
 - chore(ai-router): embeddings now route through ai-router (was parallel resolver); deleted legacy lib/gemini-config.js (superseded by ai-key-resolver).
 - feat(ai-router): voice provider abstraction (ElevenLabs wrapped behind lib/providers/elevenlabs.js) — audio + voice-chat now honor per-tenant provider overrides; visual-concept pre-pass also routed through ai-router (was Gemini-locked). Closes the last BYOK bypasses in the media pipeline.
 - feat(feed): originals-only public feed with story-level tiers, decay, and perspective grouping; admin articles list gains importance column + manual override; breaking-story dispatch gated through notifications/actions system.
