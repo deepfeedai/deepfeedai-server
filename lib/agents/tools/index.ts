@@ -145,15 +145,24 @@ async function designerEnabled(tenantId: number): Promise<boolean> {
 
 function buildSetTenantStyleGuide(ctx: ToolContext) {
   return tool(
-    async ({ family, notes }: { family: string; notes?: string }) => {
+    async ({ family, customPrompt, notes }: { family?: string; customPrompt?: string; notes?: string }) => {
       if (!(await designerEnabled(ctx.tenantId))) {
         return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled for this newsroom.' });
       }
-      if (!STYLE_FAMILIES_LIST.includes(family)) {
-        return JSON.stringify({ status: 'error', message: `Unknown style family "${family}". Must be one of: ${STYLE_FAMILIES_LIST.join(', ')}.` });
-      }
       const trimmedNotes = notes ? String(notes).slice(0, 2000) : null;
-      const value = JSON.stringify({ style: family, notes: trimmedNotes || undefined });
+      let value: string;
+      let summary: string;
+      if (customPrompt && String(customPrompt).trim()) {
+        const cp = String(customPrompt).slice(0, 5000);
+        value = JSON.stringify({ prompt: cp, applies_to: ['thumbnails', 'avatars'], notes: trimmedNotes });
+        summary = `Tenant style guide set to custom prompt.`;
+      } else {
+        if (!family || !STYLE_FAMILIES_LIST.includes(family)) {
+          return JSON.stringify({ status: 'error', message: `Must provide either customPrompt or a valid family. Families: ${STYLE_FAMILIES_LIST.join(', ')}.` });
+        }
+        value = JSON.stringify({ style: family, notes: trimmedNotes || undefined });
+        summary = `Tenant style guide set to "${family}".`;
+      }
       try {
         await db.prepare(`
           INSERT INTO settings (tenant_id, key, value)
@@ -164,20 +173,21 @@ function buildSetTenantStyleGuide(ctx: ToolContext) {
       } catch (err: any) {
         return JSON.stringify({ status: 'error', message: `Failed to save style guide: ${err?.message || 'unknown'}` });
       }
-      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.set_style_guide', 'settings', 'art_direction', { family, notes: trimmedNotes });
-      return JSON.stringify({ status: 'ok', family, notes: trimmedNotes, message: `Tenant style guide set to "${family}".` });
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.set_style_guide', 'settings', 'art_direction', { family: family || null, customPrompt: customPrompt ? true : false, notes: trimmedNotes });
+      return JSON.stringify({ status: 'ok', family: family || null, customPrompt: customPrompt || null, notes: trimmedNotes, message: summary });
     },
     {
       name: 'setTenantStyleGuide',
       description:
-        'Designer/editor-only. Set the tenant-wide art direction: one of the 8 style families applied to new thumbnails and avatars by default. ' +
-        'Optional `notes` are prepended to subsequent image prompts. Prefer proposeStylePivot for significant brand changes — setTenantStyleGuide is unilateral.',
+        'Designer/editor-only. Set the tenant-wide art direction: either one of the 8 style families OR a freeform customPrompt for fully custom styles. ' +
+        'Optional `notes` are prepended/appended to subsequent image prompts. Prefer proposeStylePivot for significant brand changes — setTenantStyleGuide is unilateral.',
       schema: z.object({
         family: z.enum([
           'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
           'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
-        ]).describe('Style family name.'),
-        notes: z.string().max(2000).optional().describe('Freeform notes prepended to image prompts.'),
+        ]).optional().describe('Style family name (omit if using customPrompt).'),
+        customPrompt: z.string().max(5000).optional().describe('Freeform style prompt that bypasses presets — e.g. "Attack on Titan anime aesthetic, cross-hatching, sharp line work".'),
+        notes: z.string().max(2000).optional().describe('Freeform notes appended to image prompts.'),
       }),
     },
   );

@@ -117,7 +117,7 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
         '- generateStandaloneImage(concept, style?, composition?, mood?, aspect?, reason) — ad-hoc generation. Use for any new image not tied to an existing article/writer.\n' +
         '- regenerateThumbnail(articleId, ...) — only for existing articles.\n' +
         '- regenerateWriterAvatar(writerId, ...) — only for existing writers.\n' +
-        '- setTenantStyleGuide(family, notes?) — sets tenant-wide art direction.\n' +
+        '- setTenantStyleGuide(family?, customPrompt?, notes?) — family is one of 8 presets; customPrompt overrides for fully custom styles (e.g. "Attack on Titan aesthetic, cross-hatching, sharp line work").\n' +
         '- reviewRecentThumbnails({days, limit}) — audit what was published.\n' +
         '- proposeStylePivot(family, reasoning) — suggest a newsroom-wide style change (editor approves via button).\n' +
         '- batchRegenerateWeakThumbnails(articleIds, reason) — fan-out regen.\n' +

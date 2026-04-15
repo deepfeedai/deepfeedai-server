@@ -8,12 +8,14 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(designer): custom freeform art direction prompt — Settings now has a textarea for advanced tenant-wide style (bypasses the 8 family presets). Iris's setTenantStyleGuide tool accepts customPrompt too. Useful for niche aesthetics like anime styles, specific illustrators, or brand-locked visual languages.
 - feat(designer): per-writer avatar style (family + freeform notes) on writer edit form; "Regenerate avatar" and "Reset to auto" buttons; new Iris tool batchRegenerateWriterAvatars for bulk restyling across the team. Overrides stay persisted so subsequent regenerations remain consistent with the chosen look.
 - feat(settings): Chat Agent Engine selector (single-shot vs langgraph) in admin Settings UI. Required for LangGraph-dependent features (editor-commissioned stories, Graphic Designer agent) without SQL.
 - feat(designer): generateStandaloneImage tool — Iris can now directly generate images from freeform concepts (profile photos, reference mockups, concept art) with style/composition/mood/aspect overrides. Counts against daily regen budget. Persona updated to surface the capability.
 
 ### Fixed
 
+- fix(writers): avatar regenerate button now actually swaps the visible image (UI was looking for an id that didn't exist on the page; DB was always saving correctly).
 - fix(imagen): per-operation personGeneration — writer avatars, user avatars, and Iris's standalone-design generation now pass personGeneration='allow_adult'; article thumbnails stay on 'dont_allow' to avoid unintended faces. Fixes silent "no image bytes returned" on every portrait prompt since the style system landed.
 - fix(gemini): surface finishReason + safety ratings on empty responses; return a helpful fallback text on MAX_TOKENS instead of silently empty; bump chat-agent maxTokens 1024→2048 to reduce truncation during tool calls.
 - fix(providers): strip JSON Schema keywords Gemini function-calling rejects (additionalProperties, $schema, default). Unblocks LangGraph tool use on Gemini-chat tenants — was silently falling back to single-shot on every tool-bound conversation.

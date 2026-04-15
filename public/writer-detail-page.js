@@ -114,7 +114,7 @@
 
     // Header
     html += '<div class="wd-header">';
-    html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
+    html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" id="writerAvatarImg" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
     html += '<div style="flex:1;min-width:0;">';
     var role = w.role || 'writer';
     html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span></h1>';
@@ -443,11 +443,11 @@
           var newUrl = data.avatar_url ? (data.avatar_url + (data.avatar_url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now()) : null;
           if (newUrl) {
             writerData.avatar_url = data.avatar_url;
-            var img = document.getElementById('writerAvatarImg');
+            var img = document.getElementById('writerAvatarImg') || document.querySelector('.wd-avatar');
             if (img && img.tagName === 'IMG') {
               img.src = newUrl;
             } else if (img) {
-              img.outerHTML = '<img id="writerAvatarImg" src="' + newUrl + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+              img.outerHTML = '<img id="writerAvatarImg" class="wd-avatar" src="' + newUrl + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
             }
           }
           showAlert('Avatar regenerated');

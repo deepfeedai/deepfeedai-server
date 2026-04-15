@@ -267,9 +267,26 @@ let apiKeyVisible = false;
       populateImgModelDropdown(modelEl, opCfg.provider || '', opCfg.model || '', true);
     }
 
-    // Art direction dropdown — plain string setting, empty = Auto.
+    // Art direction — string (family name) or JSON object ({style} or {prompt}).
     const adEl = document.getElementById('artDirectionSelect');
-    if (adEl) adEl.value = settings.art_direction || '';
+    const adCustomEl = document.getElementById('artDirectionCustom');
+    let adFamily = '';
+    let adCustom = '';
+    const rawAd = settings.art_direction;
+    if (rawAd) {
+      const s = String(rawAd).trim();
+      if (s.startsWith('{')) {
+        try {
+          const obj = JSON.parse(s);
+          if (obj.prompt) adCustom = String(obj.prompt);
+          else if (obj.style) adFamily = String(obj.style);
+        } catch { adFamily = s; }
+      } else {
+        adFamily = s;
+      }
+    }
+    if (adEl) adEl.value = adFamily;
+    if (adCustomEl) adCustomEl.value = adCustom;
   }
 
   document.getElementById('imgDefaultProvider').addEventListener('change', function() {
@@ -297,7 +314,19 @@ let apiKeyVisible = false;
     }
     if (!Object.keys(cfg.operations).length) delete cfg.operations;
 
-    const artDirection = (document.getElementById('artDirectionSelect')?.value || '').trim();
+    const artDirectionFamily = (document.getElementById('artDirectionSelect')?.value || '').trim();
+    const artDirectionCustom = (document.getElementById('artDirectionCustom')?.value || '').trim();
+    // Textarea wins when both are filled. Empty both = clear the setting.
+    let artDirection = '';
+    if (artDirectionCustom) {
+      artDirection = JSON.stringify({
+        prompt: artDirectionCustom,
+        applies_to: ['thumbnails', 'avatars'],
+        notes: null,
+      });
+    } else if (artDirectionFamily) {
+      artDirection = JSON.stringify({ style: artDirectionFamily });
+    }
 
     try {
       this.disabled = true;
