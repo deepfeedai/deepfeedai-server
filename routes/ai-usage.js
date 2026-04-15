@@ -4,8 +4,8 @@
  * All endpoints require admin auth.
  */
 const express = require('express');
-const https   = require('https');
 const router  = express.Router();
+const elevenlabs = require('../lib/providers/elevenlabs');
 const db      = require('../db');
 const { getPool } = require('../db');
 const { requirePermission } = require('../middleware/permissions');
@@ -221,26 +221,7 @@ router.get('/elevenlabs', requirePermission('analytics.read'), asyncHandler(asyn
 
   if (!apiKey) return res.json({ configured: false });
 
-  const data = await new Promise((resolve, reject) => {
-    const req_ = https.request({
-      hostname: 'api.elevenlabs.io',
-      path: '/v1/user/subscription',
-      method: 'GET',
-      headers: { 'xi-api-key': apiKey },
-    }, (resp) => {
-      let raw = '';
-      resp.on('data', c => raw += c);
-      resp.on('end', () => {
-        try {
-          if (resp.statusCode >= 400) return reject(new Error(`ElevenLabs ${resp.statusCode}: ${raw.slice(0, 200)}`));
-          resolve(JSON.parse(raw));
-        } catch (e) { reject(e); }
-      });
-    });
-    req_.on('error', reject);
-    req_.setTimeout(8000, () => { req_.destroy(); reject(new Error('ElevenLabs timeout')); });
-    req_.end();
-  });
+  const data = await elevenlabs.getSubscription({ apiKey });
 
   res.json({
     configured: true,

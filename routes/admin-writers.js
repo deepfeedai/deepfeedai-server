@@ -336,10 +336,6 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
   const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });
 
-  const { getGeminiKey } = require('../lib/gemini-config');
-  const apiKey = await getGeminiKey(req.tenantId);
-  if (!apiKey) return res.status(500).json({ error: 'Gemini/Imagen API key not configured' });
-
   // Build a portrait prompt from the writer's persona
   const beats = await getBeats(id, req.tenantId);
   const beatNames = beats.map(b => b.name).join(', ') || 'news';
@@ -353,43 +349,26 @@ router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHa
 
   console.log(`[AvatarGen] Writer ${id} (${writer.name}): ${prompt}`);
 
-  const { getImagenModel, getImagenUrl } = require('../lib/gemini-config');
-  const resolvedAvatarModel = await getImagenModel(req.tenantId);
-  const resolvedUrl = getImagenUrl(resolvedAvatarModel);
-
-  const imagenBody = resolvedUrl.includes(':predict')
-    ? { instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: '1:1', safetyFilterLevel: 'block_few' } }
-    : { contents: [{ parts: [{ text: prompt }] }], generationConfig: { imageGenerationConfig: { numberOfImages: 1, aspectRatio: '1:1' } } };
-
-  const imagenRes = await fetch(`${resolvedUrl}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(imagenBody),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!imagenRes.ok) {
-    const err = await imagenRes.text().catch(() => '');
-    console.error(`[AvatarGen] Imagen error: ${imagenRes.status}`, err.slice(0, 300));
-    return res.status(502).json({ error: `Imagen API error: ${imagenRes.status}` });
+  const { generateImage: aiGenerateImage } = require('../lib/ai-router');
+  let imageResult;
+  try {
+    imageResult = await aiGenerateImage({
+      tenantId: req.tenantId,
+      prompt,
+      operation: 'writer-avatar',
+      aspectRatio: '1:1',
+      trigger: 'manual',
+    });
+  } catch (err) {
+    if (err.code === 'MISSING_KEY') {
+      return res.status(500).json({ error: 'Gemini/Imagen API key not configured' });
+    }
+    console.error(`[AvatarGen] Image generation error:`, err.message);
+    return res.status(502).json({ error: `Image generation error: ${err.message}` });
   }
 
-  const data = await imagenRes.json();
-  const b64 = data?.predictions?.[0]?.bytesBase64Encoded
-           || data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data
-           || data?.generatedImages?.[0]?.image?.imageBytes
-           || data?.images?.[0]?.bytesBase64Encoded;
-
-  if (!b64) {
-    console.error('[AvatarGen] No image in response:', JSON.stringify(data).slice(0, 500));
-    return res.status(502).json({ error: 'No image returned from Imagen' });
-  }
-
-  const avatarUrl = await storeAvatar(Buffer.from(b64, 'base64'), 'image/png', id, req.tenantId);
+  const avatarUrl = await storeAvatar(Buffer.from(imageResult.b64, 'base64'), 'image/png', id, req.tenantId);
   await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
-
-  const { logUsage } = require('../lib/ai-usage');
-  logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'avatar-generate', trigger: 'manual', imageCount: 1, tenantId: req.tenantId }).catch(() => {});
 
   const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
   res.json({ ...updated, _avatarPrompt: prompt });

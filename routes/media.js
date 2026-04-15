@@ -6,7 +6,6 @@
  */
 const express = require('express');
 const router  = require('express').Router();
-const https   = require('https');
 const crypto  = require('crypto');
 const multer  = require('multer');
 const db      = require('../db');
@@ -15,10 +14,9 @@ const { auth }               = require('../middleware/auth');
 const { requirePermission }  = require('../middleware/permissions');
 const { toSlug, asyncHandler } = require('../lib/utils');
 const storage = require('../lib/storage');
-const { getGeminiKey, getImagenModel, getImagenUrl } = require('../lib/gemini-config');
 const { getAppConfig } = require('../lib/app-config');
 const { logUsage } = require('../lib/ai-usage');
-const { complete: aiComplete } = require('../lib/ai-router');
+const { complete: aiComplete, generateVoice, generateImage: aiGenerateImage } = require('../lib/ai-router');
 const { checkPlanLimit } = require('../lib/plan-limits');
 const { requireFeature }               = require('../middleware/feature-gate');
 const { logAudit }                      = require('../middleware/audit');
@@ -60,41 +58,23 @@ async function buildTtsText(title, summary, source, tenantId) {
   return `From ${source}. ${title}. ${body}`.slice(0, MAX_CHARS);
 }
 
-function generateSpeech(text, voiceId, apiKey) {
-  const resolvedVoiceId = voiceId;
-  const resolvedApiKey  = apiKey;
-  return new Promise((resolve, reject) => {
-    if (!resolvedApiKey || !resolvedVoiceId) return reject(new Error('ElevenLabs credentials not configured'));
-    const body = JSON.stringify({
-      text,
-      model_id: 'eleven_turbo_v2',
-      voice_settings: { stability: 0.4, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true },
-    });
-    const req = https.request({
-      hostname: 'api.elevenlabs.io',
-      path:     `/v1/text-to-speech/${resolvedVoiceId}`,
-      method:   'POST',
-      headers: {
-        'Content-Type':   'application/json',
-        'xi-api-key':     resolvedApiKey,
-        'Accept':         'audio/mpeg',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (res) => {
-      if (res.statusCode !== 200) {
-        let err = '';
-        res.on('data', c => err += c);
-        res.on('end', () => reject(new Error(`ElevenLabs ${res.statusCode}: ${err.slice(0, 200)}`)));
-        return;
-      }
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+/**
+ * Generate TTS through ai-router. voiceId is required. tenantId + operation drive
+ * provider selection + usage logging. Returns the raw mp3 Buffer for backward compat.
+ */
+async function generateSpeech(text, voiceId, tenantId, operation = 'voice-chat', articleSlug = null) {
+  if (!voiceId) throw new Error('Voice ID not configured');
+  const result = await generateVoice({
+    operation,
+    tenantId,
+    text,
+    voiceId,
+    articleSlug,
+    trigger: 'manual',
+    skipBudget: true,
   });
+  if (!result) throw new Error('Voice generation denied by budget');
+  return result.audio;
 }
 
 async function storeAudio(mp3Buf, filename, tenantId) {
@@ -170,13 +150,8 @@ router.post('/generate-audio', auth, requirePermission('media.create'), requireF
       }
     }
 
-    // Resolve API key via centralized config (settings table → env var)
-    const resolvedApiKey = appCfg.elevenlabs_api_key;
-
-    const text     = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
-    const _elStart = Date.now();
-    const mp3Buf   = await generateSpeech(text, resolvedVoiceId, resolvedApiKey);
-    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', characters: text.length, durationMs: Date.now() - _elStart, tenantId: req.tenantId }).catch(() => {});
+    const text   = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
+    const mp3Buf = await generateSpeech(text, resolvedVoiceId, req.tenantId, 'audio', article.slug);
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;
     const audioUrl = await storeAudio(mp3Buf, filename, req.tenantId);
@@ -193,7 +168,8 @@ router.post('/generate-audio', auth, requirePermission('media.create'), requireF
   } catch (err) {
     await db.prepare("UPDATE articles SET audio_status = 'error', updated_at = NOW() WHERE id = $1 AND tenant_id = $2").run(articleId, req.tenantId);
     console.error('[Media] Error:', err.message);
-    logUsage({ provider: 'elevenlabs', model: 'eleven_turbo_v2', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message, tenantId: req.tenantId }).catch(() => {});
+    // ai-router already logged the underlying provider failure — log a thin wrapper failure for visibility.
+    logUsage({ provider: 'ai-router', operation: 'audio', articleSlug: article.slug, trigger: 'manual', success: false, error: err.message, tenantId: req.tenantId }).catch(() => {});
     res.status(500).json({ error: err.message });
   }
 }));
@@ -203,16 +179,12 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
   const { voice_id, text } = req.body || {};
   if (!voice_id) return res.status(400).json({ error: 'voice_id required' });
 
-  const appCfg = await getAppConfig(req.tenantId);
-  const apiKey = appCfg.elevenlabs_api_key;
-
   const previewText = (text && text.trim()) ? text.trim().slice(0, 500) : 'Hello! This is a preview of how I sound as your AI news anchor. Stay tuned for the latest updates.';
-  const mp3Buf = await generateSpeech(previewText, voice_id, apiKey);
+  const mp3Buf = await generateSpeech(previewText, voice_id, req.tenantId, 'voice-chat', null);
   res.json({ audio: mp3Buf.toString('base64'), mimeType: 'audio/mpeg' });
 }));
 
 // POST /api/media/generate-image  { articleId }
-const IMAGEN_URL = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict`;
 const { getVisualConcept, buildImagePrompt, storeImage, deleteImage, deleteAudio: deleteAudioHelper } = require('../lib/media-helpers');
 
 router.post('/generate-image', auth, requirePermission('media.create'), requireFeature('image_generation'), asyncHandler(async (req, res) => {
@@ -227,12 +199,6 @@ router.post('/generate-image', auth, requirePermission('media.create'), requireF
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(articleId, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
-  // Resolve API key and model (tenant → platform → env var)
-  const resolvedImageApiKey = await getGeminiKey(req.tenantId);
-  const resolvedModel = await getImagenModel(req.tenantId);
-  const resolvedImagenUrl = getImagenUrl(resolvedModel);
-
-  if (!resolvedImageApiKey) return res.status(500).json({ error: 'Gemini/Imagen API key not configured — set it in Settings > Integrations or GEMINI_API_KEY env var' });
 
   try {
     // Clean up old image if replacing
@@ -250,50 +216,23 @@ router.post('/generate-image', auth, requirePermission('media.create'), requireF
     console.log(`[ImageGen] Visual concept: ${visualResult ? visualResult.concept : 'fallback'}`);
     console.log(`[ImageGen] Full prompt: ${fullPrompt}`);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    const _imgStart = Date.now();
-
-    let imagenRes;
+    let imageResult;
     try {
-      const imagenBody = resolvedImagenUrl.includes(':predict')
-        ? { instances: [{ prompt: fullPrompt }], parameters: { sampleCount: 1, aspectRatio: '16:9', safetyFilterLevel: 'block_few', personGeneration: 'dont_allow' } }
-        : { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { imageGenerationConfig: { numberOfImages: 1, aspectRatio: '16:9' } } };
-
-      console.log(`[ImageGen] URL: ${resolvedImagenUrl}?key=***`);
-
-      imagenRes = await fetch(`${resolvedImagenUrl}?key=${resolvedImageApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(imagenBody),
-        signal: controller.signal,
+      imageResult = await aiGenerateImage({
+        tenantId: req.tenantId,
+        prompt: fullPrompt,
+        operation: 'thumbnail-render',
+        aspectRatio: '16:9',
+        articleSlug: article.slug,
+        trigger: 'manual',
       });
-    } finally {
-      clearTimeout(timeout);
+    } catch (err) {
+      if (err.code === 'MISSING_KEY') {
+        return res.status(500).json({ error: 'Gemini/Imagen API key not configured — set it in Settings > Integrations or GEMINI_API_KEY env var' });
+      }
+      throw err;
     }
-
-    if (!imagenRes.ok) {
-      const errBody = await imagenRes.text().catch(() => '');
-      logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'thumbnail-render', articleSlug: article.slug, trigger: 'manual', imageCount: 0, durationMs: Date.now() - _imgStart, success: false, error: `${imagenRes.status}: ${errBody.slice(0, 200)}`, tenantId: req.tenantId }).catch(() => {});
-      throw new Error(`Imagen API ${imagenRes.status}: ${errBody.slice(0, 300)}`);
-    }
-
-    const imagenData = await imagenRes.json();
-    console.log('[ImageGen] Response keys:', Object.keys(imagenData));
-    // Try all known response shapes:
-    // 1. Imagen predict API: predictions[].bytesBase64Encoded
-    // 2. Gemini generateContent: candidates[].content.parts[].inlineData.data
-    // 3. Imagen generate: generatedImages[].image.imageBytes
-    const b64 = imagenData?.predictions?.[0]?.bytesBase64Encoded
-             || imagenData?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data
-             || imagenData?.generatedImages?.[0]?.image?.imageBytes
-             || imagenData?.images?.[0]?.bytesBase64Encoded;
-    if (!b64) {
-      console.error('[ImageGen] Unexpected response shape:', JSON.stringify(imagenData).slice(0, 1000));
-      throw new Error('Imagen returned no image data');
-    }
-
-    logUsage({ provider: 'imagen', model: 'imagen-4', operation: 'thumbnail-render', articleSlug: article.slug, trigger: 'manual', imageCount: 1, durationMs: Date.now() - _imgStart, tenantId: req.tenantId }).catch(() => {});
+    const b64 = imageResult.b64;
 
     const pngBuf  = Buffer.from(b64, 'base64');
     const randHex  = require('crypto').randomBytes(8).toString('hex');
