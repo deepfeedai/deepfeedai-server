@@ -120,7 +120,8 @@ async function loadContextNode(state: ChatStateType): Promise<Partial<ChatStateT
         '- setTenantStyleGuide(family, notes?) — sets tenant-wide art direction.\n' +
         '- reviewRecentThumbnails({days, limit}) — audit what was published.\n' +
         '- proposeStylePivot(family, reasoning) — suggest a newsroom-wide style change (editor approves via button).\n' +
-        '- batchRegenerateWeakThumbnails(articleIds, reason) — fan-out regen.\n\n' +
+        '- batchRegenerateWeakThumbnails(articleIds, reason) — fan-out regen.\n' +
+        '- batchRegenerateWriterAvatars(writerIds?, styleFamily?, notes?, reason) — restyle writer avatars in bulk. Use when the user asks to "regenerate all avatars" or "give the team a new look".\n\n' +
         'Guidelines when generating:\n' +
         "- Default aspect: 1:1 for profile photos / portraits / objects, 16:9 for landscape scenes, 9:16 for vertical pieces.\n" +
         "- Default style: tenant's art_direction if set; else pick from the 8 families (editorial-illustration, documentary-photo, noir, minimalist-vector, isometric-tech, vintage-print, cinematic-poster, mixed-media) that best matches the concept.\n" +

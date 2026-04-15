@@ -8,6 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(designer): per-writer avatar style (family + freeform notes) on writer edit form; "Regenerate avatar" and "Reset to auto" buttons; new Iris tool batchRegenerateWriterAvatars for bulk restyling across the team. Overrides stay persisted so subsequent regenerations remain consistent with the chosen look.
 - feat(settings): Chat Agent Engine selector (single-shot vs langgraph) in admin Settings UI. Required for LangGraph-dependent features (editor-commissioned stories, Graphic Designer agent) without SQL.
 - feat(designer): generateStandaloneImage tool — Iris can now directly generate images from freeform concepts (profile photos, reference mockups, concept art) with style/composition/mood/aspect overrides. Counts against daily regen budget. Persona updated to surface the capability.
 
