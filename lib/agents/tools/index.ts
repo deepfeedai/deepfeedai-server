@@ -74,7 +74,468 @@ export function buildTools(ctx: ToolContext) {
   //   baseTools.push(buildRejectArticle(ctx));
   // }
 
+  // Designer tools — available to designers (primary) AND editors (so editors
+  // can regenerate without switching chats). Each tool additionally re-checks
+  // the graphic_designer feature flag at call time so a stale tool binding
+  // cannot bypass a disabled tenant.
+  if (ctx.writerRole === 'designer' || ctx.writerRole === 'editor') {
+    baseTools.push(buildSetTenantStyleGuide(ctx));
+    baseTools.push(buildReviewRecentThumbnails(ctx));
+    baseTools.push(buildRegenerateThumbnail(ctx));
+    baseTools.push(buildRegenerateWriterAvatar(ctx));
+    baseTools.push(buildProposeStylePivot(ctx));
+    baseTools.push(buildBatchRegenerateWeakThumbnails(ctx));
+  }
+
   return baseTools;
+}
+
+// ── Designer helpers ─────────────────────────────────────────────────
+
+/** Check the designer daily regen budget. Returns { allowed, used, cap }. */
+async function checkDesignerBudget(tenantId: number) {
+  let cap = 20;
+  try {
+    const feats = await featureRegistry.getAllFeatures(tenantId);
+    const raw = feats.designer_daily_regen_limit;
+    const parsed = parseInt(String(raw ?? 20), 10);
+    if (Number.isFinite(parsed) && parsed > 0) cap = parsed;
+  } catch { /* use default */ }
+
+  const row = await db.prepare(`
+    SELECT COUNT(*)::int AS cnt FROM audit_log
+    WHERE tenant_id = $1
+      AND action LIKE 'designer.regenerate_%'
+      AND created_at > NOW() - INTERVAL '24 hours'
+  `).get(tenantId);
+  const used = row?.cnt || 0;
+  return { allowed: used < cap, used, cap };
+}
+
+/** Write a plain audit entry (no Express req) for designer actions. */
+async function designerAudit(tenantId: number, writerId: number, action: string, resource: string, resourceId: string | null, details: any) {
+  try {
+    await db.prepare(`
+      INSERT INTO audit_log (tenant_id, user_id, user_email, action, resource, resource_id, details, created_at)
+      VALUES ($1, NULL, $2, $3, $4, $5, $6, NOW())
+    `).run(tenantId, `writer#${writerId}`, action, resource, resourceId, JSON.stringify(details || {}));
+  } catch (err: any) {
+    console.warn('[designer] audit write failed:', err?.message);
+  }
+}
+
+const STYLE_FAMILIES_LIST = [
+  'editorial-illustration',
+  'documentary-photo',
+  'noir',
+  'minimalist-vector',
+  'isometric-tech',
+  'vintage-print',
+  'cinematic-poster',
+  'mixed-media',
+];
+
+async function designerEnabled(tenantId: number): Promise<boolean> {
+  return featureRegistry.isFeatureEnabled(tenantId, 'graphic_designer').catch(() => false);
+}
+
+function buildSetTenantStyleGuide(ctx: ToolContext) {
+  return tool(
+    async ({ family, notes }: { family: string; notes?: string }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled for this newsroom.' });
+      }
+      if (!STYLE_FAMILIES_LIST.includes(family)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${family}". Must be one of: ${STYLE_FAMILIES_LIST.join(', ')}.` });
+      }
+      const trimmedNotes = notes ? String(notes).slice(0, 2000) : null;
+      const value = JSON.stringify({ style: family, notes: trimmedNotes || undefined });
+      try {
+        await db.prepare(`
+          INSERT INTO settings (tenant_id, key, value)
+          VALUES ($1, 'art_direction', $2)
+          ON CONFLICT (tenant_id, key)
+          DO UPDATE SET value = $2
+        `).run(ctx.tenantId, value);
+      } catch (err: any) {
+        return JSON.stringify({ status: 'error', message: `Failed to save style guide: ${err?.message || 'unknown'}` });
+      }
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.set_style_guide', 'settings', 'art_direction', { family, notes: trimmedNotes });
+      return JSON.stringify({ status: 'ok', family, notes: trimmedNotes, message: `Tenant style guide set to "${family}".` });
+    },
+    {
+      name: 'setTenantStyleGuide',
+      description:
+        'Designer/editor-only. Set the tenant-wide art direction: one of the 8 style families applied to new thumbnails and avatars by default. ' +
+        'Optional `notes` are prepended to subsequent image prompts. Prefer proposeStylePivot for significant brand changes — setTenantStyleGuide is unilateral.',
+      schema: z.object({
+        family: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]).describe('Style family name.'),
+        notes: z.string().max(2000).optional().describe('Freeform notes prepended to image prompts.'),
+      }),
+    },
+  );
+}
+
+function buildReviewRecentThumbnails(ctx: ToolContext) {
+  return tool(
+    async ({ days, limit }: { days?: number; limit?: number }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      const d = Math.min(Math.max(days ?? 7, 1), 90);
+      const cap = Math.min(Math.max(limit ?? 20, 1), 50);
+      const rows = await db.prepare(`
+        SELECT id, COALESCE(generated_title, title) AS title, category, image_url,
+               synthesis_meta, published_at
+        FROM articles
+        WHERE tenant_id = $1
+          AND is_published = 1
+          AND image_url IS NOT NULL
+          AND published_at > NOW() - make_interval(days => $2)
+        ORDER BY published_at DESC
+        LIMIT $3
+      `).all(ctx.tenantId, d, cap);
+      const results = (rows || []).map((r: any) => {
+        let imageMeta: any = null;
+        try {
+          const sm = typeof r.synthesis_meta === 'string' ? JSON.parse(r.synthesis_meta) : r.synthesis_meta;
+          if (sm && sm.image) imageMeta = sm.image;
+        } catch { /* ignore */ }
+        return {
+          id: r.id,
+          title: r.title,
+          category: r.category,
+          image_url: r.image_url,
+          style_family: imageMeta?.style || null,
+          mood: imageMeta?.mood || null,
+          composition: imageMeta?.composition || null,
+          published_at: r.published_at,
+        };
+      });
+      return JSON.stringify({ status: 'ok', lookback_days: d, count: results.length, results });
+    },
+    {
+      name: 'reviewRecentThumbnails',
+      description:
+        'Designer/editor-only. Review recently published thumbnails with their style family / mood / composition (when recorded). ' +
+        'Use this first to assess visual coherence before proposing pivots or regenerating.',
+      schema: z.object({
+        days: z.number().int().min(1).max(90).optional().describe('Lookback window in days (default 7).'),
+        limit: z.number().int().min(1).max(50).optional().describe('Max results (default 20).'),
+      }),
+    },
+  );
+}
+
+function buildRegenerateThumbnail(ctx: ToolContext) {
+  return tool(
+    async ({ articleId, styleOverride, compositionOverride, moodOverride, reason }: {
+      articleId: number; styleOverride?: string; compositionOverride?: string; moodOverride?: string; reason: string;
+    }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      if (!articleId) return JSON.stringify({ status: 'error', message: 'articleId is required.' });
+      if (!reason || String(reason).trim().length < 5) {
+        return JSON.stringify({ status: 'error', message: 'reason (>= 5 chars) is required — explain why you are regenerating.' });
+      }
+      if (styleOverride && !STYLE_FAMILIES_LIST.includes(styleOverride)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${styleOverride}".` });
+      }
+
+      const article = await db.prepare(
+        'SELECT id, tenant_id, title FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(articleId, ctx.tenantId);
+      if (!article) return JSON.stringify({ status: 'error', message: `Article ${articleId} not found in this newsroom.` });
+
+      const budget = await checkDesignerBudget(ctx.tenantId);
+      if (!budget.allowed) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily regeneration budget reached (${budget.used}/${budget.cap}). Try again tomorrow.`,
+        });
+      }
+
+      // Fire-and-forget regeneration
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.regenerate_thumbnail', 'article', String(articleId), {
+        reason, styleOverride, compositionOverride, moodOverride,
+      });
+      setImmediate(() => {
+        const { regenerateArticleImage } = require('../../media-helpers');
+        regenerateArticleImage(articleId, ctx.tenantId, {
+          styleOverride, compositionOverride, moodOverride,
+        })
+          .then((url: string | null) => {
+            // Notify editor on completion (best effort — requires notifications_center flag).
+            try {
+              const { notify } = require('../../notifications');
+              db.prepare(`SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`)
+                .all(ctx.tenantId)
+                .then((eds: any[]) => {
+                  for (const ed of eds) {
+                    notify({
+                      tenantId: ctx.tenantId, userId: ed.id,
+                      kind: 'designer_action',
+                      title: url ? 'Thumbnail regenerated' : 'Thumbnail regeneration failed',
+                      body: url
+                        ? `Iris regenerated the thumbnail for "${article.title}". Reason: ${reason}`
+                        : `Iris attempted to regenerate "${article.title}" but the image call failed.`,
+                      payload: { article_id: articleId, reason, style: styleOverride || null, new_image_url: url || null },
+                    }).catch(() => {});
+                  }
+                }).catch(() => {});
+            } catch { /* ignore */ }
+          })
+          .catch((err: any) => console.error('[designer] regenerateArticleImage failed:', err?.message));
+      });
+
+      return JSON.stringify({
+        status: 'queued',
+        article_id: articleId,
+        message: `Thumbnail regeneration queued for "${article.title}". Image generation takes 3-10s; the editor will be notified on completion.`,
+        budget: { used: budget.used + 1, cap: budget.cap },
+      });
+    },
+    {
+      name: 'regenerateThumbnail',
+      description:
+        'Designer/editor-only. Regenerate an article thumbnail with optional style/mood/composition overrides. ' +
+        'Runs asynchronously — returns immediately with status: queued. Counts against the daily regen budget. ' +
+        '`reason` is required and recorded in audit. Status: queued | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        articleId: z.number().int(),
+        styleOverride: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]).optional(),
+        compositionOverride: z.string().max(200).optional(),
+        moodOverride: z.string().max(100).optional(),
+        reason: z.string().min(5).max(500).describe('Why this image needs regenerating.'),
+      }),
+    },
+  );
+}
+
+function buildRegenerateWriterAvatar(ctx: ToolContext) {
+  return tool(
+    async ({ writerId, styleOverride, reason }: { writerId: number; styleOverride?: string; reason: string }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      if (!writerId) return JSON.stringify({ status: 'error', message: 'writerId is required.' });
+      if (!reason || String(reason).trim().length < 5) {
+        return JSON.stringify({ status: 'error', message: 'reason (>= 5 chars) is required.' });
+      }
+      if (styleOverride && !STYLE_FAMILIES_LIST.includes(styleOverride)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${styleOverride}".` });
+      }
+
+      const writer = await db.prepare(
+        'SELECT id, tenant_id, name FROM writers WHERE id = $1 AND tenant_id = $2'
+      ).get(writerId, ctx.tenantId);
+      if (!writer) return JSON.stringify({ status: 'error', message: `Writer ${writerId} not found in this newsroom.` });
+
+      const budget = await checkDesignerBudget(ctx.tenantId);
+      if (!budget.allowed) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily regeneration budget reached (${budget.used}/${budget.cap}).`,
+        });
+      }
+
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.regenerate_avatar', 'writer', String(writerId), {
+        reason, styleOverride,
+      });
+      setImmediate(() => {
+        const { regenerateWriterAvatarImage } = require('../../media-helpers');
+        regenerateWriterAvatarImage(writerId, ctx.tenantId, { styleOverride })
+          .then((url: string | null) => {
+            try {
+              const { notify } = require('../../notifications');
+              db.prepare(`SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`)
+                .all(ctx.tenantId)
+                .then((eds: any[]) => {
+                  for (const ed of eds) {
+                    notify({
+                      tenantId: ctx.tenantId, userId: ed.id,
+                      kind: 'designer_action',
+                      title: url ? 'Writer avatar regenerated' : 'Avatar regeneration failed',
+                      body: url
+                        ? `Iris regenerated ${writer.name}'s avatar. Reason: ${reason}`
+                        : `Iris attempted to regenerate ${writer.name}'s avatar but the call failed.`,
+                      payload: { writer_id: writerId, reason, style: styleOverride || null, new_avatar_url: url || null },
+                    }).catch(() => {});
+                  }
+                }).catch(() => {});
+            } catch { /* ignore */ }
+          })
+          .catch((err: any) => console.error('[designer] regenerateWriterAvatarImage failed:', err?.message));
+      });
+
+      return JSON.stringify({
+        status: 'queued',
+        writer_id: writerId,
+        message: `Avatar regeneration queued for ${writer.name}.`,
+        budget: { used: budget.used + 1, cap: budget.cap },
+      });
+    },
+    {
+      name: 'regenerateWriterAvatar',
+      description:
+        'Designer/editor-only. Regenerate a writer avatar with optional style override. Async; counts against the daily regen budget. ' +
+        '`reason` required. Status: queued | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        writerId: z.number().int(),
+        styleOverride: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]).optional(),
+        reason: z.string().min(5).max(500),
+      }),
+    },
+  );
+}
+
+function buildProposeStylePivot(ctx: ToolContext) {
+  return tool(
+    async ({ family, reasoning }: { family: string; reasoning: string }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      if (!STYLE_FAMILIES_LIST.includes(family)) {
+        return JSON.stringify({ status: 'error', message: `Unknown style family "${family}".` });
+      }
+      if (!reasoning || String(reasoning).trim().length < 10) {
+        return JSON.stringify({ status: 'error', message: 'reasoning (>= 10 chars) required — explain why the pivot is needed.' });
+      }
+
+      // Find an editor to notify.
+      let editorUserId: number | null = null;
+      try {
+        const row = await db.prepare(`
+          SELECT id FROM users
+          WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')
+          ORDER BY id ASC LIMIT 1
+        `).get(ctx.tenantId);
+        if (row?.id) editorUserId = row.id;
+      } catch { /* ignore */ }
+
+      if (!editorUserId) {
+        return JSON.stringify({ status: 'error', message: 'No editor user available to receive the style pivot proposal.' });
+      }
+
+      try {
+        const { notify } = require('../../notifications');
+        await notify({
+          tenantId: ctx.tenantId,
+          userId: editorUserId,
+          kind: 'style_pivot_proposed',
+          title: `Style pivot proposed: ${family}`,
+          body: `Iris is proposing a style pivot to "${family}".\n\nReasoning: ${reasoning}`,
+          payload: { family, reasoning },
+          actionable: [
+            { label: 'Approve pivot', actionKind: 'style_pivot.approve', targetId: null, targetType: 'style_pivot', payload: { family, notes: reasoning }, style: 'primary' },
+            { label: 'Reject',        actionKind: 'style_pivot.reject',  targetId: null, targetType: 'style_pivot', payload: { family } },
+          ],
+        });
+      } catch (err: any) {
+        return JSON.stringify({ status: 'error', message: `Failed to dispatch proposal: ${err?.message || 'unknown'}` });
+      }
+
+      await designerAudit(ctx.tenantId, ctx.writerId, 'designer.style_pivot_proposed', 'settings', 'art_direction', {
+        family, reasoning,
+      });
+
+      return JSON.stringify({
+        status: 'awaiting_approval',
+        family,
+        message: `Style pivot proposed to the editor. Nothing changes until they tap [Approve pivot].`,
+      });
+    },
+    {
+      name: 'proposeStylePivot',
+      description:
+        'Designer/editor-only. Propose a tenant-wide style pivot. Sends an actionable notification to the editor with [Approve pivot] / [Reject] buttons. ' +
+        'Does NOT change the tenant setting until the editor approves. Status: awaiting_approval | tool_unavailable | error.',
+      schema: z.object({
+        family: z.enum([
+          'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
+          'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
+        ]),
+        reasoning: z.string().min(10).max(2000),
+      }),
+    },
+  );
+}
+
+function buildBatchRegenerateWeakThumbnails(ctx: ToolContext) {
+  return tool(
+    async ({ articleIds, reason }: { articleIds: number[]; reason: string }) => {
+      if (!(await designerEnabled(ctx.tenantId))) {
+        return JSON.stringify({ status: 'tool_unavailable', message: 'Graphic designer agent is not enabled.' });
+      }
+      if (!Array.isArray(articleIds) || !articleIds.length) {
+        return JSON.stringify({ status: 'error', message: 'articleIds must be a non-empty array.' });
+      }
+      if (!reason || String(reason).trim().length < 5) {
+        return JSON.stringify({ status: 'error', message: 'reason (>= 5 chars) required.' });
+      }
+      const ids = articleIds.slice(0, 20).map(Number).filter(n => Number.isFinite(n) && n > 0);
+      if (!ids.length) return JSON.stringify({ status: 'error', message: 'No valid article ids provided.' });
+
+      // Cross-tenant guard: only accept ids belonging to this tenant.
+      const validRows = await db.prepare(
+        'SELECT id FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2'
+      ).all(ids, ctx.tenantId);
+      const validIds = new Set((validRows || []).map((r: any) => r.id));
+      const accepted = ids.filter(id => validIds.has(id));
+      if (!accepted.length) {
+        return JSON.stringify({ status: 'error', message: 'None of the article ids belong to this newsroom.' });
+      }
+
+      const budget = await checkDesignerBudget(ctx.tenantId);
+      const remaining = budget.cap - budget.used;
+      if (remaining <= 0) {
+        return JSON.stringify({
+          status: 'quota_exceeded',
+          message: `Daily regeneration budget reached (${budget.used}/${budget.cap}).`,
+        });
+      }
+      const toQueue = accepted.slice(0, remaining);
+
+      for (const aid of toQueue) {
+        await designerAudit(ctx.tenantId, ctx.writerId, 'designer.regenerate_thumbnail', 'article', String(aid), {
+          reason, batch: true,
+        });
+        setImmediate(() => {
+          const { regenerateArticleImage } = require('../../media-helpers');
+          regenerateArticleImage(aid, ctx.tenantId, {})
+            .catch((err: any) => console.error(`[designer] batch regen article ${aid} failed:`, err?.message));
+        });
+      }
+
+      return JSON.stringify({
+        status: 'queued',
+        queued_ids: toQueue,
+        skipped_count: ids.length - toQueue.length,
+        budget: { used: budget.used + toQueue.length, cap: budget.cap },
+        message: `Queued ${toQueue.length} thumbnail regeneration${toQueue.length === 1 ? '' : 's'}.`,
+      });
+    },
+    {
+      name: 'batchRegenerateWeakThumbnails',
+      description:
+        'Designer/editor-only. Queue thumbnail regeneration for up to 20 articles at once. Honors the daily regen budget — extras are dropped. ' +
+        'Status: queued | quota_exceeded | tool_unavailable | error.',
+      schema: z.object({
+        articleIds: z.array(z.number().int()).min(1).max(20),
+        reason: z.string().min(5).max(500),
+      }),
+    },
+  );
 }
 
 // ── Individual tools ─────────────────────────────────────────────────
