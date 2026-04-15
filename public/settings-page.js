@@ -1035,6 +1035,22 @@ let apiKeyVisible = false;
     { id: 'siteAdsenseId',  key: 'site_adsense_id' },
   ]));
 
+  // ── Chat Agent Engine ────────────────────────────────────────────
+  function loadChatAgentEngine(settings) {
+    const value = settings.chat_agent_engine === 'langgraph' ? 'langgraph' : 'single-shot';
+    const el = document.querySelector('input[name="chatAgentEngine"][value="' + value + '"]');
+    if (el) el.checked = true;
+  }
+
+  panelSave('saveChatAgentEngineBtn', 'chatAgentEngineStatus', 'Chat Agent Engine', async () => {
+    const selected = document.querySelector('input[name="chatAgentEngine"]:checked');
+    const value = selected && selected.value === 'langgraph' ? 'langgraph' : 'single-shot';
+    await apiFetch('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ chat_agent_engine: value }),
+    });
+  });
+
   // ── Email (Resend) save ──────────────────────────────────────────
   panelSave('saveResendBtn', 'resendSaveStatus', 'Email Settings', async () => {
     const payload = {};
@@ -1329,6 +1345,7 @@ let apiKeyVisible = false;
       }
       loadImageProviderSettings(settings);
       loadAiProviders(settings);
+      loadChatAgentEngine(settings);
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);

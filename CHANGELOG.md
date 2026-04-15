@@ -8,6 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Added
 
+- feat(settings): Chat Agent Engine selector (single-shot vs langgraph) in admin Settings UI. Required for LangGraph-dependent features (editor-commissioned stories, Graphic Designer agent) without SQL.
 - feat(designer): generateStandaloneImage tool — Iris can now directly generate images from freeform concepts (profile photos, reference mockups, concept art) with style/composition/mood/aspect overrides. Counts against daily regen budget. Persona updated to surface the capability.
 
 ### Fixed
