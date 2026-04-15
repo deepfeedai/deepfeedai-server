@@ -12,6 +12,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(designer): tightened Iris persona to generate images immediately instead of asking clarifying questions; hard rule against "I can't generate images"; repair migration upgrades any legacy Iris writer to role='designer'.
 - fix(security): atomic action-token burn (closes double-approve race), idempotency guards on article.publish/revise/kill handlers, slug collision prevention in editor-commissioned ingest, Telegram webhook secret-token verification, synchronous cohort-sibling burn to preserve single-use guarantee across channels.
 - fix(notifications): legacy PUT /articles/:id/approve + /reject now fire article_published + article_revision_requested events; editorial-review role query expanded to include superadmin + is_admin; added diagnostic log in notify() to surface silent failures.
 - fix(editorial): optimistic UI on pitch approve/reject/assign — card removes immediately on click, re-inserts on error; Pitches tab now polls every 15s while visible so cross-channel actions reflect without manual refresh.

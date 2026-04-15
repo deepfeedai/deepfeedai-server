@@ -1580,6 +1580,11 @@ async function initDb() {
     console.log(`✅ Seeded ${FEATURE_DEFINITIONS.length} feature definitions across ${plans.length} plans`);
   } catch (err) { console.error('[DB] Feature seed error:', err.message); }
 
+  // Backfill: if an existing Iris writer was seeded before role='designer' was added, upgrade her role.
+  try {
+    await p.query(`UPDATE writers SET role = 'designer' WHERE LOWER(name) = 'iris' AND role != 'designer'`).catch(() => {});
+  } catch (_) { /* writers table may not exist yet in fresh envs — ignore */ }
+
   // Seed admin user (only if ADMIN_PASSWORD env var is set — otherwise setup wizard handles it)
   if (process.env.ADMIN_PASSWORD) {
     const existingAdmin = await prepare('SELECT id FROM users WHERE username = $1').get('admin');
