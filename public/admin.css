@@ -2056,6 +2056,95 @@ tr:hover .td-edit-btn { opacity: 1; }
   .launch-stats { flex-direction: column; gap: var(--space-4); }
 }
 
+/* ── Mobile (≤768px) primitives ──────────────────────────
+   Additive only — desktop (≥769px) is unchanged. Foundation
+   for mobile-friendly admin: touch sizing, off-canvas drawer,
+   bottom-sheet modals, table scroll affordances, iOS-safe inputs.
+   ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  body, .admin-layout { min-width: 0; }
+  html, body { overflow-x: hidden; }
+
+  /* Topbar — slimmer + smaller text */
+  .topbar { height: 52px; padding: 0 var(--space-3); gap: var(--space-3); }
+  .topbar-title { font-size: var(--text-md); }
+  .topbar-user { display: none; }
+
+  /* Tighter page padding */
+  .page-body { padding: 12px; }
+
+  /* Touch-friendly buttons everywhere on mobile */
+  .btn,
+  button.btn,
+  .btn-icon,
+  .modal-close,
+  .hamburger {
+    min-height: 40px;
+    min-width: 40px;
+  }
+  .btn-xs { min-height: 32px; min-width: 32px; }
+
+  /* Inline button groups wrap, gap-spaced */
+  .btn-group,
+  .actions,
+  .row-sub-actions,
+  .article-card-actions {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .btn-group > *,
+  .actions > * { margin: 0; }
+
+  /* Form controls full-width + iOS-zoom-safe */
+  .form-control,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="search"],
+  input[type="url"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .input-narrow,
+  .input-wide { max-width: 100%; }
+
+  /* Table scroll affordance — soft right-edge gradient hint */
+  .table-scroll,
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+    background-image: linear-gradient(to right, transparent calc(100% - 24px), rgba(0,0,0,0.18) 100%);
+    background-attachment: local;
+  }
+
+  /* Bell dropdown — never overflow viewport */
+  .dfa-bell-dropdown { max-width: calc(100vw - 24px); }
+}
+
+/* Bottom-sheet modals on small phones */
+@media (max-width: 600px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal {
+    max-width: 100%;
+    width: 100%;
+    max-height: 85vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    transform: translateY(100%);
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal-footer { flex-wrap: wrap; gap: var(--space-2); }
+  .modal-footer .btn { flex: 1 1 auto; }
+}
+
 /* ===== Feature Gating ===== */
 .feature-locked { opacity: 0.5; pointer-events: none; position: relative; }
 .feature-gate-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2); border-radius: 8px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
