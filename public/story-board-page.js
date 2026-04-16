@@ -1289,6 +1289,17 @@
   // ── Keyboard handler ──────────────────────────────────────────────────────────
   document.addEventListener('keydown', handleKeyDown);
 
+  // ── Mobile filter toggle ──────────────────────────────────────────────────────
+  (function() {
+    var toggleBtn = document.getElementById('sbFilterToggleBtn');
+    var drawer    = document.getElementById('sbToolbarFilters');
+    if (!toggleBtn || !drawer) return;
+    toggleBtn.addEventListener('click', function() {
+      var open = drawer.classList.toggle('open');
+      toggleBtn.classList.toggle('active', open);
+    });
+  }());
+
   // ── Init ──────────────────────────────────────────────────────────────────────
   onReady(async function () {
     if (!requireAuth()) return;

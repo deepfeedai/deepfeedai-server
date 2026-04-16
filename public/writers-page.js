@@ -1263,6 +1263,8 @@ async function init() {
   renderSidebar();
   initModals();
   await loadCategoriesList();
+  // On mobile, default to card grid view regardless of saved preference
+  if (window.innerWidth <= 768 && writerViewMode === 'table') writerViewMode = 'cards';
   await loadWriters();
   applyWriterViewMode();
 
