@@ -111,7 +111,7 @@ function buildSyntheticFallback(article) {
   // Take first 1-2 complete sentences from summary
   const firstSentences = summary.match(/^[^.!?]+[.!?](?:\s+[^.!?]+[.!?])?/);
   const body = firstSentences ? firstSentences[0] : summary.slice(0, 300);
-  return `Here's the short of it. ${body}`.slice(0, 600);
+  return body.slice(0, 600);
 }
 
 async function buildTtsText(article, writer, tenantId) {
