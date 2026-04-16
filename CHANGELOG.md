@@ -18,6 +18,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(designer): front-loaded positive single-image instructions on avatar prompts (was relying too heavily on weak negative prompts, causing Imagen diptychs); tightened 3d-render / comic-book / anime-portrait phrasing to avoid render-process priming; reduced avatar negative list to only avatar-relevant tropes. Repair migration now also fixes null-role Maxwell + Iris (prior role-save failures left some deployments with role=NULL, which the COALESCE in the public /writers filter treated as 'writer' and exposed them).
 - fix(writers): avatar regenerate button now actually swaps the visible image (UI was looking for an id that didn't exist on the page; DB was always saving correctly).
 - fix(imagen): per-operation personGeneration — writer avatars, user avatars, and Iris's standalone-design generation now pass personGeneration='allow_adult'; article thumbnails stay on 'dont_allow' to avoid unintended faces. Fixes silent "no image bytes returned" on every portrait prompt since the style system landed.
 - fix(gemini): surface finishReason + safety ratings on empty responses; return a helpful fallback text on MAX_TOKENS instead of silently empty; bump chat-agent maxTokens 1024→2048 to reduce truncation during tool calls.
