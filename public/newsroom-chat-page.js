@@ -159,13 +159,20 @@
 
   function scrollToBottom() {
     var thread = document.getElementById('chatThread');
-    // Scroll immediately for synchronous cases, then again after paint + after
-    // any deferred layout (flex reflow, images) using RAF + setTimeout fallback.
-    thread.scrollTop = thread.scrollHeight;
-    requestAnimationFrame(function () {
-      thread.scrollTop = thread.scrollHeight;
-      setTimeout(function () { thread.scrollTop = thread.scrollHeight; }, 120);
-    });
+    // scrollIntoView on the last child is the most reliable approach —
+    // the browser resolves the nearest scrollable ancestor itself, avoiding
+    // flex-container height races that trip up direct scrollTop assignment.
+    function doScroll() {
+      var last = thread.lastElementChild;
+      if (last) {
+        last.scrollIntoView({ block: 'end', behavior: 'instant' });
+      } else {
+        thread.scrollTop = thread.scrollHeight;
+      }
+    }
+    doScroll();
+    // Second pass after flex reflow / input row visibility change settles
+    setTimeout(doScroll, 80);
   }
 
   function renderThread(messages) {

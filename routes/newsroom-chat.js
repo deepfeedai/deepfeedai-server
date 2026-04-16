@@ -71,14 +71,34 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     const articleId = parseInt(context_article_id, 10);
     if (articleId) {
       const article = await db.prepare(
-        'SELECT title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
+        'SELECT title, summary, full_content, category, source, source_url, content_type FROM articles WHERE id = $1 AND tenant_id = $2'
       ).get(articleId, req.tenantId).catch(() => null);
       if (article) {
-        const isExternal = article.content_type === 'curated' || !article.content_type || article.source;
-        const contextHeader = isExternal
-          ? `[External source article shared by editor — NOT one of your published articles]\nTitle: "${article.title}"\nCategory: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}\n\nRespond based on the article shared above. Do not search your own published articles for this.`
-          : `[Your article context: "${article.title}"]\nCategory: ${article.category || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}`;
-        enrichedMessage = `${contextHeader}\n\nEditor: ${message}`;
+        const isExternal = article.content_type === 'curated' || !article.content_type;
+        // Include up to 2000 chars of full content when available (covers most RSS articles)
+        const bodyText = (article.full_content || '').trim();
+        const bodySnippet = bodyText.length > 2000
+          ? bodyText.slice(0, 2000) + '… [truncated]'
+          : bodyText;
+        if (isExternal) {
+          const lines = [
+            `[External source article shared by editor — this is NOT one of your published articles]`,
+            `Title: "${article.title}"`,
+            `Category: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}`,
+            article.source_url ? `URL: ${article.source_url}` : null,
+            `Summary: ${article.summary || 'No summary available.'}`,
+            bodySnippet ? `\nFull text:\n${bodySnippet}` : null,
+            `\nRespond based on the article content above. Do not search your own published articles for this.`,
+          ].filter(Boolean).join('\n');
+          enrichedMessage = `${lines}\n\nEditor: ${message}`;
+        } else {
+          const lines = [
+            `[Your article: "${article.title}"]`,
+            `Category: ${article.category || 'Unknown'}`,
+            `Summary: ${article.summary || 'No summary available.'}`,
+          ].filter(Boolean).join('\n');
+          enrichedMessage = `${lines}\n\nEditor: ${message}`;
+        }
       }
     }
   }
