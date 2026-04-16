@@ -147,27 +147,19 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     userName: req.user?.name || req.user?.email || 'editor',
   };
 
-<<<<<<< HEAD
-  // When the editor intends to pitch, inject the writers roster so Maxwell can
-  // name real writers, and append the pitch-action instruction.
+  // When the editor intends to pitch, inject the writers roster and a role-anchoring
+  // instruction so Maxwell assesses and assigns rather than pitching himself.
   if (intent === 'pitch') {
     const writerRows = await db.prepare(
       `SELECT name, beat FROM writers WHERE tenant_id = $1 AND is_system = false ORDER BY name ASC`
     ).all(req.tenantId).catch(() => []);
     if (writerRows.length) {
       const rosterLines = writerRows.map(w => `- ${w.name}${w.beat ? ` (beat: ${w.beat})` : ''}`).join('\n');
-      enrichedMessage += `\n\n[Newsroom writers available for pitching:\n${rosterLines}]`;
+      enrichedMessage += `\n\n[Newsroom writers available for assignment:\n${rosterLines}]`;
     }
     if (context_article_id) {
-      enrichedMessage += `\n\n[INSTRUCTION — do not display this: If after considering this story you recommend creating a pitch, append exactly this block on its own line at the very end of your response, replacing the values: <<<PITCH:{"angle_summary":"one sentence pitch angle here","writer_name":"Exact Writer Name or null"}>>> — only include it when you are ready to propose a concrete pitch, not in exploratory replies.]`;
+      enrichedMessage += `\n\n[ROLE REMINDER — do not display this: You are the editorial director. You do NOT write articles — you assess stories and assign them to writers. Your job is to evaluate this story's news value and recommend which writer from the roster above should cover it and why. Never say you will write or pitch the story yourself. When you have a clear recommendation, append exactly this block on its own line at the very end of your response: <<<PITCH:{"angle_summary":"one sentence angle here","writer_name":"Exact Writer Name from the roster"}>>> — only include it when you have a concrete recommendation, not in exploratory replies.]`;
     }
-=======
-  // When the editor intends to pitch, append an instruction so Maxwell knows
-  // how to signal a pitch proposal back. The <<<PITCH:...>>> block is stripped
-  // from the displayed text and converted to an action button on the frontend.
-  if (intent === 'pitch' && context_article_id) {
-    enrichedMessage += `\n\n[INSTRUCTION — do not display this: If after considering this story you recommend creating a pitch, append exactly this block on its own line at the very end of your response, replacing the angle_summary value: <<<PITCH:{"angle_summary":"one sentence pitch angle here"}>>> — only include it when you are ready to propose a concrete pitch, not in exploratory or clarifying replies.]`;
->>>>>>> origin/staging
   }
 
   // Route tool-capable system agents (Iris, Vera) through the tool-calling path
@@ -197,17 +189,11 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     return res.status(500).json({ error: err.message || 'chat failed' });
   }
 
-<<<<<<< HEAD
   const rawText = stripHallucinatedToolCalls(
     typeof response === 'string' ? response : (response?.text || '')
   );
   const sourceId = context_article_id ? parseInt(context_article_id, 10) : null;
   const { text, actions } = await parsePitchAction(rawText, sourceId, req.tenantId);
-=======
-  const rawText = typeof response === 'string' ? response : (response?.text || '');
-  const sourceId = context_article_id ? parseInt(context_article_id, 10) : null;
-  const { text, actions } = parsePitchAction(rawText, sourceId);
->>>>>>> origin/staging
 
   res.json({
     text,
