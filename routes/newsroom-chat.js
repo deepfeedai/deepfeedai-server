@@ -147,9 +147,13 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     userName: req.user?.name || req.user?.email || 'editor',
   };
 
-  // When the editor intends to pitch, inject the writers roster and a role-anchoring
-  // instruction so Maxwell assesses and assigns rather than pitching himself.
-  if (intent === 'pitch') {
+  // Fetch writer early so we can detect Maxwell for pitch instruction injection.
+  const writer = await db.prepare('SELECT id, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
+
+  // For Maxwell (editor agent): always inject the writers roster so he knows who to assign to.
+  // Inject the full pitch instruction + <<<PITCH:>>> format whenever an article is attached,
+  // regardless of the intent param — so manual pitch requests work the same as the 📋 button.
+  if (writer?.is_system && writer?.role === 'editor') {
     const writerRows = await db.prepare(
       `SELECT name, beat FROM writers WHERE tenant_id = $1 AND is_system = false ORDER BY name ASC`
     ).all(req.tenantId).catch(() => []);
@@ -164,7 +168,6 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
 
   // Route tool-capable system agents (Iris, Vera) through the tool-calling path
   // when an article context is attached. All other agents use the standard path.
-  const writer = await db.prepare('SELECT id, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
   const TOOL_ROLES = ['designer', 'copy-editor'];
   if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
     let toolResult;
@@ -184,7 +187,7 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
 
   let response;
   try {
-    response = await messaging.handleIncoming(req.tenantId, writerId, enrichedMessage, contextKey, meta);
+    response = await messaging.handleIncoming(req.tenantId, writerId, enrichedMessage, contextKey, meta, message);
   } catch (err) {
     return res.status(500).json({ error: err.message || 'chat failed' });
   }
