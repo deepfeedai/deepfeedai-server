@@ -39,7 +39,7 @@ router.get('/', asyncHandler(async (req, res) => {
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
     WHERE w.tenant_id = $1
-      AND COALESCE(w.role, 'writer') NOT IN ('editor', 'designer')
+      AND COALESCE(w.role, 'writer') NOT IN ('editor', 'designer', 'copy-editor')
     GROUP BY w.id
     ORDER BY w.name ASC
   `).all(req.tenantId);
@@ -100,7 +100,7 @@ router.get('/:slug', asyncHandler(async (req, res) => {
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $2
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $2
     WHERE w.slug = $1 AND w.tenant_id = $2
-      AND COALESCE(w.role, 'writer') NOT IN ('editor', 'designer')
+      AND COALESCE(w.role, 'writer') NOT IN ('editor', 'designer', 'copy-editor')
     GROUP BY w.id
   `).get(req.params.slug, req.tenantId);
   if (!writer) return res.status(404).json({ error: 'Writer not found' });

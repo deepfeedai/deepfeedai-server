@@ -151,6 +151,16 @@ router.put('/tenants/:id/features/:key', asyncHandler(async (req, res) => {
     }
   }
 
+  if (key === 'copy_editor_enabled' && (strValue === 'true' || strValue === '1')) {
+    try {
+      const { getCopyEditorAgent } = require('../lib/copy-editor');
+      getCopyEditorAgent(tenantId).catch(err =>
+        console.warn('[admin-features] getCopyEditorAgent seed failed:', err.message));
+    } catch (err) {
+      console.warn('[admin-features] copy-editor seed hook dispatch failed:', err.message);
+    }
+  }
+
   await logAudit(req, 'features.set_override', 'feature', key, { tenantId, value: strValue, reason, expires_at });
   res.json({ ok: true, feature: key, value: strValue, source: 'override' });
 }));
