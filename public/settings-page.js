@@ -1423,16 +1423,17 @@ let apiKeyVisible = false;
 
   // ── Automation Tab: Scheduled Tasks Management ──────────
 
-  // Load automation tab on click
+  // Load automation tab on click — works for sidebar nav and legacy tab bar
   (function() {
-    var tabBar = document.getElementById('settingsTabs');
-    if (!tabBar) return;
-    tabBar.addEventListener('click', function(e) {
-      var btn = e.target.closest('.tab-btn');
-      if (btn && btn.dataset.tab === 'automation') loadAutomationTab();
+    var triggers = document.querySelectorAll(
+      '.settings-nav-item[data-section="automation"], .tab-btn[data-tab="automation"]'
+    );
+    triggers.forEach(function(el) {
+      el.addEventListener('click', loadAutomationTab);
     });
-    // Also load if restored from session
-    if (sessionStorage.getItem('dfa_settings_tab') === 'automation') {
+    // Also load if restored from session or hash
+    if (sessionStorage.getItem('dfa_settings_tab') === 'automation' ||
+        window.location.hash === '#automation') {
       setTimeout(loadAutomationTab, 0);
     }
   })();
