@@ -58,6 +58,8 @@
     .role-badge-editor { background:rgba(168,85,247,0.15); color:#a855f7; }
     .role-badge-analyst { background:rgba(34,197,94,0.15); color:#22c55e; }
     .role-badge-moderator { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .role-badge-designer { background:rgba(16,185,129,0.15); color:#10b981; }
+    .role-badge-copy-editor { background:rgba(236,72,153,0.15); color:#ec4899; }
   </style>
 </head>
 <body>
@@ -92,7 +94,8 @@
         <!-- Role filter chips -->
         <div id="writerRoleFilter" class="tab-bar" style="margin-bottom:16px;gap:4px;flex-wrap:wrap;">
           <button class="tab-btn active" data-role-filter="all">All</button>
-          <button class="tab-btn" data-role-filter="writer">Writers</button>
+          <button class="tab-btn" data-role-filter="system">System Agents</button>
+          <button class="tab-btn" data-role-filter="writer">Writer Agents</button>
           <button class="tab-btn" data-role-filter="editor">Editors</button>
           <button class="tab-btn" data-role-filter="designer">Designers</button>
           <button class="tab-btn" data-role-filter="other">Other</button>
@@ -125,7 +128,7 @@
       <!-- Performance Tab -->
       <div id="performanceSection" style="display:none;">
         <div class="section-header">
-          <div class="section-title">Writer Performance</div>
+          <div class="section-title">Agent Performance</div>
           <select id="perfRange" class="form-control" style="width:auto;">
             <option value="7d">Last 7 days</option>
             <option value="30d" selected>Last 30 days</option>
@@ -139,7 +142,7 @@
         <!-- Writer comparison chart -->
         <div class="card-section chart-section">
           <div class="section-header">
-            <h2 class="section-title">Writer Comparison</h2>
+            <h2 class="section-title">Agent Comparison</h2>
           </div>
           <div class="chart-container">
             <canvas id="writerCompareChart"></canvas>
@@ -150,7 +153,7 @@
           <table id="perfTable">
             <thead>
               <tr>
-                <th>Writer</th>
+                <th>Agent</th>
                 <th class="perf-val sortable" data-sort="articles_total">Articles</th>
                 <th class="perf-val sortable" data-sort="articles_original">Originals</th>
                 <th class="perf-val sortable" data-sort="avg_editorial_score">Avg Score</th>
@@ -176,7 +179,7 @@
 <div class="modal-overlay" id="writerModal">
   <div class="modal modal-md">
     <div class="modal-header">
-      <div class="modal-title" id="writerModalTitle">Add Writer</div>
+      <div class="modal-title" id="writerModalTitle">New Agent</div>
       <button class="modal-close" data-close-modal>&#10005;</button>
     </div>
     <div class="modal-body">
@@ -429,7 +432,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-primary" id="saveWriterBtn">Save Writer</button>
+      <button class="btn btn-primary" id="saveWriterBtn">Save Agent</button>
     </div>
   </div>
 </div>
@@ -474,7 +477,7 @@
     <div class="modal-body" id="writerQuickViewBody" style="padding:0;max-height:80vh;overflow-y:auto;"></div>
     <div class="modal-footer" style="gap:8px;">
       <a id="qvFullPageLink" href="#" class="btn btn-outline btn-sm">View Full Page</a>
-      <button class="btn btn-primary btn-sm" id="qvEditBtn">Edit Writer</button>
+      <button class="btn btn-primary btn-sm" id="qvEditBtn">Edit Agent</button>
       <button class="btn btn-outline" data-close-modal>Close</button>
     </div>
   </div>

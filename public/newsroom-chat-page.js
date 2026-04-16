@@ -7,6 +7,7 @@
   var activeWriter = null;
   var currentUser = null;
   var sending = false;
+  var activeArticleId = null;
 
   // Stable 12-hue palette matching lib/writer-colors.js (used as a fallback
   // when the signed-in editor hasn't set an avatar yet).
@@ -23,6 +24,30 @@
     await Promise.all([loadWriters(), loadCurrentUser()]);
     wireInput();
     document.getElementById('clearBtn').addEventListener('click', clearChat);
+    document.getElementById('chatContextDismiss').addEventListener('click', function () {
+      activeArticleId = null;
+      document.getElementById('chatContextBar').style.display = 'none';
+    });
+    // Support URL params: ?writer_id=N (auto-select) and ?article_id=N (load context)
+    var params = new URLSearchParams(window.location.search);
+    var preselect = parseInt(params.get('writer_id'), 10);
+    var articleParam = parseInt(params.get('article_id'), 10);
+    if (articleParam) await setArticleContext(articleParam);
+    if (preselect) pickWriter(preselect);
+    // Wire proposal approve/reject (event delegation on chat thread)
+    document.getElementById('chatThread').addEventListener('click', handleProposalClick);
+  }
+
+  async function setArticleContext(articleId) {
+    try {
+      var data = await apiFetch('/articles/' + articleId);
+      activeArticleId = articleId;
+      var title = data.title || ('Article #' + articleId);
+      document.getElementById('chatContextLabel').textContent = title;
+      document.getElementById('chatContextBar').style.display = 'flex';
+    } catch (err) {
+      // best-effort — don't block the rest of init
+    }
   }
 
   async function loadCurrentUser() {
@@ -74,8 +99,7 @@
     });
     document.getElementById('chatHeaderTitle').textContent = activeWriter.name;
     document.getElementById('chatHeaderMeta').textContent = activeWriter.beat || '';
-    document.getElementById('clearBtn').style.display = '';
-    document.getElementById('chatInputRow').style.display = '';
+    document.getElementById('chatFooter').style.display = '';
     var thread = document.getElementById('chatThread');
     thread.innerHTML = '<div class="chat-empty">Loading history…</div>';
     try {
@@ -134,6 +158,24 @@
       '</div></div>';
   }
 
+  function scrollToBottom() {
+    var thread = document.getElementById('chatThread');
+    // scrollIntoView on the last child is the most reliable approach —
+    // the browser resolves the nearest scrollable ancestor itself, avoiding
+    // flex-container height races that trip up direct scrollTop assignment.
+    function doScroll() {
+      var last = thread.lastElementChild;
+      if (last) {
+        last.scrollIntoView({ block: 'end', behavior: 'instant' });
+      } else {
+        thread.scrollTop = thread.scrollHeight;
+      }
+    }
+    doScroll();
+    // Second pass after flex reflow / input row visibility change settles
+    setTimeout(doScroll, 80);
+  }
+
   function renderThread(messages) {
     var thread = document.getElementById('chatThread');
     if (!messages.length) {
@@ -143,7 +185,7 @@
     thread.innerHTML = messages.map(function (m) {
       return bubbleHtml(m.role === 'user' ? 'user' : 'assistant', m.content, activeWriter);
     }).join('');
-    thread.scrollTop = thread.scrollHeight;
+    scrollToBottom();
   }
 
   function appendBubble(role, text) {
@@ -152,7 +194,7 @@
     var temp = document.createElement('div');
     temp.innerHTML = bubbleHtml(role, text, activeWriter);
     thread.appendChild(temp.firstChild);
-    thread.scrollTop = thread.scrollHeight;
+    scrollToBottom();
   }
 
   function wireInput() {
@@ -169,6 +211,78 @@
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
     sendBtn.addEventListener('click', sendMessage);
+    wireAttachPanel();
+  }
+
+  var _attachSearchTimer;
+
+  function wireAttachPanel() {
+    var attachBtn = document.getElementById('chatAttachBtn');
+    var panel = document.getElementById('chatAttachPanel');
+    var searchInput = document.getElementById('chatAttachSearch');
+    var results = document.getElementById('chatAttachResults');
+
+    attachBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      attachBtn.classList.toggle('active', !open);
+      if (!open) { searchInput.value = ''; searchInput.focus(); renderAttachResults([]); }
+    });
+
+    searchInput.addEventListener('input', function () {
+      clearTimeout(_attachSearchTimer);
+      var q = searchInput.value.trim();
+      if (!q) { renderAttachResults([]); return; }
+      _attachSearchTimer = setTimeout(function () { doAttachSearch(q); }, 250);
+    });
+
+    // Close on outside click
+    document.addEventListener('click', function (e) {
+      if (!panel.contains(e.target) && e.target !== attachBtn) {
+        panel.style.display = 'none';
+        attachBtn.classList.remove('active');
+      }
+    });
+
+    results.addEventListener('click', function (e) {
+      var item = e.target.closest('[data-attach-id]');
+      if (!item) return;
+      activeArticleId = parseInt(item.dataset.attachId, 10);
+      var title = item.dataset.attachTitle || ('Article #' + activeArticleId);
+      document.getElementById('chatContextLabel').textContent = title;
+      document.getElementById('chatContextBar').style.display = 'flex';
+      panel.style.display = 'none';
+      attachBtn.classList.remove('active');
+      document.getElementById('chatInput').focus();
+    });
+  }
+
+  async function doAttachSearch(q) {
+    var results = document.getElementById('chatAttachResults');
+    results.innerHTML = '<div class="chat-attach-empty">Searching…</div>';
+    try {
+      var data = await apiFetch('/articles?search=' + encodeURIComponent(q) + '&limit=8');
+      var articles = Array.isArray(data) ? data : (data.articles || []);
+      renderAttachResults(articles);
+    } catch (err) {
+      results.innerHTML = '<div class="chat-attach-empty">Search failed</div>';
+    }
+  }
+
+  function renderAttachResults(articles) {
+    var results = document.getElementById('chatAttachResults');
+    if (!articles.length) {
+      results.innerHTML = '<div class="chat-attach-empty">No articles found</div>';
+      return;
+    }
+    results.innerHTML = articles.map(function (a) {
+      var meta = [a.category, a.content_type, a.source].filter(Boolean).join(' · ');
+      return '<div class="chat-attach-result" data-attach-id="' + a.id + '" data-attach-title="' + esc(a.title || '') + '">'
+        + '<div class="chat-attach-result-title">' + esc(a.title || '(untitled)') + '</div>'
+        + (meta ? '<div class="chat-attach-result-meta">' + esc(meta) + '</div>' : '')
+        + '</div>';
+    }).join('');
   }
 
   async function sendMessage() {
@@ -185,14 +299,21 @@
     typing.className = 'chat-typing';
     typing.textContent = activeWriter.name + ' is typing…';
     thread.appendChild(typing);
-    thread.scrollTop = thread.scrollHeight;
+    scrollToBottom();
     try {
+      var payload = { writer_id: activeWriter.id, message: text };
+      if (activeArticleId) payload.context_article_id = activeArticleId;
       var resp = await apiFetch('/newsroom-chat', {
         method: 'POST',
-        body: JSON.stringify({ writer_id: activeWriter.id, message: text }),
+        body: JSON.stringify(payload),
       });
       typing.remove();
-      appendBubble('assistant', resp.text || '(no response)');
+      if (resp.proposal) {
+        appendBubble('assistant', resp.text || '');
+        appendProposalCard(resp.proposal);
+      } else {
+        appendBubble('assistant', resp.text || '(no response)');
+      }
     } catch (err) {
       typing.remove();
       appendBubble('assistant', '⚠️ ' + (err.message || 'send failed'));
@@ -200,6 +321,69 @@
       sending = false;
       input.focus();
     }
+  }
+
+  function appendProposalCard(proposal) {
+    var thread = document.getElementById('chatThread');
+    var card = document.createElement('div');
+    card.className = 'chat-proposal-card';
+    card.dataset.proposal = JSON.stringify(proposal);
+
+    var inner = '';
+    if (proposal.proposal_type === 'thumbnail') {
+      inner = '<div class="chat-proposal-preview">'
+        + '<img src="' + esc(proposal.preview_url) + '" alt="Proposed thumbnail" class="chat-proposal-image" />'
+        + '</div>';
+    } else if (proposal.proposal_type === 'headline') {
+      inner = '<div class="chat-proposal-headline">&ldquo;' + esc(proposal.new_headline) + '&rdquo;</div>'
+        + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
+    }
+
+    var approveLabel = proposal.proposal_type === 'headline'
+      ? '✓ Apply headline'
+      : (proposal.article_id ? '✓ Apply to article' : '✓ Looks good');
+    inner += '<div class="chat-proposal-actions">'
+      + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
+      + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
+      + '</div>';
+
+    card.innerHTML = inner;
+    thread.appendChild(card);
+    scrollToBottom();
+  }
+
+  async function handleProposalClick(e) {
+    var approveBtn = e.target.closest('.chat-proposal-approve');
+    var rejectBtn  = e.target.closest('.chat-proposal-reject');
+    if (!approveBtn && !rejectBtn) return;
+
+    var card = e.target.closest('.chat-proposal-card');
+    if (!card) return;
+
+    // Disable buttons immediately to prevent double-click
+    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+
+    if (rejectBtn) {
+      card.classList.add('chat-proposal-dismissed');
+      appendBubble('assistant', 'No problem — just let me know if you\'d like to try a different direction.');
+      scrollToBottom();
+      return;
+    }
+
+    // Approve
+    try {
+      var proposal = JSON.parse(card.dataset.proposal);
+      var result = await apiFetch('/newsroom-chat/actions/approve', {
+        method: 'POST',
+        body: JSON.stringify(proposal),
+      });
+      card.classList.add('chat-proposal-applied');
+      appendBubble('assistant', result.text || 'Done!');
+    } catch (err) {
+      card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      appendBubble('assistant', '⚠️ ' + (err.message || 'Failed to apply'));
+    }
+    scrollToBottom();
   }
 
   async function clearChat() {

@@ -16,8 +16,9 @@ const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { isFeatureEnabled } = require('../lib/feature-registry');
-const messaging = require('../lib/messaging');
-const ctx = require('../lib/messaging/context');
+const messaging   = require('../lib/messaging');
+const ctx         = require('../lib/messaging/context');
+const agentTools  = require('../lib/agent-tools');
 
 async function requireWorkspaceEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'editor_workspace').catch(() => false);
@@ -33,7 +34,7 @@ function buildWebContextKey(userId, writerId) {
 router.get('/writers', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT w.id, w.name, w.slug, w.avatar_url, w.beat, w.accent_color,
-           w.presence_state, w.presence_updated_at,
+           w.presence_state, w.presence_updated_at, w.role, w.is_system,
            (SELECT COUNT(*)::int FROM articles a
               WHERE a.writer_id = w.id AND a.tenant_id = w.tenant_id
                 AND a.content_type IN ('original','deep-dive') AND a.is_published = 1) AS published_count
@@ -58,12 +59,50 @@ router.get('/history', auth, requirePermission('articles.read'), requireWorkspac
   res.json({ messages: messages || [], context_key: contextKey });
 }));
 
-// POST /api/newsroom-chat — body: { writer_id, message }
+// POST /api/newsroom-chat — body: { writer_id, message, context_article_id? }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
-  const { writer_id, message } = req.body || {};
+  const { writer_id, message, context_article_id } = req.body || {};
   if (!writer_id || !message) return res.status(400).json({ error: 'writer_id and message required' });
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
+
+  // Optionally enrich the message with article context (title, summary, category)
+  let enrichedMessage = message;
+  if (context_article_id) {
+    const articleId = parseInt(context_article_id, 10);
+    if (articleId) {
+      const article = await db.prepare(
+        'SELECT title, summary, full_content, category, source, source_url, content_type FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(articleId, req.tenantId).catch(() => null);
+      if (article) {
+        const isExternal = article.content_type === 'curated' || !article.content_type;
+        // Include up to 2000 chars of full content when available (covers most RSS articles)
+        const bodyText = (article.full_content || '').trim();
+        const bodySnippet = bodyText.length > 2000
+          ? bodyText.slice(0, 2000) + '… [truncated]'
+          : bodyText;
+        if (isExternal) {
+          const lines = [
+            `[External source article shared by editor — this is NOT one of your published articles]`,
+            `Title: "${article.title}"`,
+            `Category: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}`,
+            article.source_url ? `URL: ${article.source_url}` : null,
+            `Summary: ${article.summary || 'No summary available.'}`,
+            bodySnippet ? `\nFull text:\n${bodySnippet}` : null,
+            `\nRespond based on the article content above. Do not search your own published articles for this.`,
+          ].filter(Boolean).join('\n');
+          enrichedMessage = `${lines}\n\nEditor: ${message}`;
+        } else {
+          const lines = [
+            `[Your article: "${article.title}"]`,
+            `Category: ${article.category || 'Unknown'}`,
+            `Summary: ${article.summary || 'No summary available.'}`,
+          ].filter(Boolean).join('\n');
+          enrichedMessage = `${lines}\n\nEditor: ${message}`;
+        }
+      }
+    }
+  }
 
   const userId = req.user?.sub || 'anon';
   const contextKey = buildWebContextKey(userId, writerId);
@@ -73,9 +112,29 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     userName: req.user?.name || req.user?.email || 'editor',
   };
 
+  // Route tool-capable system agents (Iris, Vera) through the tool-calling path
+  // when an article context is attached. All other agents use the standard path.
+  const writer = await db.prepare('SELECT id, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
+  const TOOL_ROLES = ['designer', 'copy-editor'];
+  if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
+    let toolResult;
+    try {
+      toolResult = await agentTools.handleWithTools(
+        req.tenantId, writer, enrichedMessage, contextKey, meta,
+        context_article_id ? parseInt(context_article_id, 10) : null,
+      );
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'agent tool error' });
+    }
+    if (toolResult.type === 'tool_proposal') {
+      return res.json({ text: toolResult.preview_text, proposal: toolResult });
+    }
+    return res.json({ text: toolResult.text });
+  }
+
   let response;
   try {
-    response = await messaging.handleIncoming(req.tenantId, writerId, message, contextKey, meta);
+    response = await messaging.handleIncoming(req.tenantId, writerId, enrichedMessage, contextKey, meta);
   } catch (err) {
     return res.status(500).json({ error: err.message || 'chat failed' });
   }
@@ -86,6 +145,20 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     voice: typeof response === 'object' ? !!response?.voice : false,
     cleared: typeof response === 'object' ? !!response?.clearChannel : false,
   });
+}));
+
+// POST /api/newsroom-chat/actions/approve — apply an approved tool proposal
+router.post('/actions/approve', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const proposal = req.body || {};
+  if (!proposal.proposal_type || !proposal.article_id) {
+    return res.status(400).json({ error: 'proposal_type and article_id required' });
+  }
+  try {
+    const result = await agentTools.applyProposal(proposal, req.tenantId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'apply failed' });
+  }
 }));
 
 // POST /api/newsroom-chat/clear — body: { writer_id }

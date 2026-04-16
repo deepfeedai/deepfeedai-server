@@ -31,14 +31,14 @@
 
     if (isNewWriter) {
       writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 2, elevenlabs_voice_id: '' };
-      document.querySelector('.topbar-title').textContent = 'New Writer';
+      document.querySelector('.topbar-title').textContent = 'New Agent';
       setEditMode(true);
       renderEditMode();
       return;
     }
 
     if (!writerId) {
-      document.getElementById('writerDetailContent').innerHTML = '<div class="empty-state"><p>No writer ID provided</p></div>';
+      document.getElementById('writerDetailContent').innerHTML = '<div class="empty-state"><p>No agent ID provided</p></div>';
       return;
     }
 
@@ -52,7 +52,7 @@
 
       writerData = allWriters.find(function (x) { return x.id === writerId; });
       if (!writerData) {
-        document.getElementById('writerDetailContent').innerHTML = '<div class="empty-state"><p>Writer not found</p></div>';
+        document.getElementById('writerDetailContent').innerHTML = '<div class="empty-state"><p>Agent not found</p></div>';
         return;
       }
 
@@ -70,7 +70,7 @@
         renderViewMode();
       }
     } catch (err) {
-      showAlert('Failed to load writer: ' + err.message, 'error');
+      showAlert('Failed to load agent: ' + err.message, 'error');
     }
   }
 
@@ -117,7 +117,9 @@
     html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" id="writerAvatarImg" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
     html += '<div style="flex:1;min-width:0;">';
     var role = w.role || 'writer';
-    html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span></h1>';
+    var roleLabel = role.split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
+    var systemTag = w.is_system ? ' <span class="badge" style="font-size:10px;background:rgba(99,102,241,0.15);color:#818cf8;vertical-align:middle;margin-left:4px;">System</span>' : '';
+    html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + roleLabel + '</span>' + systemTag + '</h1>';
     if (beats.length) html += '<div>' + beats.map(function (b) { return '<span class="badge badge-muted" style="font-size:12px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
     if (w.bio) html += '<p class="wd-bio">' + esc(w.bio) + '</p>';
     html += '</div></div>';
@@ -229,7 +231,10 @@
     html += field('Name *', '<input type="text" class="form-control" id="fName" value="' + esc(w.name) + '" placeholder="Agent name" />');
     html += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">';
     html += field('Slug', '<input type="text" class="form-control" id="fSlug" value="' + esc(w.slug || '') + '" placeholder="Auto-generated from name" />');
-    html += field('Role', '<select class="form-control" id="fRole"><option value="writer"' + sel(w.role, 'writer') + '>Writer</option><option value="editor"' + sel(w.role, 'editor') + '>Editor</option><option value="designer"' + sel(w.role, 'designer') + '>Designer</option><option value="analyst"' + sel(w.role, 'analyst') + '>Analyst</option><option value="moderator"' + sel(w.role, 'moderator') + '>Moderator</option></select>');
+    var roleLabel2 = (w.role || 'writer').split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
+    html += field('Role', w.is_system
+      ? '<span class="role-badge role-badge-' + (w.role || 'writer') + '" style="font-size:12px;">' + roleLabel2 + '</span> <span class="text-muted text-sm">(locked &mdash; system agent)</span>'
+      : '<select class="form-control" id="fRole"><option value="writer"' + sel(w.role, 'writer') + '>Writer</option><option value="editor"' + sel(w.role, 'editor') + '>Editor</option><option value="designer"' + sel(w.role, 'designer') + '>Designer</option><option value="copy-editor"' + sel(w.role, 'copy-editor') + '>Copy Editor</option><option value="analyst"' + sel(w.role, 'analyst') + '>Analyst</option><option value="moderator"' + sel(w.role, 'moderator') + '>Moderator</option></select>');
     html += '</div>';
     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
     html += field('Gender', '<select class="form-control" id="fGender"><option value="">— Not set —</option><option value="male"' + sel(w.gender, 'male') + '>Male</option><option value="female"' + sel(w.gender, 'female') + '>Female</option><option value="non-binary"' + sel(w.gender, 'non-binary') + '>Non-binary</option></select>');
@@ -318,14 +323,17 @@
 
     // Automation
     html += '<div class="wd-card" style="margin-bottom:20px;">';
-    html += '<div class="wd-section-title">Automation & Voice</div>';
+    html += '<div class="wd-section-title">Voice</div>';
     html += field('ElevenLabs Voice ID', '<input type="text" class="form-control" id="fVoiceId" value="' + esc(w.elevenlabs_voice_id || '') + '" placeholder="e.g. pNInz6obpgDQGcFmaJgB" />');
-    html += '<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="fIsAuto"' + (w.is_auto ? ' checked' : '') + ' style="width:16px;height:16px;" /> Auto mode</label></div>';
-    html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">';
-    html += field('Schedule', '<select class="form-control" id="fSchedule"><option value="daily"' + sel(w.synthesis_schedule, 'daily') + '>Daily</option><option value="weekly"' + sel(w.synthesis_schedule, 'weekly') + '>Weekly</option><option value="manual"' + sel(w.synthesis_schedule, 'manual') + '>Manual</option></select>');
-    html += field('Lookback Hours', '<input type="number" class="form-control" id="fLookback" value="' + (w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168) + '" min="1" max="8760" />');
-    html += field('Min Cluster', '<input type="number" class="form-control" id="fMinCluster" value="' + (w.min_cluster_size != null ? w.min_cluster_size : 2) + '" min="1" max="100" />');
-    html += '</div></div>';
+    if (!w.is_system) {
+      html += '<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="fIsAuto"' + (w.is_auto ? ' checked' : '') + ' style="width:16px;height:16px;" /> Auto mode</label></div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">';
+      html += field('Schedule', '<select class="form-control" id="fSchedule"><option value="daily"' + sel(w.synthesis_schedule, 'daily') + '>Daily</option><option value="weekly"' + sel(w.synthesis_schedule, 'weekly') + '>Weekly</option><option value="manual"' + sel(w.synthesis_schedule, 'manual') + '>Manual</option></select>');
+      html += field('Lookback Hours', '<input type="number" class="form-control" id="fLookback" value="' + (w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168) + '" min="1" max="8760" />');
+      html += field('Min Cluster', '<input type="number" class="form-control" id="fMinCluster" value="' + (w.min_cluster_size != null ? w.min_cluster_size : 2) + '" min="1" max="100" />');
+      html += '</div>';
+    }
+    html += '</div>';
 
     html += '</div>';
     document.getElementById('writerDetailContent').innerHTML = html;
@@ -559,7 +567,7 @@
       keywords: keywordsRaw ? keywordsRaw.split(',').map(function (k) { return k.trim(); }).filter(Boolean) : [],
       system_prompt: document.getElementById('fSystemPrompt').value.trim() || null,
       chat_prompt: document.getElementById('fChatPrompt').value.trim() || null,
-      role: document.getElementById('fRole').value || 'writer',
+      role: (document.getElementById('fRole') || {}).value || writerData.role || 'writer',
       tone: document.getElementById('fTone').value || null,
       expertise_level: document.getElementById('fExpertise').value || null,
       style_guide: document.getElementById('fStyleGuide').value.trim() || null,
@@ -567,10 +575,10 @@
       beat_angle: document.getElementById('fBeatAngle').value.trim() || null,
       signature_phrases: sigRaw ? sigRaw.split(',').map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 5) : null,
       contrarian_level: parseFloat(document.getElementById('fContrarian').value),
-      is_auto: document.getElementById('fIsAuto').checked,
-      synthesis_schedule: document.getElementById('fSchedule').value,
-      synthesis_lookback_hours: parseInt(document.getElementById('fLookback').value) || 168,
-      min_cluster_size: parseInt(document.getElementById('fMinCluster').value) || 2,
+      is_auto: document.getElementById('fIsAuto') ? document.getElementById('fIsAuto').checked : (writerData.is_auto || false),
+      synthesis_schedule: document.getElementById('fSchedule') ? document.getElementById('fSchedule').value : (writerData.synthesis_schedule || 'daily'),
+      synthesis_lookback_hours: document.getElementById('fLookback') ? (parseInt(document.getElementById('fLookback').value) || 168) : (writerData.synthesis_lookback_hours || 168),
+      min_cluster_size: document.getElementById('fMinCluster') ? (parseInt(document.getElementById('fMinCluster').value) || 2) : (writerData.min_cluster_size || 2),
       elevenlabs_voice_id: document.getElementById('fVoiceId').value.trim() || null,
       gender: document.getElementById('fGender').value || null,
       ethnicity: document.getElementById('fEthnicity').value || null,
@@ -598,7 +606,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        showAlert('Writer created');
+        showAlert('Agent created');
         window.location.href = '/writer-detail.html?id=' + saved.id;
       } else {
         saved = await apiFetch('/admin/writers/' + writerData.id, {
@@ -606,7 +614,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        showAlert('Writer updated');
+        showAlert('Agent updated');
         // Reload to reflect changes
         window.location.href = '/writer-detail.html?id=' + writerData.id;
       }

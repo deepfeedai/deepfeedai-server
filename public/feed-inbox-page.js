@@ -170,6 +170,7 @@
       <td class="td-actions" style="text-align:center;">
         <div style="display:flex;gap:2px;justify-content:center;">
           ${safeUrl(a.source_url) ? `<a class="btn btn-ghost btn-sm" href="${escHtml(safeUrl(a.source_url))}" target="_blank" rel="noopener" title="View source">🔗</a>` : ''}
+          <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁</button>
           <button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteArticle(${a.id})">🗑️</button>
         </div>
