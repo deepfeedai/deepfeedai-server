@@ -26,27 +26,28 @@ async function loadCategoriesList() {
 
 // ── Writers Table ────────────────────────────────────────────────
 
-function roleBucket(role) {
-  var r = (role || 'writer').toLowerCase();
+function roleBucket(w) {
+  if (w.is_system) return 'system';
+  var r = (w.role || 'writer').toLowerCase();
   if (r === 'writer') return 'writer';
   if (r === 'editor') return 'editor';
   if (r === 'designer') return 'designer';
-  return 'other'; // copy-editor, analyst, moderator, etc.
+  return 'other';
 }
 
 function filteredWriters() {
   if (activeRoleFilter === 'all') return writers;
-  return writers.filter(function(w) { return roleBucket(w.role) === activeRoleFilter; });
+  return writers.filter(function(w) { return roleBucket(w) === activeRoleFilter; });
 }
 
 function groupedWriters() {
-  var groups = { editor: [], designer: [], writer: [], other: [] };
-  filteredWriters().forEach(function(w) { groups[roleBucket(w.role)].push(w); });
+  var groups = { system: [], editor: [], designer: [], writer: [], other: [] };
+  filteredWriters().forEach(function(w) { groups[roleBucket(w)].push(w); });
   return groups;
 }
 
-var ROLE_GROUP_LABELS = { editor: 'Editors', designer: 'Designers', writer: 'Writer Agents', other: 'System Agents' };
-var ROLE_GROUP_ORDER = ['editor', 'designer', 'writer', 'other'];
+var ROLE_GROUP_LABELS = { system: 'System Agents', editor: 'Editors', designer: 'Designers', writer: 'Writer Agents', other: 'Other' };
+var ROLE_GROUP_ORDER = ['system', 'editor', 'designer', 'writer', 'other'];
 
 function renderWriters() {
   var tbody = document.getElementById('writersBody');
