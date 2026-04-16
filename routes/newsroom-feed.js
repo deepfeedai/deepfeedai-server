@@ -79,6 +79,130 @@ router.get('/', auth, requirePermission('articles.read'), requireWorkspaceEnable
   res.json({ events: rows, count: rows.length });
 }));
 
+// POST /api/newsroom-feed/broadcast — editor posts a message to the newsroom board.
+// Routes it to the top matching writers by beat, who reply asynchronously as feed replies.
+router.post('/broadcast', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const { message } = req.body || {};
+  if (!message || !message.trim()) return res.status(400).json({ error: 'message required' });
+  if (message.length > 2000) return res.status(400).json({ error: 'message too long (max 2000)' });
+
+  const userId = req.user?.sub || null;
+  const userName = req.user?.name || req.user?.email || 'Editor';
+
+  // Record the broadcast event immediately
+  const { recordEvent } = require('../lib/newsroom-events');
+  await recordEvent({
+    tenantId: req.tenantId,
+    type: 'editor_broadcast',
+    actorUserId: userId,
+    payload: { text: message.trim(), author: userName },
+  });
+
+  // Retrieve the just-inserted event id
+  const event = await db.prepare(
+    "SELECT id FROM newsroom_events WHERE tenant_id = $1 AND event_type = 'editor_broadcast' ORDER BY created_at DESC LIMIT 1"
+  ).get(req.tenantId);
+
+  // Route to top-3 writers by beat relevance (keyword overlap with message words)
+  const words = message.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+  const writers = await db.prepare(`
+    SELECT DISTINCT w.id, w.name, w.slug,
+      array_agg(DISTINCT c.name) AS beats
+    FROM writers w
+    JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = w.tenant_id
+    JOIN categories c ON c.id = wb.category_id
+    WHERE w.tenant_id = $1 AND w.is_auto = true AND w.role != 'editor' AND w.role != 'designer'
+    GROUP BY w.id, w.name, w.slug
+  `).all(req.tenantId);
+
+  // Score each writer by how many message words appear in their beat names
+  const scored = writers.map(w => {
+    const beatStr = (w.beats || []).join(' ').toLowerCase();
+    const score = words.filter(word => beatStr.includes(word)).length;
+    return { ...w, score };
+  }).sort((a, b) => b.score - a.score || 0);
+
+  // Take top 3 (fallback: top 3 by any score, or just first 3 if all zero)
+  const targets = scored.slice(0, 3);
+
+  if (event && targets.length) {
+    const messaging = require('../lib/messaging');
+    for (const w of targets) {
+      setImmediate(async () => {
+        try {
+          const ctxKey = `broadcast:${req.tenantId}:${w.id}`;
+          const meta = { platform: 'web', userId: String(userId || 'editor'), userName };
+          const resp = await messaging.handleIncoming(req.tenantId, w.id, message.trim(), ctxKey, meta);
+          const text = typeof resp === 'string' ? resp : (resp?.text || '');
+          if (!text || !event) return;
+          await db.prepare(`
+            INSERT INTO newsroom_replies (tenant_id, event_id, author_writer_id, content)
+            VALUES ($1, $2, $3, $4)
+          `).run(req.tenantId, event.id, w.id, text.slice(0, 4000));
+        } catch (err) {
+          console.warn('[newsroom-feed] broadcast dispatch failed for writer', w.id, err.message);
+        }
+      });
+    }
+  }
+
+  res.status(201).json({ ok: true, event_id: event?.id || null, routed_to: targets.map(w => w.name) });
+}));
+
+// POST /api/newsroom-feed/trigger-brief — manually trigger a daily brief now
+router.post('/trigger-brief', auth, requirePermission('articles.write'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const { generateDailyBrief } = require('../lib/writer-agent');
+  const { recordEvent } = require('../lib/newsroom-events');
+
+  const maxwell = await db.prepare(
+    "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
+  ).get(req.tenantId).catch(() => null);
+
+  res.json({ ok: true, generating: true });
+
+  setImmediate(async () => {
+    try {
+      const text = await generateDailyBrief(req.tenantId);
+      if (!text) return;
+      await recordEvent({
+        tenantId: req.tenantId,
+        type: 'daily_brief',
+        actorWriterId: maxwell?.id || null,
+        payload: { text, manual: true },
+      });
+    } catch (err) {
+      console.error('[trigger-brief] failed:', err.message);
+    }
+  });
+}));
+
+// POST /api/newsroom-feed/trigger-digest — manually trigger a weekly digest now
+router.post('/trigger-digest', auth, requirePermission('articles.write'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const { generateWeeklyDigest } = require('../lib/writer-agent');
+  const { recordEvent } = require('../lib/newsroom-events');
+
+  const maxwell = await db.prepare(
+    "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
+  ).get(req.tenantId).catch(() => null);
+
+  res.json({ ok: true, generating: true });
+
+  setImmediate(async () => {
+    try {
+      const text = await generateWeeklyDigest(req.tenantId);
+      if (!text) return;
+      await recordEvent({
+        tenantId: req.tenantId,
+        type: 'weekly_digest',
+        actorWriterId: maxwell?.id || null,
+        payload: { text, manual: true },
+      });
+    } catch (err) {
+      console.error('[trigger-digest] failed:', err.message);
+    }
+  });
+}));
+
 const ALLOWED_EMOJI = new Set(['🔥', '💡', '🚩', '👀']);
 
 async function requireSocialEnabled(req, res, next) {

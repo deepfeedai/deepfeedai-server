@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Newsroom Activity Feed</title>
+  <title>DeepFeedAI Admin — Newsroom</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
     .feed-shell { max-width:760px; margin:0 auto; padding:16px; }
@@ -16,11 +16,23 @@
     .feed-actor { font-weight:600; font-size:13px; }
     .feed-time { font-size:12px; color:var(--muted); margin-left:auto; }
     .feed-event-tag { font-size:10px; text-transform:uppercase; letter-spacing:.5px; padding:2px 8px; border-radius:6px; font-weight:700; }
-    .tag-published    { background:rgba(34,197,94,0.15);  color:#22c55e; }
-    .tag-pitched      { background:rgba(124,58,237,0.15); color:#a78bfa; }
-    .tag-pitch_approved { background:rgba(34,197,94,0.15); color:#22c55e; }
-    .tag-pitch_rejected { background:rgba(239,68,68,0.15); color:#ef4444; }
-    .tag-enriched     { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .tag-published        { background:rgba(34,197,94,0.15);  color:#22c55e; }
+    .tag-pitched          { background:rgba(124,58,237,0.15); color:#a78bfa; }
+    .tag-pitch_approved   { background:rgba(34,197,94,0.15);  color:#22c55e; }
+    .tag-pitch_rejected   { background:rgba(239,68,68,0.15);  color:#ef4444; }
+    .tag-enriched         { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .tag-standup          { background:rgba(14,165,233,0.15); color:#38bdf8; }
+    .tag-editor_broadcast { background:rgba(249,115,22,0.15); color:#f97316; }
+    .tag-daily_brief      { background:rgba(99,102,241,0.15); color:#818cf8; }
+    .tag-weekly_digest    { background:rgba(168,85,247,0.15); color:#c084fc; }
+    .feed-long-text { font-size:13px; color:var(--text); line-height:1.6; margin-top:6px; white-space:pre-wrap; word-wrap:break-word; }
+    .feed-long-text.collapsed { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
+    .feed-expand-btn { background:none; border:none; color:var(--primary); font-size:12px; cursor:pointer; padding:4px 0; }
+    .broadcast-composer { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:16px; }
+    .broadcast-composer textarea { width:100%; padding:10px 12px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); border-radius:8px; resize:none; min-height:60px; max-height:120px; font-family:inherit; font-size:14px; box-sizing:border-box; }
+    .broadcast-composer-footer { display:flex; gap:8px; margin-top:8px; align-items:center; flex-wrap:wrap; }
+    .broadcast-routing { font-size:12px; color:var(--muted); flex:1; }
+    .maxwell-actions { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
     .feed-title { font-weight:700; font-size:15px; line-height:1.3; margin:4px 0; }
     .feed-snippet { font-size:13px; color:var(--text); line-height:1.55; margin-top:6px; }
     .feed-meta { font-size:11px; color:var(--muted); margin-top:6px; display:flex; gap:10px; flex-wrap:wrap; }
@@ -46,9 +58,22 @@
   <div class="main-content">
     <div class="topbar">
       <button class="hamburger" id="hamburger">&#9776;</button>
-      <div class="topbar-title">Newsroom Activity</div>
+      <div class="topbar-title">Newsroom</div>
     </div>
     <div class="feed-shell">
+      <!-- Broadcast composer -->
+      <div class="broadcast-composer">
+        <textarea id="broadcastInput" placeholder="Post to the newsroom… writers will respond based on their beats" rows="2"></textarea>
+        <div class="broadcast-composer-footer">
+          <span class="broadcast-routing" id="broadcastRouting"></span>
+          <button class="btn btn-primary btn-sm" id="broadcastBtn">Post to Newsroom</button>
+        </div>
+      </div>
+      <!-- Maxwell actions -->
+      <div class="maxwell-actions">
+        <button class="btn btn-outline btn-sm" id="briefBtn" title="Maxwell generates an end-of-day editorial brief">📋 Generate Day Brief</button>
+        <button class="btn btn-outline btn-sm" id="digestBtn" title="Maxwell generates a week-in-review digest">📰 Generate Week in Review</button>
+      </div>
       <div class="feed-filters">
         <label for="typeFilter">Show:</label>
         <select id="typeFilter">
@@ -57,6 +82,10 @@
           <option value="pitched">Pitches</option>
           <option value="pitch_approved,pitch_rejected">Pitch decisions</option>
           <option value="enriched">External research</option>
+          <option value="standup">Standups</option>
+          <option value="editor_broadcast">Editor broadcasts</option>
+          <option value="daily_brief">Day briefs</option>
+          <option value="weekly_digest">Week in review</option>
         </select>
         <label for="daysFilter">Last:</label>
         <select id="daysFilter">

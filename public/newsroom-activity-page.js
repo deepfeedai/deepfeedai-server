@@ -5,11 +5,84 @@
 
   init();
 
+  var broadcasting = false;
+
   async function init() {
     document.getElementById('typeFilter').addEventListener('change', load);
     document.getElementById('daysFilter').addEventListener('change', load);
     document.getElementById('refreshBtn').addEventListener('click', load);
+    document.getElementById('broadcastBtn').addEventListener('click', sendBroadcast);
+    document.getElementById('broadcastInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendBroadcast();
+    });
+    document.getElementById('briefBtn').addEventListener('click', triggerBrief);
+    document.getElementById('digestBtn').addEventListener('click', triggerDigest);
     await load();
+  }
+
+  async function sendBroadcast() {
+    if (broadcasting) return;
+    var input = document.getElementById('broadcastInput');
+    var msg = input.value.trim();
+    if (!msg) return;
+    broadcasting = true;
+    document.getElementById('broadcastBtn').disabled = true;
+    document.getElementById('broadcastRouting').textContent = 'Routing to writers…';
+    try {
+      var data = await apiFetch('/newsroom-feed/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ message: msg }),
+      });
+      input.value = '';
+      var routed = data.routed_to && data.routed_to.length ? data.routed_to.join(', ') : 'no writers matched';
+      document.getElementById('broadcastRouting').textContent = 'Sent · routing to: ' + routed + ' (replies loading…)';
+      await load();
+      // Auto-open the replies thread for the new broadcast event after a brief delay
+      if (data.event_id) {
+        setTimeout(function () {
+          var thread = document.querySelector('[data-thread="' + data.event_id + '"]');
+          if (thread && !thread.classList.contains('open')) {
+            thread.classList.add('open');
+            loadReplies(data.event_id);
+          }
+        }, 2500);
+      }
+    } catch (err) {
+      document.getElementById('broadcastRouting').textContent = 'Failed: ' + esc(err.message || err);
+    } finally {
+      broadcasting = false;
+      document.getElementById('broadcastBtn').disabled = false;
+    }
+  }
+
+  async function triggerBrief() {
+    var btn = document.getElementById('briefBtn');
+    btn.disabled = true;
+    btn.textContent = '📋 Generating…';
+    try {
+      await apiFetch('/newsroom-feed/trigger-brief', { method: 'POST' });
+      btn.textContent = '📋 Generating (check feed in ~30s)';
+      setTimeout(function () { btn.textContent = '📋 Generate Day Brief'; btn.disabled = false; load(); }, 30000);
+    } catch (err) {
+      btn.textContent = '📋 Generate Day Brief';
+      btn.disabled = false;
+      alert('Failed: ' + (err.message || err));
+    }
+  }
+
+  async function triggerDigest() {
+    var btn = document.getElementById('digestBtn');
+    btn.disabled = true;
+    btn.textContent = '📰 Generating…';
+    try {
+      await apiFetch('/newsroom-feed/trigger-digest', { method: 'POST' });
+      btn.textContent = '📰 Generating (check feed in ~45s)';
+      setTimeout(function () { btn.textContent = '📰 Generate Week in Review'; btn.disabled = false; load(); }, 45000);
+    } catch (err) {
+      btn.textContent = '📰 Generate Week in Review';
+      btn.disabled = false;
+      alert('Failed: ' + (err.message || err));
+    }
   }
 
   async function load() {
@@ -75,6 +148,17 @@
         + '<div class="feed-snippet">' + (payload.ingested_count || 0) + ' article(s) added from web search.'
         + (payload.sample_titles && payload.sample_titles.length ? ' Sample: ' + esc(payload.sample_titles.join(' · ')) : '')
         + '</div>';
+    } else if (e.event_type === 'standup') {
+      inner = longTextCard(payload.text, 'Morning standup');
+    } else if (e.event_type === 'editor_broadcast') {
+      inner = '<div class="feed-title">📣 ' + esc(payload.text || '') + '</div>'
+        + (replyCount > 0 ? '' : '<div class="feed-meta" style="color:var(--muted);font-size:12px;">Routing to writers — replies will appear below.</div>');
+    } else if (e.event_type === 'daily_brief') {
+      inner = '<div class="feed-title">' + (payload.manual ? '📋 Day Brief (manual)' : '📋 End-of-Day Brief') + '</div>'
+        + longTextCard(payload.text, null);
+    } else if (e.event_type === 'weekly_digest') {
+      inner = '<div class="feed-title">' + (payload.manual ? '📰 Week in Review (manual)' : '📰 Week in Review') + '</div>'
+        + longTextCard(payload.text, null);
     } else {
       inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
     }
@@ -110,9 +194,27 @@
       + '</div>';
   }
 
+  // Render a collapsible long-text block (for standups, briefs, digests)
+  function longTextCard(text, label) {
+    if (!text) return label ? '<div class="feed-snippet">' + esc(label) + '</div>' : '';
+    var id = 'lt-' + Math.random().toString(36).slice(2);
+    var short = text.length > 400;
+    return (label ? '<div class="feed-snippet" style="color:var(--muted);font-size:11px;margin-bottom:4px;">' + esc(label) + '</div>' : '')
+      + '<div class="feed-long-text' + (short ? ' collapsed' : '') + '" id="' + id + '">' + esc(text) + '</div>'
+      + (short ? '<button class="feed-expand-btn" data-expand="' + id + '">Show more</button>' : '');
+  }
+
   // Wire reaction + reply handlers (event-delegated on stream container)
   document.addEventListener('click', async function (ev) {
     var t = ev.target;
+    if (t.dataset && t.dataset.expand) {
+      var el = document.getElementById(t.dataset.expand);
+      if (el) {
+        el.classList.remove('collapsed');
+        t.style.display = 'none';
+      }
+      return;
+    }
     if (t.classList && t.classList.contains('react-btn')) {
       var eventId = t.dataset.event;
       var emoji = t.dataset.emoji;

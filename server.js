@@ -653,6 +653,71 @@ registerJob({
 });
 
 registerJob({
+  name: 'daily-brief',
+  description: 'End-of-day editorial brief — Maxwell summarises the day\'s output, pitches, and AI spend',
+  category: 'Content',
+  defaultSchedule: '0 18 * * *', // 6 PM UTC — after the editorial window closes
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'daily_brief').catch(() => false);
+    if (!enabled) return { skipped: 'daily_brief feature not enabled' };
+
+    const { generateDailyBrief } = require('./lib/writer-agent');
+    const { recordEvent } = require('./lib/newsroom-events');
+
+    // Get Maxwell's writer row to credit the brief to him
+    const maxwell = await db.prepare(
+      "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
+    ).get(tenantId).catch(() => null);
+
+    const text = await generateDailyBrief(tenantId);
+    if (!text) return { skipped: 'no data for brief' };
+
+    await recordEvent({
+      tenantId,
+      type: 'daily_brief',
+      actorWriterId: maxwell?.id || null,
+      payload: { text },
+    });
+
+    console.log(`[daily-brief] Posted for tenant ${tenantId}`);
+    return { ok: true };
+  },
+});
+
+registerJob({
+  name: 'weekly-digest',
+  description: 'Friday week-in-review — Maxwell covers output, beat gaps, engagement, and next-week outlook',
+  category: 'Content',
+  defaultSchedule: '0 17 * * 5', // 5 PM UTC every Friday
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'weekly_digest').catch(() => false);
+    if (!enabled) return { skipped: 'weekly_digest feature not enabled' };
+
+    const { generateWeeklyDigest } = require('./lib/writer-agent');
+    const { recordEvent } = require('./lib/newsroom-events');
+
+    const maxwell = await db.prepare(
+      "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
+    ).get(tenantId).catch(() => null);
+
+    const text = await generateWeeklyDigest(tenantId);
+    if (!text) return { skipped: 'no data for digest' };
+
+    await recordEvent({
+      tenantId,
+      type: 'weekly_digest',
+      actorWriterId: maxwell?.id || null,
+      payload: { text },
+    });
+
+    console.log(`[weekly-digest] Posted for tenant ${tenantId}`);
+    return { ok: true };
+  },
+});
+
+registerJob({
   name: 'orchestrator-cycle',
   description: 'Newsroom orchestration pipeline — scout, verify, research, write',
   category: 'Content',
