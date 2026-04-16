@@ -59,9 +59,29 @@ router.get('/history', auth, requirePermission('articles.read'), requireWorkspac
   res.json({ messages: messages || [], context_key: contextKey });
 }));
 
-// POST /api/newsroom-chat — body: { writer_id, message, context_article_id? }
+// Parse <<<PITCH:{...}>>> blocks Maxwell appends when proposing a pitch.
+// Returns { text: cleaned, actions: [] } — actions is empty when no block is found.
+function parsePitchAction(text, sourceArticleId) {
+  const match = text.match(/\n*<<<PITCH:([\s\S]*?)>>>\s*$/);
+  if (!match) return { text, actions: [] };
+  try {
+    const data = JSON.parse(match[1]);
+    return {
+      text: text.slice(0, text.lastIndexOf('<<<PITCH:')).trimEnd(),
+      actions: [{
+        type: 'create_pitch',
+        label: '📋 Create Pitch',
+        payload: { source_article_id: sourceArticleId, ...data },
+      }],
+    };
+  } catch {
+    return { text: text.slice(0, text.lastIndexOf('<<<PITCH:')).trimEnd(), actions: [] };
+  }
+}
+
+// POST /api/newsroom-chat — body: { writer_id, message, context_article_id?, intent? }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
-  const { writer_id, message, context_article_id } = req.body || {};
+  const { writer_id, message, context_article_id, intent } = req.body || {};
   if (!writer_id || !message) return res.status(400).json({ error: 'writer_id and message required' });
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
@@ -112,6 +132,13 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     userName: req.user?.name || req.user?.email || 'editor',
   };
 
+  // When the editor intends to pitch, append an instruction so Maxwell knows
+  // how to signal a pitch proposal back. The <<<PITCH:...>>> block is stripped
+  // from the displayed text and converted to an action button on the frontend.
+  if (intent === 'pitch' && context_article_id) {
+    enrichedMessage += `\n\n[INSTRUCTION — do not display this: If after considering this story you recommend creating a pitch, append exactly this block on its own line at the very end of your response, replacing the angle_summary value: <<<PITCH:{"angle_summary":"one sentence pitch angle here"}>>> — only include it when you are ready to propose a concrete pitch, not in exploratory or clarifying replies.]`;
+  }
+
   // Route tool-capable system agents (Iris, Vera) through the tool-calling path
   // when an article context is attached. All other agents use the standard path.
   const writer = await db.prepare('SELECT id, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
@@ -139,19 +166,53 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     return res.status(500).json({ error: err.message || 'chat failed' });
   }
 
-  const text = typeof response === 'string' ? response : (response?.text || '');
+  const rawText = typeof response === 'string' ? response : (response?.text || '');
+  const sourceId = context_article_id ? parseInt(context_article_id, 10) : null;
+  const { text, actions } = parsePitchAction(rawText, sourceId);
+
   res.json({
     text,
+    actions: actions.length ? actions : undefined,
     voice: typeof response === 'object' ? !!response?.voice : false,
     cleared: typeof response === 'object' ? !!response?.clearChannel : false,
   });
 }));
 
-// POST /api/newsroom-chat/actions/approve — apply an approved tool proposal
+// POST /api/newsroom-chat/actions/approve — apply an approved tool proposal or action button
 router.post('/actions/approve', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const proposal = req.body || {};
-  if (!proposal.proposal_type || !proposal.article_id) {
-    return res.status(400).json({ error: 'proposal_type and article_id required' });
+  if (!proposal.proposal_type && !proposal.type) {
+    return res.status(400).json({ error: 'proposal_type or type required' });
+  }
+
+  // Action buttons from Maxwell use { type, payload } shape — normalise to proposal shape
+  const actionType = proposal.type || proposal.proposal_type;
+
+  if (actionType === 'create_pitch') {
+    const { source_article_id, angle_summary } = proposal.payload || proposal;
+    if (!source_article_id || !angle_summary) {
+      return res.status(400).json({ error: 'source_article_id and angle_summary required' });
+    }
+    const userId = req.user?.sub || null;
+    // Verify the source article belongs to this tenant
+    const source = await db.prepare(
+      'SELECT id FROM articles WHERE id = $1 AND tenant_id = $2'
+    ).get(parseInt(source_article_id, 10), req.tenantId);
+    if (!source) return res.status(404).json({ error: 'Source article not found' });
+
+    const row = await db.prepare(`
+      INSERT INTO article_pitches
+        (tenant_id, source_article_id, requested_by_editor_id, angle_summary, status)
+      VALUES ($1, $2, $3, $4, 'proposed')
+      RETURNING id
+    `).get(req.tenantId, source.id, userId, angle_summary.slice(0, 2000));
+
+    return res.json({ text: `Pitch created! It's in the queue and ready for writer assignment.`, pitch_id: row.id });
+  }
+
+  // Existing tool proposals (thumbnail, headline) use the agent-tools path
+  if (!proposal.article_id) {
+    return res.status(400).json({ error: 'article_id required for this proposal type' });
   }
   try {
     const result = await agentTools.applyProposal(proposal, req.tenantId);

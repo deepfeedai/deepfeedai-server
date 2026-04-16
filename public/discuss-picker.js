@@ -126,4 +126,19 @@
     openModal('discussPickerModal');
     renderPicker(articleId, title, category);
   };
+
+  // Skip the picker and go straight to Maxwell with pitch intent.
+  window.pitchWithMaxwell = async function (articleId, title) {
+    var agents = await loadAgents();
+    var maxwell = agents.find(function (w) { return w.is_system && w.role === 'editor'; });
+    if (!maxwell) {
+      alert('Maxwell is not available. Make sure the Editor Workspace feature is enabled.');
+      return;
+    }
+    window.location.href = '/newsroom-chat.html'
+      + '?writer_id=' + maxwell.id
+      + '&article_id=' + articleId
+      + '&intent=pitch'
+      + (title ? '&article_title=' + encodeURIComponent(title) : '');
+  };
 })();

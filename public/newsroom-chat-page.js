@@ -28,12 +28,14 @@
       activeArticleId = null;
       document.getElementById('chatContextBar').style.display = 'none';
     });
-    // Support URL params: ?writer_id=N (auto-select) and ?article_id=N (load context)
+    // Support URL params: ?writer_id=N (auto-select), ?article_id=N (load context), ?intent=pitch
     var params = new URLSearchParams(window.location.search);
     var preselect = parseInt(params.get('writer_id'), 10);
     var articleParam = parseInt(params.get('article_id'), 10);
+    var intentParam = params.get('intent');
     if (articleParam) await setArticleContext(articleParam);
-    if (preselect) pickWriter(preselect);
+    if (preselect) await pickWriter(preselect);
+    if (preselect && intentParam === 'pitch') autoSendPitchOpener();
     // Wire proposal approve/reject (event delegation on chat thread)
     document.getElementById('chatThread').addEventListener('click', handleProposalClick);
   }
@@ -285,7 +287,14 @@
     }).join('');
   }
 
-  async function sendMessage() {
+  // Auto-send the opening pitch message when navigating from Feed Inbox via 📋
+  function autoSendPitchOpener() {
+    var input = document.getElementById('chatInput');
+    if (input) input.value = 'I found this story and think it could make a strong original piece. What angle would you take, and which writer should pitch it?';
+    sendMessage('pitch');
+  }
+
+  async function sendMessage(intent) {
     if (sending || !activeWriter) return;
     var input = document.getElementById('chatInput');
     var text = input.value.trim();
@@ -303,6 +312,7 @@
     try {
       var payload = { writer_id: activeWriter.id, message: text };
       if (activeArticleId) payload.context_article_id = activeArticleId;
+      if (intent) payload.intent = intent;
       var resp = await apiFetch('/newsroom-chat', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -313,6 +323,7 @@
         appendProposalCard(resp.proposal);
       } else {
         appendBubble('assistant', resp.text || '(no response)');
+        if (resp.actions && resp.actions.length) appendActionButtons(resp.actions);
       }
     } catch (err) {
       typing.remove();
@@ -352,10 +363,28 @@
     scrollToBottom();
   }
 
+  // Renders action buttons returned by Maxwell (e.g. create_pitch).
+  // Each action: { type, label, payload }
+  function appendActionButtons(actions) {
+    var thread = document.getElementById('chatThread');
+    var card = document.createElement('div');
+    card.className = 'chat-proposal-card';
+    var inner = '<div class="chat-proposal-actions">';
+    actions.forEach(function (action) {
+      inner += '<button class="btn btn-primary btn-sm chat-action-btn" data-action=\'' + JSON.stringify(action) + '\'>' + esc(action.label) + '</button>';
+    });
+    inner += '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>';
+    inner += '</div>';
+    card.innerHTML = inner;
+    thread.appendChild(card);
+    scrollToBottom();
+  }
+
   async function handleProposalClick(e) {
     var approveBtn = e.target.closest('.chat-proposal-approve');
+    var actionBtn  = e.target.closest('.chat-action-btn');
     var rejectBtn  = e.target.closest('.chat-proposal-reject');
-    if (!approveBtn && !rejectBtn) return;
+    if (!approveBtn && !actionBtn && !rejectBtn) return;
 
     var card = e.target.closest('.chat-proposal-card');
     if (!card) return;
@@ -370,7 +399,25 @@
       return;
     }
 
-    // Approve
+    // Action button (e.g. create_pitch from Maxwell)
+    if (actionBtn) {
+      try {
+        var action = JSON.parse(actionBtn.dataset.action);
+        var result = await apiFetch('/newsroom-chat/actions/approve', {
+          method: 'POST',
+          body: JSON.stringify(action),
+        });
+        card.classList.add('chat-proposal-applied');
+        appendBubble('assistant', result.text || 'Done!');
+      } catch (err) {
+        card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+        appendBubble('assistant', '⚠️ ' + (err.message || 'Failed to apply'));
+      }
+      scrollToBottom();
+      return;
+    }
+
+    // Approve (existing tool proposal: thumbnail, headline)
     try {
       var proposal = JSON.parse(card.dataset.proposal);
       var result = await apiFetch('/newsroom-chat/actions/approve', {
