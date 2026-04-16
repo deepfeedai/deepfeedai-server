@@ -8,16 +8,36 @@
   <style>
     /* Pin the chat layout so input is always in view */
     html, body { height: 100%; overflow: hidden; }
-    .main-content { height: 100vh; overflow: hidden; }
+    /* Use dvh (dynamic viewport height) so mobile address bar doesn't clip content.
+       Falls back to svh then vh for older browsers. */
+    .main-content {
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      max-width: 100vw;
+    }
 
-    .chat-shell { display:grid; grid-template-columns: 280px 1fr; gap:0; height:calc(100vh - 56px); overflow:hidden; }
+    .chat-shell {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 0;
+      height: calc(100vh - 56px);
+      height: calc(100dvh - 56px);
+      overflow: hidden;
+      max-width: 100vw;
+    }
     .chat-roster { border-right:1px solid var(--border); overflow-y:auto; padding:12px; background:var(--bg-card); }
 
     /* Roster toggle button — hidden on desktop */
     #chatRosterToggleBtn { display:none; }
 
     @media (max-width: 768px) {
-      .chat-shell { grid-template-columns: 1fr; }
+      /* Topbar is 52px on mobile (admin.css override), so adjust height */
+      .chat-shell {
+        grid-template-columns: 1fr;
+        height: calc(100vh - 52px);
+        height: calc(100dvh - 52px);
+      }
       .chat-roster {
         position: fixed; top: 52px; left: 0; bottom: 0; width: 280px; max-width: 85vw;
         z-index: 100; transform: translateX(-100%); transition: transform 0.22s ease;
@@ -33,6 +53,11 @@
       }
       .chat-shell.roster-open .chat-roster-overlay { display: block; }
       #chatRosterToggleBtn { display: flex; align-items: center; gap: 5px; }
+      /* Tighter input padding on small screens + safe-area for notched phones */
+      .chat-input-row {
+        padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px)) 12px;
+      }
+      .chat-header { padding: 10px 14px; }
     }
     .roster-item { display:flex; gap:10px; align-items:center; padding:10px; border-radius:8px; cursor:pointer; margin-bottom:4px; }
     .roster-item:hover { background:var(--surface2); }
