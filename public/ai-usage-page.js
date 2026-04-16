@@ -68,6 +68,7 @@
 
   let currentRange = '30d';
   let _summaryData  = null;
+  let _sessionWriterId = null; // active writer filter for sessions
 
   // ── Load ──────────────────────────────────────────────────────────────
   async function loadData() {
@@ -319,6 +320,7 @@
     try {
       const data = await apiFetch(`/ai-usage/by-writer?range=${currentRange}`);
       renderWriters(data.writers || []);
+      populateSessionWriterFilter(data.writers || []);
     } catch (err) {
       const tbody = el('writerTbody');
       if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
@@ -362,21 +364,39 @@
   // ── Agent sessions ────────────────────────────────────────────────────
   async function loadSessions() {
     try {
-      const res = await apiFetch(`/ai-usage/sessions?range=${currentRange}&limit=50`);
+      let url = `/ai-usage/sessions?range=${currentRange}&limit=50`;
+      if (_sessionWriterId) url += `&writerId=${_sessionWriterId}`;
+      const res = await apiFetch(url);
       renderSessions(res.sessions || []);
     } catch (err) {
       const tbody = el('sessionsTbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
     }
+  }
+
+  function populateSessionWriterFilter(writers) {
+    const sel = el('sessionWriterFilter');
+    if (!sel || !writers.length) return;
+    // Keep existing selected value if any
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All writers</option>'
+      + writers.map(w => `<option value="${w.id}"${String(w.id) === current ? ' selected' : ''}>${escHtml(w.name)}</option>`).join('');
+  }
+
+  function fmtDuration(ms) {
+    const n = parseInt(ms) || 0;
+    if (n < 1000) return n + 'ms';
+    if (n < 60000) return (n / 1000).toFixed(1) + 's';
+    return Math.floor(n / 60000) + 'm ' + Math.round((n % 60000) / 1000) + 's';
   }
 
   function renderSessions(sessions) {
     const tbody   = el('sessionsTbody');
     const countEl = el('sessionCount');
-    if (countEl) countEl.textContent = sessions.length + ' sessions';
+    if (countEl) countEl.textContent = sessions.length + (sessions.length === 50 ? '+' : '') + ' sessions';
 
     if (!sessions.length) {
-      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">No agent sessions yet</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center" style="padding:24px;">No agent sessions in this range</td></tr>';
       return;
     }
 
@@ -386,21 +406,37 @@
       const input   = parseInt(s.total_input_tokens)  || 0;
       const fresh   = Math.max(input - cached, 0);
       const out     = parseInt(s.total_output_tokens) || 0;
-      const ok      = s.all_success
+      const cacheRate = input > 0 ? Math.round((cached / input) * 100) : 0;
+
+      const writerCell = s.writer_name
+        ? escHtml(s.writer_name)
+        : (s.writer_id != null ? `<span class="text-muted">#${s.writer_id}</span>` : '<span class="text-muted">—</span>');
+
+      const cachedHtml = cached > 0
+        ? `${fmt(cached)} <span style="color:var(--success);font-size:10px;">(${cacheRate}%⚡)</span>`
+        : fmt(cached);
+
+      const ok = s.all_success
         ? '<span class="badge" style="background:#22c55e22;color:#22c55e;">ok</span>'
         : '<span class="badge" style="background:#ef444422;color:#ef4444;">error</span>';
+
+      const ops = Array.isArray(s.operations)
+        ? [...new Set(s.operations)].slice(0, 3).join(', ')
+        : '';
+
       return `
-        <tr class="session-row" data-id="${escHtml(s.agent_session_id)}" style="cursor:pointer;">
+        <tr class="session-row" data-id="${escHtml(s.agent_session_id)}" style="cursor:pointer;" title="Click to expand iterations">
           <td style="white-space:nowrap;font-size:12px;">${relTime(s.started_at)}</td>
-          <td style="font-size:12px;">${s.writer_id != null ? '#' + s.writer_id : '—'}</td>
-          <td style="font-size:12px;">${escHtml(s.first_provider || '?')} / ${escHtml(s.first_model || '?')}</td>
-          <td>${s.iterations}</td>
-          <td style="font-size:12px;">${fmt(cached)} / ${fmt(fresh)} / ${fmt(out)}</td>
-          <td style="font-size:12px;">${fmtCost(cost)}</td>
+          <td style="font-size:12px;">${writerCell}</td>
+          <td style="font-size:12px;">${escHtml(s.first_provider || '?')} / <span style="color:var(--muted);font-size:11px;">${escHtml(s.first_model || '?')}</span></td>
+          <td title="${escHtml(ops)}">${s.iterations}</td>
+          <td style="font-size:12px;">${cachedHtml} / ${fmt(fresh)} / ${fmt(out)}</td>
+          <td style="font-size:12px;"><strong>${fmtCost(cost)}</strong></td>
+          <td style="font-size:12px;color:var(--muted);">${fmtDuration(s.duration_ms)}</td>
           <td>${ok}</td>
         </tr>
         <tr class="session-detail" data-detail="${escHtml(s.agent_session_id)}" hidden>
-          <td colspan="7" style="background:var(--bg);padding:12px 16px;"></td>
+          <td colspan="8" style="background:var(--bg);padding:12px 16px;"></td>
         </tr>`;
     }).join('');
 
@@ -659,6 +695,18 @@
       const e = el(id); if (e) e.value = '';
     });
     loadCallLog();
+  });
+
+  el('sessionWriterFilter')?.addEventListener('change', e => {
+    _sessionWriterId = e.target.value ? parseInt(e.target.value) : null;
+    loadSessions();
+  });
+
+  el('sessionFilterReset')?.addEventListener('click', () => {
+    _sessionWriterId = null;
+    const sel = el('sessionWriterFilter');
+    if (sel) sel.value = '';
+    loadSessions();
   });
 
   // ── Init ──────────────────────────────────────────────────────────────
