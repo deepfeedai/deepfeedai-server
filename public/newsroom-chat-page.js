@@ -106,7 +106,7 @@
     if (currentUser && currentUser.avatar_url) {
       return '<img class="chat-avatar" src="' + esc(currentUser.avatar_url) + '" alt="" />';
     }
-    var initial = (currentUser && (currentUser.display_name || currentUser.username || '')).trim().charAt(0).toUpperCase() || 'Y';
+    var initial = ((currentUser && (currentUser.display_name || currentUser.username)) || '').trim().charAt(0).toUpperCase() || 'Y';
     return '<div class="chat-avatar chat-avatar-fallback" ' +
       'style="background:' + esc(accent) + ';color:#fff;">' + esc(initial) + '</div>';
   }
