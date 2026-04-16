@@ -339,7 +339,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
             ${hasPermission('articles.update') ? `<button class="btn btn-ghost btn-sm" title="Open Editor" onclick="window.location.href='/article-editor.html?id=${a.id}'">✍️ Editor</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
-            ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button>` : ''}
+            ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" title="${a.followups ? 'Regenerate follow-ups' : 'Generate follow-ups'}" onclick="generateFollowups(${a.id})">💬 ${a.followups ? 'Redo' : ''} Q&A</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
@@ -393,6 +393,7 @@ let articles = [];
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
           <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+          ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
         `}
@@ -1938,6 +1939,16 @@ let articles = [];
     }
 
     await loadArticles();
+
+    // Deep-link: ?id=X scrolls to and highlights a specific article row
+    const deepLinkId = new URLSearchParams(window.location.search).get('id');
+    if (deepLinkId) {
+      const targetRow = document.getElementById('row-' + deepLinkId);
+      if (targetRow) {
+        targetRow.classList.add('kb-focus');
+        targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
 
     // Activate tab from URL hash (e.g. #review, #drafts)
     const hashTab = location.hash.replace('#', '');

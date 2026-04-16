@@ -395,6 +395,31 @@ app.use('/api/admin/cron', require('./routes/admin-cron'));
 app.use('/api/admin/metrics', require('./routes/admin-metrics'));
 app.use('/api/admin/logs', require('./routes/admin-logs'));
 
+// ── Image proxy — serves R2/external images with same-origin CORS so Cytoscape canvas can draw them ──
+app.get('/api/proxy-image', auth, async (req, res) => {
+  const url = (req.query.url || '').trim();
+  if (!url || !/^https:\/\/.+/.test(url)) return res.status(400).end();
+  try {
+    const controller = new AbortController();
+    const timeout    = setTimeout(() => controller.abort(), 8000);
+    const upstream   = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'DeepFeedAI-Proxy/1.0' },
+    });
+    clearTimeout(timeout);
+    if (!upstream.ok) return res.status(502).end();
+    const ct = upstream.headers.get('content-type') || 'image/jpeg';
+    if (!ct.startsWith('image/')) return res.status(415).end();
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const buf = await upstream.arrayBuffer();
+    res.end(Buffer.from(buf));
+  } catch {
+    res.status(502).end();
+  }
+});
+
 const { getActiveTenantIds } = require('./lib/tenant-utils');
 const { registerJob, startAll } = require('./lib/cron-registry');
 
