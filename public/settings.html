@@ -7,31 +7,62 @@
   <link rel="stylesheet" href="/admin.css" />
 </head>
 <body>
-<div class="admin-layout">
-  <!-- Main -->
-  <div class="main-content">
-    <header class="topbar">
-      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
-      <div class="topbar-title">Settings</div>
+<div class="settings-shell">
+
+  <!-- ── Left Sidebar ───────────────────────────────────── -->
+  <aside class="settings-sidebar" id="settingsSidebar">
+    <div class="settings-sidebar-header">
+      <a href="/index.html" class="settings-back-link">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        Newsroom
+      </a>
+      <div class="settings-sidebar-title">Settings</div>
+    </div>
+
+    <nav class="settings-nav" id="settingsNav">
+      <button class="settings-nav-item active" data-section="general">
+        <span class="settings-nav-icon">⚙️</span> General
+      </button>
+      <button class="settings-nav-item" data-section="integrations">
+        <span class="settings-nav-icon">🔌</span> Integrations
+      </button>
+      <button class="settings-nav-item" data-section="content">
+        <span class="settings-nav-icon">📝</span> Content
+      </button>
+      <button class="settings-nav-item" data-section="moderation">
+        <span class="settings-nav-icon">🛡️</span> Moderation
+      </button>
+      <button class="settings-nav-item" data-section="auth">
+        <span class="settings-nav-icon">🔐</span> Authentication
+      </button>
+      <button class="settings-nav-item" data-section="automation">
+        <span class="settings-nav-icon">🤖</span> Automation
+      </button>
+      <button class="settings-nav-item" data-section="messaging">
+        <span class="settings-nav-icon">💬</span> Messaging
+      </button>
+      <button class="settings-nav-item" data-section="team">
+        <span class="settings-nav-icon">👥</span> Team
+      </button>
+    </nav>
+  </aside>
+
+  <!-- Sidebar overlay (mobile) -->
+  <div class="settings-overlay" id="settingsOverlay"></div>
+
+  <!-- ── Main Content ───────────────────────────────────── -->
+  <div class="settings-main">
+    <header class="settings-topbar">
+      <button class="settings-hamburger" id="settingsHamburger" aria-label="Menu">☰</button>
+      <div class="settings-topbar-title" id="settingsTopbarTitle">General</div>
     </header>
 
-    <div class="page-body">
+    <div class="settings-body">
 
-      <!-- Settings Tabs -->
-      <div class="tab-bar" id="settingsTabs" style="margin-bottom:var(--space-5);border-bottom:1px solid var(--border);padding-bottom:0;">
-        <button class="tab-btn active" data-tab="general">General</button>
-        <button class="tab-btn" data-tab="integrations">Integrations</button>
-        <button class="tab-btn" data-tab="content">Content</button>
-        <button class="tab-btn" data-tab="moderation">Moderation</button>
-        <button class="tab-btn" data-tab="auth">Authentication</button>
-        <button class="tab-btn" data-tab="automation">Automation</button>
-        <button class="tab-btn" data-tab="messaging">Messaging</button>
-      </div>
-
-      <!-- ═══ General Tab ═══ -->
+      <!-- ═══ General ═══ -->
       <div class="tab-panel active" data-tab="general">
 
-        <!-- Your Profile (self-service) -->
+        <!-- Your Profile -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Your Profile</h3>
           <p class="form-help" style="margin-top:-8px;margin-bottom:12px;">These show up in the newsroom chat and anywhere your account is shown to other admins.</p>
@@ -110,7 +141,7 @@
             <input type="text" class="form-control" id="siteFooterTagline" placeholder="Built with ❤️ for the AI-curious" />
           </div>
 
-          <!-- Logo Upload (below branding fields but inside branding panel) -->
+          <!-- Logo Upload -->
           <div class="form-group" style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
             <label class="form-label">Site Logo Image</label>
             <p class="form-help" style="margin-bottom:10px;">Upload a logo image (PNG, SVG, WebP, JPG — max 2MB). Overrides the emoji/HTML logo on the main site.</p>
@@ -183,7 +214,6 @@
             <input type="text" class="form-control" id="siteTwitterHandle" placeholder="@deepfeedai" style="max-width:300px;" />
           </div>
 
-          <!-- OG Image Upload -->
           <div class="form-group" style="margin-top:18px;border-top:1px solid var(--border);padding-top:18px;">
             <label class="form-label">OG Image (Social Preview)</label>
             <p class="form-help" style="margin-bottom:10px;">Large preview image shown when your site is shared on social media (PNG, JPG, WebP — max 2MB, recommended 1200×630).</p>
@@ -200,7 +230,7 @@
           </div>
 
           <div class="btn-group mt-5">
-            <button class="btn btn-primary" id="saveDomainBtn">Save Social & Metadata</button>
+            <button class="btn btn-primary" id="saveDomainBtn">Save Social &amp; Metadata</button>
           </div>
           <div id="domainStatus" class="settings-status"></div>
         </div>
@@ -209,7 +239,6 @@
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Theme</h3>
 
-          <!-- Presets -->
           <div class="form-group">
             <label class="form-label">Presets</label>
             <div id="themePresets" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
@@ -273,12 +302,11 @@
           <div id="themeStatus" class="settings-status"></div>
         </div>
 
-      </div><!-- /general tab -->
+      </div><!-- /general -->
 
-      <!-- ═══ Integrations Tab ═══ -->
+      <!-- ═══ Integrations ═══ -->
       <div class="tab-panel" data-tab="integrations">
 
-        <!-- ElevenLabs card -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">🎙️</div>
@@ -287,23 +315,18 @@
               <div class="settings-card-subtitle">Text-to-speech for AI audio summaries</div>
             </div>
           </div>
-
           <div class="form-group">
             <label class="form-label">API Key</label>
             <div class="input-action-row">
-              <input type="password" class="form-control" id="elApiKey" placeholder="sk_xxxxxxxxxxxxxxxxxxxxxxxx"
-                     autocomplete="off" />
+              <input type="password" class="form-control" id="elApiKey" placeholder="sk_xxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="toggleApiKeyBtn" type="button" title="Show/hide">👁️</button>
             </div>
-            <p class="form-help">
-              Overrides the <code>ELEVENLABS_API_KEY</code> environment variable. Leave blank to use the environment variable.
-            </p>
+            <p class="form-help">Overrides the <code>ELEVENLABS_API_KEY</code> environment variable. Leave blank to use the environment variable.</p>
             <div id="apiKeyStatus" class="settings-status"></div>
             <button class="btn btn-primary" id="saveElBtn">Save API Key</button>
           </div>
         </div>
 
-        <!-- Image Provider (unified) card -->
         <div class="settings-card" id="imageProviderCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">🖼️</div>
@@ -312,7 +335,6 @@
               <div class="settings-card-subtitle">Choose Imagen or DALL-E for thumbnails and inline images, per operation</div>
             </div>
           </div>
-
           <div class="form-group">
             <label class="form-label">Default Image Provider</label>
             <div style="display:flex;gap:8px;">
@@ -322,11 +344,8 @@
               </select>
               <select class="form-control" id="imgDefaultModel" style="flex:2;"></select>
             </div>
-            <p class="form-help">
-              Used for any image operation without its own override. DALL-E requires an OpenAI API key (configured in the AI Providers card below).
-            </p>
+            <p class="form-help">Used for any image operation without its own override. DALL-E requires an OpenAI API key configured below.</p>
           </div>
-
           <div class="form-group">
             <label class="form-label">Per-Operation Overrides</label>
             <div style="display:grid;grid-template-columns:180px 1fr 2fr;gap:8px;align-items:center;">
@@ -337,7 +356,6 @@
                 <option value="dalle">DALL-E</option>
               </select>
               <select class="form-control" id="imgOpModel-thumbnail-render"></select>
-
               <div style="font-size:13px;color:var(--text-muted);">Inline images</div>
               <select class="form-control" id="imgOpProvider-inline-image">
                 <option value="">Use default</option>
@@ -362,11 +380,8 @@
               </select>
               <select class="form-control" id="imgOpModel-standalone-design"></select>
             </div>
-            <p class="form-help">
-              Override per operation — e.g. faster/cheaper Imagen for inline images, DALL-E HD for featured thumbnails.
-            </p>
+            <p class="form-help">Override per operation — e.g. faster/cheaper Imagen for inline images, DALL-E HD for featured thumbnails.</p>
           </div>
-
           <div class="form-group">
             <h4 style="margin:0 0 8px 0;">Art Direction — Article Thumbnails</h4>
             <label class="form-label" for="artDirectionThumbSelect">Style Family (optional)</label>
@@ -424,11 +439,9 @@
             <textarea class="form-control" id="artDirectionAvatarCustom" rows="5" placeholder='Optional — fully custom avatar style. Example: "Attack on Titan anime aesthetic, cross-hatching, sharp line work..."'></textarea>
             <p class="form-help">Applies to writer avatars (unless the writer has a per-writer override). Textarea takes priority over dropdown.</p>
           </div>
-
           <button class="btn btn-primary" id="saveImageProviderBtn">Save Image Provider Settings</button>
         </div>
 
-        <!-- AI Providers (BYOK) card -->
         <div class="settings-card" id="aiProvidersCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">🤖</div>
@@ -437,62 +450,51 @@
               <div class="settings-card-subtitle">Bring your own keys for Gemini, OpenAI, Anthropic, OpenRouter, or self-hosted Ollama</div>
             </div>
           </div>
-
           <div class="form-group">
             <label class="form-label">Google Gemini API Key</label>
             <div class="input-action-row">
-              <input type="password" class="form-control" id="geminiApiKeyPortal" placeholder="AIza…"
-                     autocomplete="off" />
+              <input type="password" class="form-control" id="geminiApiKeyPortal" placeholder="AIza…" autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="testGeminiPortal" type="button">Test</button>
             </div>
             <p class="form-help">For Gemini 2.5 Flash, Imagen, embeddings. Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
             <div id="geminiKeyStatus" class="settings-status"></div>
           </div>
-
           <div class="form-group">
             <label class="form-label">OpenAI API Key</label>
             <div class="input-action-row">
-              <input type="password" class="form-control" id="openaiApiKeyPortal" placeholder="sk-..."
-                     autocomplete="off" />
+              <input type="password" class="form-control" id="openaiApiKeyPortal" placeholder="sk-..." autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="testOpenaiPortal" type="button">Test</button>
             </div>
             <p class="form-help">For GPT-4o, GPT-4.1, etc. Get a key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
             <div id="openaiKeyStatus" class="settings-status"></div>
           </div>
-
           <div class="form-group">
             <label class="form-label">Anthropic API Key</label>
             <div class="input-action-row">
-              <input type="password" class="form-control" id="anthropicApiKeyPortal" placeholder="sk-ant-..."
-                     autocomplete="off" />
+              <input type="password" class="form-control" id="anthropicApiKeyPortal" placeholder="sk-ant-..." autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="testAnthropicPortal" type="button">Test</button>
             </div>
             <p class="form-help">For Claude Sonnet, Claude Haiku, etc. Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
             <div id="anthropicKeyStatus" class="settings-status"></div>
           </div>
-
           <div class="form-group">
             <label class="form-label">OpenRouter API Key</label>
             <div class="input-action-row">
-              <input type="password" class="form-control" id="openrouterApiKeyPortal" placeholder="sk-or-..."
-                     autocomplete="off" />
+              <input type="password" class="form-control" id="openrouterApiKeyPortal" placeholder="sk-or-..." autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="testOpenrouterPortal" type="button">Test</button>
             </div>
             <p class="form-help">For cost-effective multi-model routing. Get a key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a></p>
             <div id="openrouterKeyStatus" class="settings-status"></div>
           </div>
-
           <div class="form-group">
             <label class="form-label">Ollama Base URL</label>
             <div class="input-action-row">
-              <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434"
-                     autocomplete="off" />
+              <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434" autocomplete="off" />
               <button class="btn btn-outline btn-sm" id="testOllamaPortal" type="button">Test</button>
             </div>
             <p class="form-help">For self-hosted AI with Ollama. Must be accessible from the server.</p>
             <div id="ollamaUrlStatus" class="settings-status"></div>
           </div>
-
           <div class="form-group" style="margin-top:16px;">
             <label class="form-label">Default AI Provider</label>
             <div class="form-grid-2">
@@ -505,17 +507,14 @@
             </div>
             <p class="form-help">Pick which provider handles operations by default. Requires a valid API key above.</p>
           </div>
-
           <details style="margin-top:12px;">
             <summary style="cursor:pointer;font-weight:500;font-size:14px;user-select:none;">Per-operation overrides</summary>
             <p class="form-help" style="margin:8px 0 12px;">Override the provider for specific operations. Leave blank to use the default.</p>
             <div id="operationOverridesPortal"></div>
           </details>
-
           <button class="btn btn-primary" id="saveAiProvidersPortalBtn" style="margin-top:16px;">Save AI Provider Settings</button>
         </div>
 
-        <!-- Chat Agent Engine card -->
         <div class="settings-card" id="chatAgentEngineCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">🧠</div>
@@ -524,12 +523,8 @@
               <div class="settings-card-subtitle">Pick how the chat agent reasons and uses tools</div>
             </div>
           </div>
-
           <div class="form-group">
-            <p class="form-help" style="margin-bottom:12px;">
-              LangGraph enables multi-step tool use, editor-commissioned stories, and the Graphic Designer agent.
-              Single-shot is faster and cheaper for simple chat.
-            </p>
+            <p class="form-help" style="margin-bottom:12px;">LangGraph enables multi-step tool use, editor-commissioned stories, and the Graphic Designer agent. Single-shot is faster and cheaper for simple chat.</p>
             <label class="form-label" style="display:flex;align-items:center;gap:10px;min-height:40px;cursor:pointer;">
               <input type="radio" name="chatAgentEngine" id="chatAgentEngineSingleShot" value="single-shot" style="width:18px;height:18px;" />
               <span><strong>Single-shot</strong> — one LLM call, no tool use (faster, cheaper)</span>
@@ -539,14 +534,12 @@
               <span><strong>LangGraph</strong> (recommended) — multi-step tool use; required for editor-commissioned stories and Graphic Designer</span>
             </label>
           </div>
-
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="saveChatAgentEngineBtn" style="min-height:40px;">Save Chat Agent Engine</button>
           </div>
           <div id="chatAgentEngineStatus" class="settings-status"></div>
         </div>
 
-        <!-- Analytics IDs -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">📊</div>
@@ -555,7 +548,6 @@
               <div class="settings-card-subtitle">Google Analytics and AdSense integration</div>
             </div>
           </div>
-
           <div class="form-grid-2">
             <div class="form-group">
               <label class="form-label" for="siteGaId">Google Analytics ID</label>
@@ -568,14 +560,12 @@
               <p class="form-help">Leave empty to disable</p>
             </div>
           </div>
-
           <div class="btn-group mt-5">
-            <button class="btn btn-primary" id="saveAnalyticsBtn">Save Analytics & Ads</button>
+            <button class="btn btn-primary" id="saveAnalyticsBtn">Save Analytics &amp; Ads</button>
           </div>
           <div id="analyticsAdsStatus" class="settings-status"></div>
         </div>
 
-        <!-- Perspective API -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">🛡️</div>
@@ -584,7 +574,6 @@
               <div class="settings-card-subtitle">ML-based toxicity scoring for comments</div>
             </div>
           </div>
-
           <div class="form-group">
             <label class="form-label">
               <input type="checkbox" id="perspectiveEnabled" style="margin-right:8px;" />
@@ -597,18 +586,14 @@
               <input type="password" class="form-control input-mono" id="perspectiveKey" placeholder="AIza…" />
               <button class="btn btn-ghost btn-sm" id="togglePerspKeyBtn">👁️</button>
             </div>
-            <p class="form-help">
-              Get a free key at <a href="https://perspectiveapi.com" target="_blank" rel="noopener" style="color:var(--accent);">perspectiveapi.com</a>
-            </p>
+            <p class="form-help">Get a free key at <a href="https://perspectiveapi.com" target="_blank" rel="noopener" style="color:var(--accent);">perspectiveapi.com</a></p>
           </div>
-
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="savePerspectiveBtn">Save Perspective Settings</button>
           </div>
           <div id="perspectiveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Storage status (read-only — configure via Platform Dashboard) -->
         <div class="settings-card" id="storageCard">
           <div class="settings-card-header">
             <div class="settings-card-icon">☁️</div>
@@ -631,7 +616,6 @@
           <p class="form-help">Storage is configured at the platform level. Contact your platform administrator to change storage settings.</p>
         </div>
 
-        <!-- Email (Resend) -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#x1F4E7;</div>
@@ -658,7 +642,6 @@
           <div id="resendSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Live News Sources -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#x1F4F0;</div>
@@ -696,7 +679,6 @@
           <div id="newsKeysSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Live News Search Query -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#x1F50D;</div>
@@ -722,12 +704,11 @@
           <div id="liveNewsSaveStatus" class="settings-status"></div>
         </div>
 
-      </div><!-- /integrations tab -->
+      </div><!-- /integrations -->
 
-      <!-- ═══ Content Tab ═══ -->
+      <!-- ═══ Content ═══ -->
       <div class="tab-panel" data-tab="content">
 
-        <!-- Categories -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Categories</h3>
           <p class="form-help" style="margin-bottom:12px;">Manage categories and their badge colors. Order matters — first category is the default.</p>
@@ -736,23 +717,18 @@
             <button class="btn btn-outline btn-sm" id="addCategoryBtn" type="button">+ Add Category</button>
             <button class="btn btn-outline btn-sm" id="generateAllKeywordsBtn" type="button">AI Generate All</button>
           </div>
-
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="saveCategoriesBtn">Save Categories</button>
           </div>
           <div id="categoriesStatus" class="settings-status"></div>
         </div>
 
-        <!-- AI Persona & Newsletter -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">AI &amp; Newsletter</h3>
-
           <div class="form-group">
             <label class="form-label" for="siteAiPersona">AI Persona (system prompt)</label>
-            <textarea class="form-control" id="siteAiPersona" rows="3" style="resize:vertical;"
-                      placeholder="You are a tech news analyst..."></textarea>
+            <textarea class="form-control" id="siteAiPersona" rows="3" style="resize:vertical;" placeholder="You are a tech news analyst..."></textarea>
           </div>
-
           <div class="form-grid-2">
             <div class="form-group">
               <label class="form-label" for="siteNewsletterSubject">Newsletter Subject</label>
@@ -763,14 +739,12 @@
               <input type="text" class="form-control" id="siteEmailFromName" placeholder="Deep Feed AI" />
             </div>
           </div>
-
           <div class="btn-group mt-5">
-            <button class="btn btn-primary" id="saveNewsletterBtn">Save AI & Newsletter</button>
+            <button class="btn btn-primary" id="saveNewsletterBtn">Save AI &amp; Newsletter</button>
           </div>
           <div id="newsletterStatus" class="settings-status"></div>
         </div>
 
-        <!-- Content Lifecycle -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">🗑️</div>
@@ -779,7 +753,6 @@
               <div class="settings-card-subtitle">Auto-archive old articles to keep the feed fresh</div>
             </div>
           </div>
-
           <div class="form-group">
             <label class="form-check">
               <label class="toggle">
@@ -789,67 +762,50 @@
               Enable auto-purge (runs nightly at 2 AM)
             </label>
           </div>
-
           <div class="form-row mt-3">
             <div class="form-group">
               <label class="form-label" for="purgeDays">Archive articles older than</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="purgeDays" value="30" min="7" max="365"
-                       style="width:90px;" />
+                <input type="number" class="form-control" id="purgeDays" value="30" min="7" max="365" style="width:90px;" />
                 <span class="text-muted text-sm">days (minimum 7)</span>
               </div>
             </div>
           </div>
-
           <div class="form-group mt-3">
             <label class="form-label">Protection rules</label>
             <div class="toggle-list">
               <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;">
-                <label class="toggle">
-                  <input type="checkbox" id="purgeProtectFeatured" checked />
-                  <span class="toggle-slider"></span>
-                </label>
+                <label class="toggle"><input type="checkbox" id="purgeProtectFeatured" checked /><span class="toggle-slider"></span></label>
                 Never archive the featured article
               </label>
               <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;">
-                <label class="toggle">
-                  <input type="checkbox" id="purgeProtectAudio" />
-                  <span class="toggle-slider"></span>
-                </label>
+                <label class="toggle"><input type="checkbox" id="purgeProtectAudio" /><span class="toggle-slider"></span></label>
                 Never archive articles with generated audio
               </label>
               <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;">
-                <label class="toggle">
-                  <input type="checkbox" id="purgeProtectEngaged" />
-                  <span class="toggle-slider"></span>
-                </label>
+                <label class="toggle"><input type="checkbox" id="purgeProtectEngaged" /><span class="toggle-slider"></span></label>
                 Never archive articles with recent comments or reactions
               </label>
             </div>
           </div>
-
           <div class="form-row mt-3" id="purgeEngagedDaysRow" style="display:none;">
             <div class="form-group">
               <label class="form-label" for="purgeProtectEngagedDays">Engagement lookback window</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="purgeProtectEngagedDays" value="7" min="1" max="90"
-                       style="width:90px;" />
-                <span class="text-muted text-sm">days — protect articles with activity in this window</span>
+                <input type="number" class="form-control" id="purgeProtectEngagedDays" value="7" min="1" max="90" style="width:90px;" />
+                <span class="text-muted text-sm">days</span>
               </div>
             </div>
           </div>
-
           <div class="form-row mt-3">
             <div class="form-group">
               <label class="form-label" for="purgeGraceHours">Hard-delete grace period</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="purgeGraceHours" value="24" min="1" max="720"
-                       style="width:90px;" />
+                <input type="number" class="form-control" id="purgeGraceHours" value="24" min="1" max="720" style="width:90px;" />
                 <span class="text-muted text-sm">hours after archiving before permanent deletion</span>
               </div>
             </div>
           </div>
-
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="savePurgeSettingsBtn">Save Settings</button>
             <button class="btn btn-outline" id="dryRunPurgeBtn">🔍 Preview Purge</button>
@@ -857,18 +813,14 @@
           <div id="purgeSettingsStatus" class="settings-status"></div>
         </div>
 
-        <!-- Audit Log Retention -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Audit Log Retention</h3>
-          <p class="text-muted text-sm mb-4">
-            Automatically delete audit log entries older than the specified number of days. Runs weekly (Sunday 3 AM).
-          </p>
+          <p class="text-muted text-sm mb-4">Automatically delete audit log entries older than the specified number of days. Runs weekly (Sunday 3 AM).</p>
           <div class="form-row">
             <div class="form-group">
               <label class="form-label" for="auditRetentionDays">Retention period</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="auditRetentionDays" value="90" min="30" max="3650"
-                       style="width:90px;" />
+                <input type="number" class="form-control" id="auditRetentionDays" value="90" min="30" max="3650" style="width:90px;" />
                 <span class="text-muted text-sm">days (minimum 30)</span>
               </div>
             </div>
@@ -879,18 +831,14 @@
           <div id="auditRetentionStatus" class="settings-status"></div>
         </div>
 
-      </div><!-- /content tab -->
+      </div><!-- /content -->
 
-      <!-- ═══ Moderation Tab ═══ -->
+      <!-- ═══ Moderation ═══ -->
       <div class="tab-panel" data-tab="moderation">
 
-        <!-- Moderation Queue -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Comment Moderation Queue</h3>
-          <p class="text-muted text-sm mb-4">
-            Hold new users' first comments for review before they appear publicly.
-            Once a user reaches the approval threshold their comments go live automatically.
-          </p>
+          <p class="text-muted text-sm mb-4">Hold new users' first comments for review before they appear publicly.</p>
           <div class="form-group">
             <label class="form-label">
               <input type="checkbox" id="modQueueEnabled" style="margin-right:8px;" />
@@ -900,13 +848,9 @@
           <div class="form-group" style="margin-top:14px;">
             <label class="form-label" for="modQueueThreshold">Auto-trust after</label>
             <div class="input-row">
-              <input type="number" class="form-control" id="modQueueThreshold"
-                     value="1" min="1" max="20" style="width:80px;" />
+              <input type="number" class="form-control" id="modQueueThreshold" value="1" min="1" max="20" style="width:80px;" />
               <span class="text-muted text-sm">approved comment(s)</span>
             </div>
-            <p style="color:var(--muted);font-size:12px;margin-top:6px;">
-              Users with fewer than this many approved comments will be queued.
-            </p>
           </div>
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="saveModQueueBtn">Save Settings</button>
@@ -915,58 +859,44 @@
           <div id="modQueueStatus" class="settings-status"></div>
         </div>
 
-        <!-- Spam Detection -->
         <div class="dash-panel mb-6">
           <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Spam Detection</h3>
-          <p class="text-muted text-sm mb-4">
-            Comments matching the blocklist are silently rejected.
-          </p>
-
           <div class="form-group">
             <label class="form-label" for="spamBlocklist">Custom keyword blocklist</label>
-            <textarea class="form-control" id="spamBlocklist" rows="3"
-                      placeholder="buy now, click here, free money"
-                      style="font-size:13px;resize:vertical;margin-top:6px;"></textarea>
-            <p class="form-help">Comma-separated. Case-insensitive. Matched comments are silently blocked.</p>
+            <textarea class="form-control" id="spamBlocklist" rows="3" placeholder="buy now, click here, free money" style="font-size:13px;resize:vertical;margin-top:6px;"></textarea>
+            <p class="form-help">Comma-separated. Case-insensitive.</p>
           </div>
-
           <div class="form-grid-2">
             <div>
               <label class="form-label" for="spamBlockThreshold">Auto-block threshold</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="spamBlockThreshold"
-                       value="0.85" min="0.5" max="1.0" step="0.05" class="input-number-sm" />
-                <span class="text-sm text-muted">0.0 – 1.0</span>
+                <input type="number" class="form-control" id="spamBlockThreshold" value="0.85" min="0.5" max="1.0" step="0.05" class="input-number-sm" />
+                <span class="text-sm text-muted">0.0–1.0</span>
               </div>
               <p class="form-help">Score ≥ this → silently blocked</p>
             </div>
             <div>
               <label class="form-label" for="spamQueueThreshold">Auto-queue threshold</label>
               <div class="input-row">
-                <input type="number" class="form-control" id="spamQueueThreshold"
-                       value="0.50" min="0.1" max="0.99" step="0.05" class="input-number-sm" />
-                <span class="text-sm text-muted">0.0 – 1.0</span>
+                <input type="number" class="form-control" id="spamQueueThreshold" value="0.50" min="0.1" max="0.99" step="0.05" class="input-number-sm" />
+                <span class="text-sm text-muted">0.0–1.0</span>
               </div>
               <p class="form-help">Score ≥ this → held for review</p>
             </div>
           </div>
-
           <div class="btn-group mt-5">
             <button class="btn btn-primary" id="saveSpamSettingsBtn">Save Settings</button>
           </div>
           <div id="spamSettingsStatus" class="settings-status"></div>
         </div>
 
-      </div><!-- /moderation tab -->
+      </div><!-- /moderation -->
 
-      <!-- ═══ Authentication Tab ═══ -->
+      <!-- ═══ Authentication ═══ -->
       <div class="tab-panel" data-tab="auth">
-        <!-- Info callout -->
-        <div class="settings-info" style="background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 16px; margin-bottom: 24px; font-size: var(--text-sm); color: var(--text);">
+        <div class="settings-info" style="background:var(--accent-dim);border:1px solid var(--accent);border-radius:8px;padding:12px 16px;margin-bottom:24px;font-size:var(--text-sm);color:var(--text);">
           OAuth credentials configured here override environment variables. Leave blank to use environment variable fallback.
         </div>
-
-        <!-- Google OAuth -->
         <div class="settings-card">
           <div class="settings-card-header">
             <h3>Google OAuth</h3>
@@ -978,15 +908,13 @@
           </div>
           <div class="form-group">
             <label class="form-label">Client Secret</label>
-            <div style="display: flex; gap: 8px;">
+            <div style="display:flex;gap:8px;">
               <input type="password" class="form-control" id="oauthGoogleClientSecret" placeholder="GOCSPX-..." style="flex:1" />
               <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGoogleClientSecret', this)">Show</button>
             </div>
           </div>
           <button class="btn btn-primary btn-sm" id="saveGoogleOAuth">Save Google OAuth</button>
         </div>
-
-        <!-- GitHub OAuth -->
         <div class="settings-card">
           <div class="settings-card-header">
             <h3>GitHub OAuth</h3>
@@ -998,16 +926,16 @@
           </div>
           <div class="form-group">
             <label class="form-label">Client Secret</label>
-            <div style="display: flex; gap: 8px;">
+            <div style="display:flex;gap:8px;">
               <input type="password" class="form-control" id="oauthGithubClientSecret" placeholder="Secret" style="flex:1" />
               <button class="btn btn-ghost btn-sm" type="button" onclick="toggleSecretVisibility('oauthGithubClientSecret', this)">Show</button>
             </div>
           </div>
           <button class="btn btn-primary btn-sm" id="saveGithubOAuth">Save GitHub OAuth</button>
         </div>
-      </div><!-- /auth tab -->
+      </div><!-- /auth -->
 
-      <!-- ═══ Automation Tab ═══ -->
+      <!-- ═══ Automation ═══ -->
       <div class="tab-panel" data-tab="automation">
 
         <div class="settings-card" id="autopilotCard" style="margin-bottom:var(--space-5);">
@@ -1024,7 +952,7 @@
             </label>
           </div>
           <div id="autopilotBanner" style="display:none;padding:0 20px 16px;">
-            <div style="background:var(--warning-bg, #fff3cd);color:var(--warning-text, #856404);padding:10px 14px;border-radius:8px;font-size:13px;">
+            <div style="background:var(--warning-bg,#fff3cd);color:var(--warning-text,#856404);padding:10px 14px;border-radius:8px;font-size:13px;">
               Autopilot is OFF — all scheduled cron jobs are paused for this tenant.
             </div>
           </div>
@@ -1039,7 +967,6 @@
               <div class="settings-card-subtitle">Automatically rotate featured articles on a schedule. Pinned articles stay in place; open slots are filled by top-scoring content.</div>
             </div>
           </div>
-
           <div style="padding:0 20px 20px;">
             <div class="form-group" style="margin-bottom:12px;">
               <label class="toggle-row" style="display:flex;align-items:center;gap:10px;cursor:pointer;">
@@ -1047,7 +974,6 @@
                 <span class="form-label" style="margin:0;">Enable auto-rotation</span>
               </label>
             </div>
-
             <div id="featRotationFields">
               <div class="form-grid-2" style="margin-bottom:12px;">
                 <div class="form-group">
@@ -1064,7 +990,6 @@
                   </select>
                 </div>
               </div>
-
               <div class="form-grid-2" style="margin-bottom:12px;">
                 <div class="form-group">
                   <label class="form-label" for="featRotationPoolDays">Pool Window (days)</label>
@@ -1078,14 +1003,11 @@
                 </div>
               </div>
             </div>
-
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
               <button class="btn btn-primary" id="saveFeatRotationBtn">Save Settings</button>
               <button class="btn btn-outline" id="rotateNowBtn">Rotate Now</button>
               <span id="featRotationStatus" style="font-size:13px;color:var(--muted);"></span>
             </div>
-
-            <!-- Rotation status display -->
             <div id="featRotationInfo" style="font-size:13px;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;display:none;">
               <div id="featRotationStatusText"></div>
             </div>
@@ -1102,12 +1024,12 @@
           </div>
           <div id="cronJobsList"></div>
         </div>
-      </div><!-- /automation tab -->
 
-      <!-- ═══ Messaging Tab ═══ -->
+      </div><!-- /automation -->
+
+      <!-- ═══ Messaging ═══ -->
       <div class="tab-panel" data-tab="messaging">
 
-        <!-- Telegram -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128172;</div>
@@ -1135,7 +1057,6 @@
           <div id="telegramSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Slack -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128488;</div>
@@ -1156,13 +1077,12 @@
           <div id="slackSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Discord -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#127918;</div>
             <div>
               <div class="settings-card-title">Discord</div>
-              <div class="settings-card-subtitle">Create app at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>. Bot scope: <code>bot</code> + <code>applications.commands</code>. Permissions: Send Messages, Read Message History, View Channels, Manage Webhooks. Set Interactions Endpoint URL to <code>https://&lt;your-backend&gt;/api/webhooks/discord</code></div>
+              <div class="settings-card-subtitle">Create app at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a>. Bot scope: <code>bot</code> + <code>applications.commands</code>. Permissions: Send Messages, Read Message History, View Channels, Manage Webhooks.</div>
             </div>
             <span id="discordStatus" class="badge badge-muted" style="margin-left:auto;">Not configured</span>
           </div>
@@ -1195,12 +1115,11 @@
           <div id="discordSaveStatus" class="settings-status"></div>
         </div>
 
-        <!-- Detect & Enroll -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128269;</div>
             <div>
-              <div class="settings-card-title">Detect & Enroll Writers</div>
+              <div class="settings-card-title">Detect &amp; Enroll Writers</div>
               <div class="settings-card-subtitle">Discover available channels and assign writers to them</div>
             </div>
           </div>
@@ -1212,7 +1131,6 @@
           <div id="detectedChannels"></div>
         </div>
 
-        <!-- Active Channels -->
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">&#128227;</div>
@@ -1226,11 +1144,196 @@
           </div>
         </div>
 
-      </div><!-- /messaging tab -->
+      </div><!-- /messaging -->
 
-    </div><!-- /page-body -->
-  </div><!-- /main-content -->
-</div><!-- /admin-layout -->
+      <!-- ═══ Team ═══ -->
+      <div class="tab-panel" data-tab="team">
+
+        <!-- Sub-tabs -->
+        <div class="tab-bar" id="teamSubTabs" style="margin-bottom:var(--space-5);border-bottom:1px solid var(--border);">
+          <button class="tab-btn active" data-subtab="users">Users</button>
+          <button class="tab-btn" data-subtab="roles">Roles &amp; Permissions</button>
+        </div>
+
+        <!-- ── Users sub-panel ── -->
+        <div class="team-subpanel" data-subtab="users">
+          <div class="section-header" style="margin-bottom:var(--space-4);">
+            <div class="section-title">Local Admin Users</div>
+            <button class="btn btn-primary" id="addUserBtn">+ Add User</button>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th class="th-center-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersBody">
+                  <tr><td colspan="7"><div class="empty-state">Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Roles sub-panel ── -->
+        <div class="team-subpanel" data-subtab="roles" style="display:none;">
+          <div class="section-header" style="margin-bottom:var(--space-4);">
+            <div class="section-title">Roles &amp; Permissions</div>
+            <button class="btn btn-primary" id="addRoleBtn">+ Add Role</button>
+          </div>
+
+          <div id="roleTemplates" style="display:none;margin-bottom:20px;">
+            <label class="form-label">Quick Add from Template</label>
+            <div id="templateButtons" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Description</th>
+                    <th class="th-center-sm">Permissions</th>
+                    <th class="th-center-sm">Users</th>
+                    <th class="th-center-sm">Type</th>
+                    <th class="th-center-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rolesBody">
+                  <tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /team -->
+
+    </div><!-- /settings-body -->
+  </div><!-- /settings-main -->
+</div><!-- /settings-shell -->
+
+<!-- ── Team Modals ──────────────────────────────────────────── -->
+
+<!-- Add/Edit User Modal -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="userModalTitle">Add User</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="userId" />
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-control" id="userUsername" placeholder="johndoe" />
+          <div class="form-help">3–50 characters, letters, numbers, underscores</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" class="form-control" id="userDisplayName" placeholder="John Doe" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-control" id="userEmail" placeholder="john@example.com" />
+      </div>
+      <div class="form-group" id="passwordGroup">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control" id="userPassword" placeholder="Minimum 8 characters" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-control" id="userRole"></select>
+      </div>
+      <div class="form-group" id="activeGroup" style="display:none">
+        <label class="form-check">
+          <input type="checkbox" id="userActive" checked /> Active
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveUserBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="resetPwModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Reset Password</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="resetUserId" />
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <input type="password" class="form-control" id="resetPassword" placeholder="Minimum 8 characters" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="resetPwBtn">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Role Modal -->
+<div class="modal-overlay" id="roleModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="roleModalTitle">Add Role</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="roleId" />
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Role Name</label>
+          <input type="text" class="form-control" id="roleName" placeholder="e.g., moderator" />
+          <div class="form-help">Lowercase letters, numbers, hyphens</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <input type="text" class="form-control" id="roleDescription" placeholder="Brief description" />
+        </div>
+      </div>
+      <label class="form-label" style="margin-top:16px;display:block;">Permissions</label>
+      <div id="permissionsGrid" class="permissions-grid"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveRoleBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Role Modal -->
+<div class="modal-overlay" id="viewRoleModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="viewRoleTitle">Role Details</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body" id="viewRoleBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Purge Preview Modal -->
 <div class="modal-overlay" id="purgePreviewModal">
@@ -1267,7 +1370,6 @@
 </div>
 
 <script src="/admin.js"></script>
-<script src="/admin-mobile-nav.js"></script>
 <script src="/notifications-bell.js"></script>
 <script src="/settings-page.js"></script>
 </body>
