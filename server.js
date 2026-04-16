@@ -395,6 +395,47 @@ app.use('/api/admin/cron', require('./routes/admin-cron'));
 app.use('/api/admin/metrics', require('./routes/admin-metrics'));
 app.use('/api/admin/logs', require('./routes/admin-logs'));
 
+// ── Image proxy — serves R2/external images with same-origin CORS so Cytoscape canvas can draw them ──
+// Accepts token via Authorization header OR ?token= query param (CSS background-image can't send headers)
+app.get('/api/proxy-image', async (req, res) => {
+  const headerToken = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  const queryToken  = (req.query.token || '').trim();
+  const token = headerToken || queryToken;
+  if (!token) return res.status(401).end();
+  try {
+    const { getSecrets } = require('./lib/secrets');
+    const jwt = require('jsonwebtoken');
+    const { jwtSecret, jwtSecretPrevious } = await getSecrets();
+    let ok = false;
+    try { jwt.verify(token, jwtSecret); ok = true; } catch { /* try fallback */ }
+    if (!ok && jwtSecretPrevious) {
+      try { jwt.verify(token, jwtSecretPrevious); ok = true; } catch { /* failed */ }
+    }
+    if (!ok) return res.status(401).end();
+  } catch { return res.status(401).end(); }
+  const url = (req.query.url || '').trim();
+  if (!url || !/^https:\/\/.+/.test(url)) return res.status(400).end();
+  try {
+    const controller = new AbortController();
+    const timeout    = setTimeout(() => controller.abort(), 8000);
+    const upstream   = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'DeepFeedAI-Proxy/1.0' },
+    });
+    clearTimeout(timeout);
+    if (!upstream.ok) return res.status(502).end();
+    const ct = upstream.headers.get('content-type') || 'image/jpeg';
+    if (!ct.startsWith('image/')) return res.status(415).end();
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    const buf = await upstream.arrayBuffer();
+    res.end(Buffer.from(buf));
+  } catch {
+    res.status(502).end();
+  }
+});
+
 const { getActiveTenantIds } = require('./lib/tenant-utils');
 const { registerJob, startAll } = require('./lib/cron-registry');
 

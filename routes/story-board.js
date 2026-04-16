@@ -65,7 +65,7 @@ router.get('/', requirePermission('articles.read'), asyncHandler(async (req, res
   const originalsRows = await db.prepare(`
     SELECT a.id, a.title, a.summary, a.category, a.source, a.source_url,
            a.image_url, a.published_at, a.content_type, a.source_article_ids,
-           a.editorial_score, a.writer_id,
+           a.editorial_score, a.writer_id, a.slug,
            w.name AS writer_name, w.accent_color, w.avatar_url AS writer_avatar
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = $1
@@ -130,6 +130,7 @@ router.get('/', requirePermission('articles.read'), asyncHandler(async (req, res
         writerAvatar: row.writer_avatar || '',
         accentColor: row.accent_color || '#6366f1',
         contentType: row.content_type,
+        slug: row.slug || '',
       },
     });
 
