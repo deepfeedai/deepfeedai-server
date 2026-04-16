@@ -1100,6 +1100,9 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editorial_revision_count INTEGER DEFAULT 0`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMPTZ`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS editor_verdict JSONB`,
+    // Copy editor (Vera) — structured copy-editing suggestions before Maxwell's gate
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS copy_edit_result JSONB`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS copy_edited_at TIMESTAMPTZ`,
     // Future: writer voice fingerprint (analyzed from 20+ articles)
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS style_fingerprint JSONB`,
     // Writer agent: story pitches

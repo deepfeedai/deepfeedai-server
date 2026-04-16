@@ -591,6 +591,57 @@
         html += '<div class="review-suggestion">' + esc(suggestion) + '</div>';
       }
 
+      // Vera's copy-editing section
+      var ce = a.copy_edit_result;
+      if (typeof ce === 'string') { try { ce = JSON.parse(ce); } catch { ce = null; } }
+      if (ce) {
+        var ceVerdict = ce.verdict || 'clean';
+        var ceColor = ceVerdict === 'clean' ? '#22c55e' : ceVerdict === 'minor_edits' ? '#fbbf24' : '#ef4444';
+        html += '<details class="vera-section">';
+        html += '<summary style="cursor:pointer;font-size:12px;font-weight:600;color:' + esc(ceColor) + ';margin-bottom:4px;">';
+        html += 'Vera — copy desk · ' + esc(ceVerdict.replace('_', ' '));
+        if (ce.corrections && ce.corrections.length) html += ' · ' + ce.corrections.length + ' correction(s)';
+        html += '</summary>';
+        html += '<div class="vera-body">';
+        // Headline
+        if (ce.headline_verdict !== 'strong' || ce.headline_suggestion) {
+          html += '<div class="vera-row"><span class="vera-label">Headline:</span> '
+            + '<span style="color:' + (ce.headline_verdict === 'strong' ? '#22c55e' : '#fbbf24') + ';">' + esc(ce.headline_verdict) + '</span>'
+            + (ce.headline_suggestion ? ' → <em>' + esc(ce.headline_suggestion) + '</em>' : '')
+            + '</div>';
+        }
+        // Lede
+        if (ce.lede_verdict !== 'strong' || ce.lede_note) {
+          html += '<div class="vera-row"><span class="vera-label">Lede:</span> '
+            + '<span style="color:' + (ce.lede_verdict === 'strong' ? '#22c55e' : '#fbbf24') + ';">' + esc(ce.lede_verdict) + '</span>'
+            + (ce.lede_note ? ' — ' + esc(ce.lede_note) : '')
+            + '</div>';
+        }
+        // Reading level
+        if (ce.reading_level) {
+          html += '<div class="vera-row"><span class="vera-label">Reading level:</span> ' + esc(ce.reading_level) + '</div>';
+        }
+        // Corrections
+        if (ce.corrections && ce.corrections.length) {
+          html += '<div class="vera-corrections">';
+          ce.corrections.forEach(function (c) {
+            html += '<div class="vera-correction">'
+              + '<span class="vera-original">' + esc(c.original) + '</span>'
+              + ' → <span class="vera-suggested">' + esc(c.suggested) + '</span>'
+              + ' <span class="vera-reason">(' + esc(c.reason) + ')</span>'
+              + '</div>';
+          });
+          html += '</div>';
+        }
+        // Style notes
+        if (ce.style_notes && ce.style_notes.length) {
+          html += '<div class="vera-style-notes">' + ce.style_notes.map(function (n) {
+            return '<div class="vera-row">📌 ' + esc(n) + '</div>';
+          }).join('') + '</div>';
+        }
+        html += '</div></details>';
+      }
+
       // Preview toggle
       html += '<details><summary style="cursor:pointer;font-size:12px;color:var(--muted);margin-bottom:8px;">Preview article</summary>';
       html += '<div class="review-preview">' + esc((a.full_content || a.summary || 'No content').slice(0, 1000)) + '</div>';
