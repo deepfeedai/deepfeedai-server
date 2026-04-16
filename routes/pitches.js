@@ -135,7 +135,8 @@ router.get('/', auth, requirePermission('articles.read'), requirePitchesEnabled,
            a.source_url,
            a.category AS source_category,
            w.name    AS pitched_by_writer_name,
-           u.username AS requested_by_editor_name
+           u.username AS requested_by_editor_name,
+           1 + COALESCE(jsonb_array_length(p.attached_article_ids), 0) AS source_count
     FROM article_pitches p
     LEFT JOIN articles a ON a.id = p.source_article_id AND a.tenant_id = p.tenant_id
     LEFT JOIN writers w  ON w.id = p.pitched_by_writer_id

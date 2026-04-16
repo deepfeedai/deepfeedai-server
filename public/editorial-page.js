@@ -17,6 +17,7 @@
     initModals();
     wireTabs();
     wireOverrideModal();
+    wireWeakPitchModal();
     wireEnrichModal();
     wireNewPitch();
     wireReassign();
@@ -397,10 +398,26 @@
         : 'Editor tip from <strong>' + esc(p.requested_by_editor_name || 'editor') + '</strong>';
       var sourceUrl = p.source_url ? '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener" class="text-muted" style="font-size:12px;">↗ ' + esc(p.source_publisher || 'source') + '</a>' : '';
 
+      // Source-count chip — attached_article_ids may be NULL on legacy rows;
+      // backend returns at least 1 (the pitch's own source article).
+      var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) {
+        chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;';
+        chipLabel = '1 source &#9888;';
+      } else if (sc === 2) {
+        chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;';
+        chipLabel = '2 sources';
+      } else {
+        chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;';
+        chipLabel = sc + ' sources &#10003;';
+      }
+      var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'margin-right:6px;">' + chipLabel + '</span>';
+
       var html = '<div class="review-card" data-pitch="' + p.id + '">';
       html += '<div class="review-card-header">';
       html += '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>';
-      html += '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">PITCH</span>';
+      html += '<div style="display:flex;align-items:center;gap:6px;">' + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">PITCH</span></div>';
       html += '</div>';
       html += '<div class="review-meta">';
       html += '<span>' + initiator + '</span>';
@@ -413,9 +430,13 @@
       html += esc(p.angle_summary || '');
       html += '</div>';
       html += '<div class="review-actions">';
-      html += '<button class="btn btn-primary btn-sm" onclick="approvePitch(' + p.id + ')">Approve</button>';
+      var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
+      html += '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
       html += '<button class="btn btn-outline btn-sm" onclick="rejectPitch(' + p.id + ')">Reject</button>';
-      html += '<button class="btn btn-ghost btn-sm" onclick="openEnrich(' + p.id + ', ' + JSON.stringify(p.source_title || '').replace(/"/g, '&quot;') + ')">Enrich sources</button>';
+      html += '<button class="btn btn-ghost btn-sm" onclick="openEnrich(' + p.id + ', ' + titleArg + ')">Enrich sources</button>';
+      if (sc === 2) {
+        html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
+      }
       if (!p.pitched_by_writer_id) {
         html += '<button class="btn btn-ghost btn-sm" onclick="openReassign(' + p.id + ')">Assign writer</button>';
       }
@@ -423,6 +444,34 @@
       html += '</div>';
       return html;
     }).join('');
+  }
+
+  // Pre-approval intervention for weak (single-source) pitches.
+  // sc===1 → block with confirmation modal; otherwise pass through.
+  var pendingWeakPitch = null; // { pitchId, sourceTitle }
+  window.tryApprovePitch = function (id, sourceCount, sourceTitle) {
+    if (sourceCount && sourceCount >= 2) {
+      return window.approvePitch(id);
+    }
+    pendingWeakPitch = { pitchId: id, sourceTitle: sourceTitle || '' };
+    openModal('weakPitchModal');
+  };
+
+  function wireWeakPitchModal() {
+    document.getElementById('weakPitchEnrichFirstBtn').addEventListener('click', function () {
+      if (!pendingWeakPitch) return;
+      var p = pendingWeakPitch;
+      pendingWeakPitch = null;
+      closeModal('weakPitchModal');
+      window.openEnrich(p.pitchId, p.sourceTitle);
+    });
+    document.getElementById('weakPitchApproveAnywayBtn').addEventListener('click', function () {
+      if (!pendingWeakPitch) return;
+      var pid = pendingWeakPitch.pitchId;
+      pendingWeakPitch = null;
+      closeModal('weakPitchModal');
+      window.approvePitch(pid);
+    });
   }
 
   window.approvePitch = async function (id) {
@@ -508,9 +557,18 @@
       var ago = a.submitted_for_review_at ? timeSince(new Date(a.submitted_for_review_at)) : 'unknown';
       var wordCount = (a.full_content || '').split(/\s+/).filter(Boolean).length;
 
+      // "From pitch #N" provenance chip — shown when synthesis_meta.from_pitch is set
+      var sm = a.synthesis_meta;
+      if (typeof sm === 'string') { try { sm = JSON.parse(sm); } catch { sm = null; } }
+      var fromPitch = sm && sm.from_pitch ? sm.from_pitch : null;
+
       var html = '<div class="review-card" data-id="' + a.id + '">';
       html += '<div class="review-card-header">';
-      html += '<div class="review-title">' + esc(a.title || 'Untitled') + '</div>';
+      html += '<div class="review-title">' + esc(a.title || 'Untitled')
+        + (fromPitch
+            ? ' <span class="badge badge-muted" title="Synthesized from a pitch" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:11px;margin-left:6px;vertical-align:middle;">From pitch #' + fromPitch + '</span>'
+            : '')
+        + '</div>';
       html += '<div class="review-score ' + scoreClass + '">' + score + '/10</div>';
       html += '</div>';
 
