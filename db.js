@@ -1570,6 +1570,13 @@ async function initDb() {
     }
   } catch (err) { console.error('[DB] voice deprecation migration error:', err.message); }
 
+  // Backfill is_system=true for system agent roles that predate the flag
+  try {
+    await prepare(
+      "UPDATE writers SET is_system = true WHERE role IN ('editor', 'designer', 'copy-editor') AND (is_system = false OR is_system IS NULL)"
+    ).run();
+  } catch { /* non-fatal */ }
+
   // Backfill slugs for writers missing one
   try {
     const noSlug = await prepare("SELECT id, name FROM writers WHERE slug IS NULL OR slug = ''").all();

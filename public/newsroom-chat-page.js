@@ -159,11 +159,12 @@
 
   function scrollToBottom() {
     var thread = document.getElementById('chatThread');
-    // Double RAF ensures layout + any inline images have been measured
+    // Scroll immediately for synchronous cases, then again after paint + after
+    // any deferred layout (flex reflow, images) using RAF + setTimeout fallback.
+    thread.scrollTop = thread.scrollHeight;
     requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        thread.scrollTop = thread.scrollHeight;
-      });
+      thread.scrollTop = thread.scrollHeight;
+      setTimeout(function () { thread.scrollTop = thread.scrollHeight; }, 120);
     });
   }
 

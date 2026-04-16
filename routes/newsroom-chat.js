@@ -74,7 +74,11 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
         'SELECT title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
       ).get(articleId, req.tenantId).catch(() => null);
       if (article) {
-        enrichedMessage = `[Article context: "${article.title}"]\nCategory: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}\n\n${message}`;
+        const isExternal = article.content_type === 'curated' || !article.content_type || article.source;
+        const contextHeader = isExternal
+          ? `[External source article shared by editor — NOT one of your published articles]\nTitle: "${article.title}"\nCategory: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}\n\nRespond based on the article shared above. Do not search your own published articles for this.`
+          : `[Your article context: "${article.title}"]\nCategory: ${article.category || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}`;
+        enrichedMessage = `${contextHeader}\n\nEditor: ${message}`;
       }
     }
   }
