@@ -339,7 +339,9 @@
         + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
     }
 
-    var approveLabel = proposal.proposal_type === 'thumbnail' ? '✓ Apply thumbnail' : '✓ Apply headline';
+    var approveLabel = proposal.proposal_type === 'headline'
+      ? '✓ Apply headline'
+      : (proposal.article_id ? '✓ Apply to article' : '✓ Looks good');
     inner += '<div class="chat-proposal-actions">'
       + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
       + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
