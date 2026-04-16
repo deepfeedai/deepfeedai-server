@@ -396,7 +396,23 @@ app.use('/api/admin/metrics', require('./routes/admin-metrics'));
 app.use('/api/admin/logs', require('./routes/admin-logs'));
 
 // ── Image proxy — serves R2/external images with same-origin CORS so Cytoscape canvas can draw them ──
-app.get('/api/proxy-image', auth, async (req, res) => {
+// Accepts token via Authorization header OR ?token= query param (CSS background-image can't send headers)
+app.get('/api/proxy-image', async (req, res) => {
+  const headerToken = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  const queryToken  = (req.query.token || '').trim();
+  const token = headerToken || queryToken;
+  if (!token) return res.status(401).end();
+  try {
+    const { getSecrets } = require('./lib/secrets');
+    const jwt = require('jsonwebtoken');
+    const { jwtSecret, jwtSecretPrevious } = await getSecrets();
+    let ok = false;
+    try { jwt.verify(token, jwtSecret); ok = true; } catch { /* try fallback */ }
+    if (!ok && jwtSecretPrevious) {
+      try { jwt.verify(token, jwtSecretPrevious); ok = true; } catch { /* failed */ }
+    }
+    if (!ok) return res.status(401).end();
+  } catch { return res.status(401).end(); }
   const url = (req.query.url || '').trim();
   if (!url || !/^https:\/\/.+/.test(url)) return res.status(400).end();
   try {

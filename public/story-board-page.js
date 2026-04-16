@@ -57,7 +57,8 @@
   // ── Proxy URL for article images (bypasses R2 CORS on canvas) ─────────────────
   function proxyImg(url) {
     if (!url) return null;
-    return '/api/proxy-image?url=' + encodeURIComponent(url);
+    const token = typeof getToken === 'function' ? getToken() : '';
+    return '/api/proxy-image?url=' + encodeURIComponent(url) + (token ? '&token=' + encodeURIComponent(token) : '');
   }
 
   // ── Build Cytoscape stylesheet ────────────────────────────────────────────────
