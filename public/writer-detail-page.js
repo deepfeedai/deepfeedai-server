@@ -114,7 +114,7 @@
 
     // Header
     html += '<div class="wd-header">';
-    html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
+    html += w.avatar_url ? '<img src="' + esc(w.avatar_url) + '" class="wd-avatar" id="writerAvatarImg" />' : '<div class="wd-avatar-placeholder">&#9997;&#65039;</div>';
     html += '<div style="flex:1;min-width:0;">';
     var role = w.role || 'writer';
     html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span></h1>';
@@ -240,15 +240,28 @@
 
     // Avatar Style Overrides
     if (!isNewWriter) {
-      var styleFamilies = [
+      var editorialFamilies = [
         'editorial-illustration', 'documentary-photo', 'noir', 'minimalist-vector',
         'isometric-tech', 'vintage-print', 'cinematic-poster', 'mixed-media',
       ];
+      var illustrationFamilies = [
+        'anime-portrait', 'cel-shaded', 'studio-illustration', 'comic-book', '3d-render',
+      ];
+      function familyOpts(list, current) {
+        return list.map(function(f) { return '<option value="' + f + '"' + sel(current, f) + '>' + f + '</option>'; }).join('');
+      }
       html += '<div class="wd-card" style="margin-bottom:20px;">';
       html += '<div class="wd-section-title">Avatar Style</div>';
       html += '<div class="text-muted text-sm" style="margin-bottom:10px;">Pin a style family and freeform notes so avatar regenerations stay consistent. Leave blank to use tenant art direction.</div>';
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">';
-      html += field('Style Family', '<select class="form-control" id="fAvatarStyleFamily"><option value="">— Auto (tenant default) —</option>' + styleFamilies.map(function(f) { return '<option value="' + f + '"' + sel(w.avatar_style_family, f) + '>' + f + '</option>'; }).join('') + '</select>');
+      html += field('Style Family',
+        '<select class="form-control" id="fAvatarStyleFamily">'
+          + '<option value="">— Auto (tenant default) —</option>'
+          + '<optgroup label="Editorial">' + familyOpts(editorialFamilies, w.avatar_style_family) + '</optgroup>'
+          + '<optgroup label="Illustration / Animation">' + familyOpts(illustrationFamilies, w.avatar_style_family) + '</optgroup>'
+        + '</select>'
+        + '<div class="text-muted text-sm" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</div>'
+      );
       html += field('Accent Color', '<input type="color" class="form-control" id="fAccentColor" value="' + esc(w.accent_color || '#8b5cf6') + '" style="height:38px;padding:4px;" />');
       html += '</div>';
       html += field('Style Notes', '<textarea class="form-control" id="fAvatarStyleNotes" rows="2" placeholder="e.g. older, greying beard, warm smile, mid-conversation">' + esc(w.avatar_style_notes || '') + '</textarea>');
@@ -443,11 +456,11 @@
           var newUrl = data.avatar_url ? (data.avatar_url + (data.avatar_url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + Date.now()) : null;
           if (newUrl) {
             writerData.avatar_url = data.avatar_url;
-            var img = document.getElementById('writerAvatarImg');
+            var img = document.getElementById('writerAvatarImg') || document.querySelector('.wd-avatar');
             if (img && img.tagName === 'IMG') {
               img.src = newUrl;
             } else if (img) {
-              img.outerHTML = '<img id="writerAvatarImg" src="' + newUrl + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
+              img.outerHTML = '<img id="writerAvatarImg" class="wd-avatar" src="' + newUrl + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);" />';
             }
           }
           showAlert('Avatar regenerated');

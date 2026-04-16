@@ -321,7 +321,7 @@ let apiKeyVisible = false;
     defaultEl.value = defaultProvider;
     populateImgModelDropdown(defaultModelEl, defaultProvider, defaultModel, false);
 
-    for (const op of ['thumbnail-render', 'inline-image']) {
+    for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
       const opCfg = cfg.operations?.[op] || {};
       const provEl  = document.getElementById('imgOpProvider-' + op);
       const modelEl = document.getElementById('imgOpModel-' + op);
@@ -329,15 +329,48 @@ let apiKeyVisible = false;
       populateImgModelDropdown(modelEl, opCfg.provider || '', opCfg.model || '', true);
     }
 
-    // Art direction dropdown — plain string setting, empty = Auto.
-    const adEl = document.getElementById('artDirectionSelect');
-    if (adEl) adEl.value = settings.art_direction || '';
+    // Art direction — parse a string (family name) or JSON object ({style} or {prompt}).
+    // Each target has its own setting key (art_direction_thumbnails / _avatars)
+    // with fallback to legacy `art_direction` for display when the per-target
+    // key is unset.
+    function parseArtDirection(raw) {
+      let family = '';
+      let custom = '';
+      if (raw) {
+        const s = String(raw).trim();
+        if (s.startsWith('{')) {
+          try {
+            const obj = JSON.parse(s);
+            if (obj.prompt) custom = String(obj.prompt);
+            else if (obj.style) family = String(obj.style);
+          } catch { family = s; }
+        } else {
+          family = s;
+        }
+      }
+      return { family, custom };
+    }
+
+    const legacyAd = settings.art_direction;
+    const thumbRaw = settings.art_direction_thumbnails || legacyAd;
+    const avatarRaw = settings.art_direction_avatars || legacyAd;
+    const thumbParsed = parseArtDirection(thumbRaw);
+    const avatarParsed = parseArtDirection(avatarRaw);
+
+    const thumbSel = document.getElementById('artDirectionThumbSelect');
+    const thumbCustom = document.getElementById('artDirectionThumbCustom');
+    const avatarSel = document.getElementById('artDirectionAvatarSelect');
+    const avatarCustom = document.getElementById('artDirectionAvatarCustom');
+    if (thumbSel) thumbSel.value = thumbParsed.family;
+    if (thumbCustom) thumbCustom.value = thumbParsed.custom;
+    if (avatarSel) avatarSel.value = avatarParsed.family;
+    if (avatarCustom) avatarCustom.value = avatarParsed.custom;
   }
 
   document.getElementById('imgDefaultProvider').addEventListener('change', function() {
     populateImgModelDropdown(document.getElementById('imgDefaultModel'), this.value, '', false);
   });
-  for (const op of ['thumbnail-render', 'inline-image']) {
+  for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
     document.getElementById('imgOpProvider-' + op).addEventListener('change', function() {
       populateImgModelDropdown(document.getElementById('imgOpModel-' + op), this.value, '', true);
     });
@@ -351,7 +384,7 @@ let apiKeyVisible = false;
       },
       operations: {},
     };
-    for (const op of ['thumbnail-render', 'inline-image']) {
+    for (const op of ['thumbnail-render', 'inline-image', 'writer-avatar', 'standalone-design']) {
       const provider = document.getElementById('imgOpProvider-' + op).value;
       if (!provider) continue;
       const model = document.getElementById('imgOpModel-' + op).value;
@@ -359,7 +392,23 @@ let apiKeyVisible = false;
     }
     if (!Object.keys(cfg.operations).length) delete cfg.operations;
 
-    const artDirection = (document.getElementById('artDirectionSelect')?.value || '').trim();
+    // Build per-target art direction values. Textarea wins over dropdown.
+    // Empty both = clear that target's setting.
+    function buildArtDirectionValue(family, custom, appliesTo) {
+      if (custom) {
+        return JSON.stringify({ prompt: custom, applies_to: appliesTo, notes: null });
+      }
+      if (family) {
+        return JSON.stringify({ style: family });
+      }
+      return '';
+    }
+    const thumbFamily = (document.getElementById('artDirectionThumbSelect')?.value || '').trim();
+    const thumbCustom = (document.getElementById('artDirectionThumbCustom')?.value || '').trim();
+    const avatarFamily = (document.getElementById('artDirectionAvatarSelect')?.value || '').trim();
+    const avatarCustom = (document.getElementById('artDirectionAvatarCustom')?.value || '').trim();
+    const artDirectionThumbnails = buildArtDirectionValue(thumbFamily, thumbCustom, ['thumbnails']);
+    const artDirectionAvatars = buildArtDirectionValue(avatarFamily, avatarCustom, ['avatars']);
 
     try {
       this.disabled = true;
@@ -369,7 +418,8 @@ let apiKeyVisible = false;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image_provider_config: JSON.stringify(cfg),
-          art_direction: artDirection,
+          art_direction_thumbnails: artDirectionThumbnails,
+          art_direction_avatars: artDirectionAvatars,
         }),
       });
       showAlert('Image provider settings saved ✓');

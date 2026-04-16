@@ -1584,9 +1584,11 @@ async function initDb() {
     console.log(`✅ Seeded ${FEATURE_DEFINITIONS.length} feature definitions across ${plans.length} plans`);
   } catch (err) { console.error('[DB] Feature seed error:', err.message); }
 
-  // Backfill: if an existing Iris writer was seeded before role='designer' was added, upgrade her role.
+  // Backfill: if an existing Iris/Maxwell writer was seeded before role was added (or a prior
+  // role-save failure left role=NULL), repair the role. Idempotent.
   try {
-    await p.query(`UPDATE writers SET role = 'designer' WHERE LOWER(name) = 'iris' AND role != 'designer'`).catch(() => {});
+    await p.query(`UPDATE writers SET role = 'designer' WHERE LOWER(name) = 'iris' AND (role IS NULL OR role != 'designer')`).catch(() => {});
+    await p.query(`UPDATE writers SET role = 'editor' WHERE LOWER(name) = 'maxwell' AND (role IS NULL OR role != 'editor')`).catch(() => {});
   } catch (_) { /* writers table may not exist yet in fresh envs — ignore */ }
 
   // Seed admin user (only if ADMIN_PASSWORD env var is set — otherwise setup wizard handles it)

@@ -59,6 +59,21 @@
       var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Prediction Check' };
       var sourceCount = (p.source_article_ids || []).length;
       var memRefs = (p.memory_refs || []);
+
+      // Source-count chip (red 1 / amber 2 / green 3+)
+      var sc = sourceCount || 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) {
+        chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;';
+        chipLabel = '1 source &#9888;';
+      } else if (sc === 2) {
+        chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;';
+        chipLabel = '2 sources';
+      } else {
+        chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;';
+        chipLabel = sc + ' sources &#10003;';
+      }
+      var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
       var priorityStars = '';
       for (var i = 0; i < Math.round((p.priority || 5) / 2); i++) priorityStars += '*';
 
@@ -68,8 +83,11 @@
 
       var actions = '';
       if (p.status === 'pending') {
-        actions = '<button class="btn btn-primary btn-sm" onclick="approvePitch(' + p.id + ')">Approve & Write</button>'
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve & Write</button>'
           + '<button class="btn btn-outline btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>';
+        if (sc === 2) {
+          actions += '<span class="text-muted" style="font-size:11px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
+        }
       } else {
         var statusBadge = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
           : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
@@ -86,7 +104,7 @@
         + '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>'
         + '</div>'
         + '</div>'
-        + '<div class="pitch-headline">' + esc(p.headline) + '</div>'
+        + '<div class="pitch-headline">' + sourceChip + ' ' + esc(p.headline) + '</div>'
         + '<div class="pitch-reasoning">' + esc(p.reasoning) + '</div>'
         + '<div class="pitch-meta">'
         + sourceCount + ' source' + (sourceCount !== 1 ? 's' : '')
@@ -116,6 +134,21 @@
       }
     };
   }
+
+  // Pre-approval intervention: warn before approving a single-source pitch.
+  // Uses native confirm() since this page doesn't host the enrichModal markup.
+  window.tryApprovePitch = function (id, sourceCount) {
+    if (sourceCount && sourceCount >= 2) {
+      return window.approvePitch(id);
+    }
+    var ok = confirm(
+      'Weak pitch — only 1 source.\n\n'
+      + 'Approving will synthesize an article from a single source, '
+      + 'which typically fails editorial review.\n\n'
+      + 'OK = Approve anyway, Cancel = abort.'
+    );
+    if (ok) return window.approvePitch(id);
+  };
 
   window.approvePitch = async function (id) {
     var restore = optimisticRemoveCard(id);

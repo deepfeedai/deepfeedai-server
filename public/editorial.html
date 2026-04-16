@@ -142,6 +142,24 @@
       </div>
     </div>
 
+    <!-- Weak-pitch (single source) confirmation modal -->
+    <div class="modal-overlay" id="weakPitchModal">
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <div class="modal-title">Weak pitch &mdash; only 1 source</div>
+          <button class="modal-close" data-close-modal>&#10005;</button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted">Approving this pitch will synthesize an article from a single source, which typically fails editorial review. Options:</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" data-close-modal>Cancel</button>
+          <button class="btn btn-ghost" id="weakPitchApproveAnywayBtn">Approve anyway</button>
+          <button class="btn btn-primary" id="weakPitchEnrichFirstBtn">Enrich first</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Override-cap modal -->
     <div class="modal-overlay" id="overrideModal">
       <div class="modal modal-sm">

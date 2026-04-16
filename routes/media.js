@@ -17,6 +17,7 @@ const storage = require('../lib/storage');
 const { getAppConfig } = require('../lib/app-config');
 const { logUsage } = require('../lib/ai-usage');
 const { complete: aiComplete, generateVoice, generateImage: aiGenerateImage } = require('../lib/ai-router');
+const { loadPrompt } = require('../lib/prompt-loader');
 const { checkPlanLimit } = require('../lib/plan-limits');
 const { requireFeature }               = require('../middleware/feature-gate');
 const { logAudit }                      = require('../middleware/audit');
@@ -32,30 +33,94 @@ const imageUpload = multer({
 });
 const MAX_CHARS     = 900;
 
-async function getAiSummary(title, rawSummary, tenantId) {
-  const prompt = `You are a professional news anchor. Write a concise 2-3 sentence spoken summary of this AI news article for a text-to-speech audio player. Use natural spoken language — no bullet points, no markdown, no hashtags. Sound engaging and informative.
-
-Article title: ${title}
-Article summary: ${(rawSummary || '').replace(/<[^>]+>/g, '').slice(0, 800)}
-
-Spoken summary:`;
-
+async function resolveWriterBeats(writerId, tenantId) {
+  if (!writerId) return '';
   try {
+    const rows = await db.prepare(
+      'SELECT c.name FROM writer_beats wb JOIN categories c ON c.id = wb.category_id WHERE wb.writer_id = $1 AND wb.tenant_id = $2'
+    ).all(writerId, tenantId);
+    return (rows || []).map(r => r.name).filter(Boolean).join(', ');
+  } catch { return ''; }
+}
+
+async function getAiSummary(article, writer, tenantId) {
+  try {
+    const cleanSummary = (article.summary || '').replace(/<[^>]+>/g, '').slice(0, 800);
+    const cleanBody = (article.content || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 2500);
+    const combinedContext = cleanSummary + (cleanBody ? '\n\nExcerpt from article:\n' + cleanBody : '');
+    const writerName = writer?.name || 'the desk';
+    const tone       = writer?.tone || 'clear, conversational, news-anchor';
+    const beats      = (writer && writer.beats) ? writer.beats : 'AI and tech news';
+
+    const rendered = loadPrompt('audio-intro').render({
+      writerName,
+      tone,
+      beats,
+      title: article.title || '',
+      summary: combinedContext,
+    });
+
     const result = await aiComplete({
       operation: 'audio-script',
       tenantId,
-      messages: [{ role: 'user', content: prompt }],
+      messages: rendered.messages,
+      temperature: rendered.temperature,
+      maxTokens: rendered.maxTokens,
       trigger: 'manual',
     });
     if (!result) return null; // budget denied or no API key
-    return result.text?.trim() || null;
-  } catch { return null; }
+
+    const raw = result.text?.trim();
+    if (!raw) return null;
+
+    // Reject obviously truncated output so we fall back to raw summary:
+    const MIN_CHARS = 200;
+    if (raw.length < MIN_CHARS) {
+      console.warn(`[Media] audio script too short (${raw.length} chars), falling back. Text: ${raw.slice(0, 200)}`);
+      return null;
+    }
+
+    // Reject output that ends on a dangling preposition / conjunction (sign of truncation)
+    const DANGLING = /\s(with|and|or|the|a|of|to|for|in|on|at|by|from|as|that|than|like|into|about|after|before|but|when|while|because|although|though|unless)\s*\.?$/i;
+    if (DANGLING.test(raw)) {
+      console.warn(`[Media] audio script ends on dangling word, falling back. Text: ${raw.slice(-80)}`);
+      return null;
+    }
+
+    // If last char is not . ! ?, trim to the last sentence boundary before returning
+    if (!/[.!?]["']?$/.test(raw)) {
+      const lastStop = Math.max(raw.lastIndexOf('.'), raw.lastIndexOf('!'), raw.lastIndexOf('?'));
+      if (lastStop > MIN_CHARS) {
+        return raw.slice(0, lastStop + 1);
+      }
+      // No sentence boundary found — reject
+      console.warn('[Media] audio script has no sentence terminator, falling back. Text:', raw.slice(0, 200));
+      return null;
+    }
+
+    return raw;
+  } catch (err) {
+    console.warn('[Media] getAiSummary failed:', err.message);
+    return null;
+  }
 }
 
-async function buildTtsText(title, summary, source, tenantId) {
-  const aiSummary = await getAiSummary(title, summary, tenantId);
-  const body = aiSummary || (summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 700);
-  return `From ${source}. ${title}. ${body}`.slice(0, MAX_CHARS);
+function buildSyntheticFallback(article) {
+  const summary = (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  if (!summary) return '';
+  // Take first 1-2 complete sentences from summary
+  const firstSentences = summary.match(/^[^.!?]+[.!?](?:\s+[^.!?]+[.!?])?/);
+  const body = firstSentences ? firstSentences[0] : summary.slice(0, 300);
+  return body.slice(0, 600);
+}
+
+async function buildTtsText(article, writer, tenantId) {
+  const aiSummary = await getAiSummary(article, writer, tenantId);
+  const fallback  = buildSyntheticFallback(article) || (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
+  const text = aiSummary || fallback;
+  const final = text.slice(0, MAX_CHARS);
+  console.log(`[Media] audio script (${final.length} chars): ${final.slice(0, 200)}${final.length > 200 ? '...' : ''}`);
+  return final;
 }
 
 /**
@@ -137,20 +202,28 @@ router.post('/generate-audio', auth, requirePermission('media.create'), requireF
     let resolvedVoiceId = appCfg.elevenlabs_voice_id;
     let resolvedVoiceName = null;
     let resolvedVoiceAvatarUrl = null;
+    let writerForPrompt = null;
 
-    if (voiceId) {
-      // voiceId is now a direct ElevenLabs voice ID string
-      resolvedVoiceId = voiceId;
-    } else if (article.writer_id) {
-      const writer = await db.prepare('SELECT elevenlabs_voice_id, name, avatar_url FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
-      if (writer?.elevenlabs_voice_id) {
-        resolvedVoiceId = writer.elevenlabs_voice_id;
-        resolvedVoiceName = writer.name;
-        resolvedVoiceAvatarUrl = writer.avatar_url || null;
+    // Always load writer (for persona-aware audio script) when article has one,
+    // independent of whether the caller overrode voiceId.
+    if (article.writer_id) {
+      const writer = await db.prepare('SELECT id, elevenlabs_voice_id, name, tone, avatar_url FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+      if (writer) {
+        writerForPrompt = writer;
+        writerForPrompt.beats = await resolveWriterBeats(writer.id, req.tenantId);
+        if (!voiceId && writer.elevenlabs_voice_id) {
+          resolvedVoiceId = writer.elevenlabs_voice_id;
+          resolvedVoiceName = writer.name;
+          resolvedVoiceAvatarUrl = writer.avatar_url || null;
+        }
       }
     }
+    if (voiceId) {
+      // explicit voiceId override wins
+      resolvedVoiceId = voiceId;
+    }
 
-    const text   = await buildTtsText(article.title, article.summary, article.source || 'Deep Feed AI', req.tenantId);
+    const text   = await buildTtsText(article, writerForPrompt, req.tenantId);
     const mp3Buf = await generateSpeech(text, resolvedVoiceId, req.tenantId, 'audio', article.slug);
     const slug     = toSlug(article.title) || `article-${article.id}`;
     const filename = `${slug}-${article.id}.mp3`;

@@ -348,7 +348,7 @@
           </div>
           <div class="form-group">
             <label class="form-label">Per-Operation Overrides</label>
-            <div style="display:grid;grid-template-columns:140px 1fr 2fr;gap:8px;align-items:center;">
+            <div style="display:grid;grid-template-columns:180px 1fr 2fr;gap:8px;align-items:center;">
               <div style="font-size:13px;color:var(--text-muted);">Thumbnail</div>
               <select class="form-control" id="imgOpProvider-thumbnail-render">
                 <option value="">Use default</option>
@@ -363,14 +363,16 @@
                 <option value="dalle">DALL-E</option>
               </select>
               <select class="form-control" id="imgOpModel-inline-image"></select>
-              <div style="font-size:13px;color:var(--text-muted);">Writer Avatar</div>
+
+              <div style="font-size:13px;color:var(--text-muted);" title="Writer avatar generation">Writer avatars</div>
               <select class="form-control" id="imgOpProvider-writer-avatar">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
                 <option value="dalle">DALL-E</option>
               </select>
               <select class="form-control" id="imgOpModel-writer-avatar"></select>
-              <div style="font-size:13px;color:var(--text-muted);">Standalone Design</div>
+
+              <div style="font-size:13px;color:var(--text-muted);" title="Iris ad-hoc image generation">Iris ad-hoc</div>
               <select class="form-control" id="imgOpProvider-standalone-design">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
@@ -381,19 +383,61 @@
             <p class="form-help">Override per operation — e.g. faster/cheaper Imagen for inline images, DALL-E HD for featured thumbnails.</p>
           </div>
           <div class="form-group">
-            <label class="form-label">Art Direction (optional)</label>
-            <select class="form-control" id="artDirectionSelect">
+            <h4 style="margin:0 0 8px 0;">Art Direction — Article Thumbnails</h4>
+            <label class="form-label" for="artDirectionThumbSelect">Style Family (optional)</label>
+            <select class="form-control" id="artDirectionThumbSelect">
               <option value="">Auto (category-based rotation)</option>
-              <option value="editorial-illustration">Editorial Illustration</option>
-              <option value="documentary-photo">Documentary Photo</option>
-              <option value="noir">Noir</option>
-              <option value="minimalist-vector">Minimalist Vector</option>
-              <option value="isometric-tech">Isometric Tech</option>
-              <option value="vintage-print">Vintage Print</option>
-              <option value="cinematic-poster">Cinematic Poster</option>
-              <option value="mixed-media">Mixed Media</option>
+              <optgroup label="Editorial">
+                <option value="editorial-illustration">Editorial Illustration</option>
+                <option value="documentary-photo">Documentary Photo</option>
+                <option value="noir">Noir</option>
+                <option value="minimalist-vector">Minimalist Vector</option>
+                <option value="isometric-tech">Isometric Tech</option>
+                <option value="vintage-print">Vintage Print</option>
+                <option value="cinematic-poster">Cinematic Poster</option>
+                <option value="mixed-media">Mixed Media</option>
+              </optgroup>
+              <optgroup label="Illustration / Animation">
+                <option value="anime-portrait">Anime Portrait</option>
+                <option value="cel-shaded">Cel-Shaded</option>
+                <option value="studio-illustration">Studio Illustration (Ghibli-inspired)</option>
+                <option value="comic-book">Comic Book</option>
+                <option value="3d-render">3D Render (Pixar-adjacent)</option>
+              </optgroup>
             </select>
-            <p class="form-help">Forces a single visual style across thumbnails and writer avatars for this tenant. Leave as Auto to let the system rotate styles by category.</p>
+            <p class="form-help" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</p>
+            <label class="form-label" for="artDirectionThumbCustom" style="margin-top:8px;">Custom style prompt (advanced)</label>
+            <textarea class="form-control" id="artDirectionThumbCustom" rows="5" placeholder='Optional — fully custom thumbnail style. Example: "Cinematic newsroom photo, moody lighting, high contrast..."'></textarea>
+            <p class="form-help">Applies to article thumbnails. Textarea takes priority over dropdown.</p>
+          </div>
+
+          <div class="form-group">
+            <h4 style="margin:0 0 8px 0;">Art Direction — Writer Avatars</h4>
+            <label class="form-label" for="artDirectionAvatarSelect">Style Family (optional)</label>
+            <select class="form-control" id="artDirectionAvatarSelect">
+              <option value="">Auto (category-based rotation)</option>
+              <optgroup label="Editorial">
+                <option value="editorial-illustration">Editorial Illustration</option>
+                <option value="documentary-photo">Documentary Photo</option>
+                <option value="noir">Noir</option>
+                <option value="minimalist-vector">Minimalist Vector</option>
+                <option value="isometric-tech">Isometric Tech</option>
+                <option value="vintage-print">Vintage Print</option>
+                <option value="cinematic-poster">Cinematic Poster</option>
+                <option value="mixed-media">Mixed Media</option>
+              </optgroup>
+              <optgroup label="Illustration / Animation">
+                <option value="anime-portrait">Anime Portrait</option>
+                <option value="cel-shaded">Cel-Shaded</option>
+                <option value="studio-illustration">Studio Illustration (Ghibli-inspired)</option>
+                <option value="comic-book">Comic Book</option>
+                <option value="3d-render">3D Render (Pixar-adjacent)</option>
+              </optgroup>
+            </select>
+            <p class="form-help" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</p>
+            <label class="form-label" for="artDirectionAvatarCustom" style="margin-top:8px;">Custom style prompt (advanced)</label>
+            <textarea class="form-control" id="artDirectionAvatarCustom" rows="5" placeholder='Optional — fully custom avatar style. Example: "Attack on Titan anime aesthetic, cross-hatching, sharp line work..."'></textarea>
+            <p class="form-help">Applies to writer avatars (unless the writer has a per-writer override). Textarea takes priority over dropdown.</p>
           </div>
           <button class="btn btn-primary" id="saveImageProviderBtn">Save Image Provider Settings</button>
         </div>
