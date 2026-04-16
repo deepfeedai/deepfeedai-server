@@ -77,8 +77,8 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
     // ── Sources ──────────────────────────────────────────────────────────
     pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE is_active = true)  AS active,
-        COUNT(*) FILTER (WHERE is_active = false) AS inactive
+        COUNT(*) FILTER (WHERE is_active = 1) AS active,
+        COUNT(*) FILTER (WHERE is_active = 0) AS inactive
       FROM sources WHERE tenant_id = $1
     `, [tid]),
 
