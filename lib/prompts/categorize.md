@@ -1,7 +1,7 @@
 ---
 operation: categorize
 tier: fast
-maxTokens: 20
+maxTokens: 200
 temperature: 0.1
 version: 1
 ---
