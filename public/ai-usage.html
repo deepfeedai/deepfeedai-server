@@ -6,113 +6,68 @@
   <title>DeepFeedAI Admin — AI Usage</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
-    .spark-chart {
-      display: flex;
-      align-items: flex-end;
-      gap: 3px;
-      height: 100px;
-      padding: 8px 0 0;
-    }
-    .spark-bar {
-      flex: 1;
-      background: var(--accent, #4F8EF7);
-      opacity: 0.75;
-      border-radius: 2px 2px 0 0;
-      min-height: 2px;
-      transition: opacity 0.15s;
-      cursor: default;
-      position: relative;
-    }
-    .spark-bar:hover { opacity: 1; }
-    .spark-bar[title]:hover::after {
-      content: attr(title);
-      position: absolute;
-      bottom: calc(100% + 4px);
-      left: 50%;
-      transform: translateX(-50%);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      white-space: nowrap;
-      z-index: 10;
-    }
-    .spark-x-labels {
-      display: flex;
-      justify-content: space-between;
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-    .bar-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .bar-label {
-      width: 120px;
-      font-size: 12px;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .bar-track {
-      flex: 1;
-      height: 10px;
-      background: var(--bg);
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .bar-fill {
-      height: 100%;
-      border-radius: 5px;
-      transition: width 0.4s ease;
-    }
-    .bar-value {
-      width: 60px;
-      text-align: right;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    .budget-meter {
-      height: 8px;
-      background: var(--bg);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 8px;
-    }
-    .budget-fill {
-      height: 100%;
-      border-radius: 4px;
-      transition: width 0.4s ease;
-    }
-    .range-tabs {
-      display: flex;
-      gap: 4px;
-    }
-    .range-tab {
-      padding: 4px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: transparent;
-      color: var(--text-muted);
-      font-size: 12px;
-      cursor: pointer;
-    }
-    .range-tab.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: var(--accent);
-    }
+    /* ── Spark chart ─── */
+    .spark-chart { display:flex; align-items:flex-end; gap:3px; height:80px; padding:8px 0 0; }
+    .spark-bar { flex:1; background:var(--accent); opacity:0.7; border-radius:2px 2px 0 0; min-height:2px; transition:opacity 0.15s; cursor:default; position:relative; }
+    .spark-bar:hover { opacity:1; }
+    .spark-bar[title]:hover::after { content:attr(title); position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); background:var(--bg-card); border:1px solid var(--border); color:var(--text); font-size:10px; padding:2px 6px; border-radius:4px; white-space:nowrap; z-index:10; }
+    .spark-x-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:4px; }
+
+    /* ── Horizontal bars ─── */
+    .bar-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .bar-label { width:130px; font-size:12px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+    .bar-track { flex:1; height:10px; background:var(--bg); border-radius:5px; overflow:hidden; }
+    .bar-fill  { height:100%; border-radius:5px; transition:width 0.4s ease; }
+    .bar-value { width:80px; text-align:right; font-size:12px; color:var(--muted); flex-shrink:0; }
+
+    /* ── Model sub-rows ─── */
+    .model-group { margin-bottom:14px; }
+    .model-group-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-weight:600; font-size:13px; }
+    .model-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; padding-left:20px; }
+    .model-label { width:200px; font-size:12px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+    .model-tokens { font-size:11px; color:var(--muted); width:120px; text-align:right; flex-shrink:0; }
+
+    /* ── Budget meter ─── */
+    .budget-meter { height:8px; background:var(--bg); border-radius:4px; overflow:hidden; margin-top:8px; }
+    .budget-fill  { height:100%; border-radius:4px; transition:width 0.4s ease; }
+
+    /* ── Range tabs ─── */
+    .range-tabs { display:flex; gap:4px; }
+    .range-tab { padding:4px 12px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--muted); font-size:12px; cursor:pointer; }
+    .range-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    /* ── BYOK strip ─── */
+    .byok-strip { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-3); margin-bottom:var(--space-5); }
+    .byok-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:var(--space-4) var(--space-5); }
+    .byok-card-label { font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:4px; }
+    .byok-card-value { font-size:22px; font-weight:700; line-height:1; }
+    .byok-card-sub   { font-size:11px; color:var(--muted); margin-top:3px; }
+    .byok-card-keys  { border-color:rgba(0,217,255,0.3); }
+    .byok-card-platform { border-color:var(--border); }
+
+    /* ── Anomaly banner ─── */
+    .anomaly-banner { display:flex; align-items:center; gap:10px; padding:10px 14px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:8px; margin-bottom:var(--space-5); font-size:13px; }
+    .anomaly-banner .anomaly-icon { font-size:18px; flex-shrink:0; }
+
+    /* ── Writer table ─── */
+    .writer-usage-row td { font-size:12px; vertical-align:middle; }
+    .writer-avatar-sm { width:24px; height:24px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px; }
+    .writer-initials-sm { display:inline-flex; width:24px; height:24px; border-radius:50%; background:var(--accent-dim); color:var(--accent); font-size:11px; font-weight:700; align-items:center; justify-content:center; margin-right:6px; vertical-align:middle; }
+
+    /* ── Call log ─── */
+    .call-log-filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:var(--space-3); align-items:center; }
+    .call-log-filters select, .call-log-filters input { padding:5px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); font-size:12px; }
+    .call-log-table td { font-size:11px; white-space:nowrap; }
+    .byai-badge { background:rgba(0,217,255,0.12); color:var(--accent); border-radius:4px; padding:1px 5px; font-size:10px; }
+    .platform-badge { background:var(--border); color:var(--muted); border-radius:4px; padding:1px 5px; font-size:10px; }
+
+    /* ── Section two-col ─── */
+    .usage-two-col { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-4); margin-bottom:var(--space-6); }
+    @media (max-width:800px) { .usage-two-col { grid-template-columns:1fr; } .byok-strip { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
 <div class="admin-layout">
-  <!-- Main -->
   <main class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
@@ -122,23 +77,40 @@
     <div class="page-body">
 
       <!-- Controls -->
-      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:var(--space-4);">
-        <div style="display:flex;gap:8px;align-items:center;">
-          <div class="range-tabs" id="rangeTabs">
-            <button class="range-tab" data-range="7d">7d</button>
-            <button class="range-tab active" data-range="30d">30d</button>
-            <button class="range-tab" data-range="90d">90d</button>
-          </div>
-          <button class="btn btn-primary" id="refreshBtn">Refresh</button>
+      <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:var(--space-4);gap:8px;">
+        <div class="range-tabs" id="rangeTabs">
+          <button class="range-tab" data-range="7d">7d</button>
+          <button class="range-tab active" data-range="30d">30d</button>
+          <button class="range-tab" data-range="90d">90d</button>
+        </div>
+        <button class="btn btn-primary btn-sm" id="refreshBtn">Refresh</button>
+      </div>
+
+      <!-- Anomaly banner (hidden by default) -->
+      <div class="anomaly-banner" id="anomalyBanner" hidden>
+        <span class="anomaly-icon">⚠️</span>
+        <span id="anomalyText"></span>
+      </div>
+
+      <!-- BYOK vs Platform split -->
+      <div class="dash-section-label">Key Split</div>
+      <div class="byok-strip" id="byokStrip">
+        <div class="byok-card byok-card-keys">
+          <div class="byok-card-label">Your API Keys (BYOK)</div>
+          <div class="byok-card-value" id="byokCost">—</div>
+          <div class="byok-card-sub" id="byokCalls"></div>
+        </div>
+        <div class="byok-card byok-card-platform">
+          <div class="byok-card-label">Platform Credits</div>
+          <div class="byok-card-value" id="platformCredits">—</div>
+          <div class="byok-card-sub" id="platformCalls"></div>
         </div>
       </div>
 
-      <!-- Promo Code & Credits -->
+      <!-- Credits & promo -->
       <div class="dash-section-label">Credits</div>
       <div class="card-section" style="margin-bottom:28px;">
-        <div class="section-header">
-          <h2 class="section-title">Buy &amp; Redeem Credits</h2>
-        </div>
+        <div class="section-header"><h2 class="section-title">Buy &amp; Redeem Credits</h2></div>
         <div style="padding:16px 20px;">
           <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
             <input type="text" id="promoCodeInput" placeholder="Enter promo code" style="flex:1;padding:8px 12px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#e0e0e0;">
@@ -150,54 +122,66 @@
         </div>
       </div>
 
-      <!-- Stat cards -->
+      <!-- Overview stat cards -->
       <div class="dash-section-label">Overview</div>
       <div class="stat-grid" id="statCards">
         <div class="stat-card">
+          <div class="stat-label">Total Cost</div>
+          <div class="stat-value" id="statCost">—</div>
+          <div class="stat-delta">this period</div>
+        </div>
+        <div class="stat-card">
           <div class="stat-label">Credits Used</div>
-          <div class="stat-value" id="statCredits">--</div>
+          <div class="stat-value" id="statCredits">—</div>
           <div class="stat-delta" id="statCreditsDelta"></div>
         </div>
         <div class="stat-card">
           <div class="stat-label">API Calls</div>
-          <div class="stat-value" id="statCalls">--</div>
-          <div class="stat-delta" id="statCallsDelta"></div>
+          <div class="stat-value" id="statCalls">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Cache Hit Rate</div>
+          <div class="stat-value" id="statCacheRate">—</div>
+          <div class="stat-delta" id="statCacheSaved"></div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Total Tokens</div>
-          <div class="stat-value" id="statTokens">--</div>
+          <div class="stat-value" id="statTokens">—</div>
           <div class="stat-delta">input + output</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Success Rate</div>
-          <div class="stat-value" id="statSuccess">--</div>
-          <div class="stat-delta" id="statSuccessDelta"></div>
+          <div class="stat-value" id="statSuccess">—</div>
         </div>
       </div>
 
-      <!-- Credit efficiency -->
+      <!-- Efficiency -->
       <div class="dash-section-label">Efficiency</div>
-      <div class="stat-grid" style="grid-template-columns:1fr 1fr;">
+      <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card" style="text-align:center;">
-          <div class="stat-label">Credits per Article</div>
-          <div class="stat-value" id="statCreditsPerArticle">--</div>
+          <div class="stat-label">Cost per Article</div>
+          <div class="stat-value" id="statCostPerArticle">—</div>
           <div class="stat-delta" id="statArticleCount"></div>
         </div>
         <div class="stat-card" style="text-align:center;">
-          <div class="stat-label">Most Active Article</div>
-          <div class="stat-value" id="statTopArticleCredits">--</div>
-          <div class="stat-delta" id="statTopArticleSlug" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px auto 0;"></div>
+          <div class="stat-label">Credits per Article</div>
+          <div class="stat-value" id="statCreditsPerArticle">—</div>
+        </div>
+        <div class="stat-card" style="text-align:center;">
+          <div class="stat-label">Most Expensive Article</div>
+          <div class="stat-value" id="statTopArticleCost">—</div>
+          <div class="stat-delta" id="statTopArticleSlug" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px auto 0;"></div>
         </div>
       </div>
 
-      <!-- Credits card -->
+      <!-- Budget -->
       <div class="dash-section-label">Budget</div>
       <div class="card-section" style="margin-bottom:28px;">
         <div class="section-header">
           <h2 class="section-title">Monthly Credits</h2>
-          <span class="text-muted text-sm" id="creditsLabel">--</span>
+          <span class="text-muted text-sm" id="creditsLabel">—</span>
         </div>
-        <div class="card-body" style="padding:16px 20px;">
+        <div style="padding:16px 20px;">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
             <span id="creditsUsed">0 used</span>
             <span id="creditsLimit">0 limit</span>
@@ -205,20 +189,20 @@
           <div class="budget-meter">
             <div class="budget-fill" id="creditsFill" style="width:0%;background:#22c55e;"></div>
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;">
             <span id="creditsToday">Today: 0 cr</span>
             <span id="creditsRemaining">Remaining: 0 cr</span>
           </div>
         </div>
       </div>
 
-      <!-- ElevenLabs usage -->
+      <!-- ElevenLabs -->
       <div class="card-section" style="margin-bottom:28px;" id="elCard" hidden>
         <div class="section-header">
           <h2 class="section-title">ElevenLabs Usage</h2>
-          <span class="text-muted text-sm" id="elTier">--</span>
+          <span class="text-muted text-sm" id="elTier">—</span>
         </div>
-        <div class="card-body" style="padding:16px 20px;">
+        <div style="padding:16px 20px;">
           <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
             <span id="elUsed">0 / 0 characters</span>
             <span id="elPct">0%</span>
@@ -226,45 +210,67 @@
           <div class="budget-meter">
             <div class="budget-fill" id="elFill" style="width:0%;background:#8B5CF6;"></div>
           </div>
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-            <span id="elVoices">Voices: --</span>
-            <span id="elReset">Resets: --</span>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;">
+            <span id="elVoices">Voices: —</span>
+            <span id="elReset">Resets: —</span>
           </div>
         </div>
       </div>
 
-      <!-- Daily usage chart -->
+      <!-- Daily trend -->
       <div class="dash-section-label">Trends</div>
       <div class="card-section" style="margin-bottom:28px;">
-        <div class="section-header">
-          <h2 class="section-title">Daily Usage</h2>
-        </div>
-        <div class="card-body" style="padding:16px 20px 12px;">
-          <div class="spark-chart" id="sparkChart">
-            <div style="color:var(--text-muted);font-size:13px;align-self:center;">Loading...</div>
-          </div>
+        <div class="section-header"><h2 class="section-title">Daily Cost</h2></div>
+        <div style="padding:16px 20px 12px;">
+          <div class="spark-chart" id="sparkChart"><div style="color:var(--muted);font-size:13px;align-self:center;">Loading…</div></div>
           <div class="spark-x-labels" id="sparkLabels"></div>
         </div>
       </div>
 
-      <!-- Two-column: by provider + by operation -->
+      <!-- Breakdown: provider+model + media type -->
       <div class="dash-section-label">Breakdown</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-bottom:28px;">
+      <div class="usage-two-col">
         <div class="card-section">
-          <div class="section-header">
-            <h2 class="section-title">By Provider</h2>
-          </div>
-          <div style="padding:16px;" id="providerBars">
-            <div class="text-muted text-sm">Loading...</div>
-          </div>
+          <div class="section-header"><h2 class="section-title">By Provider &amp; Model</h2></div>
+          <div style="padding:16px;" id="modelBars"><div class="text-muted text-sm">Loading…</div></div>
         </div>
         <div class="card-section">
-          <div class="section-header">
-            <h2 class="section-title">By Operation</h2>
-          </div>
-          <div style="padding:16px;" id="operationBars">
-            <div class="text-muted text-sm">Loading...</div>
-          </div>
+          <div class="section-header"><h2 class="section-title">By Media Type</h2></div>
+          <div style="padding:16px;" id="typeBars"><div class="text-muted text-sm">Loading…</div></div>
+        </div>
+      </div>
+
+      <!-- By Operation -->
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header"><h2 class="section-title">By Operation</h2></div>
+        <div style="padding:16px;" id="operationBars"><div class="text-muted text-sm">Loading…</div></div>
+      </div>
+
+      <!-- By Writer -->
+      <div class="dash-section-label">By Writer</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Writer Cost Breakdown</h2>
+          <span class="text-muted text-sm" id="writerCount">—</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="writerTable">
+            <thead>
+              <tr>
+                <th>Writer</th>
+                <th>Calls</th>
+                <th>Input Tokens</th>
+                <th>Cached</th>
+                <th>Output Tokens</th>
+                <th>Cost</th>
+                <th>Credits</th>
+                <th>BYOK</th>
+              </tr>
+            </thead>
+            <tbody id="writerTbody">
+              <tr><td colspan="8" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -273,7 +279,7 @@
       <div class="card-section" style="margin-bottom:28px;">
         <div class="section-header">
           <h2 class="section-title">Recent Sessions</h2>
-          <span class="text-muted text-sm" id="sessionCount">--</span>
+          <span class="text-muted text-sm" id="sessionCount">—</span>
         </div>
         <div style="overflow-x:auto;">
           <table class="data-table" id="sessionsTable">
@@ -283,40 +289,80 @@
                 <th>Writer</th>
                 <th>Provider / Model</th>
                 <th>Iters</th>
-                <th>Tokens (cached / fresh / out)</th>
+                <th>Cached / Fresh / Out</th>
                 <th>Cost</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="sessionsTbody">
-              <tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Loading...</td></tr>
+              <tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Recent errors -->
+      <!-- Call log -->
+      <div class="dash-section-label">Call Log</div>
+      <div class="card-section" style="margin-bottom:28px;">
+        <div class="section-header">
+          <h2 class="section-title">Individual Calls</h2>
+          <span class="text-muted text-sm" id="callLogCount">—</span>
+        </div>
+        <div style="padding:12px 16px 0;">
+          <div class="call-log-filters">
+            <select id="logFilterProvider"><option value="">All providers</option></select>
+            <select id="logFilterModel"><option value="">All models</option></select>
+            <select id="logFilterOperation"><option value="">All operations</option></select>
+            <select id="logFilterByok">
+              <option value="">All keys</option>
+              <option value="true">BYOK only</option>
+              <option value="false">Platform only</option>
+            </select>
+            <button class="btn btn-sm btn-outline" id="logFilterApply">Filter</button>
+            <button class="btn btn-sm btn-ghost" id="logFilterReset">Reset</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table call-log-table" id="callLogTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Operation</th>
+                <th>In (cached/fresh)</th>
+                <th>Out</th>
+                <th>Cost</th>
+                <th>Duration</th>
+                <th>Key</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="callLogTbody">
+              <tr><td colspan="10" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:10px 16px;text-align:center;" id="callLogMore"></div>
+      </div>
+
+      <!-- Errors -->
       <div class="dash-section-label">Errors</div>
       <div class="card-section" style="margin-bottom:28px;">
         <div class="section-header">
           <h2 class="section-title">Recent Errors</h2>
-          <span class="text-muted text-sm" id="errorCount">--</span>
+          <span class="text-muted text-sm" id="errorCount">—</span>
         </div>
         <div style="overflow-x:auto;">
-          <table class="data-table" id="errorsTable">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Operation</th>
-                <th>Error</th>
-              </tr>
-            </thead>
+          <table class="data-table">
+            <thead><tr><th>Time</th><th>Operation</th><th>Error</th></tr></thead>
             <tbody id="errorsTbody">
-              <tr><td colspan="3" class="text-muted text-center" style="padding:24px;">Loading...</td></tr>
+              <tr><td colspan="3" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
       </div>
+
     </div>
   </main>
 </div>
