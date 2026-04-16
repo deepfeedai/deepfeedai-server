@@ -11,6 +11,10 @@
   var _activeGroup   = null;
   var _activeGroupBy = null;
   var _hiddenNodeIds = new Set();   // nodes manually hidden by the user
+  var _panelOpen     = false;
+  var _searchMatches = [];
+  var _searchIdx     = -1;
+  var _ctxNodeData   = null;
 
   // ── Pitch status colours ──────────────────────────────────────────────────────
   var PITCH_STATUS_COLORS = {
@@ -169,6 +173,17 @@
       {
         selector: '.dimmed',
         style: { 'opacity': 0.1 },
+      },
+      // ── Search match highlight ────────────────────────────────────────────────
+      {
+        selector: 'node.search-match',
+        style: {
+          'border-width': 4,
+          'border-color': '#facc15',
+          'border-opacity': 1,
+          'border-style': 'solid',
+          'opacity': 1,
+        },
       },
       // ── Auto / source edges ───────────────────────────────────────────────────
       {
@@ -585,6 +600,32 @@
         var t = document.getElementById('sbTooltip');
         if (t) t.style.display = 'none';
       });
+
+      // Double-click to zoom in on node
+      cy.on('dbltap', 'node', function (evt) {
+        cy.animate({
+          center: { eles: evt.target },
+          zoom: Math.min(cy.zoom() * 1.8, 3),
+        }, { duration: 300 });
+      });
+
+      // Right-click context menu
+      cy.on('cxttap', 'node', function (evt) {
+        _ctxNodeData = evt.target.data();
+        var pos     = evt.renderedPosition;
+        var wrapEl  = document.getElementById('sbBoardWrap');
+        var cyEl    = document.getElementById('cy');
+        if (!wrapEl || !cyEl) return;
+        var wrapRect = wrapEl.getBoundingClientRect();
+        var cyRect   = cyEl.getBoundingClientRect();
+        showContextMenu(
+          cyRect.left - wrapRect.left + pos.x,
+          cyRect.top  - wrapRect.top  + pos.y,
+          _ctxNodeData
+        );
+      });
+
+      cy.on('tap', function () { hideContextMenu(); });
     }
 
     renderLegend(groupBy, groupColorMap);
@@ -674,6 +715,7 @@
     panel.classList.remove('sb-panel-hidden');
     panel.style.transform = 'translateX(0)';
     title.textContent = truncate(data.title, 42);
+    _panelOpen = true;
     if (data.type === 'pitch')         renderPitchPanel(data, body);
     else if (data.type === 'original') renderOriginalPanel(data, body);
     else                               renderSourcePanel(data, body);
@@ -683,6 +725,7 @@
     var panel = document.getElementById('sbPanel');
     if (panel) { panel.classList.add('sb-panel-hidden'); panel.style.transform = ''; }
     selectedNodeId = null;
+    _panelOpen = false;
   }
 
   // Shared nav links for article nodes
@@ -957,6 +1000,113 @@
     openSidePanel(node.data());
   };
 
+  // ── Board search ──────────────────────────────────────────────────────────────
+  function applySearch(q) {
+    if (!cy) return;
+    q = q.trim().toLowerCase();
+    if (!q) { clearSearch(); return; }
+
+    _searchMatches = [];
+    cy.nodes().forEach(function (n) {
+      var d     = n.data();
+      var match = (d.title  || '').toLowerCase().includes(q)
+               || (d.source || '').toLowerCase().includes(q);
+      if (match) {
+        n.addClass('search-match');
+        n.removeClass('dimmed');
+        _searchMatches.push(n.id());
+      } else {
+        n.removeClass('search-match');
+        n.addClass('dimmed');
+      }
+    });
+
+    _searchIdx = 0;
+    var countEl = document.getElementById('sbSearchCount');
+    if (!_searchMatches.length) {
+      if (countEl) countEl.textContent = 'No matches';
+      return;
+    }
+    if (countEl) countEl.textContent = _searchMatches.length + ' match' + (_searchMatches.length === 1 ? '' : 'es');
+
+    if (_searchMatches.length === 1) {
+      sbFocusNode(_searchMatches[0]);
+    } else {
+      cy.animate({ center: { eles: cy.getElementById(_searchMatches[0]) }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 300 });
+    }
+  }
+
+  function clearSearch() {
+    if (cy) cy.nodes().removeClass('search-match dimmed');
+    _searchMatches = []; _searchIdx = -1;
+    var countEl = document.getElementById('sbSearchCount');
+    if (countEl) countEl.textContent = '';
+    var inp = document.getElementById('sbSearch');
+    if (inp) inp.value = '';
+  }
+
+  function stepSearch(dir) {
+    if (!cy || !_searchMatches.length) return;
+    _searchIdx = (_searchIdx + dir + _searchMatches.length) % _searchMatches.length;
+    cy.animate({ center: { eles: cy.getElementById(_searchMatches[_searchIdx]) }, zoom: Math.max(cy.zoom(), 1.2) }, { duration: 250 });
+    var countEl = document.getElementById('sbSearchCount');
+    if (countEl) countEl.textContent = (_searchIdx + 1) + ' / ' + _searchMatches.length;
+  }
+
+  // ── Context menu ──────────────────────────────────────────────────────────────
+  function showContextMenu(x, y, data) {
+    var menu = document.getElementById('sbContextMenu');
+    if (!menu) return;
+    var isArticle = data.type === 'original' || data.type === 'deep-dive' || data.type === 'source';
+    var isOrig    = data.type === 'original' || data.type === 'deep-dive';
+    document.getElementById('sbCtxOpenAdmin').style.display = isArticle ? '' : 'none';
+    document.getElementById('sbCtxLinkSource').style.display = isOrig ? '' : 'none';
+    menu.style.left = x + 'px';
+    menu.style.top  = y + 'px';
+    menu.classList.remove('sb-context-hidden');
+  }
+
+  function hideContextMenu() {
+    var menu = document.getElementById('sbContextMenu');
+    if (menu) menu.classList.add('sb-context-hidden');
+  }
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────────
+  function handleKeyDown(e) {
+    var tag = document.activeElement ? document.activeElement.tagName : '';
+    var inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+    if (e.key === '/' && !inInput) {
+      e.preventDefault();
+      var inp = document.getElementById('sbSearch');
+      if (inp) inp.focus();
+      return;
+    }
+    if (e.key === 'Escape') {
+      var inp = document.getElementById('sbSearch');
+      if (inp && document.activeElement === inp) {
+        clearSearch();
+        inp.blur();
+      } else if (_panelOpen) {
+        closeSidePanel();
+      }
+      hideContextMenu();
+      return;
+    }
+    if ((e.key === 'n') && _searchMatches.length > 1 && !inInput) {
+      e.preventDefault(); stepSearch(+1);
+    }
+    if ((e.key === 'N') && _searchMatches.length > 1 && !inInput) {
+      e.preventDefault(); stepSearch(-1);
+    }
+    if (e.key === 'f' && !inInput && cy) {
+      cy.fit(undefined, 40);
+    }
+    if ((e.key === 'h' || e.key === 'Delete') && selectedNodeId && !inInput) {
+      sbHideNode(selectedNodeId);
+    }
+  }
+
   // ── Helpers ────────────────────────────────────────────────────────────────────
   function showLoading(show) {
     var el = document.getElementById('sbLoading');
@@ -1014,6 +1164,7 @@
   document.getElementById('sbView')?.addEventListener('change', function () {
     resetGroupColors(); adaptToolbarForMode();
     _hiddenNodeIds.clear();
+    clearSearch();
     if (cy) { cy.destroy(); cy = null; }
     loadBoard();
   });
@@ -1064,6 +1215,48 @@
     var c = { x: cy.width() / 2, y: cy.height() / 2 };
     cy.zoom({ level: Math.max(cy.zoom() * 0.77, cy.minZoom()), renderedPosition: c });
   });
+
+  // ── Search input ──────────────────────────────────────────────────────────────
+  (function () {
+    var searchTimer;
+    var inp = document.getElementById('sbSearch');
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      var val = inp.value;
+      searchTimer = setTimeout(function () { applySearch(val); }, 200);
+    });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); stepSearch(+1); }
+      if (e.key === 'Escape') { clearSearch(); inp.blur(); }
+    });
+  }());
+
+  // ── Context menu buttons ──────────────────────────────────────────────────────
+  document.addEventListener('click', function (e) {
+    if (!document.getElementById('sbContextMenu')?.contains(e.target)) hideContextMenu();
+  });
+  document.getElementById('sbCtxFocus')?.addEventListener('click', function () {
+    if (_ctxNodeData) sbFocusNode(_ctxNodeData.id);
+    hideContextMenu();
+  });
+  document.getElementById('sbCtxOpenAdmin')?.addEventListener('click', function () {
+    if (_ctxNodeData && _ctxNodeData.articleId) {
+      window.open('/articles.html?id=' + _ctxNodeData.articleId, '_blank');
+    }
+    hideContextMenu();
+  });
+  document.getElementById('sbCtxLinkSource')?.addEventListener('click', function () {
+    if (_ctxNodeData && _ctxNodeData.articleId) sbOpenLinkPicker(_ctxNodeData.articleId);
+    hideContextMenu();
+  });
+  document.getElementById('sbCtxHide')?.addEventListener('click', function () {
+    if (_ctxNodeData) sbHideNode(_ctxNodeData.id);
+    hideContextMenu();
+  });
+
+  // ── Keyboard handler ──────────────────────────────────────────────────────────
+  document.addEventListener('keydown', handleKeyDown);
 
   // ── Init ──────────────────────────────────────────────────────────────────────
   onReady(async function () {

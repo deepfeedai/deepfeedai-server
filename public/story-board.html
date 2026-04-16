@@ -168,7 +168,16 @@
         <button class="btn btn-sm btn-ghost" id="sbZoomOutBtn" title="Zoom out">−</button>
         <button class="btn btn-sm btn-ghost" id="sbExportBtn" title="Export as PNG">⬇ PNG</button>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:4px;">
+        <input id="sbSearch" type="text" placeholder="Search nodes…" autocomplete="off"
+          style="width:150px;padding:4px 8px;font-size:12px;border:1px solid var(--border);
+                 background:var(--bg-card);color:var(--text);border-radius:6px;" />
+        <span id="sbSearchCount" style="font-size:11px;color:var(--muted);white-space:nowrap;"></span>
+      </div>
       <span class="sb-toolbar-stats" id="sbStats"></span>
+    </div>
+    <div id="sbShortcutHint">
+      <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>n</kbd>/<kbd>N</kbd> next/prev &nbsp;·&nbsp; <kbd>f</kbd> fit &nbsp;·&nbsp; <kbd>h</kbd> hide &nbsp;·&nbsp; <kbd>Esc</kbd> close
     </div>
 
     <!-- Board + side panel -->
@@ -191,6 +200,13 @@
       </div>
     </div>
   </div>
+</div>
+<div id="sbContextMenu" class="sb-context-menu sb-context-hidden">
+  <div class="sb-context-item" id="sbCtxFocus">🔍 Zoom to node</div>
+  <div class="sb-context-item" id="sbCtxOpenAdmin">📋 Open in Articles</div>
+  <div class="sb-context-item" id="sbCtxLinkSource">🔗 Link source…</div>
+  <div class="sb-context-divider"></div>
+  <div class="sb-context-item sb-context-danger" id="sbCtxHide">🙈 Hide node</div>
 </div>
 <script src="/cytoscape.min.js"></script>
 <script src="/admin.js"></script>

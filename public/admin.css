@@ -2705,3 +2705,14 @@ tr:hover .td-edit-btn { opacity: 1; }
 /* ── Feed Inbox: uncategorized notice banner ── */
 .uncat-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:10px; background:rgba(251,191,36,.12); border:1px solid rgba(251,191,36,.35); border-radius:8px; font-size:13px; color:var(--text); flex-wrap:wrap; }
 .uncat-banner span { flex:1; min-width:0; }
+
+/* ── Story Board: search, shortcuts, context menu ── */
+#sbSearch:focus { outline: none; border-color: var(--accent, #6366f1); }
+#sbShortcutHint { font-size: 10px; color: var(--muted); padding: 2px 18px 4px; letter-spacing: 0.03em; flex-shrink: 0; background: var(--bg-card); border-bottom: 1px solid var(--border); }
+#sbShortcutHint kbd { display: inline-block; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-size: 10px; background: var(--bg); font-family: inherit; }
+.sb-context-menu { position: fixed; z-index: 200; min-width: 168px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); padding: 4px 0; font-size: 13px; }
+.sb-context-hidden { display: none; }
+.sb-context-item { padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+.sb-context-item:hover { background: var(--surface2); }
+.sb-context-danger { color: #ef4444; }
+.sb-context-divider { height: 1px; background: var(--border); margin: 4px 0; }
