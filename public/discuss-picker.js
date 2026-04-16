@@ -57,7 +57,8 @@
       ? '<img class="discuss-picker-avatar" src="' + escHtml(w.avatar_url) + '" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;" />'
       : '<div class="discuss-picker-avatar" style="background:' + escHtml(w.accent || '#6366f1') + ';color:#fff;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;">'
         + escHtml((w.name || '?').charAt(0).toUpperCase()) + '</div>';
-    var sub = w.beat || w.role || '';
+    var roleLabel = w.role ? w.role.split('-').map(function(p){ return p.charAt(0).toUpperCase()+p.slice(1); }).join(' ') : '';
+    var sub = w.is_system ? roleLabel : (w.beat || roleLabel || '');
     var artCat = (articleCategory || '').toLowerCase();
     var beat = (w.beat || '').toLowerCase();
     var isMatch = artCat && beat && beat.includes(artCat);
