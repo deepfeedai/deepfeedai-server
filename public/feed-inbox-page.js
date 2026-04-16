@@ -171,6 +171,7 @@
         <div style="display:flex;gap:2px;justify-content:center;">
           ${safeUrl(a.source_url) ? `<a class="btn btn-ghost btn-sm" href="${escHtml(safeUrl(a.source_url))}" target="_blank" rel="noopener" title="View source">🔗</a>` : ''}
           <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬</button>
+          <button class="btn btn-ghost btn-sm" title="Re-categorize" onclick="recategorizeArticle(${a.id})">↻</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁</button>
           <button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteArticle(${a.id})">🗑️</button>
         </div>
@@ -294,6 +295,36 @@
     }
   };
 
+  window.recategorizeArticle = async function (id) {
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ articleIds: [id], dryRun: false }),
+      });
+      if (data.updated > 0 && data.moves) {
+        // Parse "OldCat → NewCat" key to extract the new category
+        const moveKey = Object.keys(data.moves)[0] || '';
+        const newCat = moveKey.includes(' → ') ? moveKey.split(' → ')[1] : null;
+        if (newCat) {
+          const art = allArticles.find(a => a.id === id);
+          if (art) art.category = newCat;
+          const row = document.getElementById('row-' + id);
+          if (row) {
+            const badge = row.querySelector('.td-category .badge');
+            if (badge) badge.textContent = newCat;
+          }
+          showAlert(`Recategorized → ${newCat}`, 'success');
+          populateCategoryFilter();
+          updateUncatBanner();
+          return;
+        }
+      }
+      showAlert('Category unchanged.', 'success');
+    } catch (err) {
+      showAlert('Recategorize failed: ' + err.message, 'error');
+    }
+  };
+
   window.goToPage = function (p) {
     const totalPages = Math.ceil(articles.length / pageSize) || 1;
     page = Math.max(1, Math.min(p, totalPages));
@@ -323,6 +354,7 @@
       // Populate source filter
       populateSourceFilter();
       populateCategoryFilter();
+      updateUncatBanner();
 
       applyFilters();
     } catch (err) {
@@ -344,9 +376,24 @@
     const sel = document.getElementById('categoryFilter');
     const group = document.getElementById('categoryFilterGroup');
     if (!sel || !cats.length) return;
-    sel.innerHTML = '<option value="all">All</option><option value="uncategorized">Uncategorized</option>'
+    const uncatCount = allArticles.filter(a => !a.category || a.category === 'Uncategorized').length;
+    const uncatLabel = uncatCount > 0 ? `Uncategorized (${uncatCount})` : 'Uncategorized';
+    sel.innerHTML = `<option value="all">All</option><option value="uncategorized">${uncatLabel}</option>`
       + cats.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
     if (group) group.style.display = '';
+  }
+
+  function updateUncatBanner() {
+    const banner = document.getElementById('uncatBanner');
+    const msg = document.getElementById('uncatBannerMsg');
+    if (!banner || !msg) return;
+    const count = allArticles.filter(a => !a.category || a.category === 'Uncategorized').length;
+    if (count > 0) {
+      msg.textContent = `⚠ ${count} article${count === 1 ? ' is' : 's are'} uncategorized and excluded from synthesis.`;
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
   }
 
   // ── Event listeners ──────────────────────────────────────
@@ -453,6 +500,32 @@
   document.getElementById('bulkClearBtn')?.addEventListener('click', () => {
     selectedIds.clear();
     applyFilters({ preservePage: true });
+  });
+
+  // ── Uncategorized banner ─────────────────────────────────
+  document.getElementById('uncatFixAllBtn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('uncatFixAllBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Fixing…';
+    try {
+      const data = await apiFetch('/fetch/recategorize', {
+        method: 'POST',
+        body: JSON.stringify({ category: 'Uncategorized', dryRun: false, days: 90 }),
+      });
+      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
+      showAlert(`${data.updated} article${data.updated === 1 ? '' : 's'} recategorized${writerMsg}.`, 'success');
+      loadArticles();
+    } catch (err) {
+      showAlert('Fix failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Fix all';
+    }
+  });
+
+  document.getElementById('uncatDismissBtn')?.addEventListener('click', () => {
+    const banner = document.getElementById('uncatBanner');
+    if (banner) banner.style.display = 'none';
   });
 
   // ── Recategorize ─────────────────────────────────────────

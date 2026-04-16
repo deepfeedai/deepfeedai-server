@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Story Board</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    .main-content { height: 100vh; overflow: hidden; display: flex; flex-direction: column; padding: 0 !important; }
+    .sb-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--bg-card); flex-shrink: 0; }
+    .sb-toolbar label { font-size: 12px; color: var(--muted); margin-right: 2px; }
+    .sb-toolbar select, .sb-toolbar input[type="number"] { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 13px; max-width: 120px; }
+    .sb-toolbar-stats { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+    .sb-board-wrap { flex: 1; position: relative; overflow: hidden; display: flex; min-height: 0; }
+    #cy { flex: 1; background: var(--bg); }
+    .sb-panel { width: 340px; flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; transition: width 0.2s ease, opacity 0.2s ease; }
+    .sb-panel-hidden { width: 0; opacity: 0; overflow: hidden; pointer-events: none; }
+    .sb-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .sb-panel-title { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .sb-panel-close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+    .sb-panel-close:hover { color: var(--text); background: var(--surface2); }
+    .sb-panel-body { padding: 14px 16px; flex: 1; overflow-y: auto; }
+    .sb-panel-image { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; margin-bottom: 12px; background: var(--surface2); display: block; }
+    .sb-panel-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .sb-panel-summary { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 14px; }
+    .sb-panel-view-link { display: inline-block; font-size: 12px; color: var(--primary); text-decoration: none; margin-bottom: 16px; }
+    .sb-panel-view-link:hover { text-decoration: underline; }
+    .sb-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; margin-top: 4px; }
+    .sb-source-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .sb-source-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--surface2); border-radius: 7px; font-size: 12px; overflow: hidden; }
+    .sb-source-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sb-source-item-remove { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 0 2px; flex-shrink: 0; }
+    .sb-source-item-remove:hover { color: var(--danger); }
+    .sb-type-original { background: rgba(99,102,241,0.15); color: #818cf8; }
+    .sb-type-source { background: rgba(107,114,128,0.15); color: #9ca3af; }
+    .sb-edge-auto { background: rgba(68,68,68,0.3); color: var(--muted); }
+    .sb-edge-manual { background: rgba(0,217,255,0.15); color: #00d9ff; }
+    .sb-link-add-btn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary); background: none; border: 1px dashed var(--primary); border-radius: 6px; padding: 6px 10px; cursor: pointer; width: 100%; margin-top: 4px; }
+    .sb-link-add-btn:hover { background: rgba(99,102,241,0.08); }
+    .sb-link-picker { margin-top: 8px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .sb-link-picker-input { width: 100%; background: var(--surface2); border: none; border-bottom: 1px solid var(--border); color: var(--text); padding: 8px 10px; font-size: 13px; box-sizing: border-box; }
+    .sb-link-picker-input:focus { outline: none; }
+    .sb-link-result-item { padding: 8px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--border); overflow: hidden; }
+    .sb-link-result-item:last-child { border-bottom: none; }
+    .sb-link-result-item:hover { background: var(--surface2); }
+    .sb-link-result-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sb-link-result-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .sb-link-picker-empty { padding: 12px 10px; font-size: 12px; color: var(--muted); }
+    .sb-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: var(--muted); pointer-events: none; }
+    .sb-loading-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .sb-linked-only-wrap { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .sb-used-by-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .sb-used-by-item { padding: 7px 10px; background: var(--surface2); border-radius: 7px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .sb-used-by-item:hover { background: var(--bg-card); color: var(--primary); }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <div class="topbar">
+      <button class="hamburger" id="hamburger">&#9776;</button>
+      <div class="topbar-title">Story Board</div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="sb-toolbar">
+      <div>
+        <label for="sbDays">Period</label>
+        <select id="sbDays">
+          <option value="7">7 days</option>
+          <option value="14" selected>14 days</option>
+          <option value="30">30 days</option>
+          <option value="60">60 days</option>
+          <option value="90">90 days</option>
+        </select>
+      </div>
+      <div>
+        <label for="sbCategory">Category</label>
+        <select id="sbCategory">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div>
+        <label for="sbWriter">Writer</label>
+        <select id="sbWriter">
+          <option value="">All</option>
+        </select>
+      </div>
+      <div class="sb-linked-only-wrap">
+        <input type="checkbox" id="sbLinkedOnly" />
+        <label for="sbLinkedOnly">Linked sources only</label>
+      </div>
+      <button class="btn btn-sm btn-outline" id="sbRefreshBtn">↻ Refresh</button>
+      <span class="sb-toolbar-stats" id="sbStats"></span>
+    </div>
+
+    <!-- Board + side panel -->
+    <div class="sb-board-wrap" id="sbBoardWrap">
+      <div id="cy"></div>
+      <div class="sb-panel sb-panel-hidden" id="sbPanel">
+        <div class="sb-panel-header">
+          <div class="sb-panel-title" id="sbPanelTitle"></div>
+          <button class="sb-panel-close" id="sbPanelClose">✕</button>
+        </div>
+        <div class="sb-panel-body" id="sbPanelBody"></div>
+      </div>
+      <div class="sb-loading-overlay" id="sbLoading" style="display:none;">
+        <span class="spinner"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+<script src="/admin.js"></script>
+<script src="/admin-mobile-nav.js"></script>
+<script src="/notifications-bell.js"></script>
+<script src="/story-board-page.js"></script>
+</body>
+</html>

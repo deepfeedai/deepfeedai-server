@@ -337,6 +337,7 @@ app.use('/api/pitches',   require('./routes/pitches'));
 app.use('/api/actions',   require('./routes/actions'));   // cross-channel signed-token action dispatch (PR-B)
 app.use('/api/admin-notifications', require('./routes/admin-notifications')); // admin bell + notifications page (PR-D)
 app.use('/api/research',  require('./routes/research'));
+app.use('/api/story-board', require('./routes/story-board'));
 app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
 app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
 app.use('/api/sources',   require('./routes/sources'));
@@ -1198,6 +1199,42 @@ registerJob({
   handler: async (tenantId) => {
     const { recomputeDecay } = require('./lib/story-levels');
     return await recomputeDecay(tenantId);
+  },
+});
+
+registerJob({
+  name: 'auto-recategorize',
+  description: 'Daily auto-recategorize uncategorized feed articles (last 30 days)',
+  category: 'Content',
+  defaultSchedule: '0 6 * * *',
+  handler: async (tenantId) => {
+    const { detectCategory } = require('./lib/categorize');
+    const db = require('./db');
+    const articles = await db.prepare(
+      `SELECT id, title, summary, category, source, source_url
+       FROM articles
+       WHERE tenant_id = $1
+         AND (category = 'Uncategorized' OR category IS NULL)
+         AND (is_archived = 0 OR is_archived IS NULL)
+         AND COALESCE(published_at, created_at) > NOW() - INTERVAL '30 days'
+       ORDER BY created_at DESC LIMIT 500`
+    ).all(tenantId);
+    if (!articles.length) return { updated: 0, total: 0 };
+    let updated = 0;
+    for (const a of articles) {
+      try {
+        const newCat = await detectCategory(
+          { title: a.title, contentSnippet: a.summary, link: a.source_url, sourceUrl: a.source_url },
+          { tenantId }
+        );
+        if (newCat && newCat !== a.category) {
+          await db.prepare('UPDATE articles SET category = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newCat, a.id, tenantId);
+          updated++;
+        }
+      } catch { /* best effort per article */ }
+    }
+    if (updated > 0) console.log(`[Cron] auto-recategorize (tenant ${tenantId}): ${updated}/${articles.length} articles updated`);
+    return { updated, total: articles.length };
   },
 });
 

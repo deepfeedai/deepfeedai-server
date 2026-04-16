@@ -1388,6 +1388,20 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_status ON pipeline_runs(tenant_id, status)`,
     `CREATE INDEX IF NOT EXISTS idx_pipeline_runs_created ON pipeline_runs(tenant_id, created_at DESC)`,
+    // Story Board — manual source↔original links
+    `CREATE TABLE IF NOT EXISTS article_links (
+      id                  SERIAL PRIMARY KEY,
+      original_article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      source_article_id   INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+      link_type           TEXT NOT NULL DEFAULT 'manual',
+      created_by_user_id  INTEGER,
+      tenant_id           INTEGER NOT NULL,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(original_article_id, source_article_id, tenant_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_article_links_tenant   ON article_links(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_links_original ON article_links(original_article_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_article_links_source   ON article_links(source_article_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
