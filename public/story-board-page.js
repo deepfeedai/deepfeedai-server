@@ -15,6 +15,7 @@
   var _searchMatches = [];
   var _searchIdx     = -1;
   var _ctxNodeData   = null;
+  var _focusedNodeId = null;   // node currently in neighbourhood-focus mode
 
   // ── Pitch status colours ──────────────────────────────────────────────────────
   var PITCH_STATUS_COLORS = {
@@ -1053,6 +1054,22 @@
     if (countEl) countEl.textContent = (_searchIdx + 1) + ' / ' + _searchMatches.length;
   }
 
+  // ── Neighbourhood focus ───────────────────────────────────────────────────────
+  function focusNeighbourhood(nodeId) {
+    if (!cy) return;
+    _focusedNodeId = nodeId;
+    var node      = cy.getElementById(nodeId);
+    var connected = node.closedNeighborhood(); // node + its direct neighbours + connecting edges
+    cy.elements().addClass('dimmed');
+    connected.removeClass('dimmed');
+  }
+
+  function unfocusNeighbourhood() {
+    if (!cy) return;
+    _focusedNodeId = null;
+    cy.elements().removeClass('dimmed');
+  }
+
   // ── Context menu ──────────────────────────────────────────────────────────────
   function showContextMenu(x, y, data) {
     var menu = document.getElementById('sbContextMenu');
@@ -1061,6 +1078,11 @@
     var isOrig    = data.type === 'original' || data.type === 'deep-dive';
     document.getElementById('sbCtxOpenAdmin').style.display = isArticle ? '' : 'none';
     document.getElementById('sbCtxLinkSource').style.display = isOrig ? '' : 'none';
+    // Toggle focus label based on whether this node is already focused
+    var focusItem = document.getElementById('sbCtxNeighbourFocus');
+    if (focusItem) {
+      focusItem.textContent = (_focusedNodeId === data.id) ? '👁 Unfocus' : '👁 Focus node';
+    }
     menu.style.left = x + 'px';
     menu.style.top  = y + 'px';
     menu.classList.remove('sb-context-hidden');
@@ -1087,6 +1109,8 @@
       if (inp && document.activeElement === inp) {
         clearSearch();
         inp.blur();
+      } else if (_focusedNodeId) {
+        unfocusNeighbourhood();
       } else if (_panelOpen) {
         closeSidePanel();
       }
@@ -1165,6 +1189,7 @@
     resetGroupColors(); adaptToolbarForMode();
     _hiddenNodeIds.clear();
     clearSearch();
+    _focusedNodeId = null;
     if (cy) { cy.destroy(); cy = null; }
     loadBoard();
   });
@@ -1238,6 +1263,12 @@
   });
   document.getElementById('sbCtxFocus')?.addEventListener('click', function () {
     if (_ctxNodeData) sbFocusNode(_ctxNodeData.id);
+    hideContextMenu();
+  });
+  document.getElementById('sbCtxNeighbourFocus')?.addEventListener('click', function () {
+    if (!_ctxNodeData) return;
+    if (_focusedNodeId === _ctxNodeData.id) unfocusNeighbourhood();
+    else focusNeighbourhood(_ctxNodeData.id);
     hideContextMenu();
   });
   document.getElementById('sbCtxOpenAdmin')?.addEventListener('click', function () {
