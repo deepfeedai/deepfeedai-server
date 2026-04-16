@@ -7,87 +7,11 @@
 
   var articles = [];
 
-  var pitches = [];
-  var activeTab = 'articles';
-  var pendingOverride = null; // { pitchId, message }
-
   init();
 
   async function init() {
     initModals();
-    wireTabs();
-    wireOverrideModal();
-    wireWeakPitchModal();
-    wireEnrichModal();
-    wireNewPitch();
-    wireReassign();
     await loadReviewQueue();
-    // Best-effort load — pitches feature may be disabled (404) and that's fine
-    loadPitches().catch(function () {
-      document.getElementById('pitchesGrid').innerHTML =
-        '<div class="review-empty">Counter-angle pitches are not enabled for this newsroom.</div>';
-      document.getElementById('pitchesTabCount').textContent = '';
-    });
-  }
-
-  function wireTabs() {
-    var btns = document.querySelectorAll('.tab-btn');
-    btns.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var tab = btn.dataset.tab;
-        if (tab === activeTab) return;
-        activeTab = tab;
-        btns.forEach(function (b) {
-          var active = b.dataset.tab === tab;
-          b.classList.toggle('active', active);
-          b.style.borderBottomColor = active ? 'var(--primary)' : 'transparent';
-          b.style.color = active ? 'var(--text)' : 'var(--muted)';
-        });
-        document.getElementById('articlesPanel').style.display = tab === 'articles' ? '' : 'none';
-        document.getElementById('pitchesPanel').style.display = tab === 'pitches' ? '' : 'none';
-        updatePitchesPolling();
-      });
-    });
-  }
-
-  // ── Pitches polling ───────────────────────────────────────
-  var pitchesPollTimer = null;
-  function startPitchesPolling() {
-    if (pitchesPollTimer) return;
-    pitchesPollTimer = setInterval(function () {
-      if (document.visibilityState === 'hidden') return;
-      loadPitches().catch(function () {});
-    }, 15000);
-  }
-  function stopPitchesPolling() {
-    if (pitchesPollTimer) { clearInterval(pitchesPollTimer); pitchesPollTimer = null; }
-  }
-  function updatePitchesPolling() {
-    if (activeTab === 'pitches' && document.visibilityState !== 'hidden') startPitchesPolling();
-    else stopPitchesPolling();
-  }
-  document.addEventListener('visibilitychange', updatePitchesPolling);
-
-  // ── Optimistic card removal helper ────────────────────────
-  function optimisticRemoveCard(pitchId) {
-    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
-    if (!card) return function () {};
-    // Disable all action buttons on the card
-    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
-    card.classList.add('optimistic-removing');
-    var removed = false;
-    var removeTimer = setTimeout(function () {
-      if (card.parentNode) card.parentNode.removeChild(card);
-      removed = true;
-    }, 200);
-    // Return a restore function for use on API failure
-    return function restore() {
-      clearTimeout(removeTimer);
-      if (!removed && card.parentNode) {
-        card.classList.remove('optimistic-removing');
-        card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
-      }
-    };
   }
 
   function toast(msg, type) {
@@ -98,431 +22,16 @@
     }
   }
 
-  // ── Enrich sources modal ──────────────────────────────────
-  var enrichPitchId = null;
-  var enrichResultsCache = [];
-
-  window.openEnrich = function (pitchId, sourceTitle) {
-    enrichPitchId = pitchId;
-    enrichResultsCache = [];
-    document.getElementById('enrichQuery').value = sourceTitle || '';
-    document.getElementById('enrichResults').innerHTML = '<div class="text-muted" style="padding:24px 8px;text-align:center;">Press Search to find external coverage.</div>';
-    document.getElementById('enrichQuotaInfo').textContent = '';
-    document.getElementById('enrichIngestBtn').disabled = true;
-    openModal('enrichModal');
-  };
-
-  function wireEnrichModal() {
-    document.getElementById('enrichSearchBtn').addEventListener('click', async function () {
-      var query = document.getElementById('enrichQuery').value.trim();
-      if (query.length < 4) { alert('Enter a topic (4+ chars).'); return; }
-      var resultsEl = document.getElementById('enrichResults');
-      resultsEl.innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">Searching…</div>';
-      try {
-        var data = await apiFetch('/research/search', {
-          method: 'POST',
-          body: JSON.stringify({ query: query, count: 10 }),
-        });
-        enrichResultsCache = data.results || [];
-        document.getElementById('enrichQuotaInfo').textContent =
-          'Quota: ' + (data.quota_used || 0) + ' / ' + (data.quota_cap || 0) + ' searches today';
-        if (!enrichResultsCache.length) {
-          resultsEl.innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">No external results. Errors: ' + JSON.stringify(data.errors || []) + '</div>';
-          document.getElementById('enrichIngestBtn').disabled = true;
-          return;
-        }
-        resultsEl.innerHTML = enrichResultsCache.map(function (r, i) {
-          var meta = [r.publisher || r.source, r.score ? (r.score + ' pts') : '', r.published || ''].filter(Boolean).join(' · ');
-          return '<label style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer;">'
-            + '<input type="checkbox" data-idx="' + i + '" class="enrich-result-cb" />'
-            + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-weight:600;">' + esc(r.title || '(untitled)') + '</div>'
-            + '<div class="text-muted" style="font-size:12px;margin:2px 0;">' + esc(meta) + '</div>'
-            + '<div style="font-size:12px;color:var(--text);">' + esc((r.snippet || '').slice(0, 200)) + '</div>'
-            + '<a href="' + esc(r.url) + '" target="_blank" rel="noopener" style="font-size:11px;">' + esc(r.url) + '</a>'
-            + '</div></label>';
-        }).join('');
-        document.querySelectorAll('.enrich-result-cb').forEach(function (cb) {
-          cb.addEventListener('change', function () {
-            var any = !!document.querySelector('.enrich-result-cb:checked');
-            document.getElementById('enrichIngestBtn').disabled = !any;
-          });
-        });
-      } catch (err) {
-        resultsEl.innerHTML = '<div style="color:var(--danger);padding:24px;text-align:center;">Search failed: ' + esc(err.message || err) + '</div>';
-      }
-    });
-
-    document.getElementById('enrichIngestBtn').addEventListener('click', async function () {
-      var picked = [];
-      document.querySelectorAll('.enrich-result-cb:checked').forEach(function (cb) {
-        picked.push(enrichResultsCache[parseInt(cb.dataset.idx, 10)]);
-      });
-      if (!picked.length) return;
-      var btn = this;
-      btn.disabled = true; btn.textContent = 'Ingesting…';
-      try {
-        var data = await apiFetch('/research/ingest', {
-          method: 'POST',
-          body: JSON.stringify({ results: picked, pitch_id: enrichPitchId }),
-        });
-        alert('Ingested: ' + (data.ingested?.length || 0) + ' · Skipped: ' + (data.skipped?.length || 0));
-        closeModal('enrichModal');
-        await loadPitches();
-      } catch (err) {
-        alert('Ingest failed: ' + (err.message || err));
-      } finally {
-        btn.disabled = false; btn.textContent = 'Ingest selected';
-      }
-    });
-  }
-
-  // ── New pitch + reassign ──────────────────────────────────
-  var writersList = [];
-  var reassignPitchId = null;
-
-  async function loadWritersList() {
-    if (writersList.length) return writersList;
-    try {
-      var data = await apiFetch('/writers');
-      writersList = Array.isArray(data) ? data : (data.writers || []);
-    } catch { writersList = []; }
-    return writersList;
-  }
-
-  function fillWriterSelect(sel, includeBlank) {
-    sel.innerHTML = (includeBlank ? '<option value="">— Editor tip (use /tip in chat) —</option>' : '')
-      + writersList.map(function (w) {
-        return '<option value="' + w.id + '">' + esc(w.name) + (w.beat ? ' (' + esc(w.beat) + ')' : '') + '</option>';
-      }).join('');
-  }
-
-  function wireNewPitch() {
-    var TEMPLATES = {
-      compliance: 'The compliance angle: explore how this affects regulatory obligations, audit posture, and the gap between current practice and what auditors will start asking about. Reference any specific frameworks (SOC 2, ISO 27001, GDPR, etc.) most relevant.',
-      technical: 'Technical deep-dive: walk through the actual mechanics — how the attack/system works at a protocol/code level, the specific primitives involved, and what defenders should look for in logs. Be concrete; assume a senior engineer audience.',
-      market: 'Market impact: who benefits, who loses, what shifts in vendor positioning or capital flows this signals, and what competitors are likely to do in the next 30-90 days. Cite specific market-cap or funding numbers if available.',
-      contrarian: 'Contrarian take: the prevailing narrative is X, but here\'s why I think the consensus is missing the point. Make a specific, defensible claim that runs against the wire.',
-      explainer: 'Explainer for non-experts: assume the reader has heard the headline but doesn\'t know why it matters. Build the why in three layers — what happened, what it means for them, what to watch next.',
-      forecast: 'Predictive forecast: based on this story plus the pattern of related events over the past N months, here\'s what I expect to happen in the next 1-4 weeks and what would falsify the prediction.',
-      sentiment: 'Community sentiment angle: what practitioners on HN/Reddit/Twitter are actually saying versus the corporate framing. Pull representative quotes (with attribution) and note where the gap is widest.',
-      historical: 'Historical context: this isn\'t the first time something like this has happened — here\'s the pattern, three prior incidents that rhyme, and what the field learned (or didn\'t) from them.',
-    };
-
-    document.getElementById('newPitchTemplate').addEventListener('change', function (e) {
-      var key = e.target.value;
-      var textarea = document.getElementById('newPitchAngle');
-      if (key && TEMPLATES[key] && (!textarea.value.trim() || confirm('Replace current angle text with template?'))) {
-        textarea.value = TEMPLATES[key];
-        textarea.focus();
-      }
-    });
-
-    document.getElementById('newPitchBtn').addEventListener('click', async function () {
-      await loadWritersList();
-      fillWriterSelect(document.getElementById('newPitchWriter'), false);
-      document.getElementById('newPitchSource').value = '';
-      document.getElementById('newPitchAngle').value = '';
-      document.getElementById('newPitchTemplate').value = '';
-      openModal('newPitchModal');
-    });
-
-    document.getElementById('submitNewPitchBtn').addEventListener('click', async function () {
-      var sourceRef = document.getElementById('newPitchSource').value.trim();
-      var writerId = parseInt(document.getElementById('newPitchWriter').value, 10);
-      var angle = document.getElementById('newPitchAngle').value.trim();
-      if (!sourceRef) { alert('Source required.'); return; }
-      if (!writerId) { alert('Writer required (use /tip chat command for unassigned editor tips).'); return; }
-      if (angle.length < 10) { alert('Angle must be 10+ chars.'); return; }
-
-      // Resolve source. Three paths:
-      //   (1) numeric id → use directly
-      //   (2) URL/slug that matches an internal article → use that id
-      //   (3) external URL → scrape OG metadata via /api/fetch-url, ingest as
-      //       enrichment-sourced curated article via /api/research/ingest, use new id
-      var sourceId = parseInt(sourceRef, 10);
-      if (!sourceId) {
-        var slugMatch = sourceRef.match(/\/article\/([a-z0-9-]+)/i);
-        var slug = slugMatch ? slugMatch[1] : sourceRef.replace(/^https?:\/\/[^/]+\//, '');
-        try {
-          var prev = await apiFetch('/articles/preview-by-slug?slug=' + encodeURIComponent(slug));
-          sourceId = prev.article && prev.article.id;
-        } catch (err) {
-          // Not an internal article — try external URL ingest path
-          if (/^https?:\/\//i.test(sourceRef)) {
-            try {
-              var meta = await apiFetch('/fetch-url?url=' + encodeURIComponent(sourceRef));
-              var result = {
-                source: 'manual',
-                url: sourceRef,
-                title: meta.title || sourceRef,
-                snippet: meta.summary || '',
-                publisher: meta.source || '',
-                published: meta.published_at || null,
-              };
-              var ingested = await apiFetch('/research/ingest', {
-                method: 'POST',
-                body: JSON.stringify({ results: [result] }),
-              });
-              if (ingested.ingested && ingested.ingested.length) {
-                sourceId = ingested.ingested[0].id;
-              } else if (ingested.skipped && ingested.skipped[0] && ingested.skipped[0].existing_id) {
-                sourceId = ingested.skipped[0].existing_id;
-              }
-            } catch (err2) {
-              alert('Could not ingest external URL: ' + (err2.message || err2)
-                + (String(err2.message || '').includes('not enabled') ? '\n\nEnable Agent Web Research to allow external URL pitches.' : ''));
-              return;
-            }
-          } else {
-            alert('Could not find article for "' + sourceRef + '"'); return;
-          }
-        }
-      }
-      if (!sourceId) { alert('Could not resolve source.'); return; }
-
-      var btn = this; btn.disabled = true; btn.textContent = 'Submitting…';
-      // Disable all buttons in the modal footer while submitting
-      var modalBtns = document.querySelectorAll('#newPitchModal button');
-      modalBtns.forEach(function (b) { b.disabled = true; });
-      closeModal('newPitchModal');
-      try {
-        await apiFetch('/pitches', {
-          method: 'POST',
-          body: JSON.stringify({ source_article_id: sourceId, pitched_by_writer_id: writerId, angle_summary: angle }),
-        });
-        toast('Pitch submitted.', 'success');
-        await loadPitches();
-      } catch (err) {
-        toast('Pitch failed: ' + (err.message || err), 'error');
-      } finally {
-        btn.disabled = false; btn.textContent = 'Submit pitch';
-        modalBtns.forEach(function (b) { b.disabled = false; });
-      }
-    });
-  }
-
-  window.openReassign = async function (pitchId) {
-    reassignPitchId = pitchId;
-    await loadWritersList();
-    fillWriterSelect(document.getElementById('reassignWriter'), false);
-    openModal('reassignModal');
-  };
-
-  function wireReassign() {
-    document.getElementById('confirmReassignBtn').addEventListener('click', async function () {
-      var writerId = parseInt(document.getElementById('reassignWriter').value, 10);
-      if (!writerId || !reassignPitchId) return;
-      var btn = this; btn.disabled = true; btn.textContent = 'Assigning…';
-      closeModal('reassignModal');
-      var restore = optimisticRemoveCard(reassignPitchId);
-      var pitchId = reassignPitchId;
-      try {
-        await apiFetch('/pitches/' + pitchId + '/assign', {
-          method: 'PATCH', body: JSON.stringify({ writer_id: writerId }),
-        });
-        toast('Writer assigned.', 'success');
-        await loadPitches();
-      } catch (err) {
-        restore();
-        toast('Assign failed: ' + (err.message || err), 'error');
-        await loadPitches();
-      } finally {
-        btn.disabled = false; btn.textContent = 'Assign';
-      }
-    });
-  }
-
-  function wireOverrideModal() {
-    document.getElementById('confirmOverrideBtn').addEventListener('click', async function () {
-      if (!pendingOverride) return;
-      var note = document.getElementById('overrideNote').value.trim();
-      if (!note) { alert('Justification is required for override.'); return; }
-      var btn = this;
-      btn.disabled = true; btn.textContent = 'Approving…';
-      var pitchId = pendingOverride.pitchId;
-      closeModal('overrideModal');
-      var restore = optimisticRemoveCard(pitchId);
-      try {
-        await apiFetch('/pitches/' + pitchId + '/approve', {
-          method: 'POST',
-          body: JSON.stringify({ note: note, override: true }),
-        });
-        pendingOverride = null;
-        document.getElementById('overrideNote').value = '';
-        toast('Pitch approved with override.', 'success');
-        await loadPitches();
-      } catch (err) {
-        restore();
-        toast('Override approve failed: ' + (err.message || err), 'error');
-        await loadPitches();
-      } finally {
-        btn.disabled = false; btn.textContent = 'Approve with override';
-      }
-    });
-  }
-
   async function loadReviewQueue() {
     try {
       var data = await apiFetch('/articles/review-queue');
       articles = data.articles || [];
       renderStats(articles);
       renderGrid(articles);
-      var c = document.getElementById('articlesTabCount');
-      c.textContent = articles.length || '';
-      c.style.display = articles.length ? 'inline-flex' : 'none';
     } catch (err) {
       document.getElementById('reviewGrid').innerHTML = '<div class="review-empty">Failed to load review queue: ' + (err.message || err) + '</div>';
     }
   }
-
-  async function loadPitches() {
-    var data = await apiFetch('/pitches?status=proposed');
-    pitches = data.pitches || [];
-    renderPitchesGrid(pitches);
-    var c = document.getElementById('pitchesTabCount');
-    c.textContent = pitches.length || '';
-    c.style.display = pitches.length ? 'inline-flex' : 'none';
-  }
-
-  function renderPitchesGrid(list) {
-    var grid = document.getElementById('pitchesGrid');
-    if (!list.length) {
-      grid.innerHTML = '<div class="review-empty">No pitches awaiting review.</div>';
-      return;
-    }
-    grid.innerHTML = list.map(function (p) {
-      var ago = p.created_at ? timeSince(new Date(p.created_at)) : '';
-      var initiator = p.pitched_by_writer_name
-        ? 'Pitched by <strong>' + esc(p.pitched_by_writer_name) + '</strong>'
-        : 'Editor tip from <strong>' + esc(p.requested_by_editor_name || 'editor') + '</strong>';
-      var sourceUrl = p.source_url ? '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener" class="text-muted" style="font-size:12px;">↗ ' + esc(p.source_publisher || 'source') + '</a>' : '';
-
-      // Source-count chip — attached_article_ids may be NULL on legacy rows;
-      // backend returns at least 1 (the pitch's own source article).
-      var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
-      var chipColor, chipLabel;
-      if (sc <= 1) {
-        chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;';
-        chipLabel = '1 source &#9888;';
-      } else if (sc === 2) {
-        chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;';
-        chipLabel = '2 sources';
-      } else {
-        chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;';
-        chipLabel = sc + ' sources &#10003;';
-      }
-      var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'margin-right:6px;">' + chipLabel + '</span>';
-
-      var html = '<div class="review-card" data-pitch="' + p.id + '">';
-      html += '<div class="review-card-header">';
-      html += '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>';
-      html += '<div style="display:flex;align-items:center;gap:6px;">' + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">PITCH</span></div>';
-      html += '</div>';
-      html += '<div class="review-meta">';
-      html += '<span>' + initiator + '</span>';
-      html += '<span>' + ago + '</span>';
-      if (p.source_category) html += '<span>' + esc(p.source_category) + '</span>';
-      if (sourceUrl) html += '<span>' + sourceUrl + '</span>';
-      html += '</div>';
-      html += '<div class="review-suggestion" style="font-style:normal;color:var(--text);background:var(--surface2);padding:12px;border-radius:8px;margin:10px 0;">';
-      html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>';
-      html += esc(p.angle_summary || '');
-      html += '</div>';
-      html += '<div class="review-actions">';
-      var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
-      html += '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
-      html += '<button class="btn btn-outline btn-sm" onclick="rejectPitch(' + p.id + ')">Reject</button>';
-      html += '<button class="btn btn-ghost btn-sm" onclick="openEnrich(' + p.id + ', ' + titleArg + ')">Enrich sources</button>';
-      if (sc === 2) {
-        html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
-      }
-      if (!p.pitched_by_writer_id) {
-        html += '<button class="btn btn-ghost btn-sm" onclick="openReassign(' + p.id + ')">Assign writer</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-      return html;
-    }).join('');
-  }
-
-  // Pre-approval intervention for weak (single-source) pitches.
-  // sc===1 → block with confirmation modal; otherwise pass through.
-  var pendingWeakPitch = null; // { pitchId, sourceTitle }
-  window.tryApprovePitch = function (id, sourceCount, sourceTitle) {
-    if (sourceCount && sourceCount >= 2) {
-      return window.approvePitch(id);
-    }
-    pendingWeakPitch = { pitchId: id, sourceTitle: sourceTitle || '' };
-    openModal('weakPitchModal');
-  };
-
-  function wireWeakPitchModal() {
-    document.getElementById('weakPitchEnrichFirstBtn').addEventListener('click', function () {
-      if (!pendingWeakPitch) return;
-      var p = pendingWeakPitch;
-      pendingWeakPitch = null;
-      closeModal('weakPitchModal');
-      window.openEnrich(p.pitchId, p.sourceTitle);
-    });
-    document.getElementById('weakPitchApproveAnywayBtn').addEventListener('click', function () {
-      if (!pendingWeakPitch) return;
-      var pid = pendingWeakPitch.pitchId;
-      pendingWeakPitch = null;
-      closeModal('weakPitchModal');
-      window.approvePitch(pid);
-    });
-  }
-
-  window.approvePitch = async function (id) {
-    var restore = optimisticRemoveCard(id);
-    try {
-      var resp = await apiFetch('/pitches/' + id + '/approve', {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
-      if (resp && resp.synthesis_queued === false) {
-        toast('Approved. No synthesis queued (editor tip awaiting writer assignment).', 'success');
-      } else {
-        toast('Pitch approved.', 'success');
-      }
-      await loadPitches();
-    } catch (err) {
-      // Cap-reached: open override modal. apiFetch surfaces the server's
-      // {error: 'cap_reached'} as err.message, so detect by message.
-      if (err && err.message === 'cap_reached') {
-        restore();
-        await loadPitches();
-        pendingOverride = { pitchId: id };
-        document.getElementById('overrideMessage').textContent =
-          'This source already has the maximum number of originals (per the max_originals_per_source setting). Approve anyway?';
-        document.getElementById('overrideNote').value = '';
-        openModal('overrideModal');
-        return;
-      }
-      restore();
-      toast('Approve failed: ' + (err.message || err), 'error');
-      await loadPitches();
-    }
-  };
-
-  window.rejectPitch = async function (id) {
-    var note = prompt('Optional note for this rejection (blank to skip):');
-    if (note === null) return; // user cancelled
-    var restore = optimisticRemoveCard(id);
-    try {
-      await apiFetch('/pitches/' + id + '/reject', {
-        method: 'POST',
-        body: JSON.stringify({ note: note || undefined }),
-      });
-      toast('Pitch rejected.', 'success');
-      await loadPitches();
-    } catch (err) {
-      restore();
-      toast('Reject failed: ' + (err.message || err), 'error');
-      await loadPitches();
-    }
-  };
 
   function renderStats(list) {
     var el = document.getElementById('reviewStats');
@@ -557,7 +66,6 @@
       var ago = a.submitted_for_review_at ? timeSince(new Date(a.submitted_for_review_at)) : 'unknown';
       var wordCount = (a.full_content || '').split(/\s+/).filter(Boolean).length;
 
-      // "From pitch #N" provenance chip — shown when synthesis_meta.from_pitch is set
       var sm = a.synthesis_meta;
       if (typeof sm === 'string') { try { sm = JSON.parse(sm); } catch { sm = null; } }
       var fromPitch = sm && sm.from_pitch ? sm.from_pitch : null;
@@ -591,7 +99,6 @@
         html += '<div class="review-suggestion">' + esc(suggestion) + '</div>';
       }
 
-      // Vera's copy-editing section
       var ce = a.copy_edit_result;
       if (typeof ce === 'string') { try { ce = JSON.parse(ce); } catch { ce = null; } }
       if (ce) {
@@ -603,25 +110,21 @@
         if (ce.corrections && ce.corrections.length) html += ' · ' + ce.corrections.length + ' correction(s)';
         html += '</summary>';
         html += '<div class="vera-body">';
-        // Headline
         if (ce.headline_verdict !== 'strong' || ce.headline_suggestion) {
           html += '<div class="vera-row"><span class="vera-label">Headline:</span> '
             + '<span style="color:' + (ce.headline_verdict === 'strong' ? '#22c55e' : '#fbbf24') + ';">' + esc(ce.headline_verdict) + '</span>'
             + (ce.headline_suggestion ? ' → <em>' + esc(ce.headline_suggestion) + '</em>' : '')
             + '</div>';
         }
-        // Lede
         if (ce.lede_verdict !== 'strong' || ce.lede_note) {
           html += '<div class="vera-row"><span class="vera-label">Lede:</span> '
             + '<span style="color:' + (ce.lede_verdict === 'strong' ? '#22c55e' : '#fbbf24') + ';">' + esc(ce.lede_verdict) + '</span>'
             + (ce.lede_note ? ' — ' + esc(ce.lede_note) : '')
             + '</div>';
         }
-        // Reading level
         if (ce.reading_level) {
           html += '<div class="vera-row"><span class="vera-label">Reading level:</span> ' + esc(ce.reading_level) + '</div>';
         }
-        // Corrections
         if (ce.corrections && ce.corrections.length) {
           html += '<div class="vera-corrections">';
           ce.corrections.forEach(function (c) {
@@ -633,7 +136,6 @@
           });
           html += '</div>';
         }
-        // Style notes
         if (ce.style_notes && ce.style_notes.length) {
           html += '<div class="vera-style-notes">' + ce.style_notes.map(function (n) {
             return '<div class="vera-row">📌 ' + esc(n) + '</div>';
@@ -642,7 +144,6 @@
         html += '</div></details>';
       }
 
-      // Preview toggle
       html += '<details><summary style="cursor:pointer;font-size:12px;color:var(--muted);margin-bottom:8px;">Preview article</summary>';
       html += '<div class="review-preview">' + esc((a.full_content || a.summary || 'No content').slice(0, 1000)) + '</div>';
       html += '</details>';
