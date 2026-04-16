@@ -46,6 +46,8 @@ async function resolveWriterBeats(writerId, tenantId) {
 async function getAiSummary(article, writer, tenantId) {
   try {
     const cleanSummary = (article.summary || '').replace(/<[^>]+>/g, '').slice(0, 800);
+    const cleanBody = (article.content || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 2500);
+    const combinedContext = cleanSummary + (cleanBody ? '\n\nExcerpt from article:\n' + cleanBody : '');
     const writerName = writer?.name || 'the desk';
     const tone       = writer?.tone || 'clear, conversational, news-anchor';
     const beats      = (writer && writer.beats) ? writer.beats : 'AI and tech news';
@@ -55,7 +57,7 @@ async function getAiSummary(article, writer, tenantId) {
       tone,
       beats,
       title: article.title || '',
-      summary: cleanSummary,
+      summary: combinedContext,
     });
 
     const result = await aiComplete({
@@ -72,7 +74,7 @@ async function getAiSummary(article, writer, tenantId) {
     if (!raw) return null;
 
     // Reject obviously truncated output so we fall back to raw summary:
-    const MIN_CHARS = 120;
+    const MIN_CHARS = 200;
     if (raw.length < MIN_CHARS) {
       console.warn(`[Media] audio script too short (${raw.length} chars), falling back. Text: ${raw.slice(0, 200)}`);
       return null;
@@ -103,9 +105,18 @@ async function getAiSummary(article, writer, tenantId) {
   }
 }
 
+function buildSyntheticFallback(article) {
+  const summary = (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  if (!summary) return '';
+  // Take first 1-2 complete sentences from summary
+  const firstSentences = summary.match(/^[^.!?]+[.!?](?:\s+[^.!?]+[.!?])?/);
+  const body = firstSentences ? firstSentences[0] : summary.slice(0, 300);
+  return `Here's the short of it. ${body}`.slice(0, 600);
+}
+
 async function buildTtsText(article, writer, tenantId) {
   const aiSummary = await getAiSummary(article, writer, tenantId);
-  const fallback  = (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
+  const fallback  = buildSyntheticFallback(article) || (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
   const text = aiSummary || fallback;
   const final = text.slice(0, MAX_CHARS);
   console.log(`[Media] audio script (${final.length} chars): ${final.slice(0, 200)}${final.length > 200 ? '...' : ''}`);
