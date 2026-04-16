@@ -36,7 +36,6 @@
     .review-stat { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px 20px; flex:1; text-align:center; }
     .review-stat-num { font-size:24px; font-weight:700; }
     .review-stat-label { font-size:12px; color:var(--muted); margin-top:4px; }
-    .review-card.optimistic-removing, .pitch-card.optimistic-removing { opacity: 0.4; transition: opacity 0.15s; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -47,146 +46,9 @@
       <div class="topbar-title">Editorial Review</div>
     </div>
     <div class="page-content" style="max-width:900px;">
-      <div class="tabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);">
-        <button class="tab-btn active" data-tab="articles" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid var(--primary);color:var(--text);cursor:pointer;font-weight:600;">Articles <span id="articlesTabCount" class="badge" style="margin-left:6px;"></span></button>
-        <button class="tab-btn" data-tab="pitches" style="padding:10px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);cursor:pointer;font-weight:600;">Pitches <span id="pitchesTabCount" class="badge" style="margin-left:6px;"></span></button>
-      </div>
-
-      <div id="articlesPanel">
-        <div class="review-stats" id="reviewStats"></div>
-        <div class="review-grid" id="reviewGrid">
-          <div class="review-empty">Loading...</div>
-        </div>
-      </div>
-
-      <div id="pitchesPanel" style="display:none;">
-        <div style="margin-bottom:12px;">
-          <button class="btn btn-primary btn-sm" id="newPitchBtn">+ New pitch</button>
-        </div>
-        <div class="review-grid" id="pitchesGrid">
-          <div class="review-empty">Loading pitches...</div>
-        </div>
-      </div>
-
-      <!-- New pitch modal -->
-      <div class="modal-overlay" id="newPitchModal">
-        <div class="modal" style="max-width:560px;">
-          <div class="modal-header">
-            <div class="modal-title">New pitch</div>
-            <button class="modal-close" data-close-modal>✕</button>
-          </div>
-          <div class="modal-body">
-            <label style="display:block;margin-bottom:10px;font-size:13px;">Source (id or URL):
-              <input id="newPitchSource" type="text" placeholder="1234 or https://yoursite.com/article/..." style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
-            </label>
-            <label style="display:block;margin-bottom:10px;font-size:13px;">Writer:
-              <select id="newPitchWriter" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;">
-                <option value="">— Editor tip (assign later) —</option>
-              </select>
-            </label>
-            <label style="display:block;margin-bottom:6px;font-size:13px;">Template (optional starting point):
-              <select id="newPitchTemplate" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;">
-                <option value="">— Start blank —</option>
-                <option value="compliance">Compliance / regulatory angle</option>
-                <option value="technical">Technical deep-dive</option>
-                <option value="market">Market impact / business analysis</option>
-                <option value="contrarian">Contrarian take</option>
-                <option value="explainer">Explainer for non-experts</option>
-                <option value="forecast">Predictive forecast</option>
-                <option value="sentiment">Community sentiment / reaction</option>
-                <option value="historical">Historical context / pattern</option>
-              </select>
-            </label>
-            <label style="display:block;font-size:13px;">Angle (10+ chars):
-              <textarea id="newPitchAngle" rows="4" style="width:100%;margin-top:4px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
-            </label>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline" data-close-modal>Cancel</button>
-            <button class="btn btn-primary" id="submitNewPitchBtn">Submit pitch</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Reassign writer modal -->
-      <div class="modal-overlay" id="reassignModal">
-        <div class="modal modal-sm">
-          <div class="modal-header">
-            <div class="modal-title">Assign writer</div>
-            <button class="modal-close" data-close-modal>✕</button>
-          </div>
-          <div class="modal-body">
-            <label style="display:block;font-size:13px;">Pick a writer:
-              <select id="reassignWriter" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></select>
-            </label>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-outline" data-close-modal>Cancel</button>
-            <button class="btn btn-primary" id="confirmReassignBtn">Assign</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Enrich-sources modal -->
-    <div class="modal-overlay" id="enrichModal">
-      <div class="modal" style="max-width:720px;">
-        <div class="modal-header">
-          <div class="modal-title">Enrich sources</div>
-          <button class="modal-close" data-close-modal>✕</button>
-        </div>
-        <div class="modal-body">
-          <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <input id="enrichQuery" type="text" placeholder="Search topic…" style="flex:1;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
-            <button class="btn btn-primary btn-sm" id="enrichSearchBtn">Search</button>
-          </div>
-          <div id="enrichResults" style="max-height:50vh;overflow-y:auto;font-size:13px;">
-            <div class="text-muted" style="padding:24px 8px;text-align:center;">Enter a topic and press Search.</div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <span id="enrichQuotaInfo" class="text-muted" style="font-size:12px;flex:1;"></span>
-          <button class="btn btn-outline" data-close-modal>Cancel</button>
-          <button class="btn btn-primary" id="enrichIngestBtn" disabled>Ingest selected</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Weak-pitch (single source) confirmation modal -->
-    <div class="modal-overlay" id="weakPitchModal">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <div class="modal-title">Weak pitch &mdash; only 1 source</div>
-          <button class="modal-close" data-close-modal>&#10005;</button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted">Approving this pitch will synthesize an article from a single source, which typically fails editorial review. Options:</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline" data-close-modal>Cancel</button>
-          <button class="btn btn-ghost" id="weakPitchApproveAnywayBtn">Approve anyway</button>
-          <button class="btn btn-primary" id="weakPitchEnrichFirstBtn">Enrich first</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Override-cap modal -->
-    <div class="modal-overlay" id="overrideModal">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <div class="modal-title">Approve over the cap?</div>
-          <button class="modal-close" data-close-modal>✕</button>
-        </div>
-        <div class="modal-body">
-          <p id="overrideMessage" class="text-muted"></p>
-          <label style="display:block;margin-top:12px;font-size:13px;">Editor justification (logged):
-            <textarea id="overrideNote" rows="3" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;"></textarea>
-          </label>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline" data-close-modal>Cancel</button>
-          <button class="btn btn-primary" id="confirmOverrideBtn">Approve with override</button>
-        </div>
+      <div class="review-stats" id="reviewStats"></div>
+      <div class="review-grid" id="reviewGrid">
+        <div class="review-empty">Loading...</div>
       </div>
     </div>
   </div>

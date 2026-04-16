@@ -178,6 +178,23 @@
     setTimeout(doScroll, 80);
   }
 
+  // Clean stored history content before display.
+  // User turns may have server-injected context preambles; AI turns may have raw <<<PITCH:>>> blocks.
+  function cleanHistoryContent(role, text) {
+    if (!text) return text;
+    if (role === 'user') {
+      // Extract the editor's actual message from enriched preamble.
+      // Pattern: "[context blocks]\n\nEditor: <message>\n\n[more injected blocks]"
+      var editorMatch = text.match(/\bEditor:\s+([\s\S]*?)(?:\n\n\[|$)/);
+      if (editorMatch) return editorMatch[1].trim();
+      // Fallback: strip leading [block] sections if no Editor: marker
+      var stripped = text.replace(/^\[[^\]]*\]\n*/g, '').trim();
+      return stripped || text;
+    }
+    // Strip raw pitch/action machine markers from AI responses
+    return text.replace(/\n*<<<PITCH:[\s\S]*?>>>\s*$/g, '').trim();
+  }
+
   function renderThread(messages) {
     var thread = document.getElementById('chatThread');
     if (!messages.length) {
@@ -185,7 +202,8 @@
       return;
     }
     thread.innerHTML = messages.map(function (m) {
-      return bubbleHtml(m.role === 'user' ? 'user' : 'assistant', m.content, activeWriter);
+      var role = m.role === 'user' ? 'user' : 'assistant';
+      return bubbleHtml(role, cleanHistoryContent(role, m.content), activeWriter);
     }).join('');
     scrollToBottom();
   }
