@@ -554,18 +554,27 @@ registerJob({
 
 registerJob({
   name: 'agent-scan',
-  description: 'Writer agent story pitch evaluation',
+  description: 'Writer agent proactive beat search + story pitch evaluation',
   category: 'Content',
   defaultSchedule: '30 */2 * * *', // every 2 hours at :30 (offset from synthesis at :00)
   handler: async (tenantId) => {
-    const { evaluateIncomingArticles, checkPredictions } = require('./lib/writer-agent');
+    const { evaluateIncomingArticles, checkPredictions, proactiveBeatSearch } = require('./lib/writer-agent');
     const writers = await db.prepare(
       "SELECT id FROM writers WHERE tenant_id = $1 AND is_auto = true"
     ).all(tenantId);
 
     let totalPitches = 0;
+    let totalIngested = 0;
+
     for (const w of writers) {
       try {
+        // Step 1: proactively search external sources for the writer's beats
+        // and ingest fresh results before evaluating. No-ops if agent_web_research
+        // feature flag is off.
+        const searchResult = await proactiveBeatSearch(w.id, tenantId);
+        totalIngested += searchResult.ingested;
+
+        // Step 2: evaluate the (now-enriched) pool and generate pitches
         const pitches = await evaluateIncomingArticles(w.id, tenantId);
         totalPitches += pitches.length;
 
@@ -589,7 +598,59 @@ registerJob({
       }
     }
 
-    return { writers: writers.length, pitches: totalPitches };
+    return { writers: writers.length, pitches: totalPitches, ingested: totalIngested };
+  },
+});
+
+registerJob({
+  name: 'daily-standup',
+  description: 'Morning writer standup — each agent summarises what they\'re tracking today',
+  category: 'Content',
+  defaultSchedule: '30 7 * * *', // 7:30 AM UTC — after synthesis (6:00) and agent-scan (6:30)
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const planEnabled = await isFeatureEnabled(tenantId, 'daily_standups').catch(() => false);
+    if (!planEnabled) return { skipped: 'daily_standups feature not enabled on plan' };
+    const settingRow = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'daily_standups_enabled'"
+    ).get(tenantId);
+    if (settingRow && settingRow.value !== '1') return { skipped: 'daily_standups disabled in settings' };
+
+    const { generateStandup } = require('./lib/writer-agent');
+    const { recordEvent } = require('./lib/newsroom-events');
+
+    const writers = await db.prepare(
+      "SELECT id, name FROM writers WHERE tenant_id = $1 AND is_auto = true AND role != 'designer'"
+    ).all(tenantId);
+
+    let posted = 0;
+    for (const w of writers) {
+      try {
+        const text = await generateStandup(w.id, tenantId);
+        if (!text) continue;
+
+        // Post to newsroom feed
+        await recordEvent({
+          tenantId,
+          type: 'standup',
+          actorWriterId: w.id,
+          payload: { text },
+        });
+
+        // Send to messaging channels if configured
+        const { notifyStandup } = require('./lib/messaging');
+        if (notifyStandup) {
+          notifyStandup(tenantId, text, w).catch(() => {});
+        }
+
+        console.log(`[daily-standup] ${w.name} (tenant ${tenantId}): posted standup`);
+        posted++;
+      } catch (err) {
+        console.error(`[daily-standup] writer ${w.id}:`, err.message);
+      }
+    }
+
+    return { writers: writers.length, posted };
   },
 });
 
