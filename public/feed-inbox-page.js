@@ -506,9 +506,7 @@
   document.getElementById('uncatFixAllBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('uncatFixAllBtn');
     btn.disabled = true;
-    btn.textContent = '⏳ Fixing…';
     try {
-      // Pass explicit IDs — articles may have null/empty category (not just the string 'Uncategorized')
       const uncatIds = allArticles
         .filter(a => !a.category || a.category === 'Uncategorized')
         .map(a => a.id);
@@ -516,12 +514,20 @@
         showAlert('No uncategorized articles found.', 'success');
         return;
       }
-      const data = await apiFetch('/fetch/recategorize', {
-        method: 'POST',
-        body: JSON.stringify({ articleIds: uncatIds, dryRun: false }),
-      });
-      const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
-      showAlert(`${data.updated} article${data.updated === 1 ? '' : 's'} recategorized${writerMsg}.`, 'success');
+      const CHUNK = 100;
+      let totalUpdated = 0, totalReassigned = 0;
+      for (let i = 0; i < uncatIds.length; i += CHUNK) {
+        const chunk = uncatIds.slice(i, i + CHUNK);
+        btn.textContent = `⏳ ${Math.min(i + CHUNK, uncatIds.length)}/${uncatIds.length}…`;
+        const data = await apiFetch('/fetch/recategorize', {
+          method: 'POST',
+          body: JSON.stringify({ articleIds: chunk, dryRun: false }),
+        });
+        totalUpdated += data.updated || 0;
+        totalReassigned += data.writerReassignments || 0;
+      }
+      const writerMsg = totalReassigned ? `, ${totalReassigned} writer(s) reassigned` : '';
+      showAlert(`${totalUpdated} article${totalUpdated === 1 ? '' : 's'} recategorized${writerMsg}.`, 'success');
       loadArticles();
     } catch (err) {
       showAlert('Fix failed: ' + err.message, 'error');

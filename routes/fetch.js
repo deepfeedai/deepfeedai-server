@@ -317,8 +317,16 @@ router.post('/', auth, requirePermission('fetch.execute'), asyncHandler(async (r
 
 // POST /api/fetch/recategorize
 // Body: { articleIds?, category?, days?, dryRun? }
+// Max 100 articles per request — clients must batch for larger sets.
+const RECAT_BATCH_LIMIT = 100;
+const RECAT_CONCURRENCY = 5;
 router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
-  const { articleIds, category, days, dryRun } = req.body || {};
+  let { articleIds, category, days, dryRun } = req.body || {};
+
+  // Clamp explicit ID list to batch limit
+  if (Array.isArray(articleIds) && articleIds.length > RECAT_BATCH_LIMIT) {
+    articleIds = articleIds.slice(0, RECAT_BATCH_LIMIT);
+  }
 
   // Build dynamic WHERE clause
   const conditions = ['(is_archived = 0 OR is_archived IS NULL)', `tenant_id = $1`];
@@ -341,7 +349,7 @@ router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHand
     idx++;
   }
 
-  const sql = `SELECT id, title, summary, category, writer_id, source, source_url FROM articles WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT 2000`;
+  const sql = `SELECT id, title, summary, category, writer_id, source, source_url FROM articles WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT ${RECAT_BATCH_LIMIT}`;
   const articles = await db.prepare(sql).all(...params);
 
   // Pre-fetch source default categories so curated articles benefit from the same
@@ -357,16 +365,19 @@ router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHand
   const moves = {};
   const toUpdate = [];
 
-  for (const a of articles) {
-    const newCat = await detectCategory(
-      { title: a.title, contentSnippet: a.summary, link: a.source_url, sourceUrl: a.source_url },
-      { tenantId: req.tenantId, defaultCategory: sourceDefaults[a.source] }
-    );
-    if (newCat !== a.category) {
-      const key = `${a.category} → ${newCat}`;
-      moves[key] = (moves[key] || 0) + 1;
-      toUpdate.push({ id: a.id, title: a.title, summary: a.summary, newCat, hasWriter: !!a.writer_id });
-    }
+  // Process RECAT_CONCURRENCY articles at a time to stay within request timeout
+  for (let i = 0; i < articles.length; i += RECAT_CONCURRENCY) {
+    await Promise.all(articles.slice(i, i + RECAT_CONCURRENCY).map(async (a) => {
+      const newCat = await detectCategory(
+        { title: a.title, contentSnippet: a.summary, link: a.source_url, sourceUrl: a.source_url },
+        { tenantId: req.tenantId, defaultCategory: sourceDefaults[a.source] }
+      );
+      if (newCat !== a.category) {
+        const key = `${a.category} → ${newCat}`;
+        moves[key] = (moves[key] || 0) + 1;
+        toUpdate.push({ id: a.id, title: a.title, summary: a.summary, newCat, hasWriter: !!a.writer_id });
+      }
+    }));
   }
 
   let writerReassignments = 0;
