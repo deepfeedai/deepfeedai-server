@@ -413,29 +413,34 @@ router.get('/sessions', requirePermission('analytics.read'), asyncHandler(async 
   }
 
   const rows = await pool.query(`
-    SELECT agent_session_id,
-           MIN(created_at) AS started_at,
-           MAX(created_at) AS ended_at,
-           EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) * 1000 AS duration_ms,
-           COUNT(*)::int AS iterations,
-           MAX(writer_id) AS writer_id,
-           (array_agg(provider ORDER BY created_at))[1] AS first_provider,
-           (array_agg(model    ORDER BY created_at))[1] AS first_model,
-           array_agg(operation ORDER BY created_at) AS operations,
-           COALESCE(SUM(input_tokens), 0)::int          AS total_input_tokens,
-           COALESCE(SUM(input_tokens_cached), 0)::int   AS total_cached_tokens,
-           COALESCE(SUM(output_tokens), 0)::int         AS total_output_tokens,
-           COALESCE(SUM(estimated_cost), 0)::numeric(10,6) AS estimated_cost,
-           COALESCE(SUM(credits_used), 0)::int          AS credits_used,
-           BOOL_AND(success) AS all_success
-    FROM ai_usage
-    WHERE tenant_id = $1
-      AND agent_session_id IS NOT NULL
-      AND created_at > NOW() - $2::INTERVAL
-      ${writerFilter}
-    GROUP BY agent_session_id
-    ORDER BY MIN(created_at) DESC
-    LIMIT $3
+    WITH sess AS (
+      SELECT agent_session_id,
+             MIN(created_at) AS started_at,
+             MAX(created_at) AS ended_at,
+             EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) * 1000 AS duration_ms,
+             COUNT(*)::int AS iterations,
+             MAX(writer_id) AS writer_id,
+             (array_agg(provider ORDER BY created_at))[1] AS first_provider,
+             (array_agg(model    ORDER BY created_at))[1] AS first_model,
+             array_agg(operation ORDER BY created_at) AS operations,
+             COALESCE(SUM(input_tokens), 0)::int          AS total_input_tokens,
+             COALESCE(SUM(input_tokens_cached), 0)::int   AS total_cached_tokens,
+             COALESCE(SUM(output_tokens), 0)::int         AS total_output_tokens,
+             COALESCE(SUM(estimated_cost), 0)::numeric(10,6) AS estimated_cost,
+             COALESCE(SUM(credits_used), 0)::int          AS credits_used,
+             BOOL_AND(success) AS all_success
+      FROM ai_usage
+      WHERE tenant_id = $1
+        AND agent_session_id IS NOT NULL
+        AND created_at > NOW() - $2::INTERVAL
+        ${writerFilter}
+      GROUP BY agent_session_id
+      ORDER BY MIN(created_at) DESC
+      LIMIT $3
+    )
+    SELECT s.*, w.name AS writer_name, w.avatar_url AS writer_avatar
+    FROM sess s
+    LEFT JOIN writers w ON w.id = s.writer_id AND w.tenant_id = $1
   `, params);
 
   res.json({ sessions: rows.rows });

@@ -281,6 +281,12 @@
           <h2 class="section-title">Recent Sessions</h2>
           <span class="text-muted text-sm" id="sessionCount">—</span>
         </div>
+        <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="sessionWriterFilter" style="padding:5px 10px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:7px;font-size:12px;">
+            <option value="">All writers</option>
+          </select>
+          <button class="btn btn-sm btn-ghost" id="sessionFilterReset">Reset</button>
+        </div>
         <div style="overflow-x:auto;">
           <table class="data-table" id="sessionsTable">
             <thead>
@@ -289,13 +295,14 @@
                 <th>Writer</th>
                 <th>Provider / Model</th>
                 <th>Iters</th>
-                <th>Cached / Fresh / Out</th>
+                <th>Cached / Fresh / Out tokens</th>
                 <th>Cost</th>
+                <th>Duration</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="sessionsTbody">
-              <tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
+              <tr><td colspan="8" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
