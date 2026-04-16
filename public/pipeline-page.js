@@ -340,4 +340,267 @@ onReady(async () => {
     d.textContent = s || '';
     return d.innerHTML;
   }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Orchestration Pipeline UI
+  // ══════════════════════════════════════════════════════════════════
+
+  const orchRunList      = document.getElementById('orchRunList');
+  const orchStats        = document.getElementById('orchStats');
+  const orchStatusFilter = document.getElementById('orchStatusFilter');
+  const orchScoutBtn     = document.getElementById('orchScoutBtn');
+  const orchCycleBtn     = document.getElementById('orchCycleBtn');
+
+  if (!orchRunList) return; // Section not present
+
+  let orchOffset = 0;
+  const ORCH_PAGE = 20;
+
+  function relTime(iso) {
+    if (!iso) return '—';
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.round(diff / 3600000)}h ago`;
+    return `${Math.round(diff / 86400000)}d ago`;
+  }
+
+  function stageDot(status) {
+    return `<span class="orch-stage-dot orch-dot-${status}"></span>`;
+  }
+
+  function stageBadge(status) {
+    const labels = { scout:'Scout', skeptic:'Verifying', research:'Researching',
+      writing:'Writing', review:'Reviewing', paused:'Needs Review',
+      published:'Published', rejected:'Rejected', error:'Error', approved:'Approved' };
+    return `<span class="orch-badge orch-bg-${status}">${labels[status] || status}</span>`;
+  }
+
+  function renderOrchStats(stats) {
+    if (!orchStats || !stats) return;
+    orchStats.innerHTML = [
+      { n: stats.in_progress, l: 'In Progress' },
+      { n: stats.paused,      l: 'Needs Review', highlight: stats.paused > 0 },
+      { n: stats.published,   l: 'Published' },
+      { n: stats.today,       l: 'Today' },
+      { n: stats.total,       l: 'All Time' },
+    ].map(s => `
+      <div class="orch-stat-pill" ${s.highlight ? 'style="border-color:rgba(239,68,68,.4)"' : ''}>
+        <div class="num" ${s.highlight ? 'style="color:#f87171"' : ''}>${s.n}</div>
+        <div class="lbl">${s.l}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderOrchRun(run) {
+    const stageData = run.stage_data || {};
+    const skeptic = stageData.skeptic || {};
+
+    const gateHtml = run.human_gate_required ? `
+      <div class="orch-gate-banner">
+        <p class="orch-gate-reason"><strong>Needs review:</strong> ${esc(run.human_gate_reason || 'Human approval required')}</p>
+        ${skeptic.conflicts && skeptic.conflicts.length ? `
+          <ul class="orch-conflicts">
+            ${skeptic.conflicts.map(c => `<li>${esc(c)}</li>`).join('')}
+          </ul>` : ''}
+        <div class="orch-action-row">
+          <button class="btn-orch-approve" data-id="${run.id}" data-action="approve">Approve &amp; continue</button>
+          <button class="btn-orch-reject"  data-id="${run.id}" data-action="reject">Kill story</button>
+        </div>
+      </div>` : '';
+
+    const articleHtml = run.article_id ? `
+      <div class="orch-detail">Article: <span>
+        ${run.article_slug
+          ? `<a href="/article-editor.html?id=${run.article_id}" class="text-primary" style="font-size:12px;">${esc(run.article_title || `#${run.article_id}`)}</a>`
+          : esc(run.article_title || `#${run.article_id}`)
+        }
+        ${run.article_published ? '<span style="color:#4ade80;font-size:10px;margin-left:4px;">LIVE</span>' : '<span style="color:#fb923c;font-size:10px;margin-left:4px;">Draft</span>'}
+      </span></div>` : '';
+
+    const writerHtml = run.writer_name
+      ? `<div class="orch-detail">Writer: <span>${esc(run.writer_name)}</span></div>` : '';
+
+    const confidenceHtml = skeptic.confidence !== undefined
+      ? `<div class="orch-detail">Confidence: <span>${Math.round(skeptic.confidence * 100)}%</span></div>` : '';
+
+    const sourcesHtml = skeptic.independent_sources !== undefined
+      ? `<div class="orch-detail">Independent sources: <span>${skeptic.independent_sources}</span></div>` : '';
+
+    const gapsHtml = skeptic.gaps && skeptic.gaps.length ? `
+      <div class="orch-detail">Gaps identified:</div>
+      <ul class="orch-gaps">${skeptic.gaps.slice(0,3).map(g => `<li>${esc(g)}</li>`).join('')}</ul>
+    ` : '';
+
+    const advanceHtml = !run.human_gate_required &&
+      !['paused','published','rejected','error','approved'].includes(run.status) ? `
+      <div class="orch-action-row">
+        <button class="btn-orch-advance" data-id="${run.id}" data-action="advance">Advance now</button>
+      </div>` : '';
+
+    const errorHtml = run.error_message
+      ? `<div class="orch-detail" style="color:#ef4444;">Error: <span>${esc(run.error_message)}</span></div>` : '';
+
+    return `
+      <div class="orch-run" data-run-id="${run.id}">
+        <div class="orch-run-header">
+          ${stageDot(run.status)}
+          <div class="orch-topic" title="${esc(run.topic)}">${esc(run.topic || 'Untitled story')}</div>
+          ${stageBadge(run.status)}
+          <span class="orch-meta">${relTime(run.updated_at || run.created_at)}</span>
+        </div>
+        <div class="orch-run-body" id="orchBody_${run.id}">
+          ${gateHtml}
+          ${articleHtml}
+          ${writerHtml}
+          ${confidenceHtml}
+          ${sourcesHtml}
+          ${gapsHtml}
+          ${errorHtml}
+          ${advanceHtml}
+        </div>
+      </div>`;
+  }
+
+  async function loadOrchRuns(append = false) {
+    const status = orchStatusFilter ? orchStatusFilter.value : '';
+    try {
+      const params = new URLSearchParams({ limit: ORCH_PAGE, offset: orchOffset });
+      if (status) params.set('status', status);
+
+      const [runsData, statsData] = await Promise.all([
+        apiFetch(`/orchestrator/runs?${params}`),
+        apiFetch('/orchestrator/stats'),
+      ]);
+
+      if (!append) {
+        orchRunList.innerHTML = '';
+        renderOrchStats(statsData);
+      }
+
+      if (!runsData.runs || !runsData.runs.length) {
+        if (!append) orchRunList.innerHTML = '<div class="orch-empty">No pipeline runs yet. Click "Scout now" to discover stories.</div>';
+        return;
+      }
+
+      runsData.runs.forEach(run => {
+        const el = document.createElement('div');
+        el.innerHTML = renderOrchRun(run);
+        orchRunList.appendChild(el.firstElementChild);
+      });
+    } catch (err) {
+      if (!append) orchRunList.innerHTML = `<div class="orch-empty" style="color:#ef4444;">Error loading pipeline: ${esc(err.message)}</div>`;
+    }
+  }
+
+  // Expand/collapse run body on click
+  orchRunList.addEventListener('click', async (e) => {
+    const header = e.target.closest('.orch-run-header');
+    if (header) {
+      const card = header.closest('.orch-run');
+      const body = card.querySelector('.orch-run-body');
+      if (body) body.classList.toggle('open');
+      return;
+    }
+
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+
+    const runId = btn.dataset.id;
+    const action = btn.dataset.action;
+
+    if (action === 'approve') {
+      btn.disabled = true;
+      btn.textContent = 'Approving…';
+      try {
+        await apiFetch(`/orchestrator/runs/${runId}/approve`, { method: 'POST', body: {} });
+        showToast('Story approved — advancing pipeline', 'success');
+        orchOffset = 0;
+        loadOrchRuns();
+      } catch (err) {
+        showToast('Approve failed: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Approve & continue';
+      }
+    }
+
+    if (action === 'reject') {
+      if (!confirm('Kill this story and archive any draft? This cannot be undone.')) return;
+      btn.disabled = true;
+      try {
+        await apiFetch(`/orchestrator/runs/${runId}/reject`, { method: 'POST', body: {} });
+        showToast('Story rejected', 'success');
+        orchOffset = 0;
+        loadOrchRuns();
+      } catch (err) {
+        showToast('Reject failed: ' + err.message, 'error');
+        btn.disabled = false;
+      }
+    }
+
+    if (action === 'advance') {
+      btn.disabled = true;
+      btn.textContent = 'Advancing…';
+      try {
+        const result = await apiFetch(`/orchestrator/runs/${runId}/advance`, { method: 'POST', body: {} });
+        showToast(`Advanced to ${result.nextStage}`, 'success');
+        orchOffset = 0;
+        loadOrchRuns();
+      } catch (err) {
+        showToast('Advance failed: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Advance now';
+      }
+    }
+  });
+
+  // Filter change
+  if (orchStatusFilter) {
+    orchStatusFilter.addEventListener('change', () => { orchOffset = 0; loadOrchRuns(); });
+  }
+
+  // Scout now
+  if (orchScoutBtn) {
+    orchScoutBtn.addEventListener('click', async () => {
+      orchScoutBtn.disabled = true;
+      orchScoutBtn.textContent = 'Scouting…';
+      try {
+        const result = await apiFetch('/orchestrator/scout', { method: 'POST', body: {} });
+        showToast(`Scout found ${result.scout_created} new story opportunity${result.scout_created !== 1 ? 's' : ''}`, result.scout_created > 0 ? 'success' : 'info');
+        orchOffset = 0;
+        loadOrchRuns();
+      } catch (err) {
+        showToast('Scout failed: ' + err.message, 'error');
+      } finally {
+        orchScoutBtn.disabled = false;
+        orchScoutBtn.textContent = 'Scout now';
+      }
+    });
+  }
+
+  // Run full cycle
+  if (orchCycleBtn) {
+    orchCycleBtn.addEventListener('click', async () => {
+      orchCycleBtn.disabled = true;
+      orchCycleBtn.textContent = 'Running…';
+      try {
+        const result = await apiFetch('/orchestrator/trigger', { method: 'POST', body: {} });
+        const r = result.result || {};
+        showToast(
+          `Cycle done — ${r.scout_created || 0} scouted, ${r.advanced || 0} advanced, ${r.published || 0} published`,
+          'success'
+        );
+        orchOffset = 0;
+        loadOrchRuns();
+      } catch (err) {
+        showToast('Cycle failed: ' + err.message, 'error');
+      } finally {
+        orchCycleBtn.disabled = false;
+        orchCycleBtn.textContent = 'Run cycle';
+      }
+    });
+  }
+
+  // Initial load
+  loadOrchRuns();
 });

@@ -381,7 +381,8 @@ app.use('/api/features',       require('./routes/features'));          // public
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/promo',    auth, require('./routes/promo'));
 app.use('/api/credits',  auth, require('./routes/credit-purchases'));
-app.use('/api/synthesis', auth, largeBodyParser, require('./routes/synthesis'));
+app.use('/api/synthesis',     auth, largeBodyParser, require('./routes/synthesis'));
+app.use('/api/orchestrator', auth, require('./routes/orchestrator'));
 app.use('/api/platform/banners', auth, require('./routes/platform-banners')); // platform admin — global banners
 app.use('/api/chat', aiLimiter, require('./routes/chat'));                     // platform admin — AI chatbot
 app.use('/api/article-assist', aiLimiter, require('./routes/article-assist')); // admin — AI article editor assistant
@@ -648,6 +649,17 @@ registerJob({
     }
 
     return { writers: writers.length, posted };
+  },
+});
+
+registerJob({
+  name: 'orchestrator-cycle',
+  description: 'Newsroom orchestration pipeline — scout, verify, research, write',
+  category: 'Content',
+  defaultSchedule: '*/30 * * * *',
+  handler: async (tenantId) => {
+    const { runOrchestrator } = require('./lib/orchestrator');
+    return runOrchestrator(tenantId);
   },
 });
 

@@ -1364,6 +1364,27 @@ async function initDb() {
     // family + freeform notes for each writer so regenerations stay consistent.
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS avatar_style_family TEXT`,
     `ALTER TABLE writers ADD COLUMN IF NOT EXISTS avatar_style_notes TEXT`,
+    // Newsroom orchestration pipeline — multi-stage story pipeline state machine
+    `CREATE TABLE IF NOT EXISTS pipeline_runs (
+      id                  SERIAL PRIMARY KEY,
+      tenant_id           INTEGER NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'scout',
+      stage               TEXT NOT NULL DEFAULT 'scout',
+      topic               TEXT,
+      article_ids         JSONB DEFAULT '[]',
+      writer_id           INTEGER REFERENCES writers(id) ON DELETE SET NULL,
+      article_id          INTEGER REFERENCES articles(id) ON DELETE SET NULL,
+      stage_data          JSONB DEFAULT '{}',
+      human_gate_required BOOLEAN DEFAULT false,
+      human_gate_reason   TEXT,
+      resume_stage        TEXT,
+      error_message       TEXT,
+      created_at          TIMESTAMPTZ DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ DEFAULT NOW(),
+      finished_at         TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_status ON pipeline_runs(tenant_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_pipeline_runs_created ON pipeline_runs(tenant_id, created_at DESC)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
