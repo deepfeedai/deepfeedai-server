@@ -2,84 +2,391 @@
 (function () {
   'use strict';
 
+  // ── Constants ──────────────────────────────────────────────────────────
   const PROVIDER_COLORS = {
     gemini:     '#4285F4',
+    openai:     '#10B981',
+    anthropic:  '#D97706',
     elevenlabs: '#8B5CF6',
     imagen:     '#F59E0B',
-    resend:     '#10B981',
+    dalle:      '#EC4899',
+    openrouter: '#6366F1',
+    resend:     '#14B8A6',
     newsapi:    '#6366F1',
     brave:      '#EF4444',
+    ollama:     '#94A3B8',
   };
 
+  const TYPE_COLORS = {
+    text:   '#4285F4',
+    image:  '#F59E0B',
+    voice:  '#8B5CF6',
+    search: '#EF4444',
+    email:  '#10B981',
+  };
+
+  const TYPE_LABELS = { text:'LLM Text', image:'Images', voice:'Voice/TTS', search:'Search', email:'Email' };
+
+  // ── Helpers ────────────────────────────────────────────────────────────
   function fmt(n) {
+    n = Number(n) || 0;
     if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
     if (n >= 1000)    return (n / 1000).toFixed(1) + 'k';
     return String(n);
   }
 
-  function shortDate(isoStr) {
-    const d = new Date(isoStr);
+  function fmtCost(n) {
+    n = Number(n) || 0;
+    if (n < 0.0001) return '$0.0000';
+    if (n < 0.01)   return '$' + n.toFixed(6);
+    if (n < 1)      return '$' + n.toFixed(4);
+    return '$' + n.toFixed(2);
+  }
+
+  function shortDate(iso) {
+    const d = new Date(iso);
     return (d.getMonth() + 1) + '/' + d.getDate();
   }
 
-  function escHtml(str) {
-    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  function relTime(isoStr) {
-    const diff = Date.now() - new Date(isoStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return mins + 'm ago';
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h ago';
-    return Math.floor(hrs / 24) + 'd ago';
+  function relTime(iso) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1)  return 'just now';
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
   }
+
+  function el(id) { return document.getElementById(id); }
+  function setText(id, v) { const e = el(id); if (e) e.textContent = v; }
+  function setHtml(id, v) { const e = el(id); if (e) e.innerHTML = v; }
 
   let currentRange = '30d';
+  let _summaryData  = null;
 
+  // ── Load ──────────────────────────────────────────────────────────────
   async function loadData() {
     if (!requireAuth()) return;
-
     try {
       const [data] = await Promise.all([
         apiFetch(`/ai-usage/summary?range=${currentRange}`),
         loadElevenLabs(),
         loadSessions(),
+        loadWriters(),
+        loadCallLog(),
       ]);
+      _summaryData = data;
       render(data);
     } catch (err) {
-      console.error('[ai-usage] load error:', err);
+      console.error('[ai-usage]', err);
+      showAlert('Failed to load AI usage data', 'error');
     }
   }
 
+  // ── Render: main summary ───────────────────────────────────────────────
+  function render(data) {
+    renderAnomaly(data.anomaly);
+    renderByok(data.byok);
+    renderStatCards(data);
+    renderSparkline(data.by_day || []);
+    renderModelBars(data.by_model || []);
+    renderTypeBars(data.by_type || []);
+    renderBars('operationBars', data.by_operation || [], 'operation');
+    renderErrors(data.recent_errors || []);
+    renderBudget(data.budget || {});
+    renderEfficiency(data);
+    populateLogFilters(data);
+  }
+
+  // ── Anomaly banner ────────────────────────────────────────────────────
+  function renderAnomaly(anomaly) {
+    const banner = el('anomalyBanner');
+    if (!banner) return;
+    if (anomaly && anomaly.is_anomaly) {
+      el('anomalyText').innerHTML =
+        '<strong>Spend spike detected:</strong> today\'s cost is '
+        + anomaly.factor.toFixed(1) + '× the ' + currentRange + ' daily average ('
+        + fmtCost(anomaly.today_spend) + ' today vs '
+        + fmtCost(anomaly.avg_daily) + ' avg). Check the Call Log for unexpected usage.';
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
+  }
+
+  // ── BYOK vs platform strip ────────────────────────────────────────────
+  function renderByok(byok) {
+    if (!byok) return;
+    setText('byokCost', fmtCost(byok.byok_cost));
+    setText('byokCalls', byok.byok_calls + ' calls on your keys');
+    setText('platformCredits', fmt(byok.platform_credits) + ' cr');
+    setText('platformCalls', byok.platform_calls + ' calls on platform credits');
+  }
+
+  // ── Stat cards ────────────────────────────────────────────────────────
+  function renderStatCards(data) {
+    const t = data.totals || {};
+    const cache = data.cache || {};
+
+    setText('statCost',    fmtCost(parseFloat(t.estimated_cost) || 0));
+    setText('statCredits', fmt(parseInt(t.total_credits) || 0) + ' cr');
+    setText('statCreditsDelta', 'this period');
+    setText('statCalls',   fmt(parseInt(t.api_calls) || 0));
+    setText('statTokens',  fmt(parseInt(t.total_tokens) || 0));
+    setText('statSuccess', (parseFloat(t.success_rate) || 0) + '%');
+
+    // Cache hit rate
+    const rate = cache.cache_rate || 0;
+    setText('statCacheRate', rate + '%');
+    if (cache.cost_saved > 0) {
+      setText('statCacheSaved', '~' + fmtCost(cache.cost_saved) + ' saved');
+    } else {
+      setText('statCacheSaved', fmt(cache.cached_tokens || 0) + ' tokens cached');
+    }
+  }
+
+  // ── Efficiency ────────────────────────────────────────────────────────
+  function renderEfficiency(data) {
+    const eff = data.efficiency || {};
+    setText('statCostPerArticle', fmtCost(eff.cost_per_article || 0));
+    setText('statArticleCount', (eff.published_articles || 0) + ' articles published');
+    setText('statCreditsPerArticle', fmt(eff.credits_per_article || 0) + ' cr');
+
+    const top = (eff.top_expensive_articles || [])[0];
+    if (top) {
+      setText('statTopArticleCost', fmtCost(parseFloat(top.cost) || 0));
+      const title = (top.slug || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const el2 = el('statTopArticleSlug');
+      if (el2) { el2.textContent = title; el2.title = title; }
+    }
+  }
+
+  // ── Budget ────────────────────────────────────────────────────────────
+  function renderBudget(b) {
+    const creditsUsed   = parseInt(b.credits_used_month)  || 0;
+    const creditsLimit  = parseInt(b.credits_limit_month) || 0;
+    const creditsPct    = Math.min(b.credits_percent_used || 0, 100);
+    const creditsRemain = Math.max(0, creditsLimit - creditsUsed);
+
+    setText('creditsUsed', fmt(creditsUsed) + ' used');
+    setText('creditsLimit', fmt(creditsLimit) + ' limit');
+    setText('creditsToday', 'Today: ' + fmt(parseInt(b.credits_used_today) || 0) + ' cr');
+    setText('creditsRemaining', 'Remaining: ' + fmt(creditsRemain) + ' cr');
+    setText('creditsLabel', Math.round(creditsPct) + '% used this month');
+
+    const fill = el('creditsFill');
+    if (fill) {
+      fill.style.width = creditsPct + '%';
+      fill.style.background = creditsPct >= 90 ? '#ef4444' : creditsPct >= 70 ? '#f59e0b' : '#22c55e';
+    }
+  }
+
+  // ── Sparkline ─────────────────────────────────────────────────────────
+  function renderSparkline(byDay) {
+    const chart  = el('sparkChart');
+    const labels = el('sparkLabels');
+    if (!byDay.length) {
+      if (chart)  chart.innerHTML  = '<div style="color:var(--muted);font-size:13px;align-self:center;">No data yet</div>';
+      if (labels) labels.innerHTML = '';
+      return;
+    }
+
+    const days   = parseInt(currentRange) || 30;
+    const filled = [];
+    const now    = new Date();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - i);
+      const key   = d.toISOString().slice(0, 10);
+      const match = byDay.find(r => r.day && r.day.slice(0, 10) === key);
+      filled.push({ day: key, cost: match ? parseFloat(match.cost) || 0 : 0 });
+    }
+
+    const max = Math.max(...filled.map(r => r.cost), 0.0001);
+    if (chart) chart.innerHTML = filled.map(r => {
+      const pct = Math.max(Math.round((r.cost / max) * 100), 2);
+      return `<div class="spark-bar" style="height:${pct}%" title="${shortDate(r.day)}: ${fmtCost(r.cost)}"></div>`;
+    }).join('');
+
+    const mid = Math.floor(filled.length / 2);
+    if (labels) labels.innerHTML =
+      `<span>${shortDate(filled[0].day)}</span><span>${shortDate(filled[mid].day)}</span><span>${shortDate(filled[filled.length - 1].day)}</span>`;
+  }
+
+  // ── Provider + Model grouped bars ─────────────────────────────────────
+  function renderModelBars(byModel) {
+    const container = el('modelBars');
+    if (!container) return;
+    if (!byModel.length) { container.innerHTML = '<div class="text-muted text-sm">No data yet</div>'; return; }
+
+    // Group by provider
+    const groups = {};
+    byModel.forEach(row => {
+      const p = row.provider || 'unknown';
+      if (!groups[p]) groups[p] = { cost: 0, calls: 0, models: [] };
+      groups[p].cost  += parseFloat(row.cost) || 0;
+      groups[p].calls += parseInt(row.calls)  || 0;
+      groups[p].models.push(row);
+    });
+
+    const maxCost = Math.max(...Object.values(groups).map(g => g.cost), 0.0001);
+
+    container.innerHTML = Object.entries(groups).map(([provider, group]) => {
+      const pct   = Math.round((group.cost / maxCost) * 100);
+      const color = PROVIDER_COLORS[provider] || '#4F8EF7';
+
+      const modelRows = group.models.map(m => {
+        const mPct    = group.cost > 0 ? Math.round((parseFloat(m.cost) / group.cost) * 100) : 0;
+        const cached  = parseInt(m.cached_tokens) || 0;
+        const input   = parseInt(m.input_tokens)  || 0;
+        const out     = parseInt(m.output_tokens) || 0;
+        const cacheRate = input > 0 ? Math.round((cached / input) * 100) : 0;
+        return `
+          <div class="model-row">
+            <div class="model-label" title="${escHtml(m.model)}">${escHtml(m.model)}</div>
+            <div class="bar-track" style="flex:1;">
+              <div class="bar-fill" style="width:${mPct}%;background:${color};opacity:0.7;"></div>
+            </div>
+            <div class="bar-value" style="width:90px;">${fmtCost(parseFloat(m.cost) || 0)}</div>
+            <div class="model-tokens">${fmt(input)}in · ${fmt(out)}out${cacheRate > 0 ? ' · ' + cacheRate + '%⚡' : ''}</div>
+          </div>`;
+      }).join('');
+
+      return `
+        <div class="model-group">
+          <div class="model-group-header">
+            <div class="bar-label" style="width:auto;flex:1;">${escHtml(provider)}</div>
+            <div class="bar-track" style="flex:2;height:8px;">
+              <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
+            </div>
+            <div class="bar-value">${fmtCost(group.cost)}</div>
+          </div>
+          ${modelRows}
+        </div>`;
+    }).join('');
+  }
+
+  // ── By media type bars ────────────────────────────────────────────────
+  function renderTypeBars(byType) {
+    const container = el('typeBars');
+    if (!container) return;
+    if (!byType.length) { container.innerHTML = '<div class="text-muted text-sm">No data yet</div>'; return; }
+
+    const maxCost = Math.max(...byType.map(r => parseFloat(r.cost) || 0), 0.0001);
+    container.innerHTML = byType.map(row => {
+      const cost  = parseFloat(row.cost) || 0;
+      const pct   = Math.round((cost / maxCost) * 100);
+      const type  = row.media_type || 'text';
+      const color = TYPE_COLORS[type] || '#4F8EF7';
+      const label = TYPE_LABELS[type] || type;
+      return `
+        <div class="bar-row">
+          <div class="bar-label">${escHtml(label)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+          <div class="bar-value">${fmtCost(cost)} <span style="font-size:10px;">(${fmt(row.calls)})</span></div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Generic bar chart ─────────────────────────────────────────────────
+  function renderBars(containerId, items, nameKey) {
+    const container = el(containerId);
+    if (!container) return;
+    if (!items.length) { container.innerHTML = '<div class="text-muted text-sm">No data yet</div>'; return; }
+
+    const maxCost = Math.max(...items.map(r => parseFloat(r.cost) || 0), 0.0001);
+    container.innerHTML = items.map(item => {
+      const cost  = parseFloat(item.cost) || 0;
+      const pct   = Math.round((cost / maxCost) * 100);
+      const name  = item[nameKey] || 'unknown';
+      const color = PROVIDER_COLORS[name] || '#4F8EF7';
+      return `
+        <div class="bar-row">
+          <div class="bar-label">${escHtml(name)}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color};"></div></div>
+          <div class="bar-value">${fmtCost(cost)}</div>
+        </div>`;
+    }).join('');
+  }
+
+  // ── By writer table ───────────────────────────────────────────────────
+  async function loadWriters() {
+    try {
+      const data = await apiFetch(`/ai-usage/by-writer?range=${currentRange}`);
+      renderWriters(data.writers || []);
+    } catch (err) {
+      const tbody = el('writerTbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
+    }
+  }
+
+  function renderWriters(writers) {
+    const tbody    = el('writerTbody');
+    const countEl  = el('writerCount');
+    if (countEl) countEl.textContent = writers.length + ' writers';
+
+    if (!writers.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center" style="padding:24px;">No writer usage yet</td></tr>';
+      return;
+    }
+
+    if (tbody) tbody.innerHTML = writers.map(w => {
+      const avatar = w.avatar_url
+        ? `<img src="${escHtml(w.avatar_url)}" class="writer-avatar-sm" />`
+        : `<span class="writer-initials-sm">${escHtml((w.writer_name || '?')[0].toUpperCase())}</span>`;
+      const cached   = parseInt(w.cached_tokens)  || 0;
+      const input    = parseInt(w.input_tokens)   || 0;
+      const cacheRate = input > 0 ? Math.round((cached / input) * 100) : 0;
+      const byokBit  = parseInt(w.byok_calls) > 0
+        ? `<span class="byai-badge">${fmt(w.byok_calls)} BYOK</span>`
+        : '<span class="platform-badge">platform</span>';
+
+      return `<tr class="writer-usage-row">
+        <td>${avatar}${escHtml(w.writer_name || '#' + w.writer_id)}</td>
+        <td>${fmt(w.calls)}</td>
+        <td>${fmt(input)}</td>
+        <td>${fmt(cached)}${cacheRate > 0 ? ` <span style="color:var(--success);font-size:10px;">(${cacheRate}%⚡)</span>` : ''}</td>
+        <td>${fmt(w.output_tokens)}</td>
+        <td><strong>${fmtCost(parseFloat(w.cost) || 0)}</strong></td>
+        <td>${fmt(w.credits)} cr</td>
+        <td>${byokBit}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Agent sessions ────────────────────────────────────────────────────
   async function loadSessions() {
     try {
       const res = await apiFetch(`/ai-usage/sessions?range=${currentRange}&limit=50`);
       renderSessions(res.sessions || []);
     } catch (err) {
-      console.error('[ai-usage] sessions error:', err);
-      const tbody = document.getElementById('sessionsTbody');
+      const tbody = el('sessionsTbody');
       if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
     }
   }
 
   function renderSessions(sessions) {
-    const tbody = document.getElementById('sessionsTbody');
-    const countEl = document.getElementById('sessionCount');
+    const tbody   = el('sessionsTbody');
+    const countEl = el('sessionCount');
     if (countEl) countEl.textContent = sessions.length + ' sessions';
 
     if (!sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">No agent sessions yet</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center" style="padding:24px;">No agent sessions yet</td></tr>';
       return;
     }
 
-    tbody.innerHTML = sessions.map(s => {
-      const cost = parseFloat(s.estimated_cost) || 0;
-      const cached = parseInt(s.total_cached_tokens) || 0;
-      const input = parseInt(s.total_input_tokens) || 0;
-      const fresh = Math.max(input - cached, 0);
-      const out = parseInt(s.total_output_tokens) || 0;
-      const statusBadge = s.all_success
+    if (tbody) tbody.innerHTML = sessions.map(s => {
+      const cost    = parseFloat(s.estimated_cost) || 0;
+      const cached  = parseInt(s.total_cached_tokens) || 0;
+      const input   = parseInt(s.total_input_tokens)  || 0;
+      const fresh   = Math.max(input - cached, 0);
+      const out     = parseInt(s.total_output_tokens) || 0;
+      const ok      = s.all_success
         ? '<span class="badge" style="background:#22c55e22;color:#22c55e;">ok</span>'
         : '<span class="badge" style="background:#ef444422;color:#ef4444;">error</span>';
       return `
@@ -89,16 +396,15 @@
           <td style="font-size:12px;">${escHtml(s.first_provider || '?')} / ${escHtml(s.first_model || '?')}</td>
           <td>${s.iterations}</td>
           <td style="font-size:12px;">${fmt(cached)} / ${fmt(fresh)} / ${fmt(out)}</td>
-          <td style="font-size:12px;">$${cost.toFixed(4)}</td>
-          <td>${statusBadge}</td>
+          <td style="font-size:12px;">${fmtCost(cost)}</td>
+          <td>${ok}</td>
         </tr>
         <tr class="session-detail" data-detail="${escHtml(s.agent_session_id)}" hidden>
           <td colspan="7" style="background:var(--bg);padding:12px 16px;"></td>
-        </tr>
-      `;
+        </tr>`;
     }).join('');
 
-    tbody.querySelectorAll('.session-row').forEach(row => {
+    if (tbody) tbody.querySelectorAll('.session-row').forEach(row => {
       row.addEventListener('click', () => toggleSessionDetail(row.dataset.id));
     });
   }
@@ -108,27 +414,27 @@
     if (!detailRow) return;
     if (!detailRow.hidden) { detailRow.hidden = true; return; }
     const cell = detailRow.querySelector('td');
-    cell.innerHTML = '<div class="text-muted text-sm">Loading iterations…</div>';
+    cell.innerHTML = '<div class="text-muted text-sm">Loading…</div>';
     detailRow.hidden = false;
     try {
-      const res = await apiFetch(`/ai-usage/sessions/${encodeURIComponent(sessionId)}`);
+      const res   = await apiFetch(`/ai-usage/sessions/${encodeURIComponent(sessionId)}`);
       const iters = res.iterations || [];
-      if (!iters.length) {
-        cell.innerHTML = '<div class="text-muted text-sm">No iterations</div>';
-        return;
-      }
+      if (!iters.length) { cell.innerHTML = '<div class="text-muted text-sm">No iterations</div>'; return; }
       cell.innerHTML = `
         <table class="data-table" style="margin:0;font-size:12px;">
           <thead><tr>
             <th>#</th><th>Operation</th><th>Provider/Model</th>
-            <th>In (cached/fresh)</th><th>Out</th><th>Cost</th><th>Duration</th><th>Status</th>
+            <th>In (cached/fresh)</th><th>Out</th><th>Cost</th><th>Duration</th><th>Key</th><th>Status</th>
           </tr></thead>
           <tbody>
             ${iters.map((it, i) => {
               const cached = parseInt(it.input_tokens_cached) || 0;
               const fresh  = parseInt(it.input_tokens_fresh) || Math.max((parseInt(it.input_tokens) || 0) - cached, 0);
-              const cost = parseFloat(it.estimated_cost) || 0;
-              const statusBadge = it.success
+              const cost   = parseFloat(it.estimated_cost) || 0;
+              const keyBit = it.is_byai
+                ? '<span class="byai-badge">BYOK</span>'
+                : '<span class="platform-badge">platform</span>';
+              const ok = it.success
                 ? '<span class="badge" style="background:#22c55e22;color:#22c55e;">ok</span>'
                 : `<span class="badge" style="background:#ef444422;color:#ef4444;" title="${escHtml(it.error_message || '')}">error</span>`;
               return `<tr>
@@ -137,212 +443,150 @@
                 <td>${escHtml(it.provider || '')}/${escHtml(it.model || '')}</td>
                 <td>${fmt(cached)} / ${fmt(fresh)}</td>
                 <td>${fmt(parseInt(it.output_tokens) || 0)}</td>
-                <td>$${cost.toFixed(4)}</td>
+                <td>${fmtCost(cost)}</td>
                 <td>${it.duration_ms != null ? it.duration_ms + 'ms' : '—'}</td>
-                <td>${statusBadge}</td>
+                <td>${keyBit}</td>
+                <td>${ok}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>`;
     } catch (err) {
-      cell.innerHTML = `<div class="text-muted text-sm">Failed: ${escHtml(err.message || '')}</div>`;
+      cell.innerHTML = `<div class="text-muted text-sm">Failed: ${escHtml(err.message)}</div>`;
     }
   }
 
-  async function loadElevenLabs() {
+  // ── Call log ──────────────────────────────────────────────────────────
+  let _callLogData = [];
+
+  async function loadCallLog(filters) {
+    const params = new URLSearchParams({ limit: 200 });
+    if (filters?.provider)  params.set('provider',  filters.provider);
+    if (filters?.model)     params.set('model',      filters.model);
+    if (filters?.operation) params.set('operation',  filters.operation);
+    if (filters?.is_byai)   params.set('is_byai',    filters.is_byai);
+
     try {
-      const el = await apiFetch('/ai-usage/elevenlabs');
-      if (!el || !el.configured) return;
-      renderElevenLabs(el);
+      const rows = await apiFetch(`/ai-usage/recent?${params}`);
+      _callLogData = rows;
+      renderCallLog(rows);
     } catch (err) {
-      console.error('[ai-usage] elevenlabs error:', err);
+      const tbody = el('callLogTbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center" style="padding:24px;">Failed to load</td></tr>';
     }
   }
 
-  function renderElevenLabs(el) {
-    document.getElementById('elCard').hidden = false;
-    const pct = el.character_limit > 0
-      ? Math.round((el.character_count / el.character_limit) * 1000) / 10
-      : 0;
+  function renderCallLog(rows) {
+    const tbody   = el('callLogTbody');
+    const countEl = el('callLogCount');
+    if (countEl) countEl.textContent = rows.length + ' calls shown';
 
-    document.getElementById('elTier').textContent =
-      (el.tier || 'free') + (el.status && el.status !== 'active' ? ' (' + el.status + ')' : '');
-    document.getElementById('elUsed').textContent =
-      fmt(el.character_count) + ' / ' + fmt(el.character_limit) + ' characters';
-    document.getElementById('elPct').textContent = pct + '% used';
-    document.getElementById('elVoices').textContent =
-      'Voices: ' + (el.voice_slots_used || 0) + ' / ' + (el.voice_limit || 0);
-
-    if (el.next_reset_unix) {
-      const resetDate = new Date(el.next_reset_unix * 1000);
-      const daysLeft = Math.ceil((resetDate - Date.now()) / 86400000);
-      document.getElementById('elReset').textContent =
-        'Resets in ' + daysLeft + 'd (' + (resetDate.getMonth() + 1) + '/' + resetDate.getDate() + ')';
-    }
-
-    const safePct = Math.min(pct, 100);
-    const fill = document.getElementById('elFill');
-    fill.style.width = safePct + '%';
-    fill.style.background = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#8B5CF6';
-  }
-
-  function render(data) {
-    const t = data.totals || {};
-    const b = data.budget || {};
-
-    // Stat cards
-    const totalCredits = parseInt(t.total_credits) || 0;
-    document.getElementById('statCredits').textContent = fmt(totalCredits) + ' cr';
-    document.getElementById('statCreditsDelta').textContent = 'this period';
-    document.getElementById('statCalls').textContent = fmt(parseInt(t.api_calls) || 0);
-    document.getElementById('statTokens').textContent = fmt(parseInt(t.total_tokens) || 0);
-    document.getElementById('statSuccess').textContent = (parseFloat(t.success_rate) || 0) + '%';
-
-    // Credit efficiency
-    const eff = data.efficiency || {};
-    document.getElementById('statCreditsPerArticle').textContent = fmt(eff.credits_per_article || 0) + ' cr';
-    document.getElementById('statArticleCount').textContent = (eff.published_articles || 0) + ' articles published';
-
-    const topArt = (eff.top_expensive_articles || [])[0];
-    if (topArt) {
-      document.getElementById('statTopArticleCredits').textContent = fmt(parseInt(topArt.credits) || 0) + ' cr';
-      const title = topArt.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      document.getElementById('statTopArticleSlug').textContent = title;
-      document.getElementById('statTopArticleSlug').title = title;
-    } else {
-      document.getElementById('statTopArticleCredits').textContent = '--';
-      document.getElementById('statTopArticleSlug').textContent = 'no data';
-    }
-
-    // Monthly credits
-    const creditsUsed = parseInt(b.credits_used_month) || 0;
-    const creditsLimit = parseInt(b.credits_limit_month) || 0;
-    const creditsPct = Math.min(b.credits_percent_used || 0, 100);
-    const creditsRemaining = Math.max(0, creditsLimit - creditsUsed);
-
-    document.getElementById('creditsUsed').textContent = fmt(creditsUsed) + ' used';
-    document.getElementById('creditsLimit').textContent = fmt(creditsLimit) + ' limit';
-    document.getElementById('creditsToday').textContent = 'Today: ' + fmt(parseInt(b.credits_used_today) || 0) + ' cr';
-    document.getElementById('creditsRemaining').textContent = 'Remaining: ' + fmt(creditsRemaining) + ' cr';
-    document.getElementById('creditsLabel').textContent = Math.round(creditsPct) + '% used this month';
-
-    const fill = document.getElementById('creditsFill');
-    fill.style.width = creditsPct + '%';
-    fill.style.background = creditsPct >= 90 ? '#ef4444' : creditsPct >= 70 ? '#f59e0b' : '#22c55e';
-
-    // Daily usage sparkline
-    renderSparkline(data.by_day || []);
-
-    // Provider bars
-    renderBars('providerBars', data.by_provider || [], 'provider');
-
-    // Operation bars
-    renderBars('operationBars', data.by_operation || [], 'operation');
-
-    // Errors
-    renderErrors(data.recent_errors || []);
-  }
-
-  function renderSparkline(byDay) {
-    const chart = document.getElementById('sparkChart');
-    const labels = document.getElementById('sparkLabels');
-    if (!byDay.length) {
-      chart.innerHTML = '<div style="color:var(--text-muted);font-size:13px;align-self:center;">No data yet</div>';
-      labels.innerHTML = '';
+    if (!rows.length) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="text-muted text-center" style="padding:24px;">No calls found</td></tr>';
       return;
     }
 
-    const days = parseInt(currentRange) || 30;
-    const filled = [];
-    const now = new Date();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setUTCDate(d.getUTCDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      const match = byDay.find(r => r.day && r.day.slice(0, 10) === key);
-      filled.push({ day: key, credits: match ? parseInt(match.credits) || 0 : 0 });
-    }
-
-    const max = Math.max(...filled.map(r => r.credits), 1);
-    chart.innerHTML = filled.map(r => {
-      const pct = Math.max(Math.round((r.credits / max) * 100), 2);
-      return `<div class="spark-bar" style="height:${pct}%" title="${shortDate(r.day)}: ${fmt(r.credits)} cr"></div>`;
-    }).join('');
-
-    const mid = Math.floor(filled.length / 2);
-    labels.innerHTML = `<span>${shortDate(filled[0].day)}</span><span>${shortDate(filled[mid].day)}</span><span>${shortDate(filled[filled.length - 1].day)}</span>`;
-  }
-
-  function renderBars(containerId, items, nameKey) {
-    const container = document.getElementById(containerId);
-    if (!items.length) {
-      container.innerHTML = '<div class="text-muted text-sm">No data yet</div>';
-      return;
-    }
-
-    const maxCredits = Math.max(...items.map(i => parseInt(i.credits) || 0), 1);
-    container.innerHTML = items.map(item => {
-      const credits = parseInt(item.credits) || 0;
-      const pct = Math.round((credits / maxCredits) * 100);
-      const name = item[nameKey] || 'unknown';
-      const color = PROVIDER_COLORS[name] || '#4F8EF7';
-      return `
-        <div class="bar-row">
-          <div class="bar-label">${escHtml(name)}</div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${pct}%;background:${color};"></div>
-          </div>
-          <div class="bar-value">${fmt(credits)} cr</div>
-        </div>`;
+    if (tbody) tbody.innerHTML = rows.map(r => {
+      const cached = parseInt(r.input_tokens_cached) || 0;
+      const input  = parseInt(r.input_tokens)        || 0;
+      const fresh  = Math.max(input - cached, 0);
+      const out    = parseInt(r.output_tokens)        || 0;
+      const cost   = parseFloat(r.estimated_cost)    || 0;
+      const dur    = r.duration_ms != null ? r.duration_ms + 'ms' : '—';
+      const keyBit = r.is_byai
+        ? '<span class="byai-badge">BYOK</span>'
+        : '<span class="platform-badge">platform</span>';
+      const ok = r.success
+        ? '<span class="badge" style="background:#22c55e22;color:#22c55e;font-size:10px;">ok</span>'
+        : `<span class="badge" style="background:#ef444422;color:#ef4444;font-size:10px;" title="${escHtml(r.error_message || '')}">err</span>`;
+      return `<tr>
+        <td style="white-space:nowrap;">${relTime(r.created_at)}</td>
+        <td>${escHtml(r.provider || '—')}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(r.model || '')}">${escHtml(r.model || '—')}</td>
+        <td>${escHtml(r.operation || '—')}</td>
+        <td>${fmt(cached)} / ${fmt(fresh)}</td>
+        <td>${fmt(out)}</td>
+        <td>${fmtCost(cost)}</td>
+        <td>${dur}</td>
+        <td>${keyBit}</td>
+        <td>${ok}</td>
+      </tr>`;
     }).join('');
   }
 
+  // Populate filter dropdowns from summary data
+  function populateLogFilters(data) {
+    const models    = (data.by_model    || []);
+    const ops       = (data.by_operation || []);
+    const providers = [...new Set(models.map(m => m.provider).filter(Boolean))];
+    const modelNames = [...new Set(models.map(m => m.model).filter(Boolean))];
+    const opNames   = ops.map(o => o.operation).filter(Boolean);
+
+    const provEl = el('logFilterProvider');
+    const modEl  = el('logFilterModel');
+    const opEl   = el('logFilterOperation');
+
+    if (provEl && provEl.options.length === 1) {
+      providers.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; provEl.appendChild(o); });
+    }
+    if (modEl && modEl.options.length === 1) {
+      modelNames.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; modEl.appendChild(o); });
+    }
+    if (opEl && opEl.options.length === 1) {
+      opNames.forEach(op => { const o = document.createElement('option'); o.value = op; o.textContent = op; opEl.appendChild(o); });
+    }
+  }
+
+  // ── Errors ────────────────────────────────────────────────────────────
   function renderErrors(errors) {
-    const tbody = document.getElementById('errorsTbody');
-    document.getElementById('errorCount').textContent = errors.length + ' recent';
-
+    const tbody = el('errorsTbody');
+    setText('errorCount', errors.length + ' recent');
     if (!errors.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center" style="padding:24px;">No errors</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center" style="padding:24px;">No errors 🎉</td></tr>';
       return;
     }
-
-    tbody.innerHTML = errors.map(e => `
+    if (tbody) tbody.innerHTML = errors.map(e => `
       <tr>
         <td style="white-space:nowrap;font-size:12px;">${relTime(e.created_at)}</td>
         <td><span class="badge">${escHtml(e.operation)}</span></td>
         <td style="font-size:12px;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(e.error)}</td>
-      </tr>
-    `).join('');
+      </tr>`).join('');
   }
 
-  // Range tab switching
-  document.getElementById('rangeTabs').addEventListener('click', (e) => {
-    const tab = e.target.closest('.range-tab');
-    if (!tab) return;
-    document.querySelectorAll('.range-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    currentRange = tab.dataset.range;
-    loadData();
-  });
+  // ── ElevenLabs ────────────────────────────────────────────────────────
+  async function loadElevenLabs() {
+    try {
+      const data = await apiFetch('/ai-usage/elevenlabs');
+      if (!data || !data.configured) return;
+      el('elCard').hidden = false;
+      const pct = data.character_limit > 0 ? Math.round((data.character_count / data.character_limit) * 1000) / 10 : 0;
+      setText('elTier', (data.tier || 'free') + (data.status && data.status !== 'active' ? ' (' + data.status + ')' : ''));
+      setText('elUsed', fmt(data.character_count) + ' / ' + fmt(data.character_limit) + ' characters');
+      setText('elPct', pct + '% used');
+      setText('elVoices', 'Voices: ' + (data.voice_slots_used || 0) + ' / ' + (data.voice_limit || 0));
+      if (data.next_reset_unix) {
+        const d = new Date(data.next_reset_unix * 1000);
+        const days = Math.ceil((d - Date.now()) / 86400000);
+        setText('elReset', 'Resets in ' + days + 'd (' + (d.getMonth() + 1) + '/' + d.getDate() + ')');
+      }
+      const fill = el('elFill');
+      if (fill) { fill.style.width = Math.min(pct, 100) + '%'; fill.style.background = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#8B5CF6'; }
+    } catch (e) { /* optional */ }
+  }
 
-  document.getElementById('refreshBtn').addEventListener('click', loadData);
-
-  /* ── Promo & Credits ─────────────────────────────────────── */
-
+  // ── Credits / promo section ───────────────────────────────────────────
   async function loadCreditsSection() {
     try {
       const promos = await apiFetch('/promo/active');
-      const promoEl = document.getElementById('activePromos');
+      const promoEl = el('activePromos');
       if (promoEl && promos.redemptions?.length > 0) {
         promoEl.innerHTML = promos.redemptions.map(r =>
           `<div style="margin-bottom:4px;">✓ <strong>${escHtml(r.code)}</strong> — ${fmt(r.bonus_credits)} bonus credits${r.expires_at ? ' (expires ' + new Date(r.expires_at).toLocaleDateString() + ')' : ''}</div>`
         ).join('');
-      } else if (promoEl) {
-        promoEl.textContent = '';
       }
 
       const packsData = await apiFetch('/credits/packs');
-      const packsEl = document.getElementById('creditPacks');
+      const packsEl = el('creditPacks');
       if (packsEl && packsData.packs?.length > 0) {
         packsEl.innerHTML = `
           <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#aaa;">Buy More Credits</div>
@@ -351,23 +595,15 @@
               <button class="btn btn-sm buy-pack-btn" data-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;padding:8px 16px;line-height:1.4;">
                 <span style="font-weight:600">${fmt(p.credits)} credits</span>
                 <span style="font-size:11px;color:#888;">$${(p.price_cents / 100).toFixed(2)}</span>
-              </button>
-            `).join('')}
+              </button>`).join('')}
           </div>`;
         packsEl.querySelectorAll('.buy-pack-btn').forEach(btn => {
           btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            btn.textContent = 'Redirecting...';
+            btn.disabled = true; btn.textContent = 'Redirecting…';
             try {
-              const res = await apiFetch('/credits/checkout', {
-                method: 'POST',
-                body: JSON.stringify({ packId: parseInt(btn.dataset.id) }),
-              });
+              const res = await apiFetch('/credits/checkout', { method:'POST', body: JSON.stringify({ packId: parseInt(btn.dataset.id) }) });
               if (res.checkout_url) window.location.href = res.checkout_url;
-            } catch (err) {
-              showAlert(err.message, 'error');
-              btn.disabled = false;
-            }
+            } catch (err) { showAlert(err.message, 'error'); btn.disabled = false; }
           });
         });
       }
@@ -380,30 +616,52 @@
         showAlert('Credit purchase cancelled', 'error');
         history.replaceState({}, '', location.pathname);
       }
-    } catch {
-      // Credits section is optional
-    }
+    } catch { /* optional */ }
   }
 
-  document.getElementById('redeemPromoBtn')?.addEventListener('click', async () => {
-    const input = document.getElementById('promoCodeInput');
-    const code = input?.value?.trim();
+  el('redeemPromoBtn')?.addEventListener('click', async () => {
+    const input = el('promoCodeInput');
+    const code  = input?.value?.trim();
     if (!code) return;
     try {
-      const res = await apiFetch('/promo/redeem', {
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      });
+      const res = await apiFetch('/promo/redeem', { method:'POST', body: JSON.stringify({ code }) });
       showAlert(`Redeemed! +${fmt(res.bonus_credits)} bonus credits`, 'success');
       input.value = '';
       await loadCreditsSection();
-      await loadData(); // refresh credit gauges
-    } catch (err) {
-      showAlert(err.message, 'error');
-    }
+      await loadData();
+    } catch (err) { showAlert(err.message, 'error'); }
   });
 
-  // Init
+  // ── Range tabs ────────────────────────────────────────────────────────
+  el('rangeTabs')?.addEventListener('click', e => {
+    const tab = e.target.closest('.range-tab');
+    if (!tab) return;
+    document.querySelectorAll('.range-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentRange = tab.dataset.range;
+    loadData();
+  });
+
+  el('refreshBtn')?.addEventListener('click', loadData);
+
+  // ── Call log filter controls ──────────────────────────────────────────
+  el('logFilterApply')?.addEventListener('click', () => {
+    loadCallLog({
+      provider:  el('logFilterProvider')?.value  || '',
+      model:     el('logFilterModel')?.value     || '',
+      operation: el('logFilterOperation')?.value || '',
+      is_byai:   el('logFilterByok')?.value      || '',
+    });
+  });
+
+  el('logFilterReset')?.addEventListener('click', () => {
+    ['logFilterProvider','logFilterModel','logFilterOperation','logFilterByok'].forEach(id => {
+      const e = el(id); if (e) e.value = '';
+    });
+    loadCallLog();
+  });
+
+  // ── Init ──────────────────────────────────────────────────────────────
   renderSidebar();
   loadData();
   loadCreditsSection();
