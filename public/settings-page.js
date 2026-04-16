@@ -2432,39 +2432,6 @@ let apiKeyVisible = false;
   }
   loadProfile();
 
-  // ── Daily Standups toggle ─────────────────────────────────────────
-  // Stored as a regular settings key (daily_standups_enabled = '1'/'0').
-  // The feature flag gates plan availability; this key is the per-tenant on/off preference.
-  (function initStandupsToggle() {
-    var toggle = document.getElementById('dailyStandupsToggle');
-    var status = document.getElementById('standupStatus');
-    if (!toggle) return;
-
-    function setStatus(msg, cls) {
-      if (!status) return;
-      status.textContent = msg;
-      status.className = 'settings-status' + (cls ? ' ' + cls : '');
-    }
-
-    toggle.addEventListener('change', async function() {
-      var checked = toggle.checked;
-      setStatus('Saving...', '');
-      try {
-        await apiFetch('/settings', {
-          method: 'PUT',
-          body: JSON.stringify({ daily_standups_enabled: checked ? '1' : '0' }),
-        });
-        setStatus(checked ? 'Enabled — writers will post standups at 7:30 AM UTC.' : 'Disabled.', 'success');
-        setTimeout(function() { setStatus('', ''); }, 4000);
-      } catch (err) {
-        toggle.checked = !checked; // revert
-        setStatus('Save failed: ' + (err.message || err), 'error');
-      }
-    });
-
-    // State is loaded via the main loadSettings() flow which calls loadAutomationSettings(settings)
-  })();
-
   // ── Team section (Users + Roles) ──────────────────────────────────
   (function initTeam() {
     var teamPanel = document.querySelector('.tab-panel[data-tab="team"]');

@@ -611,10 +611,6 @@ registerJob({
     const { isFeatureEnabled } = require('./lib/feature-registry');
     const planEnabled = await isFeatureEnabled(tenantId, 'daily_standups').catch(() => false);
     if (!planEnabled) return { skipped: 'daily_standups feature not enabled on plan' };
-    const settingRow = await db.prepare(
-      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'daily_standups_enabled'"
-    ).get(tenantId);
-    if (settingRow && settingRow.value !== '1') return { skipped: 'daily_standups disabled in settings' };
 
     const { generateStandup } = require('./lib/writer-agent');
     const { recordEvent } = require('./lib/newsroom-events');
