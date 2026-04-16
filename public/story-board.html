@@ -86,6 +86,13 @@
     <!-- Toolbar -->
     <div class="sb-toolbar">
       <div>
+        <label for="sbView">View</label>
+        <select id="sbView">
+          <option value="articles" selected>Articles</option>
+          <option value="pitches">Pitches</option>
+        </select>
+      </div>
+      <div>
         <label for="sbDays">Period</label>
         <select id="sbDays">
           <option value="7">7 days</option>
@@ -121,6 +128,7 @@
           <option value="">None</option>
           <option value="category">Category</option>
           <option value="writer">Writer</option>
+          <option value="status" class="pitches-only" style="display:none;">Status</option>
         </select>
       </div>
       <div>

@@ -1,4 +1,4 @@
-/* Deep Feed AI Admin — Story Board page v2 */
+/* Deep Feed AI Admin — Story Board page v2 (articles + pitches) */
 (function () {
   'use strict';
 
@@ -8,8 +8,15 @@
   var selectedNodeId = null;
   var writers        = [];
   var categories     = [];
-  var _activeGroup   = null;   // key of highlighted legend group (null = all visible)
-  var _activeGroupBy = null;   // 'writer' | 'category'
+  var _activeGroup   = null;
+  var _activeGroupBy = null;
+
+  // ── Pitch status colours ──────────────────────────────────────────────────────
+  var PITCH_STATUS_COLORS = {
+    proposed: '#f59e0b',
+    approved: '#22c55e',
+    rejected: '#6b7280',
+  };
 
   // ── Group colour palette ──────────────────────────────────────────────────────
   var GROUP_PALETTE = [
@@ -34,7 +41,11 @@
     _activeGroupBy   = null;
   }
 
-  // ── Build Cytoscape stylesheet (rebuilt on each render + style-only updates) ──
+  function isPitchesMode() {
+    return document.getElementById('sbView')?.value === 'pitches';
+  }
+
+  // ── Build Cytoscape stylesheet ────────────────────────────────────────────────
   function buildCyStyle() {
     var curveStyle = ({
       curved:   'bezier',
@@ -44,7 +55,7 @@
     var colorEdges = !!document.getElementById('sbColorEdges')?.checked;
 
     return [
-      // ── Source nodes ─────────────────────────────────────────────────────────
+      // ── Base (source) nodes ───────────────────────────────────────────────────
       {
         selector: 'node',
         style: {
@@ -64,7 +75,7 @@
           'min-zoomed-font-size': 8,
         },
       },
-      // ── Original nodes ────────────────────────────────────────────────────────
+      // ── Original article nodes ────────────────────────────────────────────────
       {
         selector: 'node.original',
         style: {
@@ -85,12 +96,33 @@
           'text-wrap': 'wrap',
         },
       },
-      // ── Deep-dive nodes — hexagon shape ───────────────────────────────────────
+      // ── Deep-dive hexagon ─────────────────────────────────────────────────────
       {
         selector: 'node.deep-dive',
         style: { 'shape': 'hexagon' },
       },
-      // ── Orphan: dashed red border ─────────────────────────────────────────────
+      // ── Pitch nodes ───────────────────────────────────────────────────────────
+      {
+        selector: 'node.pitch',
+        style: {
+          'width':  64,
+          'height': 64,
+          'shape':  'ellipse',
+          'background-color': function (n) { return n.data('nodeColor') || PITCH_STATUS_COLORS[n.data('status')] || '#f59e0b'; },
+          'border-color':     function (n) { return n.data('nodeColor') || PITCH_STATUS_COLORS[n.data('status')] || '#f59e0b'; },
+          'border-width': 3,
+          'color': '#e5e7eb',
+          'font-size': 10,
+          'font-weight': 'bold',
+          'text-max-width': 130,
+          'text-background-color': '#111827',
+          'text-background-opacity': 0.8,
+          'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle',
+          'text-wrap': 'wrap',
+        },
+      },
+      // ── Orphan original ───────────────────────────────────────────────────────
       {
         selector: 'node.original.orphan',
         style: {
@@ -109,12 +141,12 @@
           'opacity': 1,
         },
       },
-      // ── Dimmed (legend group filter) ──────────────────────────────────────────
+      // ── Dimmed ────────────────────────────────────────────────────────────────
       {
         selector: '.dimmed',
         style: { 'opacity': 0.1 },
       },
-      // ── Auto edges ────────────────────────────────────────────────────────────
+      // ── Auto / source edges ───────────────────────────────────────────────────
       {
         selector: 'edge',
         style: {
@@ -131,7 +163,7 @@
           'opacity': 0.75,
         },
       },
-      // ── Manual edge: dashed cyan ──────────────────────────────────────────────
+      // ── Manual link edge (cyan dashed) ────────────────────────────────────────
       {
         selector: 'edge.manual',
         style: {
@@ -141,6 +173,31 @@
           'line-style': 'dashed',
           'line-dash-pattern': [6, 3],
           'opacity': 1,
+        },
+      },
+      // ── Pitch → attached article (muted dashed) ───────────────────────────────
+      {
+        selector: 'edge.attached',
+        style: {
+          'width': 1,
+          'line-color': '#6b7280',
+          'target-arrow-color': '#6b7280',
+          'line-style': 'dashed',
+          'line-dash-pattern': [4, 4],
+          'opacity': 0.55,
+          'curve-style': curveStyle,
+        },
+      },
+      // ── Pitch → spawned original (bold green) ─────────────────────────────────
+      {
+        selector: 'edge.spawned',
+        style: {
+          'width': 3,
+          'line-color': '#22c55e',
+          'target-arrow-color': '#22c55e',
+          'line-style': 'solid',
+          'opacity': 1,
+          'curve-style': curveStyle,
         },
       },
     ];
@@ -155,8 +212,10 @@
         name: 'concentric',
         animate: false,
         padding: 40,
-        // originals in inner ring (higher value = more central)
-        concentric: function (n) { return n.data('type') === 'original' ? 2 : 1; },
+        concentric: function (n) {
+          if (n.hasClass('pitch') || n.hasClass('original')) return 2;
+          return 1;
+        },
         levelWidth: function () { return 1; },
         minNodeSpacing: 40,
         startAngle: Math.PI * 3 / 2,
@@ -180,20 +239,20 @@
         spacingFactor: 1.2,
         condense: false,
         sort: function (a, b) {
-          // originals first
-          if (a.data('type') === 'original' && b.data('type') !== 'original') return -1;
-          if (b.data('type') === 'original' && a.data('type') !== 'original') return  1;
+          var aIsCentral = a.hasClass('pitch') || a.hasClass('original');
+          var bIsCentral = b.hasClass('pitch') || b.hasClass('original');
+          if (aIsCentral && !bIsCentral) return -1;
+          if (bIsCentral && !aIsCentral) return  1;
           return 0;
         },
       };
     }
-    // Default: cose (organic force-directed)
     return {
       name: 'cose',
       animate: false,
       numIter: 600,
       nodeRepulsion: function (node) {
-        return node.data('type') === 'original' ? 9000 : 4500;
+        return (node.hasClass('pitch') || node.hasClass('original')) ? 9000 : 4500;
       },
       idealEdgeLength: function () { return 130; },
       nodeOverlap: 24,
@@ -201,6 +260,37 @@
       padding: 40,
       randomize: true,
     };
+  }
+
+  // ── Adapt toolbar UI for current mode ─────────────────────────────────────────
+  function adaptToolbarForMode() {
+    var pitches = isPitchesMode();
+
+    // Status options
+    var statusSel = document.getElementById('sbStatus');
+    if (statusSel) {
+      statusSel.innerHTML = pitches
+        ? '<option value="">All</option>'
+          + '<option value="proposed" selected>Proposed</option>'
+          + '<option value="approved">Approved</option>'
+          + '<option value="rejected">Rejected</option>'
+        : '<option value="published" selected>Published</option>'
+          + '<option value="draft">Draft</option>'
+          + '<option value="all">All</option>';
+    }
+
+    // Show/hide Category filter (not relevant for pitches)
+    var catWrap = document.getElementById('sbCategory')?.closest('div');
+    if (catWrap) catWrap.style.display = pitches ? 'none' : '';
+
+    // Show/hide Status group-by option
+    document.querySelectorAll('.pitches-only').forEach(function (el) {
+      el.style.display = pitches ? '' : 'none';
+    });
+
+    // Reset group-by when switching modes
+    var groupSel = document.getElementById('sbGroupBy');
+    if (groupSel) groupSel.value = '';
   }
 
   // ── Populate filter selects ───────────────────────────────────────────────────
@@ -221,12 +311,25 @@
     }
   }
 
-  // ── Load board (API call) ─────────────────────────────────────────────────────
+  // ── Load board (dispatches to articles or pitches) ────────────────────────────
   async function loadBoard() {
     showLoading(true);
     closeSidePanel();
     resetGroupColors();
 
+    try {
+      if (isPitchesMode()) {
+        await loadPitches();
+      } else {
+        await loadArticles();
+      }
+    } finally {
+      showLoading(false);
+    }
+  }
+
+  // ── Load articles graph ───────────────────────────────────────────────────────
+  async function loadArticles() {
     var days        = document.getElementById('sbDays')?.value || '14';
     var category    = document.getElementById('sbCategory')?.value || '';
     var writerId    = document.getElementById('sbWriter')?.value || '';
@@ -241,34 +344,66 @@
 
       var data = await apiFetch('/story-board?' + params.toString());
       boardData = data;
-
       applyFiltersAndRender(linkedOnly, orphansOnly);
       updateStats(data.stats, data.edges);
     } catch (err) {
       showAlert('Failed to load story board: ' + (err.message || err), 'error');
-    } finally {
-      showLoading(false);
     }
   }
 
-  // ── Client-side filters then render ──────────────────────────────────────────
+  // ── Load pitches graph ────────────────────────────────────────────────────────
+  async function loadPitches() {
+    var days     = document.getElementById('sbDays')?.value || '14';
+    var writerId = document.getElementById('sbWriter')?.value || '';
+    var status   = document.getElementById('sbStatus')?.value || '';
+    var orphansOnly = document.getElementById('sbOrphansOnly')?.checked;
+
+    try {
+      var params = new URLSearchParams({ days: days });
+      if (status)   params.set('status', status);
+      if (writerId) params.set('writer_id', writerId);
+
+      var data = await apiFetch('/story-board/pitches?' + params.toString());
+      boardData = data;
+      applyFiltersAndRender(false, orphansOnly);
+      updateStats(data.stats, data.edges);
+    } catch (err) {
+      showAlert('Failed to load pitches: ' + (err.message || err), 'error');
+    }
+  }
+
+  // ── Client-side filters → render ─────────────────────────────────────────────
   function applyFiltersAndRender(linkedOnly, orphansOnly) {
     var nodes = boardData.nodes;
     var edges = boardData.edges;
 
-    if (orphansOnly) {
-      // Only show originals that have NO source edges
-      var connected = new Set(edges.map(function (e) { return e.data.source; }));
-      nodes = nodes.filter(function (n) {
-        return n.data.type === 'original' && !connected.has(n.id);
-      });
-      edges = [];
-    } else if (linkedOnly) {
-      // Only show source nodes that appear in at least one edge
-      var connectedSrcs = new Set(edges.map(function (e) { return e.data.target; }));
-      nodes = nodes.filter(function (n) {
-        return n.data.type === 'original' || connectedSrcs.has(n.id);
-      });
+    if (isPitchesMode()) {
+      // Orphans only = pitches with no spawned article
+      if (orphansOnly) {
+        var spawnedTargets = new Set(
+          edges.filter(function (e) { return e.data.linkType === 'spawned'; })
+               .map(function (e) { return e.data.source; })
+        );
+        nodes = nodes.filter(function (n) {
+          return n.data.type !== 'pitch' || !spawnedTargets.has(n.id);
+        });
+        // Keep only edges whose source is still in the filtered node set
+        var nodeIds = new Set(nodes.map(function (n) { return n.id; }));
+        edges = edges.filter(function (e) { return nodeIds.has(e.data.source); });
+      }
+    } else {
+      if (orphansOnly) {
+        var connectedOriginals = new Set(edges.map(function (e) { return e.data.source; }));
+        nodes = nodes.filter(function (n) {
+          return n.data.type === 'original' && !connectedOriginals.has(n.id);
+        });
+        edges = [];
+      } else if (linkedOnly) {
+        var connectedSrcs = new Set(edges.map(function (e) { return e.data.target; }));
+        nodes = nodes.filter(function (n) {
+          return n.data.type === 'original' || connectedSrcs.has(n.id);
+        });
+      }
     }
 
     renderBoard(nodes, edges);
@@ -279,83 +414,90 @@
     var container = document.getElementById('cy');
     if (!container) return;
 
-    // Reset active group highlight whenever board is re-rendered
     _activeGroup   = null;
     _activeGroupBy = null;
 
     if (!nodes.length) {
       if (cy) { cy.destroy(); cy = null; }
+      var emptyMsg = isPitchesMode()
+        ? 'No pitches found for this period.'
+        : 'No originals found for this period.';
       container.innerHTML = '<div class="sb-empty">'
         + '<div style="font-size:36px;margin-bottom:12px;">📋</div>'
-        + '<div>No originals found for this period.</div>'
+        + '<div>' + emptyMsg + '</div>'
         + '<div style="font-size:12px;margin-top:6px;">Try a longer time window or different filters.</div>'
         + '</div>';
       hideLegend();
       return;
     }
-    // Clear any placeholder
     var ph = container.querySelector('.sb-empty');
     if (ph) ph.remove();
 
     var groupBy = document.getElementById('sbGroupBy')?.value || '';
+    var pitchesMode = isPitchesMode();
 
-    // Which originals have at least one edge?
-    var originalsWithEdges = new Set(edges.map(function (e) { return e.data.source; }));
+    // Originals / pitches that have edges
+    var centralWithEdges = new Set(edges.map(function (e) { return e.data.source; }));
 
-    // Source counts per original node (for label + tooltip)
+    // Source counts per central node
     var sourceCounts = {};
     edges.forEach(function (e) {
-      sourceCounts[e.data.source] = (sourceCounts[e.data.source] || 0) + 1;
+      if (e.data.linkType !== 'spawned') {
+        sourceCounts[e.data.source] = (sourceCounts[e.data.source] || 0) + 1;
+      }
     });
 
-    // Build group colour map for group-by border colouring
+    // Group colour map
     var groupColorMap = {};
     if (groupBy) {
       nodes.forEach(function (n) {
-        if (n.data.type !== 'original') return;
-        var key = groupBy === 'writer'
-          ? (n.data.writerName || 'Unassigned')
-          : (n.data.category   || 'Uncategorized');
-        if (!groupColorMap[key]) groupColorMap[key] = groupColor(key);
+        var isCentral = n.data.type === 'original' || n.data.type === 'pitch';
+        if (!isCentral) return;
+        var key = groupKeyFor(n.data, groupBy);
+        if (key && !groupColorMap[key]) groupColorMap[key] = groupColor(key);
       });
     }
 
-    // Build per-original category colours for edge colouring
+    // Per-original category colours for edge colouring
     var origCategoryColors = {};
     nodes.forEach(function (n) {
-      if (n.data.type !== 'original') return;
-      origCategoryColors[n.id] = groupColor(n.data.category || 'Uncategorized');
+      if (n.data.type === 'original') {
+        origCategoryColors[n.id] = groupColor(n.data.category || 'Uncategorized');
+      } else if (n.data.type === 'pitch') {
+        origCategoryColors[n.id] = PITCH_STATUS_COLORS[n.data.status] || '#f59e0b';
+      }
     });
 
-    // Build elements array
     var elements = nodes.map(function (n) {
-      var isOriginal = n.data.type === 'original';
-      var classes    = isOriginal ? 'original' : 'source';
-      if (isOriginal && !originalsWithEdges.has(n.id)) classes += ' orphan';
-      if (n.data.contentType === 'deep-dive')          classes += ' deep-dive';
+      var type       = n.data.type;
+      var isCentral  = type === 'original' || type === 'pitch';
+      var classes    = type; // 'original' | 'pitch' | 'source'
+      if (type === 'original' && !centralWithEdges.has(n.id)) classes += ' orphan';
+      if (n.data.contentType === 'deep-dive') classes += ' deep-dive';
 
-      // Group-by colour override
       var nodeColor = null;
-      if (isOriginal && groupBy) {
-        var gkey = groupBy === 'writer'
-          ? (n.data.writerName || 'Unassigned')
-          : (n.data.category   || 'Uncategorized');
-        nodeColor = groupColorMap[gkey];
+      if (isCentral && groupBy) {
+        var gkey = groupKeyFor(n.data, groupBy);
+        if (gkey) nodeColor = groupColorMap[gkey];
       }
 
-      // Score-based sizing: 52–88px (original nodes only)
+      // Score-based size for originals; fixed 64 for pitches; 32 for sources
       var nodeSize = 72;
-      if (isOriginal) {
+      if (type === 'pitch') {
+        nodeSize = 64;
+      } else if (type === 'original') {
         var sc = n.data.editorialScore;
-        if (sc != null) {
-          nodeSize = Math.max(52, Math.min(88, Math.round(52 + (sc / 10) * 36)));
-        }
+        if (sc != null) nodeSize = Math.max(52, Math.min(88, Math.round(52 + (sc / 10) * 36)));
       }
 
-      // Label: title + "(N)" source count for originals
-      var cnt   = isOriginal ? (sourceCounts[n.id] || 0) : 0;
+      // Label
+      var cnt   = isCentral ? (sourceCounts[n.id] || 0) : 0;
       var label = truncate(n.data.title, 26);
-      if (isOriginal && cnt > 0) label += '\n(' + cnt + ')';
+      if (type === 'pitch') {
+        var statusLabel = { proposed: '●', approved: '✓', rejected: '✗' }[n.data.status] || '';
+        label = statusLabel + ' ' + truncate(n.data.title, 24);
+      }
+      if (isCentral && cnt > 0) label += '\n(' + cnt + ')';
 
       return {
         group: 'nodes',
@@ -366,16 +508,15 @@
         classes: classes,
       };
     }).concat(edges.map(function (e) {
-      // Assign edge a colour derived from the source original's category
       var edgeColor = origCategoryColors[e.data.source] || '#4b5563';
       return {
         group: 'edges',
         data: Object.assign({ id: e.id, edgeColor: edgeColor }, e.data),
-        classes: e.data.linkType === 'manual' ? 'manual' : 'auto',
+        classes: e.data.linkType || 'auto',
       };
     }));
 
-    var cyStyle = buildCyStyle();
+    var cyStyle  = buildCyStyle();
     var cyLayout = getLayout();
 
     if (cy) {
@@ -393,51 +534,63 @@
         maxZoom: 4,
       });
 
-      // ── Node tap → open side panel ──────────────────────────────────────────
       cy.on('tap', 'node', function (evt) {
         selectedNodeId = evt.target.id();
         openSidePanel(evt.target.data());
       });
-
-      // ── Background tap → close panel ────────────────────────────────────────
       cy.on('tap', function (evt) {
         if (evt.target === cy) closeSidePanel();
       });
 
-      // ── Hover tooltip ────────────────────────────────────────────────────────
+      // Hover tooltip
       cy.on('mouseover', 'node', function (evt) {
-        var n       = evt.target;
-        var data    = n.data();
-        var tooltip = document.getElementById('sbTooltip');
-        var wrap    = document.getElementById('sbBoardWrap');
+        var n        = evt.target;
+        var data     = n.data();
+        var tooltip  = document.getElementById('sbTooltip');
+        var wrap     = document.getElementById('sbBoardWrap');
         if (!tooltip || !wrap) return;
 
-        var pos     = n.renderedPosition();
-        var cyRect  = document.getElementById('cy').getBoundingClientRect();
+        var pos      = n.renderedPosition();
+        var cyRect   = document.getElementById('cy').getBoundingClientRect();
         var wrapRect = wrap.getBoundingClientRect();
 
-        var srcCnt   = cy.edges('[source = "' + n.id() + '"]').length;
+        var srcCnt    = cy.edges('[source = "' + n.id() + '"]').filter(function (e) {
+          return e.data('linkType') !== 'spawned';
+        }).length;
         var usedByCnt = cy.edges('[target = "' + n.id() + '"]').length;
 
         var html = '<div style="font-weight:700;margin-bottom:4px;">'
           + escHtml(truncate(data.title, 52)) + '</div>';
-        if (data.category) {
-          html += '<div style="color:var(--muted);font-size:11px;">' + escHtml(data.category) + '</div>';
-        }
-        if (data.writerName) {
-          html += '<div style="color:var(--muted);font-size:11px;">✍ ' + escHtml(data.writerName) + '</div>';
-        }
-        if (data.editorialScore != null) {
-          var sc  = data.editorialScore;
-          var cls = sc >= 7 ? 'sb-score-high' : sc >= 5 ? 'sb-score-mid' : 'sb-score-low';
-          html += '<span class="sb-score-badge ' + cls + '" style="margin-top:4px;display:inline-block;">Score ' + sc + '</span>';
-        }
-        if (data.type === 'original') {
+
+        if (data.type === 'pitch') {
+          var statusColors = { proposed: '#f59e0b', approved: '#22c55e', rejected: '#9ca3af' };
+          var sColor = statusColors[data.status] || '#9ca3af';
+          html += '<div style="color:' + sColor + ';font-size:11px;font-weight:600;">'
+            + escHtml(data.status || '') + '</div>';
+          if (data.writerName) {
+            html += '<div style="color:var(--muted);font-size:11px;">✍ ' + escHtml(data.writerName) + '</div>';
+          }
           html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">🔗 '
             + srcCnt + ' source' + (srcCnt === 1 ? '' : 's') + '</div>';
+          var spawnedEdges = cy.edges('[source = "' + n.id() + '"][linkType = "spawned"]');
+          if (spawnedEdges.length) {
+            html += '<div style="color:#22c55e;font-size:11px;">✓ Spawned article</div>';
+          }
         } else {
-          html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">📰 used by '
-            + usedByCnt + ' original' + (usedByCnt === 1 ? '' : 's') + '</div>';
+          if (data.category)   html += '<div style="color:var(--muted);font-size:11px;">' + escHtml(data.category) + '</div>';
+          if (data.writerName) html += '<div style="color:var(--muted);font-size:11px;">✍ ' + escHtml(data.writerName) + '</div>';
+          if (data.editorialScore != null) {
+            var sc  = data.editorialScore;
+            var cls = sc >= 7 ? 'sb-score-high' : sc >= 5 ? 'sb-score-mid' : 'sb-score-low';
+            html += '<span class="sb-score-badge ' + cls + '" style="margin-top:4px;display:inline-block;">Score ' + sc + '</span>';
+          }
+          if (data.type === 'original') {
+            html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">🔗 '
+              + srcCnt + ' source' + (srcCnt === 1 ? '' : 's') + '</div>';
+          } else {
+            html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">📰 used by '
+              + usedByCnt + ' original' + (usedByCnt === 1 ? '' : 's') + '</div>';
+          }
         }
 
         tooltip.innerHTML = html;
@@ -445,10 +598,8 @@
 
         var left = (cyRect.left - wrapRect.left) + pos.x + 14;
         var top  = (cyRect.top  - wrapRect.top)  + pos.y - 22;
-        left = Math.min(left, wrapRect.width - 250);
-        top  = Math.max(top, 4);
-        tooltip.style.left = left + 'px';
-        tooltip.style.top  = top  + 'px';
+        tooltip.style.left = Math.min(left, wrapRect.width - 250) + 'px';
+        tooltip.style.top  = Math.max(top, 4) + 'px';
       });
 
       cy.on('mouseout', 'node', function () {
@@ -458,6 +609,14 @@
     }
 
     renderLegend(groupBy, groupColorMap);
+  }
+
+  // ── Group key helper ──────────────────────────────────────────────────────────
+  function groupKeyFor(data, groupBy) {
+    if (groupBy === 'writer')   return data.writerName || 'Unassigned';
+    if (groupBy === 'status')   return data.status     || 'unknown';
+    if (groupBy === 'category') return data.category   || 'Uncategorized';
+    return null;
   }
 
   // ── Legend ─────────────────────────────────────────────────────────────────────
@@ -472,11 +631,12 @@
       return;
     }
 
-    title.textContent = groupBy === 'writer' ? 'Writers' : 'Categories';
+    var titleMap = { writer: 'Writers', status: 'Status', category: 'Categories' };
+    title.textContent = titleMap[groupBy] || groupBy;
+
     items.innerHTML = Object.entries(colorMap).map(function (entry) {
       var key   = entry[0];
       var color = entry[1];
-      // Escape key for inline onclick — handle apostrophes
       var safeKey = key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return '<div class="sb-legend-item sb-legend-clickable" data-group-key="' + escHtml(key) + '" '
         + 'onclick="sbToggleGroup(\'' + safeKey + '\',\'' + groupBy + '\')">'
@@ -492,48 +652,39 @@
     if (legend) legend.style.display = 'none';
   }
 
-  // ── Legend group highlight/dim toggle ─────────────────────────────────────────
+  // ── Legend group toggle ───────────────────────────────────────────────────────
   window.sbToggleGroup = function (key, groupByType) {
     if (!cy) return;
 
-    // Remove active highlight from all legend items
     document.querySelectorAll('.sb-legend-clickable').forEach(function (el) {
       el.classList.remove('sb-legend-active');
     });
 
     if (_activeGroup === key) {
-      // Clicking same group again — restore all
       _activeGroup   = null;
       _activeGroupBy = null;
       cy.elements().removeClass('dimmed');
       return;
     }
-
     _activeGroup   = key;
     _activeGroupBy = groupByType;
 
-    // Find original node IDs in this group
     var matchIds = new Set();
-    cy.nodes('.original').forEach(function (n) {
-      var gkey = groupByType === 'writer'
-        ? (n.data('writerName') || 'Unassigned')
-        : (n.data('category')   || 'Uncategorized');
-      if (gkey === key) matchIds.add(n.id());
+    cy.nodes().forEach(function (n) {
+      var isCentral = n.hasClass('original') || n.hasClass('pitch');
+      if (!isCentral) return;
+      if (groupKeyFor(n.data(), groupByType) === key) matchIds.add(n.id());
     });
-
-    // Add connected source node IDs
     cy.edges().forEach(function (e) {
       if (matchIds.has(e.data('source'))) matchIds.add(e.data('target'));
     });
 
-    // Dim everything, then un-dim matching nodes + their edges
     cy.elements().addClass('dimmed');
     matchIds.forEach(function (id) { cy.getElementById(id).removeClass('dimmed'); });
     cy.edges().forEach(function (e) {
       if (matchIds.has(e.data('source'))) e.removeClass('dimmed');
     });
 
-    // Mark active legend item
     document.querySelectorAll('.sb-legend-clickable').forEach(function (el) {
       if (el.getAttribute('data-group-key') === key) el.classList.add('sb-legend-active');
     });
@@ -550,11 +701,9 @@
     panel.style.transform = 'translateX(0)';
     title.textContent = truncate(data.title, 42);
 
-    if (data.type === 'original') {
-      renderOriginalPanel(data, body);
-    } else {
-      renderSourcePanel(data, body);
-    }
+    if (data.type === 'pitch')     renderPitchPanel(data, body);
+    else if (data.type === 'original') renderOriginalPanel(data, body);
+    else renderSourcePanel(data, body);
   }
 
   function closeSidePanel() {
@@ -566,16 +715,16 @@
     selectedNodeId = null;
   }
 
-  function renderOriginalPanel(data, body) {
-    var linkedEdges = boardData.edges.filter(function (e) {
-      return e.data.source === 'a_' + data.articleId;
-    });
-    var sourceCount = linkedEdges.length;
-    var html = '';
+  // ── Pitch side panel ──────────────────────────────────────────────────────────
+  function renderPitchPanel(data, body) {
+    var pitchEdges  = boardData.edges.filter(function (e) { return e.data.source === 'p_' + data.pitchId; });
+    var spawnedEdge = pitchEdges.find(function (e) { return e.data.linkType === 'spawned'; });
+    var srcEdges    = pitchEdges.filter(function (e) { return e.data.linkType !== 'spawned'; });
 
-    if (data.imageUrl) {
-      html += '<img class="sb-panel-image" src="' + escHtml(data.imageUrl) + '" alt="" />';
-    }
+    var statusColor = { proposed: '#f59e0b', approved: '#22c55e', rejected: '#9ca3af' }[data.status] || '#9ca3af';
+    var statusLabel = { proposed: 'Proposed', approved: 'Approved', rejected: 'Rejected' }[data.status] || data.status;
+
+    var html = '';
 
     // Writer row
     if (data.writerName) {
@@ -590,7 +739,92 @@
       html += '</div>';
     }
 
-    // Type + category + score badges
+    // Status + date
+    html += '<div class="sb-panel-meta-row">';
+    html += '<span class="badge" style="background:' + statusColor + '22;color:' + statusColor + ';font-weight:700;">'
+      + escHtml(statusLabel) + '</span>';
+    if (data.createdAt) html += '<span>📅 ' + escHtml(fmtDate(data.createdAt)) + '</span>';
+    html += '</div>';
+
+    // Angle summary
+    if (data.summary) {
+      html += '<p class="sb-panel-summary">'
+        + escHtml(data.summary).slice(0, 400)
+        + (data.summary.length > 400 ? '…' : '') + '</p>';
+    }
+
+    // Decision note
+    if (data.decisionNote) {
+      html += '<div class="sb-section-title">Decision note</div>';
+      html += '<p class="sb-panel-summary" style="margin-bottom:10px;">'
+        + escHtml(data.decisionNote) + '</p>';
+    }
+
+    // Spawned original
+    if (spawnedEdge) {
+      var spawnedNode = boardData.nodes.find(function (n) { return n.id === spawnedEdge.data.target; });
+      if (spawnedNode) {
+        html += '<div class="sb-section-title">Spawned Article</div>';
+        html += '<div class="sb-source-item" style="background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);">'
+          + '<span class="badge" style="background:rgba(34,197,94,0.2);color:#22c55e;flex-shrink:0;">original</span>'
+          + '<span class="sb-source-item-title" onclick="sbFocusNode(\'' + escHtml(spawnedNode.id) + '\')" '
+          + 'style="cursor:pointer;color:var(--primary);" title="' + escHtml(spawnedNode.data.title) + '">'
+          + escHtml(truncate(spawnedNode.data.title, 40)) + '</span>'
+          + '<a href="/articles.html?id=' + spawnedNode.data.articleId + '" target="_blank" '
+          + 'style="color:var(--muted);font-size:11px;flex-shrink:0;">↗</a>'
+          + '</div>';
+      }
+    }
+
+    // Source articles
+    if (srcEdges.length) {
+      html += '<div class="sb-section-title" style="margin-top:10px;">Sources ('
+        + srcEdges.length + ')</div>';
+      html += '<div class="sb-source-list">';
+      srcEdges.forEach(function (e) {
+        var srcNode = boardData.nodes.find(function (n) { return n.id === e.data.target; });
+        if (!srcNode) return;
+        var badgeLabel = e.data.linkType === 'attached' ? 'attached' : 'source';
+        var badgeClass = e.data.linkType === 'attached' ? 'sb-edge-auto' : 'sb-edge-manual';
+        html += '<div class="sb-source-item">'
+          + '<span class="badge ' + badgeClass + '" style="flex-shrink:0;">' + escHtml(badgeLabel) + '</span>'
+          + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">'
+          + escHtml(truncate(srcNode.data.title, 36)) + '</span>'
+          + '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<a class="sb-panel-view-link" href="/pitches.html" target="_blank">'
+      + 'View all pitches →</a>';
+
+    body.innerHTML = html;
+  }
+
+  // ── Original article side panel ───────────────────────────────────────────────
+  function renderOriginalPanel(data, body) {
+    var linkedEdges = boardData.edges.filter(function (e) {
+      return e.data.source === 'a_' + data.articleId;
+    });
+    var sourceCount = linkedEdges.length;
+    var html = '';
+
+    if (data.imageUrl) {
+      html += '<img class="sb-panel-image" src="' + escHtml(data.imageUrl) + '" alt="" />';
+    }
+
+    if (data.writerName) {
+      html += '<div class="sb-panel-writer">';
+      if (data.writerAvatar) {
+        html += '<img class="sb-panel-writer-avatar" src="' + escHtml(data.writerAvatar) + '" alt="" />';
+      } else {
+        html += '<div class="sb-panel-writer-avatar" style="display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:var(--muted);">'
+          + escHtml((data.writerName || '?')[0].toUpperCase()) + '</div>';
+      }
+      html += '<span class="sb-panel-writer-name">' + escHtml(data.writerName) + '</span>';
+      html += '</div>';
+    }
+
     html += '<div class="sb-panel-meta-row">';
     html += '<span class="badge sb-type-original">' + escHtml(data.contentType || 'original') + '</span>';
     if (data.category) html += '<span class="badge badge-muted">' + escHtml(data.category) + '</span>';
@@ -601,7 +835,6 @@
     }
     html += '</div>';
 
-    // Date + source count + orphan warning
     html += '<div class="sb-panel-meta-row">';
     if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDate(data.publishedAt)) + '</span>';
     html += '<span>🔗 ' + sourceCount + ' source' + (sourceCount === 1 ? '' : 's') + '</span>';
@@ -614,39 +847,55 @@
         + (data.summary.length > 280 ? '…' : '') + '</p>';
     }
 
-    html += '<a class="sb-panel-view-link" href="/articles.html?id=' + data.articleId + '" target="_blank">View in Articles →</a>';
+    html += '<a class="sb-panel-view-link" href="/articles.html?id=' + data.articleId
+      + '" target="_blank">View in Articles →</a>';
 
-    // Source list
-    html += '<div class="sb-section-title" style="margin-top:6px;">Sources</div>';
-    html += '<div class="sb-source-list" id="sbSourceList">';
-    if (sourceCount === 0) {
-      html += '<div style="font-size:12px;color:var(--muted);">No linked sources.</div>';
+    if (!isPitchesMode()) {
+      html += '<div class="sb-section-title" style="margin-top:6px;">Sources</div>';
+      html += '<div class="sb-source-list" id="sbSourceList">';
+      if (sourceCount === 0) {
+        html += '<div style="font-size:12px;color:var(--muted);">No linked sources.</div>';
+      } else {
+        linkedEdges.forEach(function (e) {
+          var srcNode = boardData.nodes.find(function (n) { return n.id === e.data.target; });
+          if (!srcNode) return;
+          var linkType   = e.data.linkType;
+          var badgeClass = linkType === 'manual' ? 'sb-edge-manual' : 'sb-edge-auto';
+          var removeBtn  = linkType === 'manual' && e.data.linkId
+            ? '<button class="sb-source-item-remove" onclick="sbRemoveLink('
+                + e.data.linkId + ',' + data.articleId + ')" title="Remove link">✕</button>'
+            : '';
+          html += '<div class="sb-source-item">'
+            + '<span class="badge ' + badgeClass + '" style="flex-shrink:0;">' + escHtml(linkType) + '</span>'
+            + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">'
+            + escHtml(truncate(srcNode.data.title, 38)) + '</span>'
+            + removeBtn + '</div>';
+        });
+      }
+      html += '</div>';
+      html += '<button class="sb-link-add-btn" id="sbAddLinkBtn" onclick="sbOpenLinkPicker('
+        + data.articleId + ')">+ Link source</button>';
+      html += '<div id="sbLinkPicker" style="display:none;"></div>';
     } else {
-      linkedEdges.forEach(function (e) {
-        var srcNode = boardData.nodes.find(function (n) { return n.id === e.data.target; });
-        if (!srcNode) return;
-        var linkType   = e.data.linkType;
-        var badgeClass = linkType === 'manual' ? 'sb-edge-manual' : 'sb-edge-auto';
-        var removeBtn  = linkType === 'manual' && e.data.linkId
-          ? '<button class="sb-source-item-remove" onclick="sbRemoveLink('
-              + e.data.linkId + ',' + data.articleId + ')" title="Remove link">✕</button>'
-          : '';
-        html += '<div class="sb-source-item">'
-          + '<span class="badge ' + badgeClass + '" style="flex-shrink:0;">' + escHtml(linkType) + '</span>'
-          + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">'
-          + escHtml(truncate(srcNode.data.title, 38)) + '</span>'
-          + removeBtn
-          + '</div>';
+      // In pitches mode, show which pitch spawned this article
+      var spawnEdges = boardData.edges.filter(function (e) {
+        return e.data.linkType === 'spawned' && e.data.target === 'a_' + data.articleId;
       });
+      if (spawnEdges.length) {
+        html += '<div class="sb-section-title" style="margin-top:6px;">Spawned from pitch</div>';
+        spawnEdges.forEach(function (e) {
+          var pitchNode = boardData.nodes.find(function (n) { return n.id === e.data.source; });
+          if (!pitchNode) return;
+          html += '<div class="sb-used-by-item" onclick="sbFocusNode(\'' + pitchNode.id + '\')">'
+            + escHtml(truncate(pitchNode.data.title, 48)) + '</div>';
+        });
+      }
     }
-    html += '</div>';
-    html += '<button class="sb-link-add-btn" id="sbAddLinkBtn" onclick="sbOpenLinkPicker('
-      + data.articleId + ')">+ Link source</button>';
-    html += '<div id="sbLinkPicker" style="display:none;"></div>';
 
     body.innerHTML = html;
   }
 
+  // ── Source article side panel ─────────────────────────────────────────────────
   function renderSourcePanel(data, body) {
     var usedByEdges = boardData.edges.filter(function (e) {
       return e.data.target === 'a_' + data.articleId;
@@ -665,8 +914,8 @@
 
     html += '<div class="sb-panel-meta-row">';
     if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDate(data.publishedAt)) + '</span>';
-    html += '<span>📰 used by ' + usedByEdges.length + ' original'
-      + (usedByEdges.length === 1 ? '' : 's') + '</span>';
+    html += '<span>📰 used by ' + usedByEdges.length + ' '
+      + (isPitchesMode() ? 'pitch' : 'original') + (usedByEdges.length === 1 ? '' : 's') + '</span>';
     html += '</div>';
 
     if (data.summary) {
@@ -679,23 +928,24 @@
         + '" target="_blank" rel="noopener">View source →</a>';
     }
 
-    html += '<div class="sb-section-title">Used by originals</div>';
+    var listTitle = isPitchesMode() ? 'Pitched by' : 'Used by originals';
+    html += '<div class="sb-section-title">' + listTitle + '</div>';
     html += '<div class="sb-used-by-list">';
     if (usedByEdges.length === 0) {
-      html += '<div style="font-size:12px;color:var(--muted);">Not linked to any originals.</div>';
+      html += '<div style="font-size:12px;color:var(--muted);">Not linked to anything.</div>';
     } else {
       usedByEdges.forEach(function (e) {
-        var origNode = boardData.nodes.find(function (n) { return n.id === e.data.source; });
-        if (!origNode) return;
-        html += '<div class="sb-used-by-item" onclick="sbFocusNode(\'' + origNode.id + '\')">'
-          + escHtml(truncate(origNode.data.title, 48)) + '</div>';
+        var parentNode = boardData.nodes.find(function (n) { return n.id === e.data.source; });
+        if (!parentNode) return;
+        html += '<div class="sb-used-by-item" onclick="sbFocusNode(\'' + parentNode.id + '\')">'
+          + escHtml(truncate(parentNode.data.title, 48)) + '</div>';
       });
     }
     html += '</div>';
     body.innerHTML = html;
   }
 
-  // ── Link picker ───────────────────────────────────────────────────────────────
+  // ── Link picker (articles mode only) ─────────────────────────────────────────
   var _pickerDebounce = null;
 
   window.sbOpenLinkPicker = function (originalId) {
@@ -788,7 +1038,8 @@
     var url  = URL.createObjectURL(blob);
     var a    = document.createElement('a');
     a.href = url;
-    a.download = 'story-board-' + new Date().toISOString().slice(0, 10) + '.png';
+    a.download = (isPitchesMode() ? 'pitches-board-' : 'story-board-')
+      + new Date().toISOString().slice(0, 10) + '.png';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -804,11 +1055,21 @@
   function updateStats(stats, edges) {
     var el = document.getElementById('sbStats');
     if (!el || !stats) return;
-    var withEdges = new Set((edges || []).map(function (e) { return e.data.source; }));
-    var orphans   = stats.originals - withEdges.size;
-    var orphanStr = orphans > 0 ? ' · ⚠ ' + orphans + ' unsourced' : '';
-    el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · '
-      + stats.edges + ' connections' + orphanStr;
+
+    if (isPitchesMode()) {
+      var parts = [stats.pitches + ' pitches'];
+      if (stats.proposed) parts.push(stats.proposed + ' proposed');
+      if (stats.approved) parts.push(stats.approved + ' approved');
+      if (stats.rejected) parts.push(stats.rejected + ' rejected');
+      if (stats.articles) parts.push(stats.articles + ' articles');
+      el.textContent = parts.join(' · ');
+    } else {
+      var withEdges = new Set((edges || []).map(function (e) { return e.data.source; }));
+      var orphans   = stats.originals - withEdges.size;
+      var orphanStr = orphans > 0 ? ' · ⚠ ' + orphans + ' unsourced' : '';
+      el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · '
+        + stats.edges + ' connections' + orphanStr;
+    }
   }
 
   function truncate(str, len) {
@@ -832,7 +1093,15 @@
 
   // ── Event listeners ───────────────────────────────────────────────────────────
 
-  // Data-reload triggers (API call needed)
+  // View mode switch
+  document.getElementById('sbView')?.addEventListener('change', function () {
+    resetGroupColors();
+    adaptToolbarForMode();
+    if (cy) { cy.destroy(); cy = null; }
+    loadBoard();
+  });
+
+  // Data-reload triggers
   document.getElementById('sbRefreshBtn')?.addEventListener('click', loadBoard);
   document.getElementById('sbDays')?.addEventListener('change', loadBoard);
   document.getElementById('sbStatus')?.addEventListener('change', loadBoard);
@@ -840,7 +1109,7 @@
   document.getElementById('sbWriter')?.addEventListener('change', loadBoard);
   document.getElementById('sbPanelClose')?.addEventListener('click', closeSidePanel);
 
-  // View-only re-render (client-side filter / layout change — no API call)
+  // Client-side re-render triggers (no API call)
   document.getElementById('sbGroupBy')?.addEventListener('change', function () {
     resetGroupColors();
     applyFiltersAndRender(
@@ -861,7 +1130,7 @@
     );
   });
 
-  // Style-only updates (no re-layout — just update stylesheet and re-render)
+  // Style-only updates (no re-layout)
   document.getElementById('sbEdgeStyle')?.addEventListener('change', function () {
     if (cy) { cy.style(buildCyStyle()); cy.forceRender(); }
   });
@@ -900,6 +1169,7 @@
     } catch { /* best-effort */ }
 
     populateFilters();
+    adaptToolbarForMode();
     loadBoard();
   });
 })();

@@ -3,6 +3,7 @@
  * Node-graph visualization of synthesized articles and their source connections.
  *
  * GET  /          — graph data (nodes + edges)
+ * GET  /pitches   — pitch graph data (pitch nodes + connected articles)
  * POST /links     — create manual source↔original link
  * DELETE /links/:id — remove a manual link
  * GET  /search    — search articles for the link picker
@@ -191,6 +192,164 @@ router.get('/', requirePermission('articles.read'), asyncHandler(async (req, res
       originals: originalsRows.length,
       sources: addedSources.size,
       edges: edges.length,
+    },
+  });
+}));
+
+// ── GET /pitches — pitch graph data ──────────────────────────────────────────
+
+router.get('/pitches', requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId;
+  const days     = Math.min(Math.max(parseInt(req.query.days) || 14, 1), 365);
+  const limit    = Math.min(Math.max(parseInt(req.query.limit) || 60, 1), 200);
+  const status   = req.query.status || '';   // 'proposed'|'approved'|'rejected'|''=all
+  const writerId = req.query.writer_id ? parseInt(req.query.writer_id) : null;
+
+  // ── Phase A: fetch pitches in time window ─────────────────────────────────
+  const conditions = [
+    `p.tenant_id = $1`,
+    `p.created_at >= NOW() - make_interval(days => $2)`,
+  ];
+  const params = [tenantId, days];
+  let idx = 3;
+
+  if (status && status !== 'all') {
+    conditions.push(`p.status = $${idx}`);
+    params.push(status);
+    idx++;
+  }
+  if (writerId) {
+    conditions.push(`p.pitched_by_writer_id = $${idx}`);
+    params.push(writerId);
+    idx++;
+  }
+  params.push(limit);
+
+  const pitches = await db.prepare(`
+    SELECT p.id, p.status, p.angle_summary, p.created_at, p.decided_at, p.decision_note,
+           p.source_article_id, p.spawned_article_id, p.attached_article_ids,
+           p.pitched_by_writer_id,
+           w.name AS writer_name, w.accent_color, w.avatar_url AS writer_avatar
+    FROM article_pitches p
+    LEFT JOIN writers w ON w.id = p.pitched_by_writer_id AND w.tenant_id = $1
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY p.created_at DESC LIMIT $${idx}
+  `).all(...params);
+
+  // ── Phase B: collect all referenced article IDs ───────────────────────────
+  const articleIdSet = new Set();
+  for (const p of pitches) {
+    if (p.source_article_id)  articleIdSet.add(p.source_article_id);
+    if (p.spawned_article_id) articleIdSet.add(p.spawned_article_id);
+    const attached = p.attached_article_ids || [];
+    const list = typeof attached === 'string' ? JSON.parse(attached) : attached;
+    for (const id of (Array.isArray(list) ? list : [])) {
+      if (id) articleIdSet.add(parseInt(id));
+    }
+  }
+
+  // ── Phase C: batch-fetch referenced articles ──────────────────────────────
+  const articleMap = new Map();
+  if (articleIdSet.size) {
+    const articles = await db.prepare(
+      `SELECT id, title, summary, category, source, source_url, image_url, published_at, content_type
+       FROM articles WHERE tenant_id = $1 AND id = ANY($2::int[])`
+    ).all(tenantId, [...articleIdSet]);
+    for (const a of articles) articleMap.set(a.id, a);
+  }
+
+  // ── Phase D: build nodes + edges ─────────────────────────────────────────
+  const nodes = [];
+  const edges = [];
+  const addedArticles = new Set();
+
+  const statusColors = { proposed: '#f59e0b', approved: '#22c55e', rejected: '#6b7280' };
+
+  function addArticleNode(a, nodeType) {
+    if (addedArticles.has(a.id)) return;
+    addedArticles.add(a.id);
+    nodes.push({
+      id: `a_${a.id}`,
+      data: {
+        articleId: a.id,
+        type: nodeType,
+        title: a.title || '',
+        summary: a.summary || '',
+        category: a.category || '',
+        source: a.source || '',
+        sourceUrl: a.source_url || '',
+        imageUrl: a.image_url || '',
+        publishedAt: a.published_at,
+        contentType: a.content_type || '',
+      },
+    });
+  }
+
+  for (const p of pitches) {
+    nodes.push({
+      id: `p_${p.id}`,
+      data: {
+        pitchId: p.id,
+        type: 'pitch',
+        status: p.status || 'proposed',
+        title: p.angle_summary ? p.angle_summary.slice(0, 120) : 'Untitled pitch',
+        summary: p.angle_summary || '',
+        writerId: p.pitched_by_writer_id,
+        writerName: p.writer_name || '',
+        writerAvatar: p.writer_avatar || '',
+        accentColor: p.accent_color || statusColors[p.status] || '#f59e0b',
+        createdAt: p.created_at,
+        decidedAt: p.decided_at,
+        decisionNote: p.decision_note || '',
+      },
+    });
+
+    // Edge: pitch → triggering source article
+    if (p.source_article_id && articleMap.has(p.source_article_id)) {
+      const a = articleMap.get(p.source_article_id);
+      addArticleNode(a, 'source');
+      edges.push({
+        id: `e_p${p.id}_src_${p.source_article_id}`,
+        data: { source: `p_${p.id}`, target: `a_${p.source_article_id}`, linkType: 'source' },
+      });
+    }
+
+    // Edges: pitch → attached enrichment articles
+    const attached = p.attached_article_ids || [];
+    const list = typeof attached === 'string' ? JSON.parse(attached) : attached;
+    for (const id of (Array.isArray(list) ? list : [])) {
+      const aId = parseInt(id);
+      if (!aId || !articleMap.has(aId) || aId === p.source_article_id) continue;
+      addArticleNode(articleMap.get(aId), 'source');
+      edges.push({
+        id: `e_p${p.id}_att_${aId}`,
+        data: { source: `p_${p.id}`, target: `a_${aId}`, linkType: 'attached' },
+      });
+    }
+
+    // Edge: pitch → spawned original (outcome)
+    if (p.spawned_article_id && articleMap.has(p.spawned_article_id)) {
+      const a = articleMap.get(p.spawned_article_id);
+      addArticleNode(a, 'original');
+      edges.push({
+        id: `e_p${p.id}_spawned_${p.spawned_article_id}`,
+        data: { source: `p_${p.id}`, target: `a_${p.spawned_article_id}`, linkType: 'spawned' },
+      });
+    }
+  }
+
+  const byStatus = { proposed: 0, approved: 0, rejected: 0 };
+  for (const p of pitches) byStatus[p.status] = (byStatus[p.status] || 0) + 1;
+
+  res.json({
+    nodes,
+    edges,
+    stats: {
+      pitches: pitches.length,
+      proposed: byStatus.proposed,
+      approved: byStatus.approved,
+      rejected: byStatus.rejected,
+      articles: addedArticles.size,
     },
   });
 }));
