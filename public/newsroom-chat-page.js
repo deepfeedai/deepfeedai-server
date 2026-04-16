@@ -23,6 +23,10 @@
     await Promise.all([loadWriters(), loadCurrentUser()]);
     wireInput();
     document.getElementById('clearBtn').addEventListener('click', clearChat);
+    // Support ?writer_id=N to auto-select a writer (e.g. deep-link from broadcast feed)
+    var params = new URLSearchParams(window.location.search);
+    var preselect = parseInt(params.get('writer_id'), 10);
+    if (preselect) pickWriter(preselect);
   }
 
   async function loadCurrentUser() {

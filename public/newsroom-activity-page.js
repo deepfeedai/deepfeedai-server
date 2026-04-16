@@ -45,7 +45,10 @@
             thread.classList.add('open');
             loadReplies(data.event_id);
           }
+          document.getElementById('broadcastRouting').textContent = '';
         }, 2500);
+      } else {
+        document.getElementById('broadcastRouting').textContent = '';
       }
     } catch (err) {
       document.getElementById('broadcastRouting').textContent = 'Failed: ' + esc(err.message || err);
@@ -176,12 +179,18 @@
       + '💬 ' + (replyCount > 0 ? replyCount + ' ' : '') + 'Replies'
       + '</button>';
 
+    // Broadcast threads redirect to per-writer chat rather than posting static replies
+    var isBroadcast = e.event_type === 'editor_broadcast';
+    var replyInputRow = isBroadcast
+      ? '<div class="feed-meta" style="color:var(--muted);font-size:12px;margin-top:8px;">To continue a conversation, click "Chat →" next to a writer\'s reply.</div>'
+      : '<div class="reply-input-row">'
+        + '<input type="text" data-reply-input="' + e.id + '" placeholder="Reply…" />'
+        + '<button class="btn btn-primary btn-sm" data-reply-send="' + e.id + '">Send</button>'
+        + '</div>';
     var threadDiv = '<div class="reply-thread" data-thread="' + e.id + '">'
       + '<div class="reply-list" data-replies="' + e.id + '">Loading…</div>'
-      + '<div class="reply-input-row">'
-      + '<input type="text" data-reply-input="' + e.id + '" placeholder="Reply…" />'
-      + '<button class="btn btn-primary btn-sm" data-reply-send="' + e.id + '">Send</button>'
-      + '</div></div>';
+      + replyInputRow
+      + '</div>';
 
     return '<div class="feed-card">'
       + '<div class="feed-card-header">'
@@ -266,9 +275,13 @@
       }
       listEl.innerHTML = replies.map(function (r) {
         var who = r.author_writer_name || r.author_user_name || 'User';
+        var chatLink = r.author_writer_id
+          ? ' <a class="feed-link" href="/newsroom-chat.html?writer_id=' + r.author_writer_id + '" style="font-size:11px;">Chat →</a>'
+          : '';
         return '<div class="reply-item">'
           + '<span class="reply-author">' + esc(who) + '</span>'
           + '<span class="reply-time">' + relativeTime(new Date(r.created_at)) + '</span>'
+          + chatLink
           + '<div>' + esc(r.content) + '</div>'
           + '</div>';
       }).join('');
