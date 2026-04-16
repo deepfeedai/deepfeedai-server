@@ -2701,3 +2701,7 @@ tr:hover .td-edit-btn { opacity: 1; }
 .chat-proposal-rationale { font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:10px; }
 .chat-proposal-actions { display:flex; gap:8px; }
 .chat-proposal-actions .btn { padding:6px 14px; font-size:13px; }
+
+/* ── Feed Inbox: uncategorized notice banner ── */
+.uncat-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:10px; background:rgba(251,191,36,.12); border:1px solid rgba(251,191,36,.35); border-radius:8px; font-size:13px; color:var(--text); flex-wrap:wrap; }
+.uncat-banner span { flex:1; min-width:0; }
