@@ -68,6 +68,11 @@
     .sb-legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; margin-bottom: 5px; }
     .sb-legend-item:last-child { margin-bottom: 0; }
     .sb-legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .sb-legend-clickable { cursor: pointer; border-radius: 4px; padding: 3px 5px; margin: -3px -5px; transition: background 0.1s; }
+    .sb-legend-clickable:hover { background: rgba(255,255,255,0.1); }
+    .sb-legend-active { background: rgba(255,255,255,0.18) !important; }
+    /* Hover tooltip */
+    #sbTooltip { position: absolute; pointer-events: none; display: none; background: rgba(17,24,39,0.97); border: 1px solid var(--border); border-radius: 7px; padding: 9px 11px; font-size: 12px; max-width: 230px; z-index: 30; box-shadow: 0 4px 16px rgba(0,0,0,0.4); line-height: 1.45; }
   </style>
 </head>
 <body>
@@ -91,6 +96,14 @@
         </select>
       </div>
       <div>
+        <label for="sbStatus">Status</label>
+        <select id="sbStatus">
+          <option value="published" selected>Published</option>
+          <option value="draft">Draft</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <div>
         <label for="sbCategory">Category</label>
         <select id="sbCategory">
           <option value="">All</option>
@@ -110,15 +123,41 @@
           <option value="writer">Writer</option>
         </select>
       </div>
+      <div>
+        <label for="sbLayout">Layout</label>
+        <select id="sbLayout">
+          <option value="cose" selected>Organic</option>
+          <option value="concentric">Concentric</option>
+          <option value="breadthfirst">Tree</option>
+          <option value="grid">Grid</option>
+        </select>
+      </div>
+      <div>
+        <label for="sbEdgeStyle">Edges</label>
+        <select id="sbEdgeStyle">
+          <option value="curved" selected>Curved</option>
+          <option value="straight">Straight</option>
+          <option value="taxi">Orthogonal</option>
+        </select>
+      </div>
       <div class="sb-linked-only-wrap">
         <input type="checkbox" id="sbLinkedOnly" />
         <label for="sbLinkedOnly">Linked only</label>
+      </div>
+      <div class="sb-linked-only-wrap">
+        <input type="checkbox" id="sbColorEdges" />
+        <label for="sbColorEdges">Color edges</label>
+      </div>
+      <div class="sb-linked-only-wrap">
+        <input type="checkbox" id="sbOrphansOnly" />
+        <label for="sbOrphansOnly">Orphans only</label>
       </div>
       <button class="btn btn-sm btn-outline" id="sbRefreshBtn">↻ Refresh</button>
       <div style="display:flex;gap:4px;margin-left:4px;">
         <button class="btn btn-sm btn-ghost" id="sbFitBtn" title="Fit to screen">⤢</button>
         <button class="btn btn-sm btn-ghost" id="sbZoomInBtn" title="Zoom in">+</button>
         <button class="btn btn-sm btn-ghost" id="sbZoomOutBtn" title="Zoom out">−</button>
+        <button class="btn btn-sm btn-ghost" id="sbExportBtn" title="Export as PNG">⬇ PNG</button>
       </div>
       <span class="sb-toolbar-stats" id="sbStats"></span>
     </div>
@@ -126,6 +165,7 @@
     <!-- Board + side panel -->
     <div class="sb-board-wrap" id="sbBoardWrap">
       <div id="cy"></div>
+      <div id="sbTooltip"></div>
       <div id="sbLegend">
         <div class="sb-legend-title" id="sbLegendTitle"></div>
         <div id="sbLegendItems"></div>

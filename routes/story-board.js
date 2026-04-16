@@ -27,16 +27,27 @@ router.get('/', requirePermission('articles.read'), asyncHandler(async (req, res
   const limit    = Math.min(Math.max(parseInt(req.query.limit) || 60, 1), 200);
   const category = req.query.category || null;
   const writerId = req.query.writer_id ? parseInt(req.query.writer_id) : null;
+  const status   = req.query.status || 'published'; // 'published' | 'draft' | 'all'
 
   // ── Phase A: fetch originals in time window ───────────────────────────────
   const conditions = [
     `a.tenant_id = $1`,
     `a.content_type IN ('original','deep-dive')`,
     `(a.is_archived = 0 OR a.is_archived IS NULL)`,
-    `a.published_at >= NOW() - make_interval(days => $2)`,
   ];
-  const params = [tenantId, days];
-  let idx = 3;
+  const params = [tenantId];
+  let idx = 2;
+
+  if (status === 'draft') {
+    conditions.push(`a.published_at IS NULL`);
+  } else {
+    params.push(days); // $idx = days
+    const timeCondition = status === 'all'
+      ? `(a.published_at >= NOW() - make_interval(days => $${idx}) OR a.published_at IS NULL)`
+      : `a.published_at >= NOW() - make_interval(days => $${idx})`;
+    conditions.push(timeCondition);
+    idx++;
+  }
 
   if (category) {
     conditions.push(`a.category = $${idx}`);

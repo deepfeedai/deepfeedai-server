@@ -1,15 +1,17 @@
-/* Deep Feed AI Admin — Story Board page */
+/* Deep Feed AI Admin — Story Board page v2 */
 (function () {
   'use strict';
 
-  // ── State ───────────────────────────────────────────────────────────────────
+  // ── State ────────────────────────────────────────────────────────────────────
   var cy             = null;
   var boardData      = { nodes: [], edges: [], stats: {} };
   var selectedNodeId = null;
   var writers        = [];
   var categories     = [];
+  var _activeGroup   = null;   // key of highlighted legend group (null = all visible)
+  var _activeGroupBy = null;   // 'writer' | 'category'
 
-  // ── Group colour palette ─────────────────────────────────────────────────────
+  // ── Group colour palette ──────────────────────────────────────────────────────
   var GROUP_PALETTE = [
     '#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6',
     '#8b5cf6','#ef4444','#14b8a6','#f97316','#84cc16',
@@ -28,111 +30,180 @@
   function resetGroupColors() {
     _groupColorCache = {};
     _groupColorIdx   = 0;
+    _activeGroup     = null;
+    _activeGroupBy   = null;
   }
 
-  // ── Cytoscape base style ─────────────────────────────────────────────────────
-  var CY_STYLE = [
-    // Source node
-    {
-      selector: 'node',
-      style: {
-        'width': 32,
-        'height': 32,
-        'background-color': '#374151',
-        'border-color': '#4b5563',
-        'border-width': 1,
-        'label': 'data(label)',
-        'font-size': 10,
-        'color': '#9ca3af',
-        'text-valign': 'bottom',
-        'text-margin-y': 4,
-        'text-max-width': 100,
-        'text-wrap': 'ellipsis',
-        'text-overflow-wrap': 'anywhere',
-        'min-zoomed-font-size': 8,
-      },
-    },
-    // Original node — solid colour (canvas CORS blocks R2 images; thumbnails shown in side panel)
-    {
-      selector: 'node.original',
-      style: {
-        'width': 72,
-        'height': 72,
-        'shape': 'roundrectangle',
-        'background-color': function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
-        'border-color': function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
-        'border-width': 3,
-        'color': '#e5e7eb',
-        'font-size': 11,
-        'font-weight': 'bold',
-        'text-max-width': 140,
-        'text-background-color': '#111827',
-        'text-background-opacity': 0.8,
-        'text-background-padding': '3px',
-        'text-background-shape': 'roundrectangle',
-      },
-    },
-    // Orphan — dashed red border
-    {
-      selector: 'node.original.orphan',
-      style: {
-        'border-color': '#ef4444',
-        'border-width': 3,
-        'border-style': 'dashed',
-      },
-    },
-    // Selected
-    {
-      selector: 'node:selected',
-      style: {
-        'border-color': '#ffffff',
-        'border-width': 3,
-        'border-style': 'solid',
-      },
-    },
-    // Auto edge
-    {
-      selector: 'edge',
-      style: {
-        'width': 1.5,
-        'line-color': '#4b5563',
-        'target-arrow-color': '#4b5563',
-        'target-arrow-shape': 'triangle',
-        'curve-style': 'bezier',
-        'arrow-scale': 0.8,
-        'opacity': 0.75,
-      },
-    },
-    // Manual edge
-    {
-      selector: 'edge.manual',
-      style: {
-        'width': 2,
-        'line-color': '#00d9ff',
-        'target-arrow-color': '#00d9ff',
-        'line-style': 'dashed',
-        'line-dash-pattern': [6, 3],
-        'opacity': 1,
-      },
-    },
-  ];
+  // ── Build Cytoscape stylesheet (rebuilt on each render + style-only updates) ──
+  function buildCyStyle() {
+    var curveStyle = ({
+      curved:   'bezier',
+      straight: 'straight',
+      taxi:     'taxi',
+    })[document.getElementById('sbEdgeStyle')?.value] || 'bezier';
+    var colorEdges = !!document.getElementById('sbColorEdges')?.checked;
 
-  // ── Layout ──────────────────────────────────────────────────────────────────
-  var COSE_LAYOUT = {
-    name: 'cose',
-    animate: false,
-    numIter: 600,
-    nodeRepulsion: function (node) {
-      return node.data('type') === 'original' ? 9000 : 4500;
-    },
-    idealEdgeLength: function () { return 130; },
-    nodeOverlap: 24,
-    gravity: 0.25,
-    padding: 40,
-    randomize: true,
-  };
+    return [
+      // ── Source nodes ─────────────────────────────────────────────────────────
+      {
+        selector: 'node',
+        style: {
+          'width':  32,
+          'height': 32,
+          'background-color': '#374151',
+          'border-color': '#4b5563',
+          'border-width': 1,
+          'label': 'data(label)',
+          'font-size': 10,
+          'color': '#9ca3af',
+          'text-valign': 'bottom',
+          'text-margin-y': 4,
+          'text-max-width': 100,
+          'text-wrap': 'ellipsis',
+          'text-overflow-wrap': 'anywhere',
+          'min-zoomed-font-size': 8,
+        },
+      },
+      // ── Original nodes ────────────────────────────────────────────────────────
+      {
+        selector: 'node.original',
+        style: {
+          'width':  'data(nodeSize)',
+          'height': 'data(nodeSize)',
+          'shape':  'roundrectangle',
+          'background-color': function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
+          'border-color':     function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
+          'border-width': 3,
+          'color': '#e5e7eb',
+          'font-size': 11,
+          'font-weight': 'bold',
+          'text-max-width': 140,
+          'text-background-color': '#111827',
+          'text-background-opacity': 0.8,
+          'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle',
+          'text-wrap': 'wrap',
+        },
+      },
+      // ── Deep-dive nodes — hexagon shape ───────────────────────────────────────
+      {
+        selector: 'node.deep-dive',
+        style: { 'shape': 'hexagon' },
+      },
+      // ── Orphan: dashed red border ─────────────────────────────────────────────
+      {
+        selector: 'node.original.orphan',
+        style: {
+          'border-color': '#ef4444',
+          'border-width': 3,
+          'border-style': 'dashed',
+        },
+      },
+      // ── Selected ──────────────────────────────────────────────────────────────
+      {
+        selector: 'node:selected',
+        style: {
+          'border-color': '#ffffff',
+          'border-width': 4,
+          'border-style': 'solid',
+          'opacity': 1,
+        },
+      },
+      // ── Dimmed (legend group filter) ──────────────────────────────────────────
+      {
+        selector: '.dimmed',
+        style: { 'opacity': 0.1 },
+      },
+      // ── Auto edges ────────────────────────────────────────────────────────────
+      {
+        selector: 'edge',
+        style: {
+          'width': 1.5,
+          'line-color': colorEdges
+            ? function (e) { return e.data('edgeColor') || '#4b5563'; }
+            : '#4b5563',
+          'target-arrow-color': colorEdges
+            ? function (e) { return e.data('edgeColor') || '#4b5563'; }
+            : '#4b5563',
+          'target-arrow-shape': 'triangle',
+          'curve-style': curveStyle,
+          'arrow-scale': 0.8,
+          'opacity': 0.75,
+        },
+      },
+      // ── Manual edge: dashed cyan ──────────────────────────────────────────────
+      {
+        selector: 'edge.manual',
+        style: {
+          'width': 2,
+          'line-color': '#00d9ff',
+          'target-arrow-color': '#00d9ff',
+          'line-style': 'dashed',
+          'line-dash-pattern': [6, 3],
+          'opacity': 1,
+        },
+      },
+    ];
+  }
 
-  // ── Populate filter selects ─────────────────────────────────────────────────
+  // ── Layout options ────────────────────────────────────────────────────────────
+  function getLayout() {
+    var layout = document.getElementById('sbLayout')?.value || 'cose';
+
+    if (layout === 'concentric') {
+      return {
+        name: 'concentric',
+        animate: false,
+        padding: 40,
+        // originals in inner ring (higher value = more central)
+        concentric: function (n) { return n.data('type') === 'original' ? 2 : 1; },
+        levelWidth: function () { return 1; },
+        minNodeSpacing: 40,
+        startAngle: Math.PI * 3 / 2,
+      };
+    }
+    if (layout === 'breadthfirst') {
+      return {
+        name: 'breadthfirst',
+        animate: false,
+        padding: 40,
+        directed: true,
+        spacingFactor: 1.5,
+        maximal: false,
+      };
+    }
+    if (layout === 'grid') {
+      return {
+        name: 'grid',
+        animate: false,
+        padding: 40,
+        spacingFactor: 1.2,
+        condense: false,
+        sort: function (a, b) {
+          // originals first
+          if (a.data('type') === 'original' && b.data('type') !== 'original') return -1;
+          if (b.data('type') === 'original' && a.data('type') !== 'original') return  1;
+          return 0;
+        },
+      };
+    }
+    // Default: cose (organic force-directed)
+    return {
+      name: 'cose',
+      animate: false,
+      numIter: 600,
+      nodeRepulsion: function (node) {
+        return node.data('type') === 'original' ? 9000 : 4500;
+      },
+      idealEdgeLength: function () { return 130; },
+      nodeOverlap: 24,
+      gravity: 0.25,
+      padding: 40,
+      randomize: true,
+    };
+  }
+
+  // ── Populate filter selects ───────────────────────────────────────────────────
   function populateFilters() {
     var catSel = document.getElementById('sbCategory');
     if (catSel && categories.length) {
@@ -150,26 +221,28 @@
     }
   }
 
-  // ── Load board ──────────────────────────────────────────────────────────────
+  // ── Load board (API call) ─────────────────────────────────────────────────────
   async function loadBoard() {
     showLoading(true);
     closeSidePanel();
     resetGroupColors();
 
-    var days       = document.getElementById('sbDays')?.value || '14';
-    var category   = document.getElementById('sbCategory')?.value || '';
-    var writerId   = document.getElementById('sbWriter')?.value || '';
-    var linkedOnly = document.getElementById('sbLinkedOnly')?.checked;
+    var days        = document.getElementById('sbDays')?.value || '14';
+    var category    = document.getElementById('sbCategory')?.value || '';
+    var writerId    = document.getElementById('sbWriter')?.value || '';
+    var status      = document.getElementById('sbStatus')?.value || 'published';
+    var linkedOnly  = document.getElementById('sbLinkedOnly')?.checked;
+    var orphansOnly = document.getElementById('sbOrphansOnly')?.checked;
 
     try {
-      var params = new URLSearchParams({ days: days });
+      var params = new URLSearchParams({ days: days, status: status });
       if (category) params.set('category', category);
       if (writerId)  params.set('writer_id', writerId);
 
       var data = await apiFetch('/story-board?' + params.toString());
       boardData = data;
 
-      applyFiltersAndRender(linkedOnly);
+      applyFiltersAndRender(linkedOnly, orphansOnly);
       updateStats(data.stats, data.edges);
     } catch (err) {
       showAlert('Failed to load story board: ' + (err.message || err), 'error');
@@ -178,28 +251,45 @@
     }
   }
 
-  function applyFiltersAndRender(linkedOnly) {
+  // ── Client-side filters then render ──────────────────────────────────────────
+  function applyFiltersAndRender(linkedOnly, orphansOnly) {
     var nodes = boardData.nodes;
     var edges = boardData.edges;
 
-    if (linkedOnly) {
-      var connected = new Set(edges.map(function (e) { return e.data.target; }));
+    if (orphansOnly) {
+      // Only show originals that have NO source edges
+      var connected = new Set(edges.map(function (e) { return e.data.source; }));
       nodes = nodes.filter(function (n) {
-        return n.data.type === 'original' || connected.has(n.id);
+        return n.data.type === 'original' && !connected.has(n.id);
+      });
+      edges = [];
+    } else if (linkedOnly) {
+      // Only show source nodes that appear in at least one edge
+      var connectedSrcs = new Set(edges.map(function (e) { return e.data.target; }));
+      nodes = nodes.filter(function (n) {
+        return n.data.type === 'original' || connectedSrcs.has(n.id);
       });
     }
 
     renderBoard(nodes, edges);
   }
 
-  // ── Render board ────────────────────────────────────────────────────────────
+  // ── Render board ──────────────────────────────────────────────────────────────
   function renderBoard(nodes, edges) {
     var container = document.getElementById('cy');
     if (!container) return;
 
+    // Reset active group highlight whenever board is re-rendered
+    _activeGroup   = null;
+    _activeGroupBy = null;
+
     if (!nodes.length) {
       if (cy) { cy.destroy(); cy = null; }
-      container.innerHTML = '<div class="sb-empty"><div style="font-size:36px;margin-bottom:12px;">📋</div><div>No originals found for this period.</div><div style="font-size:12px;margin-top:6px;">Try a longer time window or different filters.</div></div>';
+      container.innerHTML = '<div class="sb-empty">'
+        + '<div style="font-size:36px;margin-bottom:12px;">📋</div>'
+        + '<div>No originals found for this period.</div>'
+        + '<div style="font-size:12px;margin-top:6px;">Try a longer time window or different filters.</div>'
+        + '</div>';
       hideLegend();
       return;
     }
@@ -209,10 +299,16 @@
 
     var groupBy = document.getElementById('sbGroupBy')?.value || '';
 
-    // Which originals have edges?
+    // Which originals have at least one edge?
     var originalsWithEdges = new Set(edges.map(function (e) { return e.data.source; }));
 
-    // Build colour map for group-by mode
+    // Source counts per original node (for label + tooltip)
+    var sourceCounts = {};
+    edges.forEach(function (e) {
+      sourceCounts[e.data.source] = (sourceCounts[e.data.source] || 0) + 1;
+    });
+
+    // Build group colour map for group-by border colouring
     var groupColorMap = {};
     if (groupBy) {
       nodes.forEach(function (n) {
@@ -224,65 +320,147 @@
       });
     }
 
-    // Build elements — no compound nodes
+    // Build per-original category colours for edge colouring
+    var origCategoryColors = {};
+    nodes.forEach(function (n) {
+      if (n.data.type !== 'original') return;
+      origCategoryColors[n.id] = groupColor(n.data.category || 'Uncategorized');
+    });
+
+    // Build elements array
     var elements = nodes.map(function (n) {
       var isOriginal = n.data.type === 'original';
       var classes    = isOriginal ? 'original' : 'source';
       if (isOriginal && !originalsWithEdges.has(n.id)) classes += ' orphan';
+      if (n.data.contentType === 'deep-dive')          classes += ' deep-dive';
 
-      // In group-by mode, override border/bg colour with group colour
+      // Group-by colour override
       var nodeColor = null;
       if (isOriginal && groupBy) {
-        var key = groupBy === 'writer'
+        var gkey = groupBy === 'writer'
           ? (n.data.writerName || 'Unassigned')
           : (n.data.category   || 'Uncategorized');
-        nodeColor = groupColorMap[key];
+        nodeColor = groupColorMap[gkey];
       }
+
+      // Score-based sizing: 52–88px (original nodes only)
+      var nodeSize = 72;
+      if (isOriginal) {
+        var sc = n.data.editorialScore;
+        if (sc != null) {
+          nodeSize = Math.max(52, Math.min(88, Math.round(52 + (sc / 10) * 36)));
+        }
+      }
+
+      // Label: title + "(N)" source count for originals
+      var cnt   = isOriginal ? (sourceCounts[n.id] || 0) : 0;
+      var label = truncate(n.data.title, 26);
+      if (isOriginal && cnt > 0) label += '\n(' + cnt + ')';
 
       return {
         group: 'nodes',
         data: Object.assign(
-          { id: n.id, label: truncate(n.data.title, 28), nodeColor: nodeColor },
+          { id: n.id, label: label, nodeColor: nodeColor, nodeSize: nodeSize },
           n.data
         ),
         classes: classes,
       };
     }).concat(edges.map(function (e) {
+      // Assign edge a colour derived from the source original's category
+      var edgeColor = origCategoryColors[e.data.source] || '#4b5563';
       return {
         group: 'edges',
-        data: Object.assign({ id: e.id }, e.data),
+        data: Object.assign({ id: e.id, edgeColor: edgeColor }, e.data),
         classes: e.data.linkType === 'manual' ? 'manual' : 'auto',
       };
     }));
 
+    var cyStyle = buildCyStyle();
+    var cyLayout = getLayout();
+
     if (cy) {
+      cy.style(cyStyle);
       cy.elements().remove();
       cy.add(elements);
-      cy.layout(COSE_LAYOUT).run();
+      cy.layout(cyLayout).run();
     } else {
       cy = cytoscape({
         container: container,
         elements: elements,
-        style: CY_STYLE,
-        layout: COSE_LAYOUT,
+        style: cyStyle,
+        layout: cyLayout,
         minZoom: 0.1,
         maxZoom: 4,
       });
 
+      // ── Node tap → open side panel ──────────────────────────────────────────
       cy.on('tap', 'node', function (evt) {
         selectedNodeId = evt.target.id();
         openSidePanel(evt.target.data());
       });
 
+      // ── Background tap → close panel ────────────────────────────────────────
       cy.on('tap', function (evt) {
         if (evt.target === cy) closeSidePanel();
+      });
+
+      // ── Hover tooltip ────────────────────────────────────────────────────────
+      cy.on('mouseover', 'node', function (evt) {
+        var n       = evt.target;
+        var data    = n.data();
+        var tooltip = document.getElementById('sbTooltip');
+        var wrap    = document.getElementById('sbBoardWrap');
+        if (!tooltip || !wrap) return;
+
+        var pos     = n.renderedPosition();
+        var cyRect  = document.getElementById('cy').getBoundingClientRect();
+        var wrapRect = wrap.getBoundingClientRect();
+
+        var srcCnt   = cy.edges('[source = "' + n.id() + '"]').length;
+        var usedByCnt = cy.edges('[target = "' + n.id() + '"]').length;
+
+        var html = '<div style="font-weight:700;margin-bottom:4px;">'
+          + escHtml(truncate(data.title, 52)) + '</div>';
+        if (data.category) {
+          html += '<div style="color:var(--muted);font-size:11px;">' + escHtml(data.category) + '</div>';
+        }
+        if (data.writerName) {
+          html += '<div style="color:var(--muted);font-size:11px;">✍ ' + escHtml(data.writerName) + '</div>';
+        }
+        if (data.editorialScore != null) {
+          var sc  = data.editorialScore;
+          var cls = sc >= 7 ? 'sb-score-high' : sc >= 5 ? 'sb-score-mid' : 'sb-score-low';
+          html += '<span class="sb-score-badge ' + cls + '" style="margin-top:4px;display:inline-block;">Score ' + sc + '</span>';
+        }
+        if (data.type === 'original') {
+          html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">🔗 '
+            + srcCnt + ' source' + (srcCnt === 1 ? '' : 's') + '</div>';
+        } else {
+          html += '<div style="color:var(--muted);font-size:11px;margin-top:4px;">📰 used by '
+            + usedByCnt + ' original' + (usedByCnt === 1 ? '' : 's') + '</div>';
+        }
+
+        tooltip.innerHTML = html;
+        tooltip.style.display = 'block';
+
+        var left = (cyRect.left - wrapRect.left) + pos.x + 14;
+        var top  = (cyRect.top  - wrapRect.top)  + pos.y - 22;
+        left = Math.min(left, wrapRect.width - 250);
+        top  = Math.max(top, 4);
+        tooltip.style.left = left + 'px';
+        tooltip.style.top  = top  + 'px';
+      });
+
+      cy.on('mouseout', 'node', function () {
+        var tooltip = document.getElementById('sbTooltip');
+        if (tooltip) tooltip.style.display = 'none';
       });
     }
 
     renderLegend(groupBy, groupColorMap);
   }
 
-  // ── Legend ──────────────────────────────────────────────────────────────────
+  // ── Legend ─────────────────────────────────────────────────────────────────────
   function renderLegend(groupBy, colorMap) {
     var legend = document.getElementById('sbLegend');
     var title  = document.getElementById('sbLegendTitle');
@@ -296,9 +474,14 @@
 
     title.textContent = groupBy === 'writer' ? 'Writers' : 'Categories';
     items.innerHTML = Object.entries(colorMap).map(function (entry) {
-      return '<div class="sb-legend-item">'
-        + '<div class="sb-legend-swatch" style="background:' + entry[1] + ';"></div>'
-        + '<span>' + escHtml(entry[0]) + '</span>'
+      var key   = entry[0];
+      var color = entry[1];
+      // Escape key for inline onclick — handle apostrophes
+      var safeKey = key.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return '<div class="sb-legend-item sb-legend-clickable" data-group-key="' + escHtml(key) + '" '
+        + 'onclick="sbToggleGroup(\'' + safeKey + '\',\'' + groupBy + '\')">'
+        + '<div class="sb-legend-swatch" style="background:' + color + ';"></div>'
+        + '<span>' + escHtml(key) + '</span>'
         + '</div>';
     }).join('');
     legend.style.display = 'block';
@@ -309,14 +492,60 @@
     if (legend) legend.style.display = 'none';
   }
 
-  // ── Side panel ──────────────────────────────────────────────────────────────
+  // ── Legend group highlight/dim toggle ─────────────────────────────────────────
+  window.sbToggleGroup = function (key, groupByType) {
+    if (!cy) return;
+
+    // Remove active highlight from all legend items
+    document.querySelectorAll('.sb-legend-clickable').forEach(function (el) {
+      el.classList.remove('sb-legend-active');
+    });
+
+    if (_activeGroup === key) {
+      // Clicking same group again — restore all
+      _activeGroup   = null;
+      _activeGroupBy = null;
+      cy.elements().removeClass('dimmed');
+      return;
+    }
+
+    _activeGroup   = key;
+    _activeGroupBy = groupByType;
+
+    // Find original node IDs in this group
+    var matchIds = new Set();
+    cy.nodes('.original').forEach(function (n) {
+      var gkey = groupByType === 'writer'
+        ? (n.data('writerName') || 'Unassigned')
+        : (n.data('category')   || 'Uncategorized');
+      if (gkey === key) matchIds.add(n.id());
+    });
+
+    // Add connected source node IDs
+    cy.edges().forEach(function (e) {
+      if (matchIds.has(e.data('source'))) matchIds.add(e.data('target'));
+    });
+
+    // Dim everything, then un-dim matching nodes + their edges
+    cy.elements().addClass('dimmed');
+    matchIds.forEach(function (id) { cy.getElementById(id).removeClass('dimmed'); });
+    cy.edges().forEach(function (e) {
+      if (matchIds.has(e.data('source'))) e.removeClass('dimmed');
+    });
+
+    // Mark active legend item
+    document.querySelectorAll('.sb-legend-clickable').forEach(function (el) {
+      if (el.getAttribute('data-group-key') === key) el.classList.add('sb-legend-active');
+    });
+  };
+
+  // ── Side panel ─────────────────────────────────────────────────────────────────
   function openSidePanel(data) {
     var panel = document.getElementById('sbPanel');
     var title = document.getElementById('sbPanelTitle');
     var body  = document.getElementById('sbPanelBody');
     if (!panel || !title || !body) return;
 
-    // Slide in — remove hidden class and ensure transform is clear
     panel.classList.remove('sb-panel-hidden');
     panel.style.transform = 'translateX(0)';
     title.textContent = truncate(data.title, 42);
@@ -348,7 +577,7 @@
       html += '<img class="sb-panel-image" src="' + escHtml(data.imageUrl) + '" alt="" />';
     }
 
-    // Writer
+    // Writer row
     if (data.writerName) {
       html += '<div class="sb-panel-writer">';
       if (data.writerAvatar) {
@@ -361,7 +590,7 @@
       html += '</div>';
     }
 
-    // Meta row 1 — type, category, score
+    // Type + category + score badges
     html += '<div class="sb-panel-meta-row">';
     html += '<span class="badge sb-type-original">' + escHtml(data.contentType || 'original') + '</span>';
     if (data.category) html += '<span class="badge badge-muted">' + escHtml(data.category) + '</span>';
@@ -372,7 +601,7 @@
     }
     html += '</div>';
 
-    // Meta row 2 — date, source count, orphan warning
+    // Date + source count + orphan warning
     html += '<div class="sb-panel-meta-row">';
     if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDate(data.publishedAt)) + '</span>';
     html += '<span>🔗 ' + sourceCount + ' source' + (sourceCount === 1 ? '' : 's') + '</span>';
@@ -380,7 +609,9 @@
     html += '</div>';
 
     if (data.summary) {
-      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 280) + (data.summary.length > 280 ? '…' : '') + '</p>';
+      html += '<p class="sb-panel-summary">'
+        + escHtml(data.summary).slice(0, 280)
+        + (data.summary.length > 280 ? '…' : '') + '</p>';
     }
 
     html += '<a class="sb-panel-view-link" href="/articles.html?id=' + data.articleId + '" target="_blank">View in Articles →</a>';
@@ -397,17 +628,20 @@
         var linkType   = e.data.linkType;
         var badgeClass = linkType === 'manual' ? 'sb-edge-manual' : 'sb-edge-auto';
         var removeBtn  = linkType === 'manual' && e.data.linkId
-          ? '<button class="sb-source-item-remove" onclick="sbRemoveLink(' + e.data.linkId + ',' + data.articleId + ')" title="Remove link">✕</button>'
+          ? '<button class="sb-source-item-remove" onclick="sbRemoveLink('
+              + e.data.linkId + ',' + data.articleId + ')" title="Remove link">✕</button>'
           : '';
         html += '<div class="sb-source-item">'
           + '<span class="badge ' + badgeClass + '" style="flex-shrink:0;">' + escHtml(linkType) + '</span>'
-          + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">' + escHtml(truncate(srcNode.data.title, 38)) + '</span>'
+          + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">'
+          + escHtml(truncate(srcNode.data.title, 38)) + '</span>'
           + removeBtn
           + '</div>';
       });
     }
     html += '</div>';
-    html += '<button class="sb-link-add-btn" id="sbAddLinkBtn" onclick="sbOpenLinkPicker(' + data.articleId + ')">+ Link source</button>';
+    html += '<button class="sb-link-add-btn" id="sbAddLinkBtn" onclick="sbOpenLinkPicker('
+      + data.articleId + ')">+ Link source</button>';
     html += '<div id="sbLinkPicker" style="display:none;"></div>';
 
     body.innerHTML = html;
@@ -431,14 +665,18 @@
 
     html += '<div class="sb-panel-meta-row">';
     if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDate(data.publishedAt)) + '</span>';
-    html += '<span>📰 used by ' + usedByEdges.length + ' original' + (usedByEdges.length === 1 ? '' : 's') + '</span>';
+    html += '<span>📰 used by ' + usedByEdges.length + ' original'
+      + (usedByEdges.length === 1 ? '' : 's') + '</span>';
     html += '</div>';
 
     if (data.summary) {
-      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 280) + (data.summary.length > 280 ? '…' : '') + '</p>';
+      html += '<p class="sb-panel-summary">'
+        + escHtml(data.summary).slice(0, 280)
+        + (data.summary.length > 280 ? '…' : '') + '</p>';
     }
     if (data.sourceUrl) {
-      html += '<a class="sb-panel-view-link" href="' + escHtml(data.sourceUrl) + '" target="_blank" rel="noopener">View source →</a>';
+      html += '<a class="sb-panel-view-link" href="' + escHtml(data.sourceUrl)
+        + '" target="_blank" rel="noopener">View source →</a>';
     }
 
     html += '<div class="sb-section-title">Used by originals</div>';
@@ -450,15 +688,14 @@
         var origNode = boardData.nodes.find(function (n) { return n.id === e.data.source; });
         if (!origNode) return;
         html += '<div class="sb-used-by-item" onclick="sbFocusNode(\'' + origNode.id + '\')">'
-          + escHtml(truncate(origNode.data.title, 48))
-          + '</div>';
+          + escHtml(truncate(origNode.data.title, 48)) + '</div>';
       });
     }
     html += '</div>';
     body.innerHTML = html;
   }
 
-  // ── Link picker ─────────────────────────────────────────────────────────────
+  // ── Link picker ───────────────────────────────────────────────────────────────
   var _pickerDebounce = null;
 
   window.sbOpenLinkPicker = function (originalId) {
@@ -466,7 +703,8 @@
     if (!picker) return;
     picker.style.display = '';
     picker.innerHTML = '<div class="sb-link-picker">'
-      + '<input class="sb-link-picker-input" id="sbPickerInput" type="text" placeholder="Search articles…" autocomplete="off" />'
+      + '<input class="sb-link-picker-input" id="sbPickerInput" type="text" '
+      + 'placeholder="Search articles…" autocomplete="off" />'
       + '<div id="sbPickerResults"><div class="sb-link-picker-empty">Type to search…</div></div>'
       + '</div>';
 
@@ -499,7 +737,8 @@
       results.innerHTML = data.map(function (a) {
         return '<div class="sb-link-result-item" onclick="sbAddLink(' + originalId + ',' + a.id + ')">'
           + '<div class="sb-link-result-title">' + escHtml(a.title) + '</div>'
-          + '<div class="sb-link-result-meta">' + escHtml(a.category || '') + (a.source ? ' · ' + escHtml(a.source) : '') + '</div>'
+          + '<div class="sb-link-result-meta">'
+          + escHtml(a.category || '') + (a.source ? ' · ' + escHtml(a.source) : '') + '</div>'
           + '</div>';
       }).join('');
     } catch {
@@ -542,7 +781,21 @@
     openSidePanel(node.data());
   };
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Export PNG ────────────────────────────────────────────────────────────────
+  document.getElementById('sbExportBtn')?.addEventListener('click', function () {
+    if (!cy) return;
+    var blob = cy.png({ output: 'blob', bg: '#111827', full: true, scale: 2 });
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href = url;
+    a.download = 'story-board-' + new Date().toISOString().slice(0, 10) + '.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  // ── Helpers ────────────────────────────────────────────────────────────────────
   function showLoading(show) {
     var el = document.getElementById('sbLoading');
     if (el) el.style.display = show ? '' : 'none';
@@ -554,7 +807,8 @@
     var withEdges = new Set((edges || []).map(function (e) { return e.data.source; }));
     var orphans   = stats.originals - withEdges.size;
     var orphanStr = orphans > 0 ? ' · ⚠ ' + orphans + ' unsourced' : '';
-    el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · ' + stats.edges + ' connections' + orphanStr;
+    el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · '
+      + stats.edges + ' connections' + orphanStr;
   }
 
   function truncate(str, len) {
@@ -564,8 +818,9 @@
 
   function fmtDate(d) {
     if (!d) return '';
-    try { return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
-    catch { return ''; }
+    try {
+      return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch { return ''; }
   }
 
   function escHtml(str) {
@@ -575,20 +830,43 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  // ── Event listeners ─────────────────────────────────────────────────────────
+  // ── Event listeners ───────────────────────────────────────────────────────────
+
+  // Data-reload triggers (API call needed)
   document.getElementById('sbRefreshBtn')?.addEventListener('click', loadBoard);
-  document.getElementById('sbPanelClose')?.addEventListener('click', closeSidePanel);
   document.getElementById('sbDays')?.addEventListener('change', loadBoard);
+  document.getElementById('sbStatus')?.addEventListener('change', loadBoard);
   document.getElementById('sbCategory')?.addEventListener('change', loadBoard);
   document.getElementById('sbWriter')?.addEventListener('change', loadBoard);
+  document.getElementById('sbPanelClose')?.addEventListener('click', closeSidePanel);
 
+  // View-only re-render (client-side filter / layout change — no API call)
   document.getElementById('sbGroupBy')?.addEventListener('change', function () {
     resetGroupColors();
-    applyFiltersAndRender(document.getElementById('sbLinkedOnly')?.checked);
+    applyFiltersAndRender(
+      document.getElementById('sbLinkedOnly')?.checked,
+      document.getElementById('sbOrphansOnly')?.checked
+    );
+  });
+  document.getElementById('sbLinkedOnly')?.addEventListener('change', function () {
+    applyFiltersAndRender(this.checked, document.getElementById('sbOrphansOnly')?.checked);
+  });
+  document.getElementById('sbOrphansOnly')?.addEventListener('change', function () {
+    applyFiltersAndRender(document.getElementById('sbLinkedOnly')?.checked, this.checked);
+  });
+  document.getElementById('sbLayout')?.addEventListener('change', function () {
+    applyFiltersAndRender(
+      document.getElementById('sbLinkedOnly')?.checked,
+      document.getElementById('sbOrphansOnly')?.checked
+    );
   });
 
-  document.getElementById('sbLinkedOnly')?.addEventListener('change', function () {
-    applyFiltersAndRender(this.checked);
+  // Style-only updates (no re-layout — just update stylesheet and re-render)
+  document.getElementById('sbEdgeStyle')?.addEventListener('change', function () {
+    if (cy) { cy.style(buildCyStyle()); cy.forceRender(); }
+  });
+  document.getElementById('sbColorEdges')?.addEventListener('change', function () {
+    if (cy) { cy.style(buildCyStyle()); cy.forceRender(); }
   });
 
   // Zoom controls
@@ -606,7 +884,7 @@
     cy.zoom({ level: Math.max(cy.zoom() * 0.77, cy.minZoom()), renderedPosition: center });
   });
 
-  // ── Init ────────────────────────────────────────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────────────
   onReady(async function () {
     if (!requireAuth()) return;
     renderSidebar();
