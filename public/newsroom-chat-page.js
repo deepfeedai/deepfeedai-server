@@ -157,6 +157,16 @@
       '</div></div>';
   }
 
+  function scrollToBottom() {
+    var thread = document.getElementById('chatThread');
+    // Double RAF ensures layout + any inline images have been measured
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        thread.scrollTop = thread.scrollHeight;
+      });
+    });
+  }
+
   function renderThread(messages) {
     var thread = document.getElementById('chatThread');
     if (!messages.length) {
@@ -166,7 +176,7 @@
     thread.innerHTML = messages.map(function (m) {
       return bubbleHtml(m.role === 'user' ? 'user' : 'assistant', m.content, activeWriter);
     }).join('');
-    requestAnimationFrame(function () { thread.scrollTop = thread.scrollHeight; });
+    scrollToBottom();
   }
 
   function appendBubble(role, text) {
@@ -175,7 +185,7 @@
     var temp = document.createElement('div');
     temp.innerHTML = bubbleHtml(role, text, activeWriter);
     thread.appendChild(temp.firstChild);
-    thread.scrollTop = thread.scrollHeight;
+    scrollToBottom();
   }
 
   function wireInput() {
@@ -192,6 +202,78 @@
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
     sendBtn.addEventListener('click', sendMessage);
+    wireAttachPanel();
+  }
+
+  var _attachSearchTimer;
+
+  function wireAttachPanel() {
+    var attachBtn = document.getElementById('chatAttachBtn');
+    var panel = document.getElementById('chatAttachPanel');
+    var searchInput = document.getElementById('chatAttachSearch');
+    var results = document.getElementById('chatAttachResults');
+
+    attachBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = panel.style.display !== 'none';
+      panel.style.display = open ? 'none' : 'block';
+      attachBtn.classList.toggle('active', !open);
+      if (!open) { searchInput.value = ''; searchInput.focus(); renderAttachResults([]); }
+    });
+
+    searchInput.addEventListener('input', function () {
+      clearTimeout(_attachSearchTimer);
+      var q = searchInput.value.trim();
+      if (!q) { renderAttachResults([]); return; }
+      _attachSearchTimer = setTimeout(function () { doAttachSearch(q); }, 250);
+    });
+
+    // Close on outside click
+    document.addEventListener('click', function (e) {
+      if (!panel.contains(e.target) && e.target !== attachBtn) {
+        panel.style.display = 'none';
+        attachBtn.classList.remove('active');
+      }
+    });
+
+    results.addEventListener('click', function (e) {
+      var item = e.target.closest('[data-attach-id]');
+      if (!item) return;
+      activeArticleId = parseInt(item.dataset.attachId, 10);
+      var title = item.dataset.attachTitle || ('Article #' + activeArticleId);
+      document.getElementById('chatContextLabel').textContent = title;
+      document.getElementById('chatContextBar').style.display = 'flex';
+      panel.style.display = 'none';
+      attachBtn.classList.remove('active');
+      document.getElementById('chatInput').focus();
+    });
+  }
+
+  async function doAttachSearch(q) {
+    var results = document.getElementById('chatAttachResults');
+    results.innerHTML = '<div class="chat-attach-empty">Searching…</div>';
+    try {
+      var data = await apiFetch('/articles?search=' + encodeURIComponent(q) + '&limit=8');
+      var articles = Array.isArray(data) ? data : (data.articles || []);
+      renderAttachResults(articles);
+    } catch (err) {
+      results.innerHTML = '<div class="chat-attach-empty">Search failed</div>';
+    }
+  }
+
+  function renderAttachResults(articles) {
+    var results = document.getElementById('chatAttachResults');
+    if (!articles.length) {
+      results.innerHTML = '<div class="chat-attach-empty">No articles found</div>';
+      return;
+    }
+    results.innerHTML = articles.map(function (a) {
+      var meta = [a.category, a.content_type, a.source].filter(Boolean).join(' · ');
+      return '<div class="chat-attach-result" data-attach-id="' + a.id + '" data-attach-title="' + esc(a.title || '') + '">'
+        + '<div class="chat-attach-result-title">' + esc(a.title || '(untitled)') + '</div>'
+        + (meta ? '<div class="chat-attach-result-meta">' + esc(meta) + '</div>' : '')
+        + '</div>';
+    }).join('');
   }
 
   async function sendMessage() {
@@ -208,7 +290,7 @@
     typing.className = 'chat-typing';
     typing.textContent = activeWriter.name + ' is typing…';
     thread.appendChild(typing);
-    thread.scrollTop = thread.scrollHeight;
+    scrollToBottom();
     try {
       var payload = { writer_id: activeWriter.id, message: text };
       if (activeArticleId) payload.context_article_id = activeArticleId;

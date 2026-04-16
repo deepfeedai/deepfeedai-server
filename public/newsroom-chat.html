@@ -38,24 +38,14 @@
     .chat-bubble.user { background:var(--primary); color:white; border-bottom-right-radius:4px; }
     .chat-bubble.assistant { color:var(--text); border-bottom-left-radius:4px; }
     .chat-bubble a { color:inherit; text-decoration:underline; }
-    .chat-input-row { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--border); background:var(--bg-card); }
+    .chat-input-row { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--border); background:var(--bg-card); position:relative; }
     .chat-input-row textarea { flex:1; padding:10px 12px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); border-radius:10px; resize:none; max-height:120px; min-height:40px; font-family:inherit; font-size:14px; }
+    .chat-attach-btn { background:none; border:1px solid var(--border); border-radius:8px; padding:0 10px; color:var(--muted); cursor:pointer; font-size:16px; align-self:flex-end; height:40px; flex-shrink:0; }
+    .chat-attach-btn:hover { color:var(--text); background:var(--surface2); }
+    .chat-attach-btn.active { color:var(--primary); border-color:var(--primary); }
     .chat-empty { text-align:center; color:var(--muted); padding:40px; }
     .chat-typing { font-size:12px; color:var(--muted); padding:0 4px; }
-    .chat-context-bar { display:flex; align-items:center; gap:8px; padding:7px 20px; background:rgba(99,102,241,0.07); border-bottom:1px solid var(--border); font-size:12px; color:var(--muted); }
-    .chat-context-chip { display:flex; align-items:center; gap:6px; background:var(--bg-card); border:1px solid rgba(99,102,241,0.4); border-radius:20px; padding:3px 10px 3px 8px; max-width:480px; min-width:0; }
-    .chat-context-chip-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; color:var(--text); font-weight:500; }
-    .chat-context-dismiss { background:none; border:none; color:var(--muted); cursor:pointer; padding:0 0 0 2px; font-size:13px; line-height:1; flex-shrink:0; }
-    .chat-context-dismiss:hover { color:var(--text); }
-    .discuss-picker-section { padding:8px 0 4px; }
-    .discuss-picker-heading { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:700; padding:0 16px 6px; }
-    .discuss-picker-item { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; border-radius:0; transition:background .1s; }
-    .discuss-picker-item:hover { background:var(--surface2); }
-    .discuss-picker-avatar { width:34px; height:34px; border-radius:50%; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:var(--muted); flex-shrink:0; object-fit:cover; }
-    .discuss-picker-meta { flex:1; min-width:0; }
-    .discuss-picker-name { font-weight:600; font-size:13px; }
-    .discuss-picker-sub { font-size:11px; color:var(--muted); margin-top:1px; }
-    .discuss-picker-match { font-size:10px; color:#22c55e; font-weight:700; margin-left:auto; flex-shrink:0; }
+    /* picker + context bar + attach panel styles in admin.css */
   </style>
 </head>
 <body>
@@ -88,6 +78,14 @@
           </div>
         </div>
         <div class="chat-input-row" id="chatInputRow" style="display:none;">
+          <div id="chatAttachPanel" class="chat-attach-panel" style="display:none;">
+            <div class="chat-attach-search">
+              <span style="color:var(--muted);">🔍</span>
+              <input id="chatAttachSearch" type="text" placeholder="Search articles…" autocomplete="off" />
+            </div>
+            <div id="chatAttachResults"><div class="chat-attach-empty">Type to search articles</div></div>
+          </div>
+          <button class="chat-attach-btn" id="chatAttachBtn" title="Attach article context">📎</button>
           <textarea id="chatInput" rows="1" placeholder="Message your writer… (Enter to send, Shift+Enter for newline)"></textarea>
           <button class="btn btn-primary" id="sendBtn">Send</button>
         </div>

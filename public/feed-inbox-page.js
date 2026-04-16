@@ -170,7 +170,7 @@
       <td class="td-actions" style="text-align:center;">
         <div style="display:flex;gap:2px;justify-content:center;">
           ${safeUrl(a.source_url) ? `<a class="btn btn-ghost btn-sm" href="${escHtml(safeUrl(a.source_url))}" target="_blank" rel="noopener" title="View source">🔗</a>` : ''}
-          <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id})">💬</button>
+          <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${JSON.stringify(a.title || '')}, ${JSON.stringify(a.category || '')})">💬</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁</button>
           <button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteArticle(${a.id})">🗑️</button>
         </div>
@@ -568,84 +568,6 @@
       showAlert('Purge failed: ' + err.message, 'error');
     }
   });
-
-  // ── Discuss picker ───────────────────────────────────────
-  let _agentCache = null;
-
-  async function loadAgents() {
-    if (_agentCache) return _agentCache;
-    try {
-      const data = await apiFetch('/newsroom-chat/writers');
-      _agentCache = data.writers || [];
-    } catch (err) {
-      _agentCache = [];
-    }
-    return _agentCache;
-  }
-
-  window.discussArticle = async function (id) {
-    const a = allArticles.find(x => x.id === id);
-    if (!a) return;
-
-    // Show the modal with a loading state while we fetch agents
-    const contextEl = document.getElementById('discussArticleContext');
-    const bodyEl = document.getElementById('discussPickerBody');
-    if (contextEl) contextEl.textContent = a.title || ('Article #' + id);
-    if (bodyEl) bodyEl.innerHTML = '<div class="text-muted" style="padding:16px;text-align:center;">Loading agents…</div>';
-    openModal('discussPickerModal');
-
-    const agents = await loadAgents();
-    if (!agents.length) {
-      if (bodyEl) bodyEl.innerHTML = '<div class="text-muted" style="padding:16px;">No agents found. Make sure the Editor Workspace feature is enabled.</div>';
-      return;
-    }
-
-    // Score agents by beat↔category relevance
-    const articleCat = (a.category || '').toLowerCase();
-    const system = agents.filter(w => w.is_system);
-    const writers = agents.filter(w => !w.is_system);
-    const scoreWriter = w => {
-      const beat = (w.beat || '').toLowerCase();
-      return beat && articleCat && beat.includes(articleCat) ? 1 : 0;
-    };
-    writers.sort((a, b) => scoreWriter(b) - scoreWriter(a));
-
-    function agentRow(w) {
-      const avatarInner = w.avatar_url
-        ? `<img class="discuss-picker-avatar" src="${escHtml(w.avatar_url)}" alt="" />`
-        : `<div class="discuss-picker-avatar" style="background:${escHtml(w.accent || '#6366f1')};color:#fff;">${escHtml((w.name || '?').charAt(0).toUpperCase())}</div>`;
-      const sub = w.beat || w.role || '';
-      const match = scoreWriter(w) ? '<span class="discuss-picker-match">Beat match</span>' : '';
-      return `<div class="discuss-picker-item" onclick="navigateToChat(${w.id}, ${id})">
-        ${avatarInner}
-        <div class="discuss-picker-meta">
-          <div class="discuss-picker-name">${escHtml(w.name)}</div>
-          ${sub ? `<div class="discuss-picker-sub">${escHtml(sub)}</div>` : ''}
-        </div>
-        ${match}
-      </div>`;
-    }
-
-    let html = '';
-    if (system.length) {
-      html += `<div class="discuss-picker-section">
-        <div class="discuss-picker-heading">System Agents</div>
-        ${system.map(agentRow).join('')}
-      </div>`;
-    }
-    if (writers.length) {
-      html += `<div class="discuss-picker-section" style="${system.length ? 'border-top:1px solid var(--border);' : ''}">
-        <div class="discuss-picker-heading">Writer Agents</div>
-        ${writers.map(agentRow).join('')}
-      </div>`;
-    }
-    if (bodyEl) bodyEl.innerHTML = html;
-  };
-
-  window.navigateToChat = function (writerId, articleId) {
-    closeModal('discussPickerModal');
-    window.location.href = '/newsroom-chat.html?writer_id=' + writerId + '&article_id=' + articleId;
-  };
 
   // ── Init ─────────────────────────────────────────────────
   onReady(async () => {

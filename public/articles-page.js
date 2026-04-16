@@ -341,6 +341,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" title="${a.followups ? 'Regenerate follow-ups' : 'Generate follow-ups'}" onclick="generateFollowups(${a.id})">💬 ${a.followups ? 'Redo' : ''} Q&A</button>` : ''}
+            <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${JSON.stringify(a.title || '')}, ${JSON.stringify(a.category || '')})">💬 Discuss</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
           `}
         </div>
@@ -392,6 +393,7 @@ let articles = [];
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
           <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
+          <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${JSON.stringify(a.title || '')}, ${JSON.stringify(a.category || '')})">💬 Discuss</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
         `}
       </div>
