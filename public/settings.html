@@ -41,6 +41,9 @@
       <button class="settings-nav-item" data-section="messaging">
         <span class="settings-nav-icon">💬</span> Messaging
       </button>
+      <button class="settings-nav-item" data-section="team">
+        <span class="settings-nav-icon">👥</span> Team
+      </button>
     </nav>
   </aside>
 
@@ -1122,9 +1125,194 @@
 
       </div><!-- /messaging -->
 
+      <!-- ═══ Team ═══ -->
+      <div class="tab-panel" data-tab="team">
+
+        <!-- Sub-tabs -->
+        <div class="tab-bar" id="teamSubTabs" style="margin-bottom:var(--space-5);border-bottom:1px solid var(--border);">
+          <button class="tab-btn active" data-subtab="users">Users</button>
+          <button class="tab-btn" data-subtab="roles">Roles &amp; Permissions</button>
+        </div>
+
+        <!-- ── Users sub-panel ── -->
+        <div class="team-subpanel" data-subtab="users">
+          <div class="section-header" style="margin-bottom:var(--space-4);">
+            <div class="section-title">Local Admin Users</div>
+            <button class="btn btn-primary" id="addUserBtn">+ Add User</button>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th class="th-center-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersBody">
+                  <tr><td colspan="7"><div class="empty-state">Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Roles sub-panel ── -->
+        <div class="team-subpanel" data-subtab="roles" style="display:none;">
+          <div class="section-header" style="margin-bottom:var(--space-4);">
+            <div class="section-title">Roles &amp; Permissions</div>
+            <button class="btn btn-primary" id="addRoleBtn">+ Add Role</button>
+          </div>
+
+          <div id="roleTemplates" style="display:none;margin-bottom:20px;">
+            <label class="form-label">Quick Add from Template</label>
+            <div id="templateButtons" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Role</th>
+                    <th>Description</th>
+                    <th class="th-center-sm">Permissions</th>
+                    <th class="th-center-sm">Users</th>
+                    <th class="th-center-sm">Type</th>
+                    <th class="th-center-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="rolesBody">
+                  <tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /team -->
+
     </div><!-- /settings-body -->
   </div><!-- /settings-main -->
 </div><!-- /settings-shell -->
+
+<!-- ── Team Modals ──────────────────────────────────────────── -->
+
+<!-- Add/Edit User Modal -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <div class="modal-title" id="userModalTitle">Add User</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="userId" />
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-control" id="userUsername" placeholder="johndoe" />
+          <div class="form-help">3–50 characters, letters, numbers, underscores</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" class="form-control" id="userDisplayName" placeholder="John Doe" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-control" id="userEmail" placeholder="john@example.com" />
+      </div>
+      <div class="form-group" id="passwordGroup">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control" id="userPassword" placeholder="Minimum 8 characters" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select class="form-control" id="userRole"></select>
+      </div>
+      <div class="form-group" id="activeGroup" style="display:none">
+        <label class="form-check">
+          <input type="checkbox" id="userActive" checked /> Active
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveUserBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="resetPwModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Reset Password</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="resetUserId" />
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <input type="password" class="form-control" id="resetPassword" placeholder="Minimum 8 characters" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="resetPwBtn">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Role Modal -->
+<div class="modal-overlay" id="roleModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="roleModalTitle">Add Role</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="roleId" />
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Role Name</label>
+          <input type="text" class="form-control" id="roleName" placeholder="e.g., moderator" />
+          <div class="form-help">Lowercase letters, numbers, hyphens</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <input type="text" class="form-control" id="roleDescription" placeholder="Brief description" />
+        </div>
+      </div>
+      <label class="form-label" style="margin-top:16px;display:block;">Permissions</label>
+      <div id="permissionsGrid" class="permissions-grid"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="saveRoleBtn">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Role Modal -->
+<div class="modal-overlay" id="viewRoleModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="viewRoleTitle">Role Details</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body" id="viewRoleBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Purge Preview Modal -->
 <div class="modal-overlay" id="purgePreviewModal">

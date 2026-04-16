@@ -2478,3 +2478,47 @@ tr:hover .td-edit-btn { opacity: 1; }
   .settings-main { margin-left: 0; }
   .settings-body { padding: 20px 16px 48px; }
 }
+
+/* ── Team / Permissions ──────────────────────────────────────── */
+.permissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.perm-group {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.perm-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.perm-group-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.perm-group-all {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  cursor: pointer;
+}
+.perm-group-all:hover { color: var(--text); }
+.perm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.perm-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+.perm-action input[type="checkbox"] { accent-color: var(--accent); }

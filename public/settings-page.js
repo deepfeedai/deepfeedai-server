@@ -66,9 +66,14 @@ function sanitizeLogoHtml(html) {
       });
     }
 
+    // Hash deep-link (#team, #automation, etc.) takes priority over sessionStorage
+    var hash = window.location.hash.replace('#', '');
     var saved = sessionStorage.getItem('dfa_settings_tab');
     var first = navItems[0] ? navItems[0].dataset.section : 'general';
-    switchSection((saved && shell.querySelector('.tab-panel[data-tab="' + saved + '"]')) ? saved : first);
+    var initial = (hash && shell.querySelector('.tab-panel[data-tab="' + hash + '"]')) ? hash
+                : (saved && shell.querySelector('.tab-panel[data-tab="' + saved + '"]')) ? saved
+                : first;
+    switchSection(initial);
 
   } else {
     // ── Legacy horizontal tab bar (fallback) ──────────────────────────────
@@ -2457,6 +2462,437 @@ let apiKeyVisible = false;
     });
 
     // State is loaded via the main loadSettings() flow which calls loadAutomationSettings(settings)
+  })();
+
+  // ── Team section (Users + Roles) ──────────────────────────────────
+  (function initTeam() {
+    var teamPanel = document.querySelector('.tab-panel[data-tab="team"]');
+    if (!teamPanel) return;
+
+    // ── Sub-tab switching ──────────────────────────────────────────
+    var subTabBar = document.getElementById('teamSubTabs');
+    var subPanels = teamPanel.querySelectorAll('.team-subpanel[data-subtab]');
+
+    function switchSubTab(name) {
+      if (subTabBar) subTabBar.querySelectorAll('.tab-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.subtab === name);
+      });
+      subPanels.forEach(function(p) { p.style.display = p.dataset.subtab === name ? '' : 'none'; });
+    }
+
+    if (subTabBar) {
+      subTabBar.addEventListener('click', function(e) {
+        var btn = e.target.closest('.tab-btn[data-subtab]');
+        if (btn) switchSubTab(btn.dataset.subtab);
+      });
+    }
+
+    // ── Lazy load on first activation ─────────────────────────────
+    var teamLoaded = false;
+    function ensureTeamLoaded() {
+      if (!teamLoaded) { teamLoaded = true; loadTeamUsers(); loadTeamRoles(); loadTeamTemplates(); }
+    }
+    var teamNavBtn = document.querySelector('.settings-nav-item[data-section="team"]');
+    if (teamNavBtn) {
+      teamNavBtn.addEventListener('click', ensureTeamLoaded);
+    }
+    // Also load immediately if team is the initial section (hash deep-link or saved state)
+    if (document.querySelector('.tab-panel[data-tab="team"].active')) {
+      ensureTeamLoaded();
+    } else {
+      // Check after nav init runs (next tick)
+      setTimeout(function() {
+        if (document.querySelector('.tab-panel[data-tab="team"].active')) ensureTeamLoaded();
+      }, 0);
+    }
+
+    // ── Shared escape helper ──────────────────────────────────────
+    function escT(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ════════════════════════════════════════════════════
+    // USERS
+    // ════════════════════════════════════════════════════
+    var _users = [];
+    var _teamRoles = [];
+
+    async function loadTeamUsers() {
+      try {
+        var results = await Promise.all([apiFetch('/admin/users'), apiFetch('/admin/roles')]);
+        _users = results[0];
+        _teamRoles = results[1];
+        populateRoleDropdown();
+        renderUsers();
+      } catch (err) {
+        if (err.message && err.message.includes('403')) {
+          var tb = document.getElementById('usersBody');
+          if (tb) tb.innerHTML = '<tr><td colspan="7"><div class="empty-state">You don\'t have permission to view users.</div></td></tr>';
+          var ab = document.getElementById('addUserBtn');
+          if (ab) ab.style.display = 'none';
+          return;
+        }
+        showAlert('Failed to load users: ' + err.message, 'error');
+      }
+    }
+
+    function renderUsers() {
+      var tbody = document.getElementById('usersBody');
+      if (!tbody) return;
+      if (!_users.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No users yet. Click "+ Add User" to create one.</div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = _users.map(function(u) {
+        return '<tr>'
+          + '<td class="td-title">' + escT(u.username) + '</td>'
+          + '<td>' + escT(u.display_name || '\u2014') + '</td>'
+          + '<td class="text-muted">' + escT(u.email || '\u2014') + '</td>'
+          + '<td><span class="badge ' + (u.role === 'owner' ? 'badge-accent' : 'badge-muted') + '">' + escT(u.role) + '</span></td>'
+          + '<td><span class="badge ' + (u.is_active ? 'badge-success' : 'badge-danger') + '">' + (u.is_active ? 'Active' : 'Inactive') + '</span></td>'
+          + '<td class="text-muted text-sm">' + (u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Never') + '</td>'
+          + '<td class="td-actions"><div style="display:flex;gap:6px;">'
+          + '<button class="btn btn-ghost btn-sm" data-edit-user="' + u.id + '" title="Edit">&#9998;</button>'
+          + '<button class="btn btn-ghost btn-sm" data-reset-pw="' + u.id + '" title="Reset Password">&#128273;</button>'
+          + (u.is_active ? '<button class="btn btn-ghost btn-sm text-danger" data-deactivate-user="' + u.id + '" data-username="' + escT(u.username) + '" title="Deactivate">&#10005;</button>' : '')
+          + '<button class="btn btn-ghost btn-sm text-danger" data-delete-user="' + u.id + '" data-username="' + escT(u.username) + '" title="Delete permanently">&#128465;</button>'
+          + '</div></td>'
+          + '</tr>';
+      }).join('');
+    }
+
+    function populateRoleDropdown(selectedRole) {
+      var sel = document.getElementById('userRole');
+      if (!sel) return;
+      sel.innerHTML = _teamRoles.map(function(r) {
+        var name = typeof r === 'string' ? r : r.name;
+        return '<option value="' + escT(name) + '"' + (name === selectedRole ? ' selected' : '') + '>' + escT(name) + '</option>';
+      }).join('');
+    }
+
+    function openAddUser() {
+      document.getElementById('userModalTitle').textContent = 'Add User';
+      document.getElementById('userId').value = '';
+      ['userUsername','userDisplayName','userEmail','userPassword'].forEach(function(id) { document.getElementById(id).value = ''; });
+      document.getElementById('passwordGroup').style.display = '';
+      document.getElementById('activeGroup').style.display = 'none';
+      populateRoleDropdown();
+      openModal('userModal');
+      document.getElementById('userUsername').focus();
+    }
+
+    function editUser(id) {
+      var u = _users.find(function(x) { return x.id === id; });
+      if (!u) return;
+      document.getElementById('userModalTitle').textContent = 'Edit User';
+      document.getElementById('userId').value = u.id;
+      document.getElementById('userUsername').value = u.username;
+      document.getElementById('userDisplayName').value = u.display_name || '';
+      document.getElementById('userEmail').value = u.email || '';
+      document.getElementById('userPassword').value = '';
+      document.getElementById('passwordGroup').style.display = 'none';
+      document.getElementById('activeGroup').style.display = '';
+      document.getElementById('userActive').checked = !!u.is_active;
+      populateRoleDropdown(u.role);
+      openModal('userModal');
+      document.getElementById('userUsername').focus();
+    }
+
+    async function saveUser() {
+      var editId = document.getElementById('userId').value;
+      var username = document.getElementById('userUsername').value.trim();
+      var display_name = document.getElementById('userDisplayName').value.trim();
+      var email = document.getElementById('userEmail').value.trim();
+      var password = document.getElementById('userPassword').value;
+      var role = document.getElementById('userRole').value;
+      if (!username || username.length < 3) { showAlert('Username must be at least 3 characters', 'error'); return; }
+      if (!editId && (!password || password.length < 8)) { showAlert('Password must be at least 8 characters', 'error'); return; }
+      var payload = editId
+        ? { display_name: display_name || null, email: email || null, role: role, is_active: document.getElementById('userActive').checked ? 1 : 0 }
+        : { username: username, display_name: display_name || username, email: email || null, role: role, password: password };
+      try {
+        await apiFetch('/admin/users' + (editId ? '/' + editId : ''), { method: editId ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+        closeModal('userModal');
+        showAlert(editId ? 'User updated' : 'User created');
+        await loadTeamUsers();
+      } catch (err) { showAlert('Save failed: ' + err.message, 'error'); }
+    }
+
+    async function deactivateUser(id, username) {
+      if (!confirm('Deactivate "' + username + '"? They will no longer be able to log in.')) return;
+      try {
+        await apiFetch('/admin/users/' + id, { method: 'DELETE' });
+        showAlert('User deactivated');
+        await loadTeamUsers();
+      } catch (err) { showAlert('Failed: ' + err.message, 'error'); }
+    }
+
+    async function deleteUserPermanent(id, username) {
+      if (!confirm('PERMANENTLY delete "' + username + '"? This cannot be undone.')) return;
+      try {
+        var res = await apiFetch('/admin/users/' + id + '/permanent', { method: 'DELETE' });
+        if (res.logout) {
+          localStorage.removeItem('deepfeedai_token');
+          showAlert('Your account has been deleted. Logging out...');
+          setTimeout(function() { window.location.href = '/login.html'; }, 1500);
+          return;
+        }
+        showAlert('User permanently deleted');
+        await loadTeamUsers();
+      } catch (err) { showAlert('Failed: ' + err.message, 'error'); }
+    }
+
+    function openResetPw(id) {
+      document.getElementById('resetUserId').value = id;
+      document.getElementById('resetPassword').value = '';
+      openModal('resetPwModal');
+      document.getElementById('resetPassword').focus();
+    }
+
+    async function doResetPassword() {
+      var id = document.getElementById('resetUserId').value;
+      var pw = document.getElementById('resetPassword').value;
+      if (!pw || pw.length < 8) { showAlert('Password must be at least 8 characters', 'error'); return; }
+      try {
+        await apiFetch('/admin/users/' + id + '/reset-password', { method: 'POST', body: JSON.stringify({ password: pw }) });
+        closeModal('resetPwModal');
+        showAlert('Password reset successfully');
+      } catch (err) { showAlert('Reset failed: ' + err.message, 'error'); }
+    }
+
+    // Event delegation — user table
+    var usersBodyEl = document.getElementById('usersBody');
+    if (usersBodyEl) {
+      usersBodyEl.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-edit-user],[data-reset-pw],[data-deactivate-user],[data-delete-user]');
+        if (!btn) return;
+        var id = parseInt(btn.dataset.editUser || btn.dataset.resetPw || btn.dataset.deactivateUser || btn.dataset.deleteUser, 10);
+        if (btn.dataset.editUser !== undefined) editUser(id);
+        else if (btn.dataset.resetPw !== undefined) openResetPw(id);
+        else if (btn.dataset.deactivateUser !== undefined) deactivateUser(id, btn.dataset.username);
+        else if (btn.dataset.deleteUser !== undefined) deleteUserPermanent(id, btn.dataset.username);
+      });
+    }
+
+    document.getElementById('addUserBtn')?.addEventListener('click', openAddUser);
+    document.getElementById('saveUserBtn')?.addEventListener('click', saveUser);
+    document.getElementById('resetPwBtn')?.addEventListener('click', doResetPassword);
+
+    // ════════════════════════════════════════════════════
+    // ROLES
+    // ════════════════════════════════════════════════════
+    var PERMISSION_GROUPS = [
+      { resource: 'articles',   label: 'Articles',   actions: ['read','create','update','delete','publish'] },
+      { resource: 'sources',    label: 'Sources',    actions: ['read','create','update','delete'] },
+      { resource: 'writers',    label: 'Writers',    actions: ['read','create','update','delete'] },
+      { resource: 'categories', label: 'Categories', actions: ['read','create','update','delete'] },
+      { resource: 'media',      label: 'Media',      actions: ['read','create','delete'] },
+      { resource: 'voices',     label: 'Voices',     actions: ['read','create','update','delete'] },
+      { resource: 'settings',   label: 'Settings',   actions: ['read','update'] },
+      { resource: 'analytics',  label: 'Analytics',  actions: ['read'] },
+      { resource: 'comments',   label: 'Comments',   actions: ['read','moderate','delete'] },
+      { resource: 'newsletter', label: 'Newsletter', actions: ['read','send'] },
+      { resource: 'users',      label: 'Users',      actions: ['read','create','update','delete'] },
+      { resource: 'roles',      label: 'Roles',      actions: ['read','create','update','delete'] },
+      { resource: 'fetch',      label: 'Fetch',      actions: ['execute'] },
+      { resource: 'synthesis',  label: 'Synthesis',  actions: ['execute'] },
+      { resource: 'audit',      label: 'Audit Log',  actions: ['read'] },
+    ];
+
+    function parsePermissions(role) {
+      var perms = role.permissions;
+      if (typeof perms === 'string') { try { perms = JSON.parse(perms); } catch (e) { perms = []; } }
+      return Array.isArray(perms) ? perms : [];
+    }
+
+    async function loadTeamRoles() {
+      try {
+        _teamRoles = await apiFetch('/admin/roles');
+        renderRoles();
+        populateRoleDropdown();
+      } catch (err) { showAlert('Failed to load roles: ' + err.message, 'error'); }
+    }
+
+    function renderRoles() {
+      var tbody = document.getElementById('rolesBody');
+      if (!tbody) return;
+      if (!_teamRoles.length) {
+        tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No roles found.</div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = _teamRoles.map(function(r) {
+        var perms = parsePermissions(r);
+        var permLabel = perms.includes('*') ? 'Full access' : perms.length + ' permissions';
+        return '<tr>'
+          + '<td class="td-title">' + escT(r.name) + '</td>'
+          + '<td class="text-muted">' + escT(r.description || '\u2014') + '</td>'
+          + '<td class="text-center"><span class="badge badge-muted">' + permLabel + '</span></td>'
+          + '<td class="text-center"><span class="badge badge-muted">' + (r.user_count || 0) + '</span></td>'
+          + '<td class="text-center">' + (r.is_system ? '<span class="badge badge-accent">System</span>' : '<span class="badge badge-muted">Custom</span>') + '</td>'
+          + '<td class="td-actions">'
+          + '<button class="btn btn-ghost btn-sm" data-view-role="' + r.id + '" title="View">&#128065;</button>'
+          + (!r.is_system
+            ? ' <button class="btn btn-ghost btn-sm" data-edit-role="' + r.id + '" title="Edit">&#9998;</button>'
+            + ' <button class="btn btn-ghost btn-sm text-danger" data-delete-role="' + r.id + '" data-rolename="' + escT(r.name) + '" title="Delete">&#10005;</button>'
+            : '')
+          + '</td></tr>';
+      }).join('');
+    }
+
+    function renderPermissionsGrid(selectedPerms) {
+      var sel = new Set(selectedPerms || []);
+      var container = document.getElementById('permissionsGrid');
+      if (!container) return;
+      container.innerHTML = PERMISSION_GROUPS.map(function(group) {
+        var allChecked = group.actions.every(function(a) { return sel.has(group.resource + '.' + a); });
+        return '<div class="perm-group">'
+          + '<div class="perm-group-header"><span class="perm-group-title">' + escT(group.label) + '</span>'
+          + '<span class="perm-group-all" data-resource="' + group.resource + '">' + (allChecked ? 'Deselect All' : 'Select All') + '</span></div>'
+          + '<div class="perm-actions">' + group.actions.map(function(action) {
+            var perm = group.resource + '.' + action;
+            return '<label class="perm-action"><input type="checkbox" data-perm="' + perm + '"' + (sel.has(perm) ? ' checked' : '') + ' />' + action + '</label>';
+          }).join('') + '</div></div>';
+      }).join('');
+      container.querySelectorAll('.perm-group-all').forEach(function(toggle) {
+        toggle.addEventListener('click', function() {
+          var cbs = this.closest('.perm-group').querySelectorAll('input[type="checkbox"]');
+          var allOn = Array.from(cbs).every(function(cb) { return cb.checked; });
+          cbs.forEach(function(cb) { cb.checked = !allOn; });
+          this.textContent = allOn ? 'Select All' : 'Deselect All';
+        });
+      });
+    }
+
+    function getSelectedPermissions() {
+      return Array.from(document.querySelectorAll('#permissionsGrid input[type="checkbox"]:checked')).map(function(cb) { return cb.dataset.perm; });
+    }
+
+    function openAddRole() {
+      document.getElementById('roleModalTitle').textContent = 'Add Role';
+      document.getElementById('roleId').value = '';
+      document.getElementById('roleName').value = '';
+      document.getElementById('roleName').disabled = false;
+      document.getElementById('roleDescription').value = '';
+      renderPermissionsGrid([]);
+      openModal('roleModal');
+      document.getElementById('roleName').focus();
+    }
+
+    function editRole(id) {
+      var r = _teamRoles.find(function(x) { return x.id === id; });
+      if (!r || r.is_system) return;
+      document.getElementById('roleModalTitle').textContent = 'Edit Role';
+      document.getElementById('roleId').value = r.id;
+      document.getElementById('roleName').value = r.name;
+      document.getElementById('roleName').disabled = true;
+      document.getElementById('roleDescription').value = r.description || '';
+      renderPermissionsGrid(parsePermissions(r));
+      openModal('roleModal');
+    }
+
+    function viewRole(id) {
+      var r = _teamRoles.find(function(x) { return x.id === id; });
+      if (!r) return;
+      var perms = parsePermissions(r);
+      var permLabel = perms.includes('*') ? 'Full access' : perms.length + ' permissions';
+      var permHtml = '';
+      if (perms.includes('*')) {
+        permHtml = '<p class="text-accent" style="font-weight:600;">Full access (wildcard)</p>';
+      } else if (perms.length) {
+        var grouped = {};
+        perms.forEach(function(p) { var pts = p.split('.'); if (!grouped[pts[0]]) grouped[pts[0]] = []; grouped[pts[0]].push(pts.slice(1).join('.')); });
+        permHtml = '<div class="permissions-grid">' + Object.keys(grouped).map(function(res) {
+          return '<div class="perm-group"><div class="perm-group-header"><span class="perm-group-title">' + escT(res) + '</span></div>'
+            + '<div class="perm-actions">' + grouped[res].map(function(a) { return '<span class="badge badge-muted" style="margin:2px;">' + escT(a) + '</span>'; }).join('') + '</div></div>';
+        }).join('') + '</div>';
+      } else {
+        permHtml = '<p class="text-muted">No permissions assigned</p>';
+      }
+      document.getElementById('viewRoleTitle').textContent = r.name + (r.is_system ? ' (System)' : '');
+      document.getElementById('viewRoleBody').innerHTML =
+        '<div class="form-group"><label class="form-label">Description</label><p>' + escT(r.description || '\u2014') + '</p></div>'
+        + '<div class="form-group"><label class="form-label">Permissions (' + permLabel + ')</label>' + permHtml + '</div>';
+      openModal('viewRoleModal');
+    }
+
+    async function saveRole() {
+      var editId = document.getElementById('roleId').value;
+      var name = document.getElementById('roleName').value.trim();
+      var description = document.getElementById('roleDescription').value.trim();
+      var permissions = getSelectedPermissions();
+      if (!editId && !name) { showAlert('Role name is required', 'error'); return; }
+      if (!permissions.length) { showAlert('Select at least one permission', 'error'); return; }
+      var payload = { permissions: permissions };
+      if (!editId) payload.name = name;
+      if (description) payload.description = description;
+      try {
+        await apiFetch('/admin/roles' + (editId ? '/' + editId : ''), { method: editId ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+        closeModal('roleModal');
+        showAlert(editId ? 'Role updated' : 'Role created');
+        await loadTeamRoles();
+      } catch (err) { showAlert('Save failed: ' + err.message, 'error'); }
+    }
+
+    async function deleteRole(id, name) {
+      if (!confirm('Delete role "' + name + '"? This cannot be undone.')) return;
+      try {
+        await apiFetch('/admin/roles/' + id, { method: 'DELETE' });
+        showAlert('Role deleted');
+        await loadTeamRoles();
+      } catch (err) { showAlert('Delete failed: ' + err.message, 'error'); }
+    }
+
+    async function loadTeamTemplates() {
+      try {
+        var templates = await apiFetch('/admin/roles/templates');
+        var container = document.getElementById('templateButtons');
+        var wrap = document.getElementById('roleTemplates');
+        if (!templates.length || !container || !wrap) return;
+        var existingNames = _teamRoles.map(function(r) { return r.name; });
+        var available = templates.filter(function(t) { return !existingNames.includes(t.name); });
+        if (!available.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+        container.innerHTML = available.map(function(t) {
+          return '<button class="btn btn-outline btn-sm" data-template="' + escT(t.name) + '" title="' + escT(t.description) + '">+ ' + escT(t.name) + '</button>';
+        }).join('');
+      } catch (e) { /* ignore */ }
+    }
+
+    // Event delegation — roles table
+    var rolesBodyEl = document.getElementById('rolesBody');
+    if (rolesBodyEl) {
+      rolesBodyEl.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-view-role],[data-edit-role],[data-delete-role]');
+        if (!btn) return;
+        var id = parseInt(btn.dataset.viewRole || btn.dataset.editRole || btn.dataset.deleteRole, 10);
+        if (btn.dataset.viewRole !== undefined) viewRole(id);
+        else if (btn.dataset.editRole !== undefined) editRole(id);
+        else if (btn.dataset.deleteRole !== undefined) deleteRole(id, btn.dataset.rolename);
+      });
+    }
+
+    var templateContainerEl = document.getElementById('templateButtons');
+    if (templateContainerEl) {
+      templateContainerEl.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-template]');
+        if (btn) createFromTemplate(btn.dataset.template);
+      });
+    }
+
+    async function createFromTemplate(name) {
+      try {
+        var templates = await apiFetch('/admin/roles/templates');
+        var t = templates.find(function(x) { return x.name === name; });
+        if (!t) return;
+        await apiFetch('/admin/roles', { method: 'POST', body: JSON.stringify(t) });
+        showAlert('Role "' + name + '" created');
+        await loadTeamRoles();
+        loadTeamTemplates();
+      } catch (err) { showAlert('Failed: ' + err.message, 'error'); }
+    }
+
+    document.getElementById('addRoleBtn')?.addEventListener('click', openAddRole);
+    document.getElementById('saveRoleBtn')?.addEventListener('click', saveRole);
   })();
 
   loadSettings();
