@@ -52,20 +52,13 @@
         'min-zoomed-font-size': 8,
       },
     },
-    // Original node — thumbnail image, accent colour fallback
+    // Original node — solid colour (canvas CORS blocks R2 images; thumbnails shown in side panel)
     {
       selector: 'node.original',
       style: {
         'width': 72,
         'height': 72,
         'shape': 'roundrectangle',
-        // background-image must use url(...) format in Cytoscape
-        'background-image': function (n) {
-          var url = n.data('imageUrl');
-          return url ? 'url(' + url + ')' : 'none';
-        },
-        'background-fit': 'cover',
-        'background-image-opacity': function (n) { return n.data('imageUrl') ? 1 : 0; },
         'background-color': function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
         'border-color': function (n) { return n.data('nodeColor') || n.data('accentColor') || '#6366f1'; },
         'border-width': 3,
@@ -308,7 +301,7 @@
         + '<span>' + escHtml(entry[0]) + '</span>'
         + '</div>';
     }).join('');
-    legend.style.display = '';
+    legend.style.display = 'block';
   }
 
   function hideLegend() {
@@ -323,7 +316,9 @@
     var body  = document.getElementById('sbPanelBody');
     if (!panel || !title || !body) return;
 
+    // Slide in — remove hidden class and ensure transform is clear
     panel.classList.remove('sb-panel-hidden');
+    panel.style.transform = 'translateX(0)';
     title.textContent = truncate(data.title, 42);
 
     if (data.type === 'original') {
@@ -335,7 +330,10 @@
 
   function closeSidePanel() {
     var panel = document.getElementById('sbPanel');
-    if (panel) panel.classList.add('sb-panel-hidden');
+    if (panel) {
+      panel.classList.add('sb-panel-hidden');
+      panel.style.transform = '';
+    }
     selectedNodeId = null;
   }
 
