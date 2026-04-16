@@ -34,6 +34,8 @@
     var articleParam = parseInt(params.get('article_id'), 10);
     if (articleParam) await setArticleContext(articleParam);
     if (preselect) pickWriter(preselect);
+    // Wire proposal approve/reject (event delegation on chat thread)
+    document.getElementById('chatThread').addEventListener('click', handleProposalClick);
   }
 
   async function setArticleContext(articleId) {
@@ -97,8 +99,7 @@
     });
     document.getElementById('chatHeaderTitle').textContent = activeWriter.name;
     document.getElementById('chatHeaderMeta').textContent = activeWriter.beat || '';
-    document.getElementById('clearBtn').style.display = '';
-    document.getElementById('chatInputRow').style.display = '';
+    document.getElementById('chatFooter').style.display = '';
     var thread = document.getElementById('chatThread');
     thread.innerHTML = '<div class="chat-empty">Loading history…</div>';
     try {
@@ -307,7 +308,12 @@
         body: JSON.stringify(payload),
       });
       typing.remove();
-      appendBubble('assistant', resp.text || '(no response)');
+      if (resp.proposal) {
+        appendBubble('assistant', resp.text || '');
+        appendProposalCard(resp.proposal);
+      } else {
+        appendBubble('assistant', resp.text || '(no response)');
+      }
     } catch (err) {
       typing.remove();
       appendBubble('assistant', '⚠️ ' + (err.message || 'send failed'));
@@ -315,6 +321,67 @@
       sending = false;
       input.focus();
     }
+  }
+
+  function appendProposalCard(proposal) {
+    var thread = document.getElementById('chatThread');
+    var card = document.createElement('div');
+    card.className = 'chat-proposal-card';
+    card.dataset.proposal = JSON.stringify(proposal);
+
+    var inner = '';
+    if (proposal.proposal_type === 'thumbnail') {
+      inner = '<div class="chat-proposal-preview">'
+        + '<img src="' + esc(proposal.preview_url) + '" alt="Proposed thumbnail" class="chat-proposal-image" />'
+        + '</div>';
+    } else if (proposal.proposal_type === 'headline') {
+      inner = '<div class="chat-proposal-headline">&ldquo;' + esc(proposal.new_headline) + '&rdquo;</div>'
+        + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
+    }
+
+    var approveLabel = proposal.proposal_type === 'thumbnail' ? '✓ Apply thumbnail' : '✓ Apply headline';
+    inner += '<div class="chat-proposal-actions">'
+      + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
+      + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
+      + '</div>';
+
+    card.innerHTML = inner;
+    thread.appendChild(card);
+    scrollToBottom();
+  }
+
+  async function handleProposalClick(e) {
+    var approveBtn = e.target.closest('.chat-proposal-approve');
+    var rejectBtn  = e.target.closest('.chat-proposal-reject');
+    if (!approveBtn && !rejectBtn) return;
+
+    var card = e.target.closest('.chat-proposal-card');
+    if (!card) return;
+
+    // Disable buttons immediately to prevent double-click
+    card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+
+    if (rejectBtn) {
+      card.classList.add('chat-proposal-dismissed');
+      appendBubble('assistant', 'No problem — just let me know if you\'d like to try a different direction.');
+      scrollToBottom();
+      return;
+    }
+
+    // Approve
+    try {
+      var proposal = JSON.parse(card.dataset.proposal);
+      var result = await apiFetch('/newsroom-chat/actions/approve', {
+        method: 'POST',
+        body: JSON.stringify(proposal),
+      });
+      card.classList.add('chat-proposal-applied');
+      appendBubble('assistant', result.text || 'Done!');
+    } catch (err) {
+      card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      appendBubble('assistant', '⚠️ ' + (err.message || 'Failed to apply'));
+    }
+    scrollToBottom();
   }
 
   async function clearChat() {

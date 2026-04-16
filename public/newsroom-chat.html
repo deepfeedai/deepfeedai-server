@@ -6,7 +6,11 @@
   <title>DeepFeedAI Admin — Newsroom Chat</title>
   <link rel="stylesheet" href="/admin.css" />
   <style>
-    .chat-shell { display:grid; grid-template-columns: 280px 1fr; gap:0; height:calc(100vh - 56px); }
+    /* Pin the chat layout so input is always in view */
+    html, body { height: 100%; overflow: hidden; }
+    .main-content { height: 100vh; overflow: hidden; }
+
+    .chat-shell { display:grid; grid-template-columns: 280px 1fr; gap:0; height:calc(100vh - 56px); overflow:hidden; }
     .chat-roster { border-right:1px solid var(--border); overflow-y:auto; padding:12px; background:var(--bg-card); }
     .roster-item { display:flex; gap:10px; align-items:center; padding:10px; border-radius:8px; cursor:pointer; margin-bottom:4px; }
     .roster-item:hover { background:var(--surface2); }
@@ -22,11 +26,11 @@
     .roster-meta { flex:1; min-width:0; }
     .roster-name { font-weight:600; font-size:14px; line-height:1.2; }
     .roster-beat { font-size:11px; color:var(--muted); margin-top:2px; }
-    .chat-main { display:flex; flex-direction:column; height:100%; min-width:0; }
-    .chat-header { padding:14px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-card); }
+    .chat-main { display:flex; flex-direction:column; height:100%; min-width:0; overflow:hidden; }
+    .chat-header { padding:14px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-card); flex-shrink:0; }
     .chat-header-title { font-weight:700; }
     .chat-header-meta { font-size:12px; color:var(--muted); }
-    .chat-thread { flex:1; overflow-y:auto; padding:16px 20px; display:flex; flex-direction:column; gap:10px; }
+    .chat-thread { flex:1; overflow-y:auto; padding:16px 20px; display:flex; flex-direction:column; gap:10px; min-height:0; }
     .chat-row { display:flex; gap:10px; align-items:flex-end; }
     .chat-row-user { justify-content:flex-end; }
     .chat-row-assistant { justify-content:flex-start; }
@@ -38,14 +42,18 @@
     .chat-bubble.user { background:var(--primary); color:white; border-bottom-right-radius:4px; }
     .chat-bubble.assistant { color:var(--text); border-bottom-left-radius:4px; }
     .chat-bubble a { color:inherit; text-decoration:underline; }
-    .chat-input-row { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--border); background:var(--bg-card); position:relative; }
-    .chat-input-row textarea { flex:1; padding:10px 12px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); border-radius:10px; resize:none; max-height:120px; min-height:40px; font-family:inherit; font-size:14px; }
+    .chat-footer { flex-shrink:0; background:var(--bg-card); border-top:1px solid var(--border); }
+    .chat-footer-actions { display:flex; justify-content:flex-end; padding:4px 20px 0; }
+    .chat-footer-actions button { font-size:11px; color:var(--muted); background:none; border:none; cursor:pointer; padding:4px 6px; border-radius:4px; }
+    .chat-footer-actions button:hover { color:var(--text); background:var(--surface2); }
+    .chat-input-row { display:flex; gap:8px; padding:10px 20px 12px; position:relative; }
+    .chat-input-row textarea { flex:1; padding:10px 12px; border:1px solid var(--border); background:var(--surface2); color:var(--text); border-radius:10px; resize:none; max-height:120px; min-height:40px; font-family:inherit; font-size:14px; }
     .chat-attach-btn { background:none; border:1px solid var(--border); border-radius:8px; padding:0 10px; color:var(--muted); cursor:pointer; font-size:16px; align-self:flex-end; height:40px; flex-shrink:0; }
     .chat-attach-btn:hover { color:var(--text); background:var(--surface2); }
     .chat-attach-btn.active { color:var(--primary); border-color:var(--primary); }
     .chat-empty { text-align:center; color:var(--muted); padding:40px; }
     .chat-typing { font-size:12px; color:var(--muted); padding:0 4px; }
-    /* picker + context bar + attach panel styles in admin.css */
+    /* picker + context bar + attach panel + proposal card styles in admin.css */
   </style>
 </head>
 <body>
@@ -65,29 +73,33 @@
             <div class="chat-header-title" id="chatHeaderTitle">Pick a writer</div>
             <div class="chat-header-meta" id="chatHeaderMeta"></div>
           </div>
-          <button class="btn btn-outline btn-sm" id="clearBtn" style="display:none;">Clear context</button>
         </div>
         <div class="chat-thread" id="chatThread">
           <div class="chat-empty">Pick a writer from the left to start a conversation.</div>
         </div>
-        <div class="chat-context-bar" id="chatContextBar" style="display:none;">
-          <span>📄 Context:</span>
-          <div class="chat-context-chip">
-            <span class="chat-context-chip-label" id="chatContextLabel"></span>
-            <button class="chat-context-dismiss" id="chatContextDismiss" title="Remove context">✕</button>
+        <div class="chat-footer" id="chatFooter" style="display:none;">
+          <div class="chat-footer-actions">
+            <button id="clearBtn">🗑 Clear chat</button>
           </div>
-        </div>
-        <div class="chat-input-row" id="chatInputRow" style="display:none;">
-          <div id="chatAttachPanel" class="chat-attach-panel" style="display:none;">
-            <div class="chat-attach-search">
-              <span style="color:var(--muted);">🔍</span>
-              <input id="chatAttachSearch" type="text" placeholder="Search articles…" autocomplete="off" />
+          <div class="chat-context-bar" id="chatContextBar" style="display:none;">
+            <span>📄 Context:</span>
+            <div class="chat-context-chip">
+              <span class="chat-context-chip-label" id="chatContextLabel"></span>
+              <button class="chat-context-dismiss" id="chatContextDismiss" title="Remove context">✕</button>
             </div>
-            <div id="chatAttachResults"><div class="chat-attach-empty">Type to search articles</div></div>
           </div>
-          <button class="chat-attach-btn" id="chatAttachBtn" title="Attach article context">📎</button>
-          <textarea id="chatInput" rows="1" placeholder="Message your writer… (Enter to send, Shift+Enter for newline)"></textarea>
-          <button class="btn btn-primary" id="sendBtn">Send</button>
+          <div class="chat-input-row" id="chatInputRow">
+            <div id="chatAttachPanel" class="chat-attach-panel" style="display:none;">
+              <div class="chat-attach-search">
+                <span style="color:var(--muted);">🔍</span>
+                <input id="chatAttachSearch" type="text" placeholder="Search articles…" autocomplete="off" />
+              </div>
+              <div id="chatAttachResults"><div class="chat-attach-empty">Type to search articles</div></div>
+            </div>
+            <button class="chat-attach-btn" id="chatAttachBtn" title="Attach article context">📎</button>
+            <textarea id="chatInput" rows="1" placeholder="Message your writer… (Enter to send, Shift+Enter for newline)"></textarea>
+            <button class="btn btn-primary" id="sendBtn">Send</button>
+          </div>
         </div>
       </div>
     </div>

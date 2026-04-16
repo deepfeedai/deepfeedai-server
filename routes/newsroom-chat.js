@@ -16,8 +16,9 @@ const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { isFeatureEnabled } = require('../lib/feature-registry');
-const messaging = require('../lib/messaging');
-const ctx = require('../lib/messaging/context');
+const messaging   = require('../lib/messaging');
+const ctx         = require('../lib/messaging/context');
+const agentTools  = require('../lib/agent-tools');
 
 async function requireWorkspaceEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'editor_workspace').catch(() => false);
@@ -111,6 +112,26 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     userName: req.user?.name || req.user?.email || 'editor',
   };
 
+  // Route tool-capable system agents (Iris, Vera) through the tool-calling path
+  // when an article context is attached. All other agents use the standard path.
+  const writer = await db.prepare('SELECT id, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
+  const TOOL_ROLES = ['designer', 'copy-editor'];
+  if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
+    let toolResult;
+    try {
+      toolResult = await agentTools.handleWithTools(
+        req.tenantId, writer, enrichedMessage, contextKey, meta,
+        context_article_id ? parseInt(context_article_id, 10) : null,
+      );
+    } catch (err) {
+      return res.status(500).json({ error: err.message || 'agent tool error' });
+    }
+    if (toolResult.type === 'tool_proposal') {
+      return res.json({ text: toolResult.preview_text, proposal: toolResult });
+    }
+    return res.json({ text: toolResult.text });
+  }
+
   let response;
   try {
     response = await messaging.handleIncoming(req.tenantId, writerId, enrichedMessage, contextKey, meta);
@@ -124,6 +145,20 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     voice: typeof response === 'object' ? !!response?.voice : false,
     cleared: typeof response === 'object' ? !!response?.clearChannel : false,
   });
+}));
+
+// POST /api/newsroom-chat/actions/approve — apply an approved tool proposal
+router.post('/actions/approve', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const proposal = req.body || {};
+  if (!proposal.proposal_type || !proposal.article_id) {
+    return res.status(400).json({ error: 'proposal_type and article_id required' });
+  }
+  try {
+    const result = await agentTools.applyProposal(proposal, req.tenantId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'apply failed' });
+  }
 }));
 
 // POST /api/newsroom-chat/clear — body: { writer_id }
