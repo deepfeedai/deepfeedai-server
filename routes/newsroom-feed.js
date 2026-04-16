@@ -156,24 +156,19 @@ router.post('/trigger-brief', auth, requirePermission('articles.write'), require
 
   const maxwell = await db.prepare(
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
-  ).get(req.tenantId).catch(() => null);
+  ).get(req.tenantId);
 
-  res.json({ ok: true, generating: true });
+  const text = await generateDailyBrief(req.tenantId);
+  if (!text) return res.status(500).json({ error: 'Brief generation returned empty — check AI provider config.' });
 
-  setImmediate(async () => {
-    try {
-      const text = await generateDailyBrief(req.tenantId);
-      if (!text) return;
-      await recordEvent({
-        tenantId: req.tenantId,
-        type: 'daily_brief',
-        actorWriterId: maxwell?.id || null,
-        payload: { text, manual: true },
-      });
-    } catch (err) {
-      console.error('[trigger-brief] failed:', err.message);
-    }
+  await recordEvent({
+    tenantId: req.tenantId,
+    type: 'daily_brief',
+    actorWriterId: maxwell?.id || null,
+    payload: { text, manual: true },
   });
+
+  res.json({ ok: true });
 }));
 
 // POST /api/newsroom-feed/trigger-digest — manually trigger a weekly digest now
@@ -183,24 +178,19 @@ router.post('/trigger-digest', auth, requirePermission('articles.write'), requir
 
   const maxwell = await db.prepare(
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
-  ).get(req.tenantId).catch(() => null);
+  ).get(req.tenantId);
 
-  res.json({ ok: true, generating: true });
+  const text = await generateWeeklyDigest(req.tenantId);
+  if (!text) return res.status(500).json({ error: 'Digest generation returned empty — check AI provider config.' });
 
-  setImmediate(async () => {
-    try {
-      const text = await generateWeeklyDigest(req.tenantId);
-      if (!text) return;
-      await recordEvent({
-        tenantId: req.tenantId,
-        type: 'weekly_digest',
-        actorWriterId: maxwell?.id || null,
-        payload: { text, manual: true },
-      });
-    } catch (err) {
-      console.error('[trigger-digest] failed:', err.message);
-    }
+  await recordEvent({
+    tenantId: req.tenantId,
+    type: 'weekly_digest',
+    actorWriterId: maxwell?.id || null,
+    payload: { text, manual: true },
   });
+
+  res.json({ ok: true });
 }));
 
 const ALLOWED_EMOJI = new Set(['🔥', '💡', '🚩', '👀']);

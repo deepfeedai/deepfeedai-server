@@ -61,12 +61,13 @@
     btn.textContent = '📋 Generating…';
     try {
       await apiFetch('/newsroom-feed/trigger-brief', { method: 'POST' });
-      btn.textContent = '📋 Generating (check feed in ~30s)';
-      setTimeout(function () { btn.textContent = '📋 Generate Day Brief'; btn.disabled = false; load(); }, 30000);
+      btn.textContent = '📋 Brief posted';
+      await load();
+      setTimeout(function () { btn.textContent = '📋 Generate Day Brief'; btn.disabled = false; }, 3000);
     } catch (err) {
       btn.textContent = '📋 Generate Day Brief';
       btn.disabled = false;
-      alert('Failed: ' + (err.message || err));
+      alert('Brief failed: ' + (err.message || err));
     }
   }
 
@@ -76,12 +77,13 @@
     btn.textContent = '📰 Generating…';
     try {
       await apiFetch('/newsroom-feed/trigger-digest', { method: 'POST' });
-      btn.textContent = '📰 Generating (check feed in ~45s)';
-      setTimeout(function () { btn.textContent = '📰 Generate Week in Review'; btn.disabled = false; load(); }, 45000);
+      btn.textContent = '📰 Digest posted';
+      await load();
+      setTimeout(function () { btn.textContent = '📰 Generate Week in Review'; btn.disabled = false; }, 3000);
     } catch (err) {
       btn.textContent = '📰 Generate Week in Review';
       btn.disabled = false;
-      alert('Failed: ' + (err.message || err));
+      alert('Digest failed: ' + (err.message || err));
     }
   }
 
