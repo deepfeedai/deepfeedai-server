@@ -14,27 +14,84 @@ function sanitizeLogoHtml(html) {
   return div.innerHTML;
 }
 
-// ── Settings Tab Switching ────────────────────────────────
-(function initSettingsTabs() {
-  const tabBar = document.getElementById('settingsTabs');
-  if (!tabBar) return;
-  const btns   = tabBar.querySelectorAll('.tab-btn');
-  const panels = document.querySelectorAll('.tab-panel[data-tab]');
+// ── Settings Navigation (sidebar shell or legacy tab bar) ────────────────────────────────
+(function initSettingsNav() {
+  var shell = document.querySelector('.settings-shell');
 
-  function switchTab(name) {
-    btns.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-    panels.forEach(p => p.classList.toggle('active', p.dataset.tab === name));
-    sessionStorage.setItem('dfa_settings_tab', name);
-  }
+  if (shell) {
+    // ── Full-screen sidebar nav ──────────────────────────────────────────
+    var navItems = shell.querySelectorAll('.settings-nav-item[data-section]');
+    var panels   = shell.querySelectorAll('.tab-panel[data-tab]');
+    var topbarTitle = shell.querySelector('#settingsTopbarTitle');
+    var sidebar  = shell.querySelector('.settings-sidebar');
+    var overlay  = shell.querySelector('.settings-overlay');
+    var hamburger = shell.querySelector('.settings-hamburger');
 
-  tabBar.addEventListener('click', e => {
-    const btn = e.target.closest('.tab-btn');
-    if (btn) switchTab(btn.dataset.tab);
-  });
+    function switchSection(name) {
+      navItems.forEach(function(n) { n.classList.toggle('active', n.dataset.section === name); });
+      panels.forEach(function(p) { p.classList.toggle('active', p.dataset.tab === name); });
+      if (topbarTitle) {
+        var active = shell.querySelector('.settings-nav-item[data-section="' + name + '"]');
+        if (active) {
+          // Text is directly in the button — clone, remove icon span, read remaining text
+          var clone = active.cloneNode(true);
+          var iconEl = clone.querySelector('.settings-nav-icon');
+          if (iconEl) iconEl.remove();
+          topbarTitle.textContent = clone.textContent.trim() || name;
+        } else {
+          topbarTitle.textContent = 'Settings';
+        }
+      }
+      sessionStorage.setItem('dfa_settings_tab', name);
+      // Close mobile sidebar on nav
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.remove('open');
+    }
 
-  const saved = sessionStorage.getItem('dfa_settings_tab');
-  if (saved && document.querySelector('.tab-panel[data-tab="' + saved + '"]')) {
-    switchTab(saved);
+    navItems.forEach(function(n) {
+      n.addEventListener('click', function() { switchSection(n.dataset.section); });
+    });
+
+    // Mobile hamburger
+    if (hamburger) {
+      hamburger.addEventListener('click', function() {
+        var open = sidebar.classList.toggle('open');
+        if (overlay) overlay.classList.toggle('open', open);
+      });
+    }
+    if (overlay) {
+      overlay.addEventListener('click', function() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('open');
+      });
+    }
+
+    var saved = sessionStorage.getItem('dfa_settings_tab');
+    var first = navItems[0] ? navItems[0].dataset.section : 'general';
+    switchSection((saved && shell.querySelector('.tab-panel[data-tab="' + saved + '"]')) ? saved : first);
+
+  } else {
+    // ── Legacy horizontal tab bar (fallback) ──────────────────────────────
+    var tabBar = document.getElementById('settingsTabs');
+    if (!tabBar) return;
+    var btns   = tabBar.querySelectorAll('.tab-btn');
+    var panels = document.querySelectorAll('.tab-panel[data-tab]');
+
+    function switchTab(name) {
+      btns.forEach(function(b) { b.classList.toggle('active', b.dataset.tab === name); });
+      panels.forEach(function(p) { p.classList.toggle('active', p.dataset.tab === name); });
+      sessionStorage.setItem('dfa_settings_tab', name);
+    }
+
+    tabBar.addEventListener('click', function(e) {
+      var btn = e.target.closest('.tab-btn');
+      if (btn) switchTab(btn.dataset.tab);
+    });
+
+    var saved = sessionStorage.getItem('dfa_settings_tab');
+    if (saved && document.querySelector('.tab-panel[data-tab="' + saved + '"]')) {
+      switchTab(saved);
+    }
   }
 })();
 
@@ -1995,32 +2052,37 @@ let apiKeyVisible = false;
     }
   }
 
-  // Load rotation settings + status when automation tab is activated
+  // Load rotation settings + status when automation section is activated
   (function() {
-    var tabBar = document.getElementById('settingsTabs');
-    if (!tabBar) return;
-    tabBar.addEventListener('click', function(e) {
-      var btn = e.target.closest('.tab-btn');
-      if (btn && btn.dataset.tab === 'automation') {
-        loadFeaturedRotationStatus();
-      }
+    // Works for both sidebar nav and legacy tab bar
+    var triggers = document.querySelectorAll(
+      '.settings-nav-item[data-section="automation"], .tab-btn[data-tab="automation"]'
+    );
+    triggers.forEach(function(el) {
+      el.addEventListener('click', function() { loadFeaturedRotationStatus(); });
     });
     if (sessionStorage.getItem('dfa_settings_tab') === 'automation') {
       setTimeout(loadFeaturedRotationStatus, 100);
     }
   })();
 
-  // Hook featured rotation loading into the main loadSettings flow
+  // Hook featured rotation + standups loading into the main loadSettings flow
   var _origLoadSettingsForRotation = loadSettings;
   loadSettings = async function() {
     await _origLoadSettingsForRotation();
     try {
       var settings = await apiFetch('/settings');
       loadFeaturedRotationSettings(settings);
+      // Standups toggle
+      var standupsToggle = document.getElementById('dailyStandupsToggle');
+      if (standupsToggle) standupsToggle.checked = settings.daily_standups_enabled === '1';
     } catch (e) { /* ignore — main loadSettings already shows error */ }
   };
 
-  renderSidebar();
+  // Settings shell is standalone — don't inject the newsroom sidebar
+  if (!document.querySelector('.settings-shell')) {
+    renderSidebar();
+  }
   initModals();
 
   if (!hasPermission('settings.update')) {
@@ -2363,5 +2425,38 @@ let apiKeyVisible = false;
     });
   }
   loadProfile();
+
+  // ── Daily Standups toggle ─────────────────────────────────────────
+  // Stored as a regular settings key (daily_standups_enabled = '1'/'0').
+  // The feature flag gates plan availability; this key is the per-tenant on/off preference.
+  (function initStandupsToggle() {
+    var toggle = document.getElementById('dailyStandupsToggle');
+    var status = document.getElementById('standupStatus');
+    if (!toggle) return;
+
+    function setStatus(msg, cls) {
+      if (!status) return;
+      status.textContent = msg;
+      status.className = 'settings-status' + (cls ? ' ' + cls : '');
+    }
+
+    toggle.addEventListener('change', async function() {
+      var checked = toggle.checked;
+      setStatus('Saving...', '');
+      try {
+        await apiFetch('/settings', {
+          method: 'PUT',
+          body: JSON.stringify({ daily_standups_enabled: checked ? '1' : '0' }),
+        });
+        setStatus(checked ? 'Enabled — writers will post standups at 7:30 AM UTC.' : 'Disabled.', 'success');
+        setTimeout(function() { setStatus('', ''); }, 4000);
+      } catch (err) {
+        toggle.checked = !checked; // revert
+        setStatus('Save failed: ' + (err.message || err), 'error');
+      }
+    });
+
+    // State is loaded via the main loadSettings() flow which calls loadAutomationSettings(settings)
+  })();
 
   loadSettings();
