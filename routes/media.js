@@ -67,7 +67,36 @@ async function getAiSummary(article, writer, tenantId) {
       trigger: 'manual',
     });
     if (!result) return null; // budget denied or no API key
-    return result.text?.trim() || null;
+
+    const raw = result.text?.trim();
+    if (!raw) return null;
+
+    // Reject obviously truncated output so we fall back to raw summary:
+    const MIN_CHARS = 120;
+    if (raw.length < MIN_CHARS) {
+      console.warn(`[Media] audio script too short (${raw.length} chars), falling back. Text: ${raw.slice(0, 200)}`);
+      return null;
+    }
+
+    // Reject output that ends on a dangling preposition / conjunction (sign of truncation)
+    const DANGLING = /\s(with|and|or|the|a|of|to|for|in|on|at|by|from|as|that|than|like|into|about|after|before|but|when|while|because|although|though|unless)\s*\.?$/i;
+    if (DANGLING.test(raw)) {
+      console.warn(`[Media] audio script ends on dangling word, falling back. Text: ${raw.slice(-80)}`);
+      return null;
+    }
+
+    // If last char is not . ! ?, trim to the last sentence boundary before returning
+    if (!/[.!?]["']?$/.test(raw)) {
+      const lastStop = Math.max(raw.lastIndexOf('.'), raw.lastIndexOf('!'), raw.lastIndexOf('?'));
+      if (lastStop > MIN_CHARS) {
+        return raw.slice(0, lastStop + 1);
+      }
+      // No sentence boundary found — reject
+      console.warn('[Media] audio script has no sentence terminator, falling back. Text:', raw.slice(0, 200));
+      return null;
+    }
+
+    return raw;
   } catch (err) {
     console.warn('[Media] getAiSummary failed:', err.message);
     return null;
@@ -78,7 +107,9 @@ async function buildTtsText(article, writer, tenantId) {
   const aiSummary = await getAiSummary(article, writer, tenantId);
   const fallback  = (article.summary || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, MAX_CHARS);
   const text = aiSummary || fallback;
-  return text.slice(0, MAX_CHARS);
+  const final = text.slice(0, MAX_CHARS);
+  console.log(`[Media] audio script (${final.length} chars): ${final.slice(0, 200)}${final.length > 200 ? '...' : ''}`);
+  return final;
 }
 
 /**
