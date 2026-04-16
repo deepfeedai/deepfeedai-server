@@ -11,6 +11,7 @@
 
   // ── Cytoscape style ─────────────────────────────────────────────────────────
   var CY_STYLE = [
+    // ── Default node (source) ─────────────────────────────────────────────────
     {
       selector: 'node',
       style: {
@@ -30,20 +31,40 @@
         'min-zoomed-font-size': 8,
       },
     },
+    // ── Original node — thumbnail + accent colour fallback ────────────────────
     {
       selector: 'node.original',
       style: {
-        'width': 64,
-        'height': 64,
-        'background-color': function (node) { return node.data('accentColor') || '#6366f1'; },
-        'border-color': function (node) { return node.data('accentColor') || '#6366f1'; },
+        'width': 72,
+        'height': 72,
+        'shape': 'roundrectangle',
+        'background-color': function (n) { return n.data('accentColor') || '#6366f1'; },
+        'background-image': function (n) { return n.data('imageUrl') || 'none'; },
+        'background-fit': 'cover',
+        'background-clip': 'node',
+        'background-image-opacity': function (n) { return n.data('imageUrl') ? 1 : 0; },
+        'border-color': function (n) { return n.data('accentColor') || '#6366f1'; },
         'border-width': 2,
         'color': '#e5e7eb',
         'font-size': 11,
         'font-weight': 'bold',
-        'text-max-width': 120,
+        'text-max-width': 140,
+        'text-background-color': '#111827',
+        'text-background-opacity': 0.75,
+        'text-background-padding': '3px',
+        'text-background-shape': 'roundrectangle',
       },
     },
+    // ── Orphaned original (0 sources) ─────────────────────────────────────────
+    {
+      selector: 'node.original.orphan',
+      style: {
+        'border-color': '#ef4444',
+        'border-width': 3,
+        'border-style': 'dashed',
+      },
+    },
+    // ── Selected ──────────────────────────────────────────────────────────────
     {
       selector: 'node:selected',
       style: {
@@ -51,15 +72,37 @@
         'border-width': 3,
       },
     },
+    // ── Compound group node ───────────────────────────────────────────────────
+    {
+      selector: 'node.group-node',
+      style: {
+        'shape': 'roundrectangle',
+        'background-color': 'rgba(255,255,255,0.03)',
+        'border-color': 'rgba(255,255,255,0.12)',
+        'border-width': 1,
+        'border-style': 'dashed',
+        'label': 'data(label)',
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'font-size': 13,
+        'font-weight': 'bold',
+        'color': 'rgba(255,255,255,0.45)',
+        'padding': '28px',
+        'text-margin-y': 6,
+        'min-zoomed-font-size': 0,
+      },
+    },
+    // ── Edges ─────────────────────────────────────────────────────────────────
     {
       selector: 'edge',
       style: {
         'width': 1.5,
-        'line-color': '#444',
-        'target-arrow-color': '#444',
+        'line-color': '#4b5563',
+        'target-arrow-color': '#4b5563',
         'target-arrow-shape': 'triangle',
         'curve-style': 'bezier',
         'arrow-scale': 0.8,
+        'opacity': 0.8,
       },
     },
     {
@@ -70,6 +113,7 @@
         'target-arrow-color': '#00d9ff',
         'line-style': 'dashed',
         'line-dash-pattern': [6, 3],
+        'opacity': 1,
       },
     },
   ];
@@ -80,13 +124,22 @@
     animate: false,
     numIter: 600,
     nodeRepulsion: function (node) {
-      return node.data('type') === 'original' ? 8000 : 4000;
+      return node.data('type') === 'original' ? 9000 : 4500;
     },
-    idealEdgeLength: function () { return 120; },
-    nodeOverlap: 20,
+    idealEdgeLength: function () { return 130; },
+    nodeOverlap: 24,
     gravity: 0.25,
     padding: 40,
+    randomize: true,
   };
+
+  var COSE_GROUPED_LAYOUT = Object.assign({}, COSE_LAYOUT, {
+    nodeRepulsion: function (node) {
+      return node.hasClass('group-node') ? 12000 : (node.data('type') === 'original' ? 9000 : 4500);
+    },
+    idealEdgeLength: function () { return 150; },
+    gravity: 0.4,
+  });
 
   // ── Populate filter selects ─────────────────────────────────────────────────
   function populateFilters() {
@@ -95,7 +148,6 @@
       catSel.innerHTML = '<option value="">All</option>'
         + categories.map(function (c) { return '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; }).join('');
     }
-
     var writerSel = document.getElementById('sbWriter');
     if (writerSel && writers.length) {
       writerSel.innerHTML = '<option value="">All</option>'
@@ -110,9 +162,9 @@
     showLoading(true);
     closeSidePanel();
 
-    var days      = document.getElementById('sbDays')?.value || '14';
-    var category  = document.getElementById('sbCategory')?.value || '';
-    var writerId  = document.getElementById('sbWriter')?.value || '';
+    var days       = document.getElementById('sbDays')?.value || '14';
+    var category   = document.getElementById('sbCategory')?.value || '';
+    var writerId   = document.getElementById('sbWriter')?.value || '';
     var linkedOnly = document.getElementById('sbLinkedOnly')?.checked;
 
     try {
@@ -126,7 +178,6 @@
       var nodes = data.nodes;
       var edges = data.edges;
 
-      // Client-side linked-only filter: keep only source nodes connected by at least one edge
       if (linkedOnly) {
         var connectedSources = new Set();
         edges.forEach(function (e) { connectedSources.add(e.data.target); });
@@ -136,7 +187,7 @@
       }
 
       renderBoard(nodes, edges);
-      updateStats(data.stats);
+      updateStats(data.stats, edges);
     } catch (err) {
       showAlert('Failed to load story board: ' + (err.message || err), 'error');
     } finally {
@@ -144,12 +195,11 @@
     }
   }
 
-  // ── Render board (init or refresh Cytoscape) ─────────────────────────────────
+  // ── Render board ─────────────────────────────────────────────────────────────
   function renderBoard(nodes, edges) {
     var container = document.getElementById('cy');
     if (!container) return;
 
-    // Remove empty placeholder
     var placeholder = container.querySelector('.sb-empty');
     if (placeholder) placeholder.remove();
 
@@ -159,36 +209,73 @@
       return;
     }
 
-    var elements = nodes.map(function (n) {
-      return {
-        group: 'nodes',
-        data: Object.assign({ id: n.id, label: truncate(n.data.title, 28) }, n.data),
-        classes: n.data.type === 'original' ? 'original' : 'source',
-      };
-    }).concat(edges.map(function (e) {
-      return {
+    var groupBy = document.getElementById('sbGroupBy')?.value || '';
+
+    // Which originals have at least one edge?
+    var originalsWithEdges = new Set();
+    edges.forEach(function (e) { originalsWithEdges.add(e.data.source); });
+
+    // ── Build elements ────────────────────────────────────────────────────────
+    var elements = [];
+    var groupIds = new Set();
+
+    nodes.forEach(function (n) {
+      var isOriginal = n.data.type === 'original';
+      var parentId   = null;
+
+      if (isOriginal && groupBy) {
+        var groupKey = groupBy === 'writer'
+          ? (n.data.writerName || 'Unassigned')
+          : (n.data.category || 'Uncategorized');
+        parentId = 'grp_' + groupKey;
+
+        if (!groupIds.has(parentId)) {
+          groupIds.add(parentId);
+          elements.push({
+            group: 'nodes',
+            data: { id: parentId, label: groupKey, type: 'group' },
+            classes: 'group-node',
+          });
+        }
+      }
+
+      var classes = isOriginal ? 'original' : 'source';
+      var hasEdge  = originalsWithEdges.has(n.id);
+      if (isOriginal && !hasEdge) classes += ' orphan';
+
+      var elData = Object.assign({ id: n.id, label: truncate(n.data.title, 28) }, n.data);
+      if (parentId) elData.parent = parentId;
+
+      elements.push({ group: 'nodes', data: elData, classes: classes });
+    });
+
+    edges.forEach(function (e) {
+      elements.push({
         group: 'edges',
         data: Object.assign({ id: e.id }, e.data),
         classes: e.data.linkType === 'manual' ? 'manual' : 'auto',
-      };
-    }));
+      });
+    });
+
+    var layout = groupBy ? COSE_GROUPED_LAYOUT : COSE_LAYOUT;
 
     if (cy) {
       cy.elements().remove();
       cy.add(elements);
-      cy.layout(COSE_LAYOUT).run();
+      cy.layout(layout).run();
     } else {
       cy = cytoscape({
         container: container,
         elements: elements,
         style: CY_STYLE,
-        layout: COSE_LAYOUT,
-        minZoom: 0.15,
+        layout: layout,
+        minZoom: 0.1,
         maxZoom: 4,
       });
 
       cy.on('tap', 'node', function (evt) {
         var node = evt.target;
+        if (node.hasClass('group-node')) return; // ignore taps on group containers
         selectedNodeId = node.id();
         openSidePanel(node.data());
       });
@@ -207,7 +294,7 @@
     if (!panel || !title || !body) return;
 
     panel.classList.remove('sb-panel-hidden');
-    title.textContent = truncate(data.title, 40);
+    title.textContent = truncate(data.title, 42);
 
     if (data.type === 'original') {
       renderOriginalPanel(data, body);
@@ -223,47 +310,73 @@
   }
 
   function renderOriginalPanel(data, body) {
+    var linkedEdges = boardData.edges.filter(function (e) {
+      return e.data.source === 'a_' + data.articleId;
+    });
+    var sourceCount = linkedEdges.length;
+
     var html = '';
 
+    // Thumbnail
     if (data.imageUrl) {
       html += '<img class="sb-panel-image" src="' + escHtml(data.imageUrl) + '" alt="" />';
     }
 
-    html += '<div class="sb-panel-badges">';
-    if (data.type) html += '<span class="badge sb-type-original">' + escHtml(data.contentType || 'original') + '</span>';
+    // Writer avatar + name
+    if (data.writerName) {
+      html += '<div class="sb-panel-writer">';
+      if (data.writerAvatar) {
+        html += '<img class="sb-panel-writer-avatar" src="' + escHtml(data.writerAvatar) + '" alt="" />';
+      } else {
+        html += '<div class="sb-panel-writer-avatar" style="display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:var(--muted);">'
+          + escHtml((data.writerName || '?')[0].toUpperCase()) + '</div>';
+      }
+      html += '<span class="sb-panel-writer-name">' + escHtml(data.writerName) + '</span>';
+      html += '</div>';
+    }
+
+    // Meta row: content type, category, score, date
+    html += '<div class="sb-panel-meta-row">';
+    html += '<span class="badge sb-type-original">' + escHtml(data.contentType || 'original') + '</span>';
     if (data.category) html += '<span class="badge badge-muted">' + escHtml(data.category) + '</span>';
-    if (data.writerName) html += '<span class="badge badge-muted">✍ ' + escHtml(data.writerName) + '</span>';
+    if (data.editorialScore != null) {
+      var scoreClass = data.editorialScore >= 7 ? 'sb-score-high' : data.editorialScore >= 5 ? 'sb-score-mid' : 'sb-score-low';
+      html += '<span class="sb-score-badge ' + scoreClass + '">Score ' + data.editorialScore + '</span>';
+    }
     html += '</div>';
 
+    // Published date + source count
+    html += '<div class="sb-panel-meta-row">';
+    if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDatetime(data.publishedAt)) + '</span>';
+    html += '<span>🔗 ' + sourceCount + ' source' + (sourceCount === 1 ? '' : 's') + '</span>';
+    if (sourceCount === 0) html += '<span class="sb-orphan-warn">No sources</span>';
+    html += '</div>';
+
+    // Summary
     if (data.summary) {
-      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 220) + (data.summary.length > 220 ? '…' : '') + '</p>';
+      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 280) + (data.summary.length > 280 ? '…' : '') + '</p>';
     }
 
     html += '<a class="sb-panel-view-link" href="/articles.html?id=' + data.articleId + '" target="_blank">View in Articles →</a>';
 
     // Source list
-    var linkedEdges = boardData.edges.filter(function (e) {
-      return e.data.source === 'a_' + data.articleId;
-    });
-
-    html += '<div class="sb-section-title">Sources (' + linkedEdges.length + ')</div>';
+    html += '<div class="sb-section-title" style="margin-top:6px;">Sources</div>';
     html += '<div class="sb-source-list" id="sbSourceList">';
 
-    if (linkedEdges.length === 0) {
+    if (sourceCount === 0) {
       html += '<div style="font-size:12px;color:var(--muted);">No linked sources.</div>';
     } else {
       linkedEdges.forEach(function (e) {
-        var srcNodeId = e.data.target;
-        var srcNode = boardData.nodes.find(function (n) { return n.id === srcNodeId; });
+        var srcNode = boardData.nodes.find(function (n) { return n.id === e.data.target; });
         if (!srcNode) return;
-        var linkType = e.data.linkType;
+        var linkType   = e.data.linkType;
         var badgeClass = linkType === 'manual' ? 'sb-edge-manual' : 'sb-edge-auto';
-        var removeBtn = linkType === 'manual' && e.data.linkId
+        var removeBtn  = linkType === 'manual' && e.data.linkId
           ? '<button class="sb-source-item-remove" onclick="sbRemoveLink(' + e.data.linkId + ',' + data.articleId + ')" title="Remove link">✕</button>'
           : '';
         html += '<div class="sb-source-item">'
           + '<span class="badge ' + badgeClass + '" style="flex-shrink:0;">' + escHtml(linkType) + '</span>'
-          + '<span class="sb-source-item-title">' + escHtml(srcNode.data.title) + '</span>'
+          + '<span class="sb-source-item-title" title="' + escHtml(srcNode.data.title) + '">' + escHtml(truncate(srcNode.data.title, 38)) + '</span>'
           + removeBtn
           + '</div>';
       });
@@ -277,7 +390,15 @@
   }
 
   function renderSourcePanel(data, body) {
+    var usedByEdges = boardData.edges.filter(function (e) {
+      return e.data.target === 'a_' + data.articleId;
+    });
+
     var html = '';
+
+    if (data.imageUrl) {
+      html += '<img class="sb-panel-image" src="' + escHtml(data.imageUrl) + '" alt="" />';
+    }
 
     html += '<div class="sb-panel-badges">';
     html += '<span class="badge sb-type-source">source</span>';
@@ -285,33 +406,29 @@
     if (data.source) html += '<span class="badge badge-muted">' + escHtml(data.source) + '</span>';
     html += '</div>';
 
-    if (data.publishedAt) {
-      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">' + fmtDate(data.publishedAt) + '</div>';
-    }
+    html += '<div class="sb-panel-meta-row">';
+    if (data.publishedAt) html += '<span>📅 ' + escHtml(fmtDatetime(data.publishedAt)) + '</span>';
+    html += '<span>📰 used by ' + usedByEdges.length + ' original' + (usedByEdges.length === 1 ? '' : 's') + '</span>';
+    html += '</div>';
+
     if (data.summary) {
-      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 220) + (data.summary.length > 220 ? '…' : '') + '</p>';
+      html += '<p class="sb-panel-summary">' + escHtml(data.summary).slice(0, 280) + (data.summary.length > 280 ? '…' : '') + '</p>';
     }
     if (data.sourceUrl) {
       html += '<a class="sb-panel-view-link" href="' + escHtml(data.sourceUrl) + '" target="_blank" rel="noopener">View source →</a>';
     }
 
-    // Used by
-    var usedByEdges = boardData.edges.filter(function (e) {
-      return e.data.target === 'a_' + data.articleId;
-    });
-
-    html += '<div class="sb-section-title">Used by (' + usedByEdges.length + ')</div>';
+    html += '<div class="sb-section-title">Used by originals</div>';
     html += '<div class="sb-used-by-list">';
 
     if (usedByEdges.length === 0) {
       html += '<div style="font-size:12px;color:var(--muted);">Not linked to any originals.</div>';
     } else {
       usedByEdges.forEach(function (e) {
-        var origNodeId = e.data.source;
-        var origNode = boardData.nodes.find(function (n) { return n.id === origNodeId; });
+        var origNode = boardData.nodes.find(function (n) { return n.id === e.data.source; });
         if (!origNode) return;
         html += '<div class="sb-used-by-item" onclick="sbFocusNode(\'' + origNode.id + '\')">'
-          + escHtml(origNode.data.title)
+          + escHtml(truncate(origNode.data.title, 48))
           + '</div>';
       });
     }
@@ -322,10 +439,8 @@
 
   // ── Link picker ──────────────────────────────────────────────────────────────
   var _pickerDebounce = null;
-  var _currentOriginalId = null;
 
   window.sbOpenLinkPicker = function (originalId) {
-    _currentOriginalId = originalId;
     var picker = document.getElementById('sbLinkPicker');
     if (!picker) return;
     picker.style.display = '';
@@ -366,7 +481,7 @@
           + '<div class="sb-link-result-meta">' + escHtml(a.category || '') + (a.source ? ' · ' + escHtml(a.source) : '') + '</div>'
           + '</div>';
       }).join('');
-    } catch (err) {
+    } catch {
       results.innerHTML = '<div class="sb-link-picker-empty" style="color:var(--danger);">Search failed.</div>';
     }
   }
@@ -378,7 +493,6 @@
         body: JSON.stringify({ original_article_id: originalId, source_article_id: sourceId }),
       });
       await loadBoard();
-      // Re-open panel for the original node
       var origNode = boardData.nodes.find(function (n) { return n.data.articleId === originalId; });
       if (origNode) openSidePanel(origNode.data);
     } catch (err) {
@@ -413,10 +527,13 @@
     if (el) el.style.display = show ? '' : 'none';
   }
 
-  function updateStats(stats) {
+  function updateStats(stats, edges) {
     var el = document.getElementById('sbStats');
     if (!el || !stats) return;
-    el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · ' + stats.edges + ' connections';
+    var originalsWithEdges = new Set(edges.map(function (e) { return e.data.source; }));
+    var orphans = stats.originals - originalsWithEdges.size;
+    var orphanStr = orphans > 0 ? ' · ⚠ ' + orphans + ' unsourced' : '';
+    el.textContent = stats.originals + ' originals · ' + stats.sources + ' sources · ' + stats.edges + ' connections' + orphanStr;
   }
 
   function truncate(str, len) {
@@ -424,9 +541,12 @@
     return str.length > len ? str.slice(0, len) + '…' : str;
   }
 
-  function fmtDate(d) {
+  function fmtDatetime(d) {
     if (!d) return '';
-    try { return new Date(d).toLocaleDateString(); } catch { return ''; }
+    try {
+      var dt = new Date(d);
+      return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch { return ''; }
   }
 
   function escHtml(str) {
@@ -445,19 +565,41 @@
   document.getElementById('sbDays')?.addEventListener('change', loadBoard);
   document.getElementById('sbCategory')?.addEventListener('change', loadBoard);
   document.getElementById('sbWriter')?.addEventListener('change', loadBoard);
-  document.getElementById('sbLinkedOnly')?.addEventListener('change', function () {
-    // Re-render from cached data rather than re-fetching
-    var linkedOnly = this.checked;
-    var nodes = boardData.nodes;
-    var edges = boardData.edges;
-    if (linkedOnly) {
-      var connectedSources = new Set();
-      edges.forEach(function (e) { connectedSources.add(e.data.target); });
+  document.getElementById('sbGroupBy')?.addEventListener('change', function () {
+    // Re-render from cached data — no new fetch needed
+    var linked = document.getElementById('sbLinkedOnly')?.checked;
+    var nodes  = boardData.nodes;
+    var edges  = boardData.edges;
+    if (linked) {
+      var connected = new Set(edges.map(function (e) { return e.data.target; }));
       nodes = nodes.filter(function (n) {
-        return n.data.type === 'original' || connectedSources.has(n.id);
+        return n.data.type === 'original' || connected.has(n.id);
       });
     }
     renderBoard(nodes, edges);
+  });
+  document.getElementById('sbLinkedOnly')?.addEventListener('change', function () {
+    var linked = this.checked;
+    var nodes  = boardData.nodes;
+    var edges  = boardData.edges;
+    if (linked) {
+      var connected = new Set(edges.map(function (e) { return e.data.target; }));
+      nodes = nodes.filter(function (n) {
+        return n.data.type === 'original' || connected.has(n.id);
+      });
+    }
+    renderBoard(nodes, edges);
+  });
+
+  // Zoom controls
+  document.getElementById('sbFitBtn')?.addEventListener('click', function () {
+    if (cy) cy.fit(undefined, 40);
+  });
+  document.getElementById('sbZoomInBtn')?.addEventListener('click', function () {
+    if (cy) cy.zoom({ level: cy.zoom() * 1.3, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  });
+  document.getElementById('sbZoomOutBtn')?.addEventListener('click', function () {
+    if (cy) cy.zoom({ level: cy.zoom() * 0.77, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
   });
 
   // ── Init ─────────────────────────────────────────────────────────────────────
@@ -465,13 +607,11 @@
     if (!requireAuth()) return;
     renderSidebar();
 
-    // Load categories from shared util if available
     if (typeof loadCategories === 'function') {
       try { await loadCategories(); } catch { /* best-effort */ }
     }
     categories = window._siteCategories || [];
 
-    // Load writers for filter
     try {
       var writerData = await apiFetch('/writers?limit=100');
       writers = Array.isArray(writerData) ? writerData : (writerData.writers || []);
