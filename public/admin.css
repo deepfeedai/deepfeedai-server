@@ -258,9 +258,12 @@ code {
   align-items: center;
   padding: 0 var(--space-6);
   gap: var(--space-4);
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 90;
+  /* Prevent topbar from contributing to horizontal scroll width */
+  max-width: 100%;
 }
 
 .topbar-title {
@@ -2201,8 +2204,9 @@ tr:hover .td-edit-btn { opacity: 1; }
    bottom-sheet modals, table scroll affordances, iOS-safe inputs.
    ───────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  body, .admin-layout { min-width: 0; }
-  html, body { overflow-x: hidden; }
+  body, .admin-layout { min-width: 0; width: 100%; }
+  html { overflow-x: clip; }   /* clip > hidden: no scroll container created, no vw discrepancy */
+  body { overflow-x: hidden; }
 
   /* Topbar — slimmer + smaller text */
   .topbar { height: 52px; padding: 0 var(--space-3); gap: var(--space-3); }
