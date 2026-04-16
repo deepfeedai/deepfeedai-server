@@ -508,9 +508,17 @@
     btn.disabled = true;
     btn.textContent = '⏳ Fixing…';
     try {
+      // Pass explicit IDs — articles may have null/empty category (not just the string 'Uncategorized')
+      const uncatIds = allArticles
+        .filter(a => !a.category || a.category === 'Uncategorized')
+        .map(a => a.id);
+      if (!uncatIds.length) {
+        showAlert('No uncategorized articles found.', 'success');
+        return;
+      }
       const data = await apiFetch('/fetch/recategorize', {
         method: 'POST',
-        body: JSON.stringify({ category: 'Uncategorized', dryRun: false, days: 90 }),
+        body: JSON.stringify({ articleIds: uncatIds, dryRun: false }),
       });
       const writerMsg = data.writerReassignments ? `, ${data.writerReassignments} writer(s) reassigned` : '';
       showAlert(`${data.updated} article${data.updated === 1 ? '' : 's'} recategorized${writerMsg}.`, 'success');
