@@ -1986,6 +1986,145 @@ tr:hover .td-edit-btn { opacity: 1; }
   font-size: var(--text-base);
 }
 
+/* ── Dashboard: stat delta badges ─────────────────────────── */
+.stat-delta        { font-size: 10px; margin-top: 2px; min-height: 14px; }
+.stat-delta-up     { color: var(--success); }
+.stat-delta-down   { color: var(--danger); }
+.stat-delta-neutral{ color: var(--muted); }
+
+/* ── Dashboard: section header row ────────────────────────── */
+.dash-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: var(--space-3);
+}
+.dash-pulse-meta { font-size: var(--text-xs); color: var(--muted); }
+
+/* ── Dashboard: newsroom pulse row ────────────────────────── */
+.dash-pulse-row {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-6);
+  scrollbar-width: thin;
+}
+.dash-pulse-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 90px;
+  flex-shrink: 0;
+  text-decoration: none;
+  color: var(--text);
+  transition: border-color 0.15s, transform 0.1s;
+  cursor: pointer;
+}
+.dash-pulse-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.dash-pulse-card-alert { border-color: rgba(248,113,113,0.5); background: rgba(248,113,113,0.06); }
+.dash-pulse-card-value { font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); }
+.dash-pulse-card-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.dash-pulse-card-name  { font-size: var(--text-xs); font-weight: 600; color: var(--text); text-align: center; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-pulse-avatar-wrap { width: 40px; height: 40px; position: relative; }
+.dash-pulse-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); }
+.dash-pulse-avatar-initials {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--accent-dim); color: var(--accent);
+  font-size: 16px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.dash-pulse-active { font-size: 10px; color: var(--success); }
+.dash-pulse-idle   { font-size: 10px; color: var(--muted); }
+.dash-pulse-skeleton {
+  min-width: 90px; height: 88px;
+  background: var(--border); border-radius: 10px;
+  animation: pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+/* ── Dashboard: KPI grid ───────────────────────────────────── */
+.dash-kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-5);
+  margin-bottom: var(--space-6);
+  align-items: start;
+}
+.dash-kpi-group { display: flex; flex-direction: column; gap: 0; }
+
+/* ── Dashboard: AI spend card ──────────────────────────────── */
+.dash-spend-card {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  min-width: 180px;
+}
+.dash-spend-total { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1; }
+.dash-spend-chart { width: 100%; margin-top: var(--space-2); }
+
+/* ── Dashboard: sparkline wrap ─────────────────────────────── */
+.dash-sparkline-wrap { width: 100%; overflow: hidden; }
+
+/* ── Dashboard: article card grid ─────────────────────────── */
+.dash-article-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+.dash-article-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+  display: flex;
+  flex-direction: column;
+}
+.dash-article-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.dash-card-thumb {
+  width: 100%; height: 110px;
+  object-fit: cover;
+  display: block;
+  background: var(--border);
+}
+.dash-card-thumb-empty {
+  width: 100%; height: 110px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-hover);
+  font-size: 28px; color: var(--border);
+}
+.dash-card-body { padding: var(--space-3); display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.dash-card-title {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dash-card-meta  { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dash-card-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: auto; padding-top: 4px;
+  font-size: var(--text-xs); color: var(--muted);
+}
+
+/* ── Dashboard responsive ──────────────────────────────────── */
+@media (max-width: 900px) {
+  .dash-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .dash-spend-card { min-width: unset; }
+}
+@media (max-width: 640px) {
+  .dash-kpi-grid { grid-template-columns: 1fr; }
+}
+
 /* ============================================================
    DEPLOYMENT WIZARD
    ============================================================ */

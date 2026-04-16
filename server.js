@@ -332,6 +332,7 @@ app.use('/api/media/file', (req, res, next) => {
 app.use('/api/auth',      require('./routes/local-auth'));
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
+app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/pitches',   require('./routes/pitches'));
 app.use('/api/actions',   require('./routes/actions'));   // cross-channel signed-token action dispatch (PR-B)
 app.use('/api/admin-notifications', require('./routes/admin-notifications')); // admin bell + notifications page (PR-D)

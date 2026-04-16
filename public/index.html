@@ -8,18 +8,17 @@
 </head>
 <body>
 <div class="admin-layout">
-  <!-- Main -->
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
-      <div class="topbar-title">Dashboard</div>
+      <div class="topbar-title" id="dashGreeting">Dashboard</div>
       <span id="topbarUser" class="topbar-user"></span>
     </header>
 
     <div class="page-body">
 
       <!-- Setup wizard banner -->
-      <div class="wizard-banner" id="wizardBanner" style="display:none;">
+      <div id="wizardBanner" style="display:none;" class="mb-6">
         <div class="settings-card" style="max-width:100%;text-align:center;">
           <div class="settings-card-icon">&#128640;</div>
           <div class="settings-card-title">Welcome! Set up your site</div>
@@ -28,166 +27,122 @@
         </div>
       </div>
 
-      <!-- Stat Cards Row 1: Content -->
-      <div class="dash-section-label">Content</div>
-      <div class="stat-grid stat-grid-sm" id="statGrid">
-        <div class="stat-card">
-          <div class="stat-icon">📰</div>
-          <div class="stat-label">Total Articles</div>
-          <div class="stat-value" id="statTotal">—</div>
-        </div>
-        <a href="/articles.html#published" class="stat-card stat-card-link">
-          <div class="stat-icon">✅</div>
-          <div class="stat-label">Published</div>
-          <div class="stat-value" id="statPublished">—</div>
-        </a>
-        <a href="/articles.html#drafts" class="stat-card stat-card-link" id="statDraftsCard">
-          <div class="stat-icon">📝</div>
-          <div class="stat-label">Drafts Pending</div>
-          <div class="stat-value" id="statDrafts">—</div>
-        </a>
-        <a href="/articles.html#review" class="stat-card stat-card-link" id="statReviewCard">
-          <div class="stat-icon">👁</div>
-          <div class="stat-label">In Review</div>
-          <div class="stat-value" id="statReview">—</div>
-        </a>
-        <div class="stat-card">
-          <div class="stat-icon">🗓️</div>
-          <div class="stat-label">Published Today</div>
-          <div class="stat-value" id="statToday">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📅</div>
-          <div class="stat-label">This Week</div>
-          <div class="stat-value" id="statWeek">—</div>
-        </div>
+      <!-- ── Newsroom Pulse ──────────────────────────────────── -->
+      <div class="dash-section-header">
+        <div class="dash-section-label" style="margin-bottom:0;">Newsroom</div>
+        <div class="dash-pulse-meta" id="synthStatus"></div>
+      </div>
+      <div class="dash-pulse-row" id="pulseRow">
+        <div class="dash-pulse-skeleton"></div>
+        <div class="dash-pulse-skeleton"></div>
+        <div class="dash-pulse-skeleton"></div>
       </div>
 
-      <!-- Stat Cards Row 2: Ingestion -->
-      <div class="dash-section-label">Ingestion</div>
-      <div class="stat-grid stat-grid-sm">
-        <a href="/feed-inbox.html" class="stat-card stat-card-link">
-          <div class="stat-icon">📥</div>
-          <div class="stat-label">Feed Articles</div>
-          <div class="stat-value" id="statFeedTotal">—</div>
-        </a>
-        <div class="stat-card">
-          <div class="stat-icon">🕐</div>
-          <div class="stat-label">Today</div>
-          <div class="stat-value" id="statFeedToday">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📅</div>
-          <div class="stat-label">This Week</div>
-          <div class="stat-value" id="statFeedWeek">—</div>
-        </div>
-        <a href="/sources.html" class="stat-card stat-card-link">
-          <div class="stat-icon">📡</div>
-          <div class="stat-label">Active Sources</div>
-          <div class="stat-value" id="statSources">—</div>
-        </a>
-      </div>
-
-      <!-- Stat Cards Row 3: Audio -->
-      <div class="dash-section-label">Audio</div>
-      <div class="stat-grid stat-grid-sm mb-7">
-        <div class="stat-card">
-          <div class="stat-icon">🎵</div>
-          <div class="stat-label">Audio Generated</div>
-          <div class="stat-value" id="statAudioTotal">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">📢</div>
-          <div class="stat-label">Published on Site</div>
-          <div class="stat-value" id="statAudioLive">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">⬜</div>
-          <div class="stat-label">Audio Hidden</div>
-          <div class="stat-value" id="statAudioHidden">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">🔇</div>
-          <div class="stat-label">No Audio</div>
-          <div class="stat-value" id="statNoAudio">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">🖼️</div>
-          <div class="stat-label">AI Images</div>
-          <div class="stat-value" id="statImages">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-icon">⭐</div>
-          <div class="stat-label">Featured</div>
-          <div class="stat-value" id="statFeatured">—</div>
-        </div>
-      </div>
-
-      <!-- Stat Cards Row 3: Community -->
-      <div class="dash-section-label">Community</div>
-      <div class="stat-grid stat-grid-sm mb-7">
-        <div class="stat-card">
-          <div class="stat-icon">💬</div>
-          <div class="stat-label">Total Comments</div>
-          <div class="stat-value" id="statComments">—</div>
-        </div>
-        <a href="/comments.html?filter=reported" class="stat-card stat-card-link" id="statFlaggedCard">
-          <div class="stat-icon">🚩</div>
-          <div class="stat-label">Flagged</div>
-          <div class="stat-value" id="statFlagged">—</div>
-        </a>
-        <div class="stat-card">
-          <div class="stat-icon">👥</div>
-          <div class="stat-label">Public Users</div>
-          <div class="stat-value" id="statPublicUsers">—</div>
-        </div>
-      </div>
-
-      <!-- Two-column: Category Breakdown + Needs Attention -->
-      <div class="dash-two-col">
-
-        <!-- Category Breakdown -->
-        <div class="dash-panel">
-          <div class="dash-panel-title">Category Breakdown</div>
-          <div id="categoryBreakdown" class="category-breakdown">
-            <div style="color:var(--muted);text-align:center;padding:24px;"><span class="spinner"></span></div>
+      <!-- ── KPI row ─────────────────────────────────────────── -->
+      <div class="dash-kpi-grid" id="kpiGrid">
+        <!-- Content -->
+        <div class="dash-kpi-group">
+          <div class="dash-section-label">Content</div>
+          <div class="stat-grid stat-grid-sm">
+            <a href="/articles.html#published" class="stat-card stat-card-link">
+              <div class="stat-icon">✅</div>
+              <div class="stat-label">Published</div>
+              <div class="stat-value" id="statPublished">—</div>
+              <div class="stat-delta" id="deltaPublished"></div>
+            </a>
+            <a href="/articles.html#drafts" class="stat-card stat-card-link" id="statDraftsCard">
+              <div class="stat-icon">📝</div>
+              <div class="stat-label">Drafts</div>
+              <div class="stat-value" id="statDrafts">—</div>
+            </a>
+            <a href="/articles.html#review" class="stat-card stat-card-link" id="statReviewCard">
+              <div class="stat-icon">👁</div>
+              <div class="stat-label">In Review</div>
+              <div class="stat-value" id="statReview">—</div>
+            </a>
+            <div class="stat-card">
+              <div class="stat-icon">🗓️</div>
+              <div class="stat-label">Today</div>
+              <div class="stat-value" id="statToday">—</div>
+              <div class="stat-delta" id="deltaToday"></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📅</div>
+              <div class="stat-label">This Week</div>
+              <div class="stat-value" id="statWeek">—</div>
+              <div class="stat-delta" id="deltaWeek"></div>
+            </div>
           </div>
         </div>
 
-        <!-- Needs Attention -->
+        <!-- Ingestion -->
+        <div class="dash-kpi-group">
+          <div class="dash-section-label">Ingestion</div>
+          <div class="stat-grid stat-grid-sm">
+            <a href="/feed-inbox.html" class="stat-card stat-card-link">
+              <div class="stat-icon">📥</div>
+              <div class="stat-label">Feed Articles</div>
+              <div class="stat-value" id="statFeedTotal">—</div>
+            </a>
+            <div class="stat-card">
+              <div class="stat-icon">🕐</div>
+              <div class="stat-label">Today</div>
+              <div class="stat-value" id="statFeedToday">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📅</div>
+              <div class="stat-label">This Week</div>
+              <div class="stat-value" id="statFeedWeek">—</div>
+            </div>
+            <a href="/sources.html" class="stat-card stat-card-link">
+              <div class="stat-icon">📡</div>
+              <div class="stat-label">Active Sources</div>
+              <div class="stat-value" id="statSources">—</div>
+            </a>
+          </div>
+        </div>
+
+        <!-- AI Spend -->
+        <div class="dash-kpi-group">
+          <div class="dash-section-label">AI Spend (7 days)</div>
+          <div class="dash-spend-card stat-card">
+            <div class="dash-spend-total" id="aiSpendTotal">—</div>
+            <div class="dash-spend-chart" id="aiSpendChart"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Two-column: What's Next + Published Sparkline ──── -->
+      <div class="dash-two-col">
+
+        <!-- What's Next / Needs Attention -->
         <div class="dash-panel">
-          <div class="dash-panel-title">Needs Attention</div>
+          <div class="dash-panel-title">What's Next</div>
           <div id="attentionList" class="attention-list">
             <div style="color:var(--muted);text-align:center;padding:24px;"><span class="spinner"></span></div>
           </div>
         </div>
 
+        <!-- Published Sparkline + Category Breakdown -->
+        <div class="dash-panel">
+          <div class="dash-panel-title">Published This Week</div>
+          <div id="publishedSparkline" class="dash-sparkline-wrap"></div>
+          <div class="dash-panel-title" style="margin-top:var(--space-6);">By Category</div>
+          <div id="categoryBreakdown" class="category-breakdown">
+            <div style="color:var(--muted);text-align:center;padding:24px;"><span class="spinner"></span></div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- Recent Articles -->
+      <!-- ── Recent Articles (card grid) ────────────────────── -->
       <div class="section-header mt-8">
         <div class="section-title">Recent Articles</div>
         <a href="/articles.html" class="btn btn-ghost btn-sm">View all →</a>
       </div>
-      <div class="table-wrap"><div class="table-scroll">
-        <table id="recentTable">
-          <thead>
-            <tr>
-              <th style="width:44px;">Image</th>
-              <th>Title</th>
-              <th>Category</th>
-              <th>Status</th>
-              <th>Audio</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody id="recentBody">
-            <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">
-              <span class="spinner"></span>
-            </td></tr>
-          </tbody>
-        </table>
-      </div></div>
+      <div class="dash-article-grid" id="recentGrid">
+        <div style="color:var(--muted);padding:32px;text-align:center;grid-column:1/-1;"><span class="spinner"></span></div>
+      </div>
 
     </div>
   </div>
