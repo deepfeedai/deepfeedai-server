@@ -58,12 +58,26 @@ router.get('/history', auth, requirePermission('articles.read'), requireWorkspac
   res.json({ messages: messages || [], context_key: contextKey });
 }));
 
-// POST /api/newsroom-chat — body: { writer_id, message }
+// POST /api/newsroom-chat — body: { writer_id, message, context_article_id? }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
-  const { writer_id, message } = req.body || {};
+  const { writer_id, message, context_article_id } = req.body || {};
   if (!writer_id || !message) return res.status(400).json({ error: 'writer_id and message required' });
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
+
+  // Optionally enrich the message with article context (title, summary, category)
+  let enrichedMessage = message;
+  if (context_article_id) {
+    const articleId = parseInt(context_article_id, 10);
+    if (articleId) {
+      const article = await db.prepare(
+        'SELECT title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(articleId, req.tenantId).catch(() => null);
+      if (article) {
+        enrichedMessage = `[Article context: "${article.title}"]\nCategory: ${article.category || 'Unknown'} | Source: ${article.source || 'Unknown'}\nSummary: ${article.summary || 'No summary available.'}\n\n${message}`;
+      }
+    }
+  }
 
   const userId = req.user?.sub || 'anon';
   const contextKey = buildWebContextKey(userId, writerId);
@@ -75,7 +89,7 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
 
   let response;
   try {
-    response = await messaging.handleIncoming(req.tenantId, writerId, message, contextKey, meta);
+    response = await messaging.handleIncoming(req.tenantId, writerId, enrichedMessage, contextKey, meta);
   } catch (err) {
     return res.status(500).json({ error: err.message || 'chat failed' });
   }

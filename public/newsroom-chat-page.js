@@ -7,6 +7,7 @@
   var activeWriter = null;
   var currentUser = null;
   var sending = false;
+  var activeArticleId = null;
 
   // Stable 12-hue palette matching lib/writer-colors.js (used as a fallback
   // when the signed-in editor hasn't set an avatar yet).
@@ -23,10 +24,28 @@
     await Promise.all([loadWriters(), loadCurrentUser()]);
     wireInput();
     document.getElementById('clearBtn').addEventListener('click', clearChat);
-    // Support ?writer_id=N to auto-select a writer (e.g. deep-link from broadcast feed)
+    document.getElementById('chatContextDismiss').addEventListener('click', function () {
+      activeArticleId = null;
+      document.getElementById('chatContextBar').style.display = 'none';
+    });
+    // Support URL params: ?writer_id=N (auto-select) and ?article_id=N (load context)
     var params = new URLSearchParams(window.location.search);
     var preselect = parseInt(params.get('writer_id'), 10);
+    var articleParam = parseInt(params.get('article_id'), 10);
+    if (articleParam) await setArticleContext(articleParam);
     if (preselect) pickWriter(preselect);
+  }
+
+  async function setArticleContext(articleId) {
+    try {
+      var data = await apiFetch('/articles/' + articleId);
+      activeArticleId = articleId;
+      var title = data.title || ('Article #' + articleId);
+      document.getElementById('chatContextLabel').textContent = title;
+      document.getElementById('chatContextBar').style.display = 'flex';
+    } catch (err) {
+      // best-effort — don't block the rest of init
+    }
   }
 
   async function loadCurrentUser() {
@@ -147,7 +166,7 @@
     thread.innerHTML = messages.map(function (m) {
       return bubbleHtml(m.role === 'user' ? 'user' : 'assistant', m.content, activeWriter);
     }).join('');
-    thread.scrollTop = thread.scrollHeight;
+    requestAnimationFrame(function () { thread.scrollTop = thread.scrollHeight; });
   }
 
   function appendBubble(role, text) {
@@ -191,9 +210,11 @@
     thread.appendChild(typing);
     thread.scrollTop = thread.scrollHeight;
     try {
+      var payload = { writer_id: activeWriter.id, message: text };
+      if (activeArticleId) payload.context_article_id = activeArticleId;
       var resp = await apiFetch('/newsroom-chat', {
         method: 'POST',
-        body: JSON.stringify({ writer_id: activeWriter.id, message: text }),
+        body: JSON.stringify(payload),
       });
       typing.remove();
       appendBubble('assistant', resp.text || '(no response)');
