@@ -119,9 +119,21 @@ router.put('/:id', auth, requirePermission('sources.update'), asyncHandler(async
 }));
 
 // DELETE /api/sources/:id
+// Two-step: first call (no ?confirmed=true) returns article count if any exist.
+// Second call with ?confirmed=true proceeds with deletion.
 router.delete('/:id', auth, requirePermission('sources.delete'), asyncHandler(async (req, res) => {
-  const existing = await db.prepare('SELECT id FROM sources WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  const existing = await db.prepare('SELECT id, name FROM sources WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Source not found' });
+
+  if (!req.query.confirmed) {
+    const count = await db.prepare(
+      `SELECT COUNT(*)::int AS n FROM articles WHERE tenant_id = $1 AND source = $2 AND content_type = 'curated'`
+    ).get(req.tenantId, existing.name);
+    if (count?.n > 0) {
+      return res.json({ requires_confirmation: true, article_count: count.n, source_name: existing.name });
+    }
+  }
+
   await db.prepare('DELETE FROM sources WHERE id = $1 AND tenant_id = $2').run(req.params.id, req.tenantId);
   logAudit(req, 'source.delete', 'source', parseInt(req.params.id));
   res.json({ message: 'Source deleted' });

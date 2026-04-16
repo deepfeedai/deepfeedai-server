@@ -237,7 +237,17 @@ let sources = [];
   async function confirmDeleteSource() {
     if (!deleteSourceId) return;
     try {
-      await apiFetch(`/sources/${deleteSourceId}`, { method: 'DELETE' });
+      // First call — backend returns { requires_confirmation, article_count } if articles exist
+      const check = await apiFetch(`/sources/${deleteSourceId}`, { method: 'DELETE' });
+      if (check.requires_confirmation) {
+        const ok = confirm(
+          `Deleting "${check.source_name}" will orphan ${check.article_count.toLocaleString()} ingested article${check.article_count !== 1 ? 's' : ''}.\n\n` +
+          `Those articles will remain in the feed but lose their source association.\n\nContinue?`
+        );
+        if (!ok) return;
+        // Confirmed — re-call with ?confirmed=true
+        await apiFetch(`/sources/${deleteSourceId}?confirmed=true`, { method: 'DELETE' });
+      }
       sources = sources.filter(s => s.id !== deleteSourceId);
       renderTable();
       closeModal('deleteSourceModal');
