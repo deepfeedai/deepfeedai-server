@@ -19,6 +19,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ### Fixed
 
+- fix(audio): drop title + source preamble from TTS intros ("From Victor. Full Title. ...") — the listener is already looking at both. Audio now uses a persona-aware 2-4 sentence hook-first script that reads like a spoken intro rather than a headline recitation. New prompt lib/prompts/audio-intro.md injects writer name, tone, and beats for voice consistency.
 - fix(designer): front-loaded positive single-image instructions on avatar prompts (was relying too heavily on weak negative prompts, causing Imagen diptychs); tightened 3d-render / comic-book / anime-portrait phrasing to avoid render-process priming; reduced avatar negative list to only avatar-relevant tropes. Repair migration now also fixes null-role Maxwell + Iris (prior role-save failures left some deployments with role=NULL, which the COALESCE in the public /writers filter treated as 'writer' and exposed them).
 - fix(writers): avatar regenerate button now actually swaps the visible image (UI was looking for an id that didn't exist on the page; DB was always saving correctly).
 - fix(imagen): per-operation personGeneration — writer avatars, user avatars, and Iris's standalone-design generation now pass personGeneration='allow_adult'; article thumbnails stay on 'dont_allow' to avoid unintended faces. Fixes silent "no image bytes returned" on every portrait prompt since the style system landed.
