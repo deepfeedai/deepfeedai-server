@@ -247,8 +247,12 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
   const { name, slug, bio, beat, beats, keywords, system_prompt, chat_prompt, is_auto,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-          signature_phrases, contrarian_level, beat_angle, role, team_id, is_system,
+          signature_phrases, contrarian_level, beat_angle, team_id,
           accent_color, avatar_style_family, avatar_style_notes } = body;
+
+  // System agents have their role and is_system locked — UI cannot change them.
+  const role      = existing.is_system ? existing.role      : (body.role      ?? existing.role      ?? 'writer');
+  const is_system = existing.is_system ? existing.is_system : (body.is_system ?? existing.is_system ?? false);
 
   const existingFse = typeof existing.few_shot_examples === 'string'
     ? existing.few_shot_examples : JSON.stringify(existing.few_shot_examples || []);

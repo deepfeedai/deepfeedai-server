@@ -15,7 +15,7 @@ async function loadWriters() {
     writers = await apiFetch('/admin/writers');
     renderWriters();
   } catch (err) {
-    showAlert('Failed to load writers: ' + err.message, 'error');
+    showAlert('Failed to load agents: ' + err.message, 'error');
   }
 }
 
@@ -31,7 +31,7 @@ function roleBucket(role) {
   if (r === 'writer') return 'writer';
   if (r === 'editor') return 'editor';
   if (r === 'designer') return 'designer';
-  return 'other';
+  return 'other'; // copy-editor, analyst, moderator, etc.
 }
 
 function filteredWriters() {
@@ -45,13 +45,13 @@ function groupedWriters() {
   return groups;
 }
 
-var ROLE_GROUP_LABELS = { editor: 'Editors', designer: 'Designers', writer: 'Writers', other: 'Other' };
+var ROLE_GROUP_LABELS = { editor: 'Editors', designer: 'Designers', writer: 'Writer Agents', other: 'System Agents' };
 var ROLE_GROUP_ORDER = ['editor', 'designer', 'writer', 'other'];
 
 function renderWriters() {
   var tbody = document.getElementById('writersBody');
   if (!writers.length) {
-    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No writers configured &mdash; add one to get started</p></div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No agents configured &mdash; add one to get started</p></div></td></tr>';
     renderWriterCards();
     return;
   }
@@ -76,7 +76,9 @@ function renderWriters() {
       : '<span class="text-muted text-sm">Manual</span>';
 
     var role = w.role || 'writer';
-    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span>';
+    var roleLabel = role.split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
+    var systemBadge = w.is_system ? ' <span class="badge" style="font-size:9px;background:rgba(99,102,241,0.15);color:#818cf8;vertical-align:middle;">System</span>' : '';
+    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + roleLabel + '</span>' + systemBadge;
 
     return '<tr>'
       + '<td>' + avatarHtml + '</td>'
@@ -96,7 +98,7 @@ function renderWriters() {
     }).join('');
   });
 
-  tbody.innerHTML = tbodyHtml || '<tr><td colspan="7"><div class="empty-state"><p>No writers match this filter.</p></div></td></tr>';
+  tbody.innerHTML = tbodyHtml || '<tr><td colspan="7"><div class="empty-state"><p>No agents match this filter.</p></div></td></tr>';
 
   // Card grid view
   renderWriterCards();
@@ -106,7 +108,7 @@ function renderWriterCards() {
   var container = document.getElementById('writersCardGrid');
   if (!container) return;
   if (!writers.length) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No writers configured</p></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9997;&#65039;</div><p>No agents configured</p></div>';
     return;
   }
 
@@ -123,7 +125,8 @@ function renderWriterCards() {
     var angleSnippet = w.beat_angle ? '<div class="text-muted text-sm" style="margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(w.beat_angle) + '">' + esc(w.beat_angle) + '</div>' : '';
     var autoBadge = w.is_auto ? '<span class="badge badge-accent" style="font-size:10px;">Auto</span>' : '';
     var role = w.role || 'writer';
-    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + role.charAt(0).toUpperCase() + role.slice(1) + '</span>';
+    var roleLabel = role.split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
+    var roleBadge = '<span class="role-badge role-badge-' + role + '">' + roleLabel + '</span>';
 
     return '<div class="writer-card" onclick="showWriterQuickView(' + w.id + ')">'
       + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
@@ -149,7 +152,7 @@ function renderWriterCards() {
       + '</div>';
     }).join('');
   });
-  container.innerHTML = sectionsHtml || '<div class="empty-state"><p>No writers match this filter.</p></div>';
+  container.innerHTML = sectionsHtml || '<div class="empty-state"><p>No agents match this filter.</p></div>';
 }
 
 function esc(str) {
@@ -207,7 +210,7 @@ document.getElementById('fWriterName').addEventListener('input', function() {
 });
 
 function openAdd() {
-  document.getElementById('writerModalTitle').textContent = 'Add Writer';
+  document.getElementById('writerModalTitle').textContent = 'New Agent';
   document.getElementById('editWriterId').value = '';
   document.getElementById('fWriterName').value = '';
   document.getElementById('fWriterSlug').value = '';
@@ -244,7 +247,7 @@ function openAdd() {
 function openEdit(id) {
   var w = writers.find(function(x) { return x.id === id; });
   if (!w) return;
-  document.getElementById('writerModalTitle').textContent = 'Edit Writer';
+  document.getElementById('writerModalTitle').textContent = w.is_system ? 'Configure Agent' : 'Edit Agent';
   document.getElementById('editWriterId').value = w.id;
   document.getElementById('fWriterName').value = w.name;
   document.getElementById('fWriterSlug').value = w.slug || '';
@@ -418,7 +421,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     }
 
     closeModal('writerModal');
-    showAlert(editId ? 'Writer updated' : 'Writer created');
+    showAlert(editId ? 'Agent updated' : 'Agent created');
 
     if (pendingAvatarDataUrl && savedWriter && savedWriter.id) {
       try {

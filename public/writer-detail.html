@@ -23,6 +23,8 @@
     .role-badge-editor { background:rgba(168,85,247,0.15); color:#a855f7; }
     .role-badge-analyst { background:rgba(34,197,94,0.15); color:#22c55e; }
     .role-badge-moderator { background:rgba(251,191,36,0.15); color:#fbbf24; }
+    .role-badge-designer { background:rgba(16,185,129,0.15); color:#10b981; }
+    .role-badge-copy-editor { background:rgba(236,72,153,0.15); color:#ec4899; }
     .wd-two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
     @media (max-width: 768px) { .wd-two-col { grid-template-columns:1fr; } .wd-header { flex-direction:column; align-items:center; text-align:center; } }
     .memory-item { display:flex; align-items:flex-start; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
@@ -50,15 +52,15 @@
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
-      <div class="topbar-title">Writer Detail</div>
+      <div class="topbar-title">Agent Detail</div>
     </header>
 
     <div class="page-body">
       <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
-        <a href="/writers.html" class="btn btn-ghost btn-sm">&larr; Back to Writers</a>
+        <a href="/writers.html" class="btn btn-ghost btn-sm">&larr; Back to Agents</a>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-outline btn-sm" id="toggleEditBtn" style="display:none;">Edit</button>
-          <button class="btn btn-primary btn-sm" id="saveWriterBtn" style="display:none;">Save Writer</button>
+          <button class="btn btn-primary btn-sm" id="saveWriterBtn" style="display:none;">Save Agent</button>
           <button class="btn btn-outline btn-sm" id="cancelEditBtn" style="display:none;">Cancel</button>
         </div>
       </div>
