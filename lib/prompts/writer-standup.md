@@ -1,7 +1,7 @@
 ---
 operation: agent-standup
 tier: fast
-maxTokens: 200
+maxTokens: 350
 temperature: 0.75
 version: 1
 ---

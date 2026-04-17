@@ -52,6 +52,8 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
         if (existing) { skipped++; continue; }
 
         const category = await detectCategory(item, { defaultCategory: source.default_category, tenantId });
+        if (!category || category === 'Uncategorized') { skipped++; continue; }
+
         const image    =
           item.enclosure?.url                              ||  // standard podcast/media enclosure
           item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
