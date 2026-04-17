@@ -24,6 +24,8 @@
       overflow: hidden;
     }
     .chat-roster { border-right:1px solid var(--border); overflow-y:auto; padding:12px; background:var(--bg-card); }
+    /* Always fixed so it's never a grid child; only visible on mobile when roster is open */
+    .chat-roster-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:99; }
 
     /* Roster toggle button — hidden on desktop */
     #chatRosterToggleBtn { display:none; }
