@@ -85,81 +85,88 @@
 
     <!-- Toolbar -->
     <div class="sb-toolbar">
-      <div>
-        <label for="sbView">View</label>
-        <select id="sbView">
-          <option value="articles" selected>Articles</option>
-          <option value="pitches">Pitches</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbDays">Period</label>
-        <select id="sbDays">
-          <option value="7">7 days</option>
-          <option value="14" selected>14 days</option>
-          <option value="30">30 days</option>
-          <option value="60">60 days</option>
-          <option value="90">90 days</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbStatus">Status</label>
-        <select id="sbStatus">
-          <option value="published" selected>Published</option>
-          <option value="draft">Draft</option>
-          <option value="all">All</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbCategory">Category</label>
-        <select id="sbCategory">
-          <option value="">All</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbWriter">Writer</label>
-        <select id="sbWriter">
-          <option value="">All</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbGroupBy">Group by</label>
-        <select id="sbGroupBy">
-          <option value="">None</option>
-          <option value="category">Category</option>
-          <option value="writer">Writer</option>
-          <option value="status" class="pitches-only" style="display:none;">Status</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbLayout">Layout</label>
-        <select id="sbLayout">
-          <option value="cose" selected>Organic</option>
-          <option value="concentric">Concentric</option>
-          <option value="breadthfirst">Tree</option>
-          <option value="grid">Grid</option>
-        </select>
-      </div>
-      <div>
-        <label for="sbEdgeStyle">Edges</label>
-        <select id="sbEdgeStyle">
-          <option value="curved" selected>Curved</option>
-          <option value="straight">Straight</option>
-          <option value="taxi">Orthogonal</option>
-        </select>
-      </div>
-      <div class="sb-linked-only-wrap">
-        <input type="checkbox" id="sbLinkedOnly" />
-        <label for="sbLinkedOnly">Linked only</label>
-      </div>
-      <div class="sb-linked-only-wrap">
-        <input type="checkbox" id="sbColorEdges" />
-        <label for="sbColorEdges">Color edges</label>
-      </div>
-      <div class="sb-linked-only-wrap">
-        <input type="checkbox" id="sbOrphansOnly" />
-        <label for="sbOrphansOnly">Orphans only</label>
-      </div>
+      <!-- Mobile: filter toggle -->
+      <button class="btn btn-sm btn-ghost sb-filter-toggle-btn" id="sbFilterToggleBtn" title="Filters">⚙ Filters</button>
+
+      <!-- Collapsible filter controls -->
+      <div class="sb-toolbar-filters" id="sbToolbarFilters">
+        <div>
+          <label for="sbView">View</label>
+          <select id="sbView">
+            <option value="articles" selected>Articles</option>
+            <option value="pitches">Pitches</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbDays">Period</label>
+          <select id="sbDays">
+            <option value="7">7 days</option>
+            <option value="14" selected>14 days</option>
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbStatus">Status</label>
+          <select id="sbStatus">
+            <option value="published" selected>Published</option>
+            <option value="draft">Draft</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbCategory">Category</label>
+          <select id="sbCategory">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbWriter">Writer</label>
+          <select id="sbWriter">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbGroupBy">Group by</label>
+          <select id="sbGroupBy">
+            <option value="">None</option>
+            <option value="category">Category</option>
+            <option value="writer">Writer</option>
+            <option value="status" class="pitches-only" style="display:none;">Status</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbLayout">Layout</label>
+          <select id="sbLayout">
+            <option value="cose" selected>Organic</option>
+            <option value="concentric">Concentric</option>
+            <option value="breadthfirst">Tree</option>
+            <option value="grid">Grid</option>
+          </select>
+        </div>
+        <div>
+          <label for="sbEdgeStyle">Edges</label>
+          <select id="sbEdgeStyle">
+            <option value="curved" selected>Curved</option>
+            <option value="straight">Straight</option>
+            <option value="taxi">Orthogonal</option>
+          </select>
+        </div>
+        <div class="sb-linked-only-wrap">
+          <input type="checkbox" id="sbLinkedOnly" />
+          <label for="sbLinkedOnly">Linked only</label>
+        </div>
+        <div class="sb-linked-only-wrap">
+          <input type="checkbox" id="sbColorEdges" />
+          <label for="sbColorEdges">Color edges</label>
+        </div>
+        <div class="sb-linked-only-wrap">
+          <input type="checkbox" id="sbOrphansOnly" />
+          <label for="sbOrphansOnly">Orphans only</label>
+        </div>
+      </div><!-- /.sb-toolbar-filters -->
+
       <button class="btn btn-sm btn-outline" id="sbRefreshBtn">↻ Refresh</button>
       <button class="btn btn-sm btn-ghost" id="sbShowHiddenBtn" style="display:none;color:var(--warning, #f59e0b);" title="Restore hidden nodes"></button>
       <div style="display:flex;gap:4px;margin-left:4px;">
@@ -168,7 +175,16 @@
         <button class="btn btn-sm btn-ghost" id="sbZoomOutBtn" title="Zoom out">−</button>
         <button class="btn btn-sm btn-ghost" id="sbExportBtn" title="Export as PNG">⬇ PNG</button>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:4px;">
+        <input id="sbSearch" type="text" placeholder="Search nodes…" autocomplete="off"
+          style="width:150px;padding:4px 8px;font-size:12px;border:1px solid var(--border);
+                 background:var(--bg-card);color:var(--text);border-radius:6px;" />
+        <span id="sbSearchCount" style="font-size:11px;color:var(--muted);white-space:nowrap;"></span>
+      </div>
       <span class="sb-toolbar-stats" id="sbStats"></span>
+    </div>
+    <div id="sbShortcutHint">
+      <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>n</kbd>/<kbd>N</kbd> next/prev &nbsp;·&nbsp; <kbd>f</kbd> fit &nbsp;·&nbsp; <kbd>h</kbd> hide &nbsp;·&nbsp; <kbd>Esc</kbd> close / unfocus
     </div>
 
     <!-- Board + side panel -->
@@ -191,6 +207,14 @@
       </div>
     </div>
   </div>
+</div>
+<div id="sbContextMenu" class="sb-context-menu sb-context-hidden">
+  <div class="sb-context-item" id="sbCtxFocus">🔍 Zoom to node</div>
+  <div class="sb-context-item" id="sbCtxNeighbourFocus">👁 Focus node</div>
+  <div class="sb-context-item" id="sbCtxOpenAdmin">📋 Open in Articles</div>
+  <div class="sb-context-item" id="sbCtxLinkSource">🔗 Link source…</div>
+  <div class="sb-context-divider"></div>
+  <div class="sb-context-item sb-context-danger" id="sbCtxHide">🙈 Hide node</div>
 </div>
 <script src="/cytoscape.min.js"></script>
 <script src="/admin.js"></script>

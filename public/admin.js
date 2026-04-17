@@ -432,8 +432,15 @@ function initSidebar() {
     overlay.classList.remove('open');
   }
 
-  hamburger.addEventListener('click', toggleSidebar);
-  overlay.addEventListener('click', closeSidebar);
+  // Guard against double-binding when admin-mobile-nav.js also runs
+  if (!hamburger.dataset.mobileNavWired) {
+    hamburger.dataset.mobileNavWired = '1';
+    hamburger.addEventListener('click', toggleSidebar);
+  }
+  if (!overlay.dataset.mobileNavWired) {
+    overlay.dataset.mobileNavWired = '1';
+    overlay.addEventListener('click', closeSidebar);
+  }
 
   // Close sidebar on nav link click (mobile)
   sidebar.querySelectorAll('.nav-link').forEach(link => {

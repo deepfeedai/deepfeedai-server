@@ -1262,6 +1262,7 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_tenant_time ON newsroom_events(tenant_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
+    `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
     // Social newsroom Phase 3 — reactions + threading on feed cards.
     // Reactions: signal-bearing emoji (🔥💡🚩👀). Unique per (event, actor, emoji)
     // so an actor can't double-react with the same emoji but can use multiple.

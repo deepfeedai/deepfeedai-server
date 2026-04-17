@@ -329,12 +329,22 @@
     else openDropdown();
   }
 
+  var _dropdownRefreshTimer = null;
+
   function openDropdown() {
     var dd = document.getElementById('dfaBellDropdown');
     if (!dd) return;
     dd.classList.add('open');
     state.dropdownOpen = true;
     loadList();
+    // Refresh every 5s while open so actions taken on another page/channel
+    // cause stale buttons to render as disabled on next tick.
+    if (!_dropdownRefreshTimer) {
+      _dropdownRefreshTimer = setInterval(function () {
+        if (!state.dropdownOpen) { clearInterval(_dropdownRefreshTimer); _dropdownRefreshTimer = null; return; }
+        loadList();
+      }, 5000);
+    }
   }
 
   function closeDropdown() {
@@ -342,6 +352,7 @@
     if (!dd) return;
     dd.classList.remove('open');
     state.dropdownOpen = false;
+    if (_dropdownRefreshTimer) { clearInterval(_dropdownRefreshTimer); _dropdownRefreshTimer = null; }
   }
 
   // ── Boot ────────────────────────────────────────────────

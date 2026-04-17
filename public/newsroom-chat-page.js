@@ -389,7 +389,7 @@
     card.className = 'chat-proposal-card';
     var inner = '<div class="chat-proposal-actions">';
     actions.forEach(function (action) {
-      inner += '<button class="btn btn-primary btn-sm chat-action-btn" data-action=\'' + JSON.stringify(action) + '\'>' + esc(action.label) + '</button>';
+      inner += '<button class="btn btn-primary btn-sm chat-action-btn" data-action="' + esc(JSON.stringify(action)) + '">' + esc(action.label) + '</button>';
     });
     inner += '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>';
     inner += '</div>';

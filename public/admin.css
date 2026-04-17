@@ -258,9 +258,12 @@ code {
   align-items: center;
   padding: 0 var(--space-6);
   gap: var(--space-4);
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   z-index: 90;
+  /* Prevent topbar from contributing to horizontal scroll width */
+  max-width: 100%;
 }
 
 .topbar-title {
@@ -2201,8 +2204,9 @@ tr:hover .td-edit-btn { opacity: 1; }
    bottom-sheet modals, table scroll affordances, iOS-safe inputs.
    ───────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  body, .admin-layout { min-width: 0; }
-  html, body { overflow-x: hidden; }
+  body, .admin-layout { min-width: 0; width: 100%; }
+  html { overflow-x: clip; }   /* clip > hidden: no scroll container created, no vw discrepancy */
+  body { overflow-x: hidden; }
 
   /* Topbar — slimmer + smaller text */
   .topbar { height: 52px; padding: 0 var(--space-3); gap: var(--space-3); }
@@ -2705,3 +2709,117 @@ tr:hover .td-edit-btn { opacity: 1; }
 /* ── Feed Inbox: uncategorized notice banner ── */
 .uncat-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; margin-bottom:10px; background:rgba(251,191,36,.12); border:1px solid rgba(251,191,36,.35); border-radius:8px; font-size:13px; color:var(--text); flex-wrap:wrap; }
 .uncat-banner span { flex:1; min-width:0; }
+
+/* ── Story Board: filter drawer (mobile toggle) ── */
+.sb-filter-toggle-btn { display: none; flex-shrink: 0; }
+.sb-toolbar-filters {
+  display: contents; /* on desktop, items flow naturally into the flex parent */
+}
+
+/* ── Story Board: search, shortcuts, context menu ── */
+#sbSearch:focus { outline: none; border-color: var(--accent, #6366f1); }
+#sbShortcutHint { font-size: 10px; color: var(--muted); padding: 2px 18px 4px; letter-spacing: 0.03em; flex-shrink: 0; background: var(--bg-card); border-bottom: 1px solid var(--border); }
+#sbShortcutHint kbd { display: inline-block; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-size: 10px; background: var(--bg); font-family: inherit; }
+.sb-context-menu { position: fixed; z-index: 200; min-width: 168px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); padding: 4px 0; font-size: 13px; }
+.sb-context-hidden { display: none; }
+.sb-context-item { padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+.sb-context-item:hover { background: var(--surface2); }
+.sb-context-danger { color: #ef4444; }
+.sb-context-divider { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE RESPONSIVE — Admin-wide improvements
+   All rules are additive (desktop unchanged).
+   Breakpoint: 768px
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── Newsroom Chat: roster as off-canvas drawer ── */
+  /* (layout handled inline in newsroom-chat.html <style>; only
+     topbar toggle button needs global positioning) */
+  .topbar #chatRosterToggleBtn {
+    margin-left: auto;
+    margin-right: 8px;
+    font-size: 12px;
+    padding: 4px 10px;
+    flex-shrink: 0;
+  }
+
+  /* ── Story Board: collapsible filter drawer ── */
+  .sb-filter-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .sb-filter-toggle-btn.active { color: var(--primary); border-color: var(--primary); }
+
+  /* On mobile, filters sit in a proper flex row that wraps */
+  .sb-toolbar-filters {
+    display: none;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    width: 100%;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .sb-toolbar-filters.open { display: flex; }
+
+  /* Toolbar itself: allow wrapping on mobile */
+  .sb-toolbar { flex-wrap: wrap; }
+  /* Shortcut hint: hide on small screens to save space */
+  #sbShortcutHint { display: none; }
+
+  /* ── Story Board: side panel — full-width on mobile ── */
+  .sb-panel {
+    width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    max-height: 65vh;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+    border-radius: 16px 16px 0 0;
+  }
+  /* Drag handle hint */
+  .sb-panel-header::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto 10px;
+    order: -1;
+  }
+  .sb-panel-header { flex-direction: column; align-items: center; padding-top: 12px; }
+  .sb-panel-title { text-align: center; }
+
+  /* ── Writers page: force card grid, hide table ── */
+  .writers-table-view { display: none !important; }
+  #writersCardGrid   { display: grid !important; }
+
+  /* ── Sources table: hide low-priority columns ── */
+  table.sources-table th:nth-child(2),
+  table.sources-table td:nth-child(2),   /* URL */
+  table.sources-table th:nth-child(3),
+  table.sources-table td:nth-child(3),   /* Priority */
+  table.sources-table th:nth-child(7),
+  table.sources-table td:nth-child(7) {  /* Last Fetched */
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Story Board: search input narrower */
+  #sbSearch { width: 110px !important; }
+
+  /* Chat header: smaller on very small screens */
+  .chat-header { padding: 10px 14px; }
+  .chat-input-row { padding: 8px 12px 10px; }
+
+  /* Writers card grid: single column under 480px */
+  .writer-card-grid { grid-template-columns: 1fr !important; }
+}
