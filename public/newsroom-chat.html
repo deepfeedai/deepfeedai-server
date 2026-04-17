@@ -8,14 +8,11 @@
   <style>
     /* Pin the chat layout so input is always in view */
     html, body { height: 100%; overflow: hidden; }
-    /* Prevent any fixed/absolute child from expanding the scroll width */
-    html { overflow-x: clip; }
     /* Use dvh (dynamic viewport height) so mobile address bar doesn't clip content */
     .main-content {
       height: 100vh;
       height: 100dvh;
       overflow: hidden;
-      width: 100%;        /* use % not vw — avoids scrollbar-width discrepancy */
     }
 
     .chat-shell {
@@ -25,7 +22,6 @@
       height: calc(100vh - 56px);
       height: calc(100dvh - 56px);
       overflow: hidden;
-      width: 100%;
     }
     .chat-roster { border-right:1px solid var(--border); overflow-y:auto; padding:12px; background:var(--bg-card); }
 
@@ -33,12 +29,16 @@
     #chatRosterToggleBtn { display:none; }
 
     @media (max-width: 768px) {
+      /* Prevent fixed roster from expanding scroll width on mobile */
+      html { overflow-x: clip; }
       /* Topbar is 52px on mobile (admin.css override), so adjust height */
       .chat-shell {
         grid-template-columns: 1fr;
         height: calc(100vh - 52px);
         height: calc(100dvh - 52px);
+        width: 100%;   /* contain to viewport — 100% not vw avoids scrollbar discrepancy */
       }
+      .main-content { width: 100%; }
       .chat-roster {
         position: fixed; top: 52px; left: 0; bottom: 0; width: 280px; max-width: 85vw;
         z-index: 100; transform: translateX(-100%); transition: transform 0.22s ease;
