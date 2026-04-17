@@ -8,6 +8,7 @@ const { getPool } = require('../db');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
+const { burnTokensByTarget } = require('../lib/action-tokens');
 
 // GET /api/admin/pitches — list pitches
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
@@ -115,6 +116,8 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
     }
   }
 
+  burnTokensByTarget('story_pitch', pitch.id, req.tenantId, req.user?.sub || null).catch(() => {});
+
   res.json({
     status: 'ok',
     pitch: { ...pitch, status: synthesized ? 'synthesized' : 'approved' },
@@ -129,6 +132,7 @@ router.post('/:id/dismiss', auth, requirePermission('articles.read'), asyncHandl
   ).get(req.params.id, req.tenantId);
 
   if (!result) return res.status(404).json({ error: 'Pitch not found or already resolved' });
+  burnTokensByTarget('story_pitch', Number(req.params.id), req.tenantId, req.user?.sub || null).catch(() => {});
   res.json({ status: 'ok', pitch: result });
 }));
 

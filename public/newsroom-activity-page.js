@@ -192,12 +192,14 @@
       + replyInputRow
       + '</div>';
 
+    var dismissBtn = '<button class="feed-dismiss-btn" data-dismiss-event="' + e.id + '" title="Dismiss">✕</button>';
     return '<div class="feed-card">'
       + '<div class="feed-card-header">'
       + avatar
       + '<div class="feed-actor">' + esc(actor) + '</div>'
       + '<span class="feed-event-tag ' + tagClass + '">' + esc(e.event_type) + '</span>'
       + '<span class="feed-time">' + when + '</span>'
+      + dismissBtn
       + '</div>'
       + inner
       + '<div class="feed-actions">' + reactBtns + replyBtn + '</div>'
@@ -246,6 +248,17 @@
       var thread = document.querySelector('[data-thread="' + id + '"]');
       thread.classList.toggle('open');
       if (thread.classList.contains('open')) loadReplies(id);
+    } else if (t.dataset && t.dataset.dismissEvent) {
+      var eventId = parseInt(t.dataset.dismissEvent, 10);
+      t.disabled = true;
+      try {
+        await apiFetch('/newsroom-feed/' + eventId, { method: 'DELETE' });
+        var card = t.closest('.feed-card');
+        if (card) { card.style.transition = 'opacity 0.2s'; card.style.opacity = '0'; setTimeout(function() { card.remove(); }, 200); }
+      } catch (err) {
+        t.disabled = false;
+        alert('Dismiss failed: ' + (err.message || err));
+      }
     } else if (t.dataset && t.dataset.replySend) {
       var id2 = t.dataset.replySend;
       var input = document.querySelector('[data-reply-input="' + id2 + '"]');

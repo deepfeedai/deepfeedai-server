@@ -13,6 +13,7 @@ const { logAudit } = require('../middleware/audit');
 const { isFeatureEnabled, getAllFeatures } = require('../lib/feature-registry');
 const { recordEvent } = require('../lib/newsroom-events');
 const { notify } = require('../lib/notifications');
+const { burnTokensByTarget } = require('../lib/action-tokens');
 
 async function requirePitchesEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'article_pitches').catch(() => false);
@@ -216,6 +217,10 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
     WHERE id = $3 AND tenant_id = $4
   `).run(req.user?.sub || null, note || null, pitch.id, req.tenantId);
 
+  // Burn any outstanding action tokens for this pitch so the bell won't show
+  // stale Approve/Reject buttons when the decision was made directly here.
+  burnTokensByTarget('pitch', pitch.id, req.tenantId, req.user?.sub || null).catch(() => {});
+
   logAudit(req, 'pitch.approved', 'article_pitches', pitch.id, {
     source_article_id: pitch.source_article_id,
     override: !!override,
@@ -271,6 +276,8 @@ router.post('/:id/reject', auth, requirePermission('articles.update'), requirePi
         decision_note = $2
     WHERE id = $3 AND tenant_id = $4
   `).run(req.user?.sub || null, note || null, req.params.id, req.tenantId);
+
+  burnTokensByTarget('pitch', Number(req.params.id), req.tenantId, req.user?.sub || null).catch(() => {});
 
   logAudit(req, 'pitch.rejected', 'article_pitches', req.params.id, { note: note || null });
   recordEvent({

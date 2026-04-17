@@ -36,6 +36,7 @@ router.get('/', auth, requirePermission('articles.read'), requireWorkspaceEnable
     LEFT JOIN writers w ON w.id = e.actor_writer_id AND w.tenant_id = e.tenant_id
     WHERE e.tenant_id = $1
       AND e.created_at > NOW() - make_interval(days => $2)
+      AND e.dismissed_at IS NULL
   `;
   if (types.length) {
     params.push(types);
@@ -318,6 +319,18 @@ router.post('/:eventId/replies', auth, requirePermission('articles.read'), requi
   }
 
   res.status(201).json(row);
+}));
+
+// DELETE /api/newsroom-feed/:eventId — dismiss an event from the feed
+router.delete('/:eventId', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const eventId = parseInt(req.params.eventId, 10);
+  if (!eventId) return res.status(400).json({ error: 'invalid_event_id' });
+  const result = await db.prepare(
+    `UPDATE newsroom_events SET dismissed_at = NOW()
+      WHERE id = $1 AND tenant_id = $2 AND dismissed_at IS NULL RETURNING id`
+  ).get(eventId, req.tenantId);
+  if (!result) return res.status(404).json({ error: 'Event not found or already dismissed' });
+  res.json({ ok: true, id: result.id });
 }));
 
 module.exports = router;
