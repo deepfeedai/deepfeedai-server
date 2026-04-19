@@ -118,9 +118,12 @@
       panel.appendChild(form);
       document.body.appendChild(panel);
 
-      // Close on outside click / Esc
+      // Close on outside click / Esc. The _justOpened() guard prevents the
+      // click event that opened the panel (e.g. the Feed Inbox bulk pitch
+      // button) from immediately closing it again when it bubbles up here.
       document.addEventListener('click', function (ev) {
         if (!panel.classList.contains('open')) return;
+        if (_justOpened()) return;
         if (panel.contains(ev.target) || (bubble && bubble.contains(ev.target))) return;
         closePanel();
       });
@@ -128,6 +131,14 @@
         if (ev.key === 'Escape' && panel.classList.contains('open')) closePanel();
       });
     }
+
+    // Guards the outside-click handler against the click that just opened
+    // the panel — e.g. the Feed Inbox bulk "Create pitch from selection"
+    // button lives outside the panel AND the bubble, so without this flag
+    // the same click that triggers openPanel also bubbles up to document
+    // and the handler immediately closes the panel.
+    var _openedAt = 0;
+    function _justOpened() { return Date.now() - _openedAt < 300; }
 
     function togglePanel() {
       ensurePanel();
@@ -138,6 +149,7 @@
     function openPanel() {
       ensurePanel();
       panel.classList.add('open');
+      _openedAt = Date.now();
       refreshContextBadge();
       if (!thread.children.length) {
         appendBubble('assistant', 'Hi — Maxwell here. Ask me about any story, writer, or coverage gap. I can propose pitches, approvals, and assignments.');
