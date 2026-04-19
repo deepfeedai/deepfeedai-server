@@ -209,19 +209,28 @@ const NAV_GROUPS = [
 
 const LOGOUT_ICON = '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>';
 
+// Expose nav groups on window so downstream modules (command palette,
+// recent/pinned, etc.) can enumerate pages without duplicating the list.
+window.NAV_GROUPS = NAV_GROUPS;
+
 function renderSidebar() {
   const layout = document.querySelector('.admin-layout');
   if (!layout) return;
 
-  // Load the nav-kit bundle (keybindings, ?-cheatsheet, visit telemetry,
-  // shared DOM helpers) exactly once per page. All admin pages call
-  // renderSidebar on boot, so this is the natural funnel.
-  if (!document.getElementById('navKitScript')) {
-    const s = document.createElement('script');
-    s.id = 'navKitScript';
-    s.src = '/nav-kit.js';
+  // Load navigation modules (keybindings, ?-cheatsheet, visit telemetry,
+  // command palette, recent/pinned) exactly once per page. All admin pages
+  // call renderSidebar on boot, so this is the natural funnel.
+  [
+    { id: 'navKitScript',         src: '/nav-kit.js' },
+    { id: 'commandPaletteScript', src: '/command-palette.js' },
+  ].forEach(function (m) {
+    if (document.getElementById(m.id)) return;
+    var s = document.createElement('script');
+    s.id  = m.id;
+    s.src = m.src;
+    s.defer = true;
     document.head.appendChild(s);
-  }
+  });
 
   const pathname = window.location.pathname;
 
