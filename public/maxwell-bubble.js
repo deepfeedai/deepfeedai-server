@@ -101,6 +101,14 @@
       input.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendMessage(); }
       });
+      // When the soft keyboard opens on mobile, the visual viewport shrinks
+      // and the input can end up under the keyboard. Nudge it back into view
+      // after the keyboard animation settles.
+      input.addEventListener('focus', function () {
+        setTimeout(function () {
+          if (input.scrollIntoView) input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 300);
+      });
       var send = el('button', { class: 'mx-send', type: 'submit', 'aria-label': 'Send' }, ['↑']);
       form.appendChild(input);
       form.appendChild(send);
@@ -134,7 +142,14 @@
       if (!thread.children.length) {
         appendBubble('assistant', 'Hi — Maxwell here. Ask me about any story, writer, or coverage gap. I can propose pitches, approvals, and assignments.');
       }
-      setTimeout(function () { input.focus(); }, 150);
+      // iOS Safari blocks programmatic .focus() called outside the original
+      // tap event from showing the soft keyboard. On touch devices, skip the
+      // auto-focus so the user's first tap on the textarea reliably opens
+      // the keyboard. Desktop still gets the convenience auto-focus.
+      var isTouch = typeof matchMedia === 'function' && matchMedia('(hover: none) and (pointer: coarse)').matches;
+      if (!isTouch) {
+        setTimeout(function () { input.focus(); }, 150);
+      }
     }
 
     function closePanel() { if (panel) panel.classList.remove('open'); }
@@ -311,7 +326,10 @@
       s.textContent = [
         '.mx-bubble { position:fixed; bottom:20px; right:20px; width:52px; height:52px; border-radius:50%; background:var(--primary, #7c3aed); color:#fff; border:0; font-size:22px; cursor:pointer; z-index:9999; box-shadow:0 6px 20px rgba(0,0,0,0.35); transition:transform 0.15s; }',
         '.mx-bubble:hover { transform:scale(1.06); }',
-        '.mx-panel { position:fixed; top:0; right:0; width:min(420px, 95vw); height:100vh; background:var(--bg-card, #1a1a1a); color:var(--text, #fff); border-left:1px solid var(--border, #333); transform:translateX(100%); transition:transform 0.25s ease-out; z-index:10000; display:flex; flex-direction:column; box-shadow:-8px 0 32px rgba(0,0,0,0.4); }',
+        // height uses dvh on mobile so the iOS Safari URL bar doesn't push
+        // the form below the visible viewport. 100vh fallback for older
+        // browsers that don't recognise dvh.
+        '.mx-panel { position:fixed; top:0; right:0; width:min(420px, 95vw); height:100vh; height:100dvh; background:var(--bg-card, #1a1a1a); color:var(--text, #fff); border-left:1px solid var(--border, #333); transform:translateX(100%); transition:transform 0.25s ease-out; z-index:10000; display:flex; flex-direction:column; box-shadow:-8px 0 32px rgba(0,0,0,0.4); }',
         '.mx-panel.open { transform:translateX(0); }',
         '.mx-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border, #333); flex-shrink:0; }',
         '.mx-head-title { font-size:14px; font-weight:600; flex-shrink:0; }',
