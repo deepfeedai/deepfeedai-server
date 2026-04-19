@@ -207,9 +207,14 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     }
   }
 
-  // Route tool-capable system agents (Iris, Vera) through the tool-calling path
-  // when an article context is attached. All other agents use the standard path.
+  // Route tool-capable system agents (Iris, Vera, and — behind a feature flag —
+  // Maxwell) through the native tool-calling path. Without the flag Maxwell
+  // stays on the legacy <<<PITCH:…>>> path so rollouts can be per-tenant.
   const TOOL_ROLES = ['designer', 'copy-editor'];
+  if (writer?.is_system && writer?.role === 'editor') {
+    const maxwellTools = await isFeatureEnabled(req.tenantId, 'maxwell_tool_calling').catch(() => false);
+    if (maxwellTools) TOOL_ROLES.push('editor');
+  }
   if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
     let toolResult;
     try {
@@ -279,12 +284,16 @@ router.post('/actions/approve', auth, requirePermission('articles.read'), requir
     return res.json({ text: `Pitch created! It's in the queue and ready for writer assignment.`, pitch_id: row.id });
   }
 
-  // Existing tool proposals (thumbnail, headline) use the agent-tools path
-  if (!proposal.article_id) {
+  // Tool proposals (thumbnail, headline, pitch, approve_article, kill_article,
+  // assign_writer, feature_article) use the agent-tools apply path. The `pitch`
+  // type doesn't carry a direct article_id on the proposal root (the source
+  // article id lives under article_id too, populated server-side).
+  const needsArticle = ['thumbnail', 'headline', 'approve_article', 'kill_article', 'assign_writer', 'feature_article', 'pitch'];
+  if (needsArticle.includes(actionType) && !proposal.article_id) {
     return res.status(400).json({ error: 'article_id required for this proposal type' });
   }
   try {
-    const result = await agentTools.applyProposal(proposal, req.tenantId);
+    const result = await agentTools.applyProposal(proposal, req.tenantId, req.user?.sub || null);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message || 'apply failed' });

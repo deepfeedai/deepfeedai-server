@@ -371,18 +371,41 @@
     card.dataset.proposal = JSON.stringify(proposal);
 
     var inner = '';
+    var approveLabel = '✓ Looks good';
     if (proposal.proposal_type === 'thumbnail') {
       inner = '<div class="chat-proposal-preview">'
         + '<img src="' + esc(proposal.preview_url) + '" alt="Proposed thumbnail" class="chat-proposal-image" />'
         + '</div>';
+      approveLabel = proposal.article_id ? '✓ Apply to article' : '✓ Looks good';
     } else if (proposal.proposal_type === 'headline') {
       inner = '<div class="chat-proposal-headline">&ldquo;' + esc(proposal.new_headline) + '&rdquo;</div>'
         + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
+      approveLabel = '✓ Apply headline';
+    } else if (proposal.proposal_type === 'pitch') {
+      inner = '<div class="chat-proposal-headline">📋 Pitch</div>'
+        + '<div class="chat-proposal-rationale">' + esc(proposal.angle_summary || '') + '</div>'
+        + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '');
+      approveLabel = '✓ Create pitch';
+    } else if (proposal.proposal_type === 'approve_article') {
+      inner = '<div class="chat-proposal-headline">✓ Approve for publication</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = '✓ Approve & publish';
+    } else if (proposal.proposal_type === 'kill_article') {
+      inner = '<div class="chat-proposal-headline" style="color:#ef4444;">⚠️ Kill article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + (proposal.reason ? ' — ' + esc(proposal.reason) : '') + '</div>'
+        + '<div class="chat-proposal-rationale" style="font-size:11px;opacity:0.7;">Sets status=killed, unpublishes, and archives.</div>';
+      approveLabel = '✗ Confirm kill';
+    } else if (proposal.proposal_type === 'assign_writer') {
+      inner = '<div class="chat-proposal-headline">👤 Reassign writer</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + ' → ' + esc(proposal.writer_name || '(unknown)') + '</div>';
+      approveLabel = '✓ Reassign';
+    } else if (proposal.proposal_type === 'feature_article') {
+      inner = '<div class="chat-proposal-headline">⭐ ' + (proposal.featured ? 'Feature' : 'Unfeature') + ' article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = proposal.featured ? '✓ Feature' : '✓ Unfeature';
     }
-
-    var approveLabel = proposal.proposal_type === 'headline'
-      ? '✓ Apply headline'
-      : (proposal.article_id ? '✓ Apply to article' : '✓ Looks good');
     inner += '<div class="chat-proposal-actions">'
       + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
       + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
