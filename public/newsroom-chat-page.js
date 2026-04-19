@@ -336,12 +336,24 @@
         body: JSON.stringify(payload),
       });
       typing.remove();
+      // If the server rehydrated an article from prior context (anaphora), sync
+      // the context bar so the editor can see which article was used.
+      if (resp.resolved_article_id && !activeArticleId) {
+        activeArticleId = resp.resolved_article_id;
+        var bar = document.getElementById('chatContextBar');
+        var label = document.getElementById('chatContextLabel');
+        if (bar && label) {
+          label.textContent = 'Article #' + resp.resolved_article_id + ' (from context)';
+          bar.style.display = 'flex';
+        }
+      }
       if (resp.proposal) {
         appendBubble('assistant', resp.text || '');
         appendProposalCard(resp.proposal);
       } else {
         appendBubble('assistant', resp.text || '(no response)');
         if (resp.actions && resp.actions.length) appendActionButtons(resp.actions);
+        if (resp.parse_hint) appendParseHint(resp.parse_hint, text, intent);
       }
     } catch (err) {
       typing.remove();
@@ -359,18 +371,41 @@
     card.dataset.proposal = JSON.stringify(proposal);
 
     var inner = '';
+    var approveLabel = '✓ Looks good';
     if (proposal.proposal_type === 'thumbnail') {
       inner = '<div class="chat-proposal-preview">'
         + '<img src="' + esc(proposal.preview_url) + '" alt="Proposed thumbnail" class="chat-proposal-image" />'
         + '</div>';
+      approveLabel = proposal.article_id ? '✓ Apply to article' : '✓ Looks good';
     } else if (proposal.proposal_type === 'headline') {
       inner = '<div class="chat-proposal-headline">&ldquo;' + esc(proposal.new_headline) + '&rdquo;</div>'
         + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
+      approveLabel = '✓ Apply headline';
+    } else if (proposal.proposal_type === 'pitch') {
+      inner = '<div class="chat-proposal-headline">📋 Pitch</div>'
+        + '<div class="chat-proposal-rationale">' + esc(proposal.angle_summary || '') + '</div>'
+        + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '');
+      approveLabel = '✓ Create pitch';
+    } else if (proposal.proposal_type === 'approve_article') {
+      inner = '<div class="chat-proposal-headline">✓ Approve for publication</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = '✓ Approve & publish';
+    } else if (proposal.proposal_type === 'kill_article') {
+      inner = '<div class="chat-proposal-headline" style="color:#ef4444;">⚠️ Kill article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + (proposal.reason ? ' — ' + esc(proposal.reason) : '') + '</div>'
+        + '<div class="chat-proposal-rationale" style="font-size:11px;opacity:0.7;">Sets status=killed, unpublishes, and archives.</div>';
+      approveLabel = '✗ Confirm kill';
+    } else if (proposal.proposal_type === 'assign_writer') {
+      inner = '<div class="chat-proposal-headline">👤 Reassign writer</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + ' → ' + esc(proposal.writer_name || '(unknown)') + '</div>';
+      approveLabel = '✓ Reassign';
+    } else if (proposal.proposal_type === 'feature_article') {
+      inner = '<div class="chat-proposal-headline">⭐ ' + (proposal.featured ? 'Feature' : 'Unfeature') + ' article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = proposal.featured ? '✓ Feature' : '✓ Unfeature';
     }
-
-    var approveLabel = proposal.proposal_type === 'headline'
-      ? '✓ Apply headline'
-      : (proposal.article_id ? '✓ Apply to article' : '✓ Looks good');
     inner += '<div class="chat-proposal-actions">'
       + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
       + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
@@ -396,6 +431,25 @@
     card.innerHTML = inner;
     thread.appendChild(card);
     scrollToBottom();
+  }
+
+  // Inline banner shown when the backend detected a pitch recommendation but
+  // couldn't parse the structured payload. Offers a Retry that re-sends the
+  // original message so the model can regenerate the block.
+  function appendParseHint(hint, originalText, originalIntent) {
+    var thread = document.getElementById('chatThread');
+    var banner = document.createElement('div');
+    banner.className = 'chat-parse-hint';
+    banner.innerHTML = '<span class="chat-parse-hint-text">' + esc(hint) + '</span>'
+      + '<button class="btn btn-outline btn-sm chat-parse-hint-retry">↻ Retry</button>';
+    thread.appendChild(banner);
+    scrollToBottom();
+    banner.querySelector('.chat-parse-hint-retry').addEventListener('click', function () {
+      banner.remove();
+      var input = document.getElementById('chatInput');
+      if (input) input.value = originalText;
+      sendMessage(originalIntent || 'pitch');
+    });
   }
 
   async function handleProposalClick(e) {
