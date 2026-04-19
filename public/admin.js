@@ -221,12 +221,14 @@ function renderSidebar() {
   // command palette, recent/pinned) exactly once per page. All admin pages
   // call renderSidebar on boot, so this is the natural funnel.
   [
-    { id: 'navKitScript',            src: '/nav-kit.js' },
-    { id: 'commandPaletteScript',    src: '/command-palette.js' },
-    { id: 'navExtrasScript',         src: '/nav-extras.js' },
-    { id: 'breadcrumbsScript',       src: '/breadcrumbs.js' },
-    { id: 'turboNavScript',          src: '/turbo-nav.js' },
+    { id: 'navKitScript',             src: '/nav-kit.js' },
+    { id: 'commandPaletteScript',     src: '/command-palette.js' },
+    { id: 'navExtrasScript',          src: '/nav-extras.js' },
+    { id: 'breadcrumbsScript',        src: '/breadcrumbs.js' },
+    { id: 'turboNavScript',           src: '/turbo-nav.js' },
     { id: 'articleContextPillScript', src: '/article-context-pill.js' },
+    { id: 'maxwellBubbleScript',      src: '/maxwell-bubble.js' },
+    { id: 'writerDrawerScript',       src: '/writer-drawer.js' },
   ].forEach(function (m) {
     if (document.getElementById(m.id)) return;
     var s = document.createElement('script');
