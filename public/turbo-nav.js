@@ -55,21 +55,46 @@
       return m && m.getAttribute('content') === '1';
     }
 
-    // ── Progress bar ──────────────────────────────────────
+    // ── Progress bar + skeleton ──────────────────────────
     var bar = null;
+    var skeletonTimer = null;
     function progressStart() {
       progressEnd();
       bar = document.createElement('div');
       bar.className = 'turbo-progress';
       document.body.appendChild(bar);
       requestAnimationFrame(function () { bar.style.width = '70%'; });
+      // Only show a skeleton over the content if the fetch takes >150ms —
+      // fast swaps flash too quickly for the skeleton to be anything but
+      // distracting.
+      skeletonTimer = setTimeout(showSkeleton, 150);
     }
     function progressEnd() {
+      clearTimeout(skeletonTimer);
+      skeletonTimer = null;
+      hideSkeleton();
       if (!bar) return;
       bar.style.width = '100%';
       var b = bar;
       setTimeout(function () { if (b && b.parentNode) b.parentNode.removeChild(b); }, 200);
       bar = null;
+    }
+    function showSkeleton() {
+      var main = document.querySelector('.main-content');
+      if (!main || document.getElementById('turboSkeleton')) return;
+      var sk = document.createElement('div');
+      sk.id = 'turboSkeleton';
+      sk.className = 'turbo-skeleton';
+      sk.innerHTML = '<div class="turbo-skel-row" style="width:40%"></div>'
+                   + '<div class="turbo-skel-row" style="width:90%"></div>'
+                   + '<div class="turbo-skel-row" style="width:75%"></div>'
+                   + '<div class="turbo-skel-row" style="width:85%"></div>'
+                   + '<div class="turbo-skel-row" style="width:60%"></div>';
+      main.appendChild(sk);
+    }
+    function hideSkeleton() {
+      var sk = document.getElementById('turboSkeleton');
+      if (sk) sk.remove();
     }
 
     // ── Scripts re-execution ──────────────────────────────
@@ -215,6 +240,10 @@
       s.id = 'turboNavStyles';
       s.textContent = [
         '.turbo-progress { position:fixed; top:0; left:0; height:2px; width:0%; background:var(--primary, #7c3aed); z-index:10002; transition:width 0.4s ease-out; }',
+        '.turbo-skeleton { padding:24px; display:flex; flex-direction:column; gap:12px; opacity:0; animation:turboSkFadeIn 0.15s ease-out forwards; }',
+        '.turbo-skel-row { height:14px; border-radius:6px; background:linear-gradient(90deg, var(--surface2, #1f1f1f) 0%, var(--border, #333) 50%, var(--surface2, #1f1f1f) 100%); background-size:200% 100%; animation:turboSkShimmer 1.2s ease-in-out infinite; }',
+        '@keyframes turboSkFadeIn { to { opacity:1; } }',
+        '@keyframes turboSkShimmer { 0% { background-position:200% 0; } 100% { background-position:-200% 0; } }',
       ].join('\n');
       document.head.appendChild(s);
     })();
