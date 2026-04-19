@@ -230,7 +230,7 @@
       if (overlay) return;
       overlay = el('div', { id: 'cpOverlay', class: 'cp-overlay', onclick: function (e) { if (e.target === overlay) close(); } });
       var panel = el('div', { class: 'cp-panel', role: 'dialog', 'aria-label': 'Command palette' });
-      var hint  = el('div', { class: 'cp-hint' }, ['↑↓ navigate · ↵ open · ' + (NK.isMac ? '⌘↵' : 'Ctrl+↵') + ' new tab · Esc close']);
+      var hint  = el('div', { class: 'cp-hint' }, ['↑↓ navigate · ↵ open · ' + (NK.isMac ? '⌘↵' : 'Ctrl+↵') + ' or ⇧↵ new tab · Esc close']);
       input = el('input', {
         class: 'cp-input',
         type: 'text',
@@ -245,7 +245,13 @@
       input.addEventListener('keydown', function (ev) {
         if (ev.key === 'ArrowDown') { ev.preventDefault(); selected = Math.min(results.length - 1, selected + 1); highlightSelected(); }
         else if (ev.key === 'ArrowUp') { ev.preventDefault(); selected = Math.max(0, selected - 1); highlightSelected(); }
-        else if (ev.key === 'Enter') { ev.preventDefault(); activate(ev.metaKey || ev.ctrlKey); }
+        else if (ev.key === 'Home') { ev.preventDefault(); selected = 0; highlightSelected(); }
+        else if (ev.key === 'End')  { ev.preventDefault(); selected = results.length - 1; highlightSelected(); }
+        else if (ev.key === 'Enter') {
+          ev.preventDefault();
+          // mod+Enter OR shift+Enter → new tab
+          activate(ev.metaKey || ev.ctrlKey || ev.shiftKey);
+        }
         else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
       });
 
