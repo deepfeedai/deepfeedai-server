@@ -206,6 +206,9 @@
         badge.textContent = commissions.length || '';
         badge.style.display = commissions.length ? 'inline-flex' : 'none';
       }
+      // Bulk auto-assign button — only relevant on the orphan view
+      var bulk = document.getElementById('autoAssignAllBtn');
+      if (bulk) bulk.style.display = (commissionFilter === 'orphaned' && commissions.length) ? 'inline-flex' : 'none';
     } catch (err) {
       document.getElementById('commissionsGrid').innerHTML =
         '<div class="review-empty">Failed to load commissions: ' + esc(err.message || err) + '</div>';
@@ -303,7 +306,8 @@
         }
       }
       if (!p.pitched_by_writer_id) {
-        html += '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">⚠ Assign writer</button>';
+        html += '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')" title="Pick the best writer automatically via beat match">🎯 Auto-assign</button>';
+        html += '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer…</button>';
       }
       html += '</div>';
       html += '</div>';
@@ -477,6 +481,45 @@
     await loadWritersListCache();
     fillWriterSelect(document.getElementById('reassignCommissionWriter'));
     openModal('reassignCommissionModal');
+  };
+
+  // One-click auto-assign: server picks the best writer via findBestWriter.
+  // If the pitch is already approved, synthesis kicks off right after the
+  // assignment so the orphan unsticks without a manual approve step.
+  window.autoAssignCommission = async function (pitchId) {
+    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
+    if (card) card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    try {
+      var result = await apiFetch('/pitches/' + pitchId + '/auto-assign', { method: 'POST' });
+      var name = result && result.writer ? result.writer.name : 'writer';
+      var suffix = result && result.synthesis_queued ? ' — synthesis queued.' : '.';
+      toast('Auto-assigned to ' + name + suffix, 'success');
+      await loadCommissions();
+    } catch (err) {
+      if (card) card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      var msg = err && err.message ? err.message : String(err);
+      if (/no_eligible_writer/.test(msg)) {
+        toast('No eligible writers — add one or assign manually.', 'error');
+      } else {
+        toast('Auto-assign failed: ' + msg, 'error');
+      }
+    }
+  };
+
+  // Bulk auto-assign all orphans in the current tenant. Server caps at 50.
+  window.autoAssignAllOrphans = async function () {
+    if (!confirm('Run auto-assign on every orphaned commissioned pitch (up to 50)?')) return;
+    var btn = document.getElementById('autoAssignAllBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Assigning…'; }
+    try {
+      var result = await apiFetch('/pitches/auto-assign-orphans', { method: 'POST' });
+      toast('Assigned ' + result.assigned + ', skipped ' + result.skipped + '.', result.assigned ? 'success' : 'info');
+      await loadCommissions();
+    } catch (err) {
+      toast('Bulk auto-assign failed: ' + (err.message || err), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 Auto-assign all'; }
+    }
   };
 
   function wireReassignCommission() {

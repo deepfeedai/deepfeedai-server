@@ -189,6 +189,116 @@ router.get('/:id', auth, requirePermission('articles.read'), requirePitchesEnabl
   res.json(row);
 }));
 
+// POST /api/pitches/:id/auto-assign
+// One-click recovery: run findBestWriter against the pitch's source article
+// and assign the winner. Works on both 'proposed' and 'approved' pitches;
+// when applied to an already-approved pitch with no spawned article yet,
+// synthesis is queued immediately.
+router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
+  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
+  if (pitch.status !== 'proposed' && pitch.status !== 'approved') {
+    return res.status(409).json({ error: `Pitch is already ${pitch.status}` });
+  }
+
+  const source = await db.prepare(
+    'SELECT id, title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
+  ).get(pitch.source_article_id, req.tenantId);
+  if (!source) return res.status(404).json({ error: 'Source article not found' });
+
+  const { findBestWriter } = require('../lib/writer-assign');
+  const writer = await findBestWriter(source, req.tenantId);
+  if (!writer || !writer.id) {
+    return res.status(409).json({ error: 'no_eligible_writer', message: 'No eligible writers in this tenant — add a writer or assign manually.' });
+  }
+
+  await db.prepare(
+    'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
+  ).run(writer.id, pitch.id, req.tenantId);
+
+  logAudit(req, 'pitch.auto_assigned', 'article_pitches', pitch.id, {
+    writer_id: writer.id,
+    prior_writer_id: pitch.pitched_by_writer_id,
+    prior_status: pitch.status,
+    via: 'manual_button',
+  });
+
+  let synthesisQueued = false;
+  if (pitch.status === 'approved' && !pitch.spawned_article_id) {
+    synthesisQueued = true;
+    const { synthesizeFromPitch } = require('../lib/synthesis');
+    setImmediate(() => {
+      synthesizeFromPitch(pitch.id, req.tenantId)
+        .then(r => {
+          if (r.ok) console.log(`[pitches] auto-assigned orphan #${pitch.id} synthesized → article ${r.article.id}`);
+          else console.warn(`[pitches] auto-assigned orphan #${pitch.id} synthesis skipped: ${r.reason}`);
+        })
+        .catch(err => console.error(`[pitches] auto-assigned orphan #${pitch.id} synthesis failed:`, err.message));
+    });
+  }
+
+  res.json({
+    status: 'assigned',
+    pitch_id: pitch.id,
+    writer: { id: writer.id, name: writer.name },
+    synthesis_queued: synthesisQueued,
+  });
+}));
+
+// POST /api/pitches/auto-assign-orphans
+// Bulk recovery: iterates all orphaned pitches (non-terminal status AND no
+// writer) and auto-assigns each. Returns per-pitch results so the UI can
+// report a summary. Capped at 50 to protect budget / DB.
+router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT p.id, p.status, p.source_article_id, p.spawned_article_id
+    FROM article_pitches p
+    WHERE p.tenant_id = $1
+      AND p.status IN ('proposed', 'approved')
+      AND p.pitched_by_writer_id IS NULL
+    ORDER BY p.created_at ASC
+    LIMIT 50
+  `).all(req.tenantId);
+
+  if (!rows.length) return res.json({ assigned: 0, skipped: 0, results: [] });
+
+  const { findBestWriter } = require('../lib/writer-assign');
+  const { synthesizeFromPitch } = require('../lib/synthesis');
+  const results = [];
+  let assigned = 0;
+  let skipped = 0;
+
+  for (const p of rows) {
+    try {
+      const source = await db.prepare(
+        'SELECT id, title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(p.source_article_id, req.tenantId);
+      if (!source) { skipped++; results.push({ id: p.id, skipped: 'source_missing' }); continue; }
+
+      const writer = await findBestWriter(source, req.tenantId);
+      if (!writer || !writer.id) { skipped++; results.push({ id: p.id, skipped: 'no_writer' }); continue; }
+
+      await db.prepare(
+        'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
+      ).run(writer.id, p.id, req.tenantId);
+      assigned++;
+      results.push({ id: p.id, writer_id: writer.id, writer_name: writer.name });
+
+      if (p.status === 'approved' && !p.spawned_article_id) {
+        setImmediate(() => {
+          synthesizeFromPitch(p.id, req.tenantId).catch(err => console.error(`[pitches] bulk synth #${p.id} failed:`, err.message));
+        });
+      }
+    } catch (err) {
+      skipped++;
+      results.push({ id: p.id, skipped: 'error', message: err.message });
+    }
+  }
+
+  logAudit(req, 'pitch.bulk_auto_assign', 'article_pitches', null, { assigned, skipped, total: rows.length });
+  res.json({ assigned, skipped, results });
+}));
+
 // PATCH /api/pitches/:id/assign — body: { writer_id }
 // Assigns/reassigns the pitching writer. Valid for both 'proposed' and
 // 'approved' pitches — the latter is the recovery path for commissioned
