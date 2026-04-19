@@ -366,6 +366,27 @@
       if (panel && panel.classList.contains('open')) refreshContextBadge();
     }, 2000);
 
+    // Public API — lets any page (briefs, activity feed) prefill + open the
+    // bubble with a contextual question. If autoSend is true the message
+    // fires immediately; otherwise the editor tweaks before hitting send.
+    window.Maxwell = {
+      open:  function () { ensurePanel(); openPanel(); },
+      close: function () { closePanel(); },
+      ask: function (question, opts) {
+        opts = opts || {};
+        ensurePanel();
+        openPanel();
+        // Wait for openPanel's animation so focus/send land on ready DOM
+        setTimeout(function () {
+          if (!input) return;
+          input.value = String(question || '');
+          autosize();
+          if (opts.autoSend) sendMessage();
+          else input.focus();
+        }, opts.autoSend ? 100 : 200);
+      },
+    };
+
     // Kick off discovery
     resolveMaxwell();
   });

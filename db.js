@@ -1268,6 +1268,21 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
+    // Editor thumbs-up/down feedback on individual briefs + digests. Used
+    // immediately to show the user their prior vote; will later feed into
+    // the brief prompt so Maxwell can adjust tone based on trailing feedback.
+    `CREATE TABLE IF NOT EXISTS brief_feedback (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      event_id    INTEGER NOT NULL,
+      user_id     TEXT NOT NULL,
+      vote        TEXT NOT NULL CHECK (vote IN ('up','down')),
+      note        TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, event_id, user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_brief_feedback_event ON brief_feedback(tenant_id, event_id)`,
     // Social newsroom Phase 3 — reactions + threading on feed cards.
     // Reactions: signal-bearing emoji (🔥💡🚩👀). Unique per (event, actor, emoji)
     // so an actor can't double-react with the same emoji but can use multiple.

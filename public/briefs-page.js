@@ -42,6 +42,20 @@
       return;
     }
     list.innerHTML = filtered.map(renderCard).join('');
+    hydrateBriefFeedback();
+  }
+
+  function hydrateBriefFeedback() {
+    document.querySelectorAll('[data-brief-feedback]').forEach(async function (wrap) {
+      var eventId = wrap.getAttribute('data-brief-feedback');
+      try {
+        var data = await apiFetch('/newsroom-feed/' + eventId + '/feedback');
+        if (data.my_vote) {
+          var btn = wrap.querySelector('[data-brief-vote="' + data.my_vote + '"]');
+          if (btn) btn.classList.add('active');
+        }
+      } catch (_) {}
+    });
   }
 
   function renderCard(e) {
@@ -54,6 +68,12 @@
       ? renderStructured(payload)
       : '<div class="brief-prose">' + esc(payload.text || payload.prose || '(no content)') + '</div>';
 
+    var feedbackRow = '<div class="brief-feedback" data-brief-feedback="' + e.id + '">'
+      + '<button class="brief-thumb" data-brief-vote="up" title="Good brief">👍</button>'
+      + '<button class="brief-thumb" data-brief-vote="down" title="Needs adjustment">👎</button>'
+      + '<span class="brief-feedback-status"></span>'
+      + '</div>';
+
     return '<div class="brief-card-wrap" id="brief-' + e.id + '">'
       + '<div class="brief-card-head">'
       +   '<span class="brief-card-kind ' + kindCls + '">' + kindLabel + '</span>'
@@ -61,6 +81,7 @@
       +   '<button class="brief-card-perma" onclick="copyPermalink(' + e.id + ')" title="Copy permalink">🔗 Copy link</button>'
       + '</div>'
       + body
+      + feedbackRow
       + '</div>';
   }
 
@@ -112,6 +133,11 @@
     if (actionItems.length) {
       parts.push('<div class="brief-section"><div class="brief-section-title">Action items</div>'
         + '<div class="brief-actions">' + actionItems.map(function (a) {
+          if (a.action && a.action.endpoint) {
+            var encoded = encodeURIComponent(JSON.stringify(a.action));
+            return '<button class="brief-action-btn brief-action-exec" data-brief-action="' + encoded + '">'
+              + esc(a.label || '') + '</button>';
+          }
           return '<a class="brief-action-btn" href="' + esc(a.link || '#') + '">' + esc(a.label || '') + ' →</a>';
         }).join('') + '</div></div>');
     }
@@ -143,11 +169,29 @@
       trend = '<span class="brief-metric-trend brief-trend-' + (good ? 'good' : 'bad') + '">'
         + arrow + ' ' + (m.delta_pct > 0 ? '+' : '') + m.delta_pct + '%</span>';
     }
-    return '<div class="brief-metric">'
+    var metricData = encodeURIComponent(JSON.stringify({ key: key, value: m.value, baseline: m.baseline, delta_pct: m.delta_pct, trend: m.trend }));
+    return '<button class="brief-metric brief-metric-clickable" data-brief-metric="' + metricData + '" title="Ask Maxwell about this">'
       + '<div class="brief-metric-value">' + esc(display) + '</div>'
       + '<div class="brief-metric-label">' + esc(label) + '</div>'
       + trend
-      + '</div>';
+      + '</button>';
+  }
+
+  function metricQuestion(m) {
+    var key = m.key, v = m.value, dp = m.delta_pct;
+    var trendWord = dp == null ? '' : (dp > 0 ? ' (up ' + dp + '%)' : ' (down ' + Math.abs(dp) + '%)');
+    switch (key) {
+      case 'articles_published': return 'Walk me through this period\'s published articles' + trendWord + '.';
+      case 'pitches_created':    return 'Break down the pitch activity' + trendWord + '.';
+      case 'pitches_pending':    return 'What\'s in the pitch pipeline right now (' + v + ' pending)?';
+      case 'review_queue':       return 'What\'s stuck in the review queue (' + v + ' articles)?';
+      case 'ai_spend_usd':       return 'Break down the AI spend ($' + Number(v).toFixed(2) + ')' + trendWord + '. Which operations drove it?';
+      case 'research_ingested':  return 'Summarise the research intake (' + v + ' sources). Anything worth a pitch?';
+      case 'orphaned_pitches':   return 'Walk me through the ' + v + ' orphaned commissioned pitches. Which writer fits each?';
+      case 'coverage_gaps':      return 'Which beats did we miss, and what should we cover next?';
+      case 'top_article_views':  return 'What made the top article work? What can we learn?';
+      default:                   return 'Tell me about ' + (METRIC_LABELS[key] || key).toLowerCase() + '.';
+    }
   }
 
   function highlightIcon(type) {
@@ -194,6 +238,67 @@
   document.getElementById('kindFilter').addEventListener('change', load);
   document.getElementById('rangeFilter').addEventListener('change', load);
   document.getElementById('searchInput').addEventListener('input', render);
+
+  // Metric chip click → Maxwell bubble with a contextual question
+  document.addEventListener('click', function (ev) {
+    var metricBtn = ev.target.closest && ev.target.closest('.brief-metric-clickable');
+    if (!metricBtn || !metricBtn.dataset.briefMetric) return;
+    ev.preventDefault();
+    if (!window.Maxwell || !window.Maxwell.ask) return;
+    try {
+      var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
+      window.Maxwell.ask(metricQuestion(m), { autoSend: true });
+    } catch (_) {}
+  });
+
+  // Brief feedback thumbs
+  document.addEventListener('click', async function (ev) {
+    var thumb = ev.target.closest && ev.target.closest('.brief-thumb');
+    if (!thumb) return;
+    var wrap = thumb.closest('.brief-feedback');
+    if (!wrap) return;
+    ev.preventDefault();
+    var eventId = wrap.getAttribute('data-brief-feedback');
+    var currentVote = thumb.dataset.briefVote;
+    var alreadyActive = thumb.classList.contains('active');
+    var toSend = alreadyActive ? null : currentVote;
+    try {
+      await apiFetch('/newsroom-feed/' + eventId + '/feedback', { method: 'POST', body: JSON.stringify({ vote: toSend }) });
+      wrap.querySelectorAll('.brief-thumb').forEach(function (b) { b.classList.remove('active'); });
+      if (toSend) thumb.classList.add('active');
+      var status = wrap.querySelector('.brief-feedback-status');
+      if (status) status.textContent = toSend === 'up' ? 'Thanks.' : toSend === 'down' ? 'Noted.' : '';
+    } catch (err) {
+      toast('Feedback failed: ' + (err.message || err));
+    }
+  });
+
+  // Inline brief-action button click handler — same as the activity page.
+  document.addEventListener('click', async function (ev) {
+    var btn = ev.target.closest && ev.target.closest('.brief-action-exec');
+    if (!btn || !btn.dataset.briefAction) return;
+    ev.preventDefault();
+    var action;
+    try { action = JSON.parse(decodeURIComponent(btn.dataset.briefAction)); }
+    catch (_) { return; }
+    if (action.confirm && !window.confirm(action.confirm)) return;
+    btn.disabled = true;
+    var orig = btn.textContent;
+    btn.textContent = 'Working…';
+    try {
+      var endpoint = action.endpoint.replace(/^\/api/, '');
+      var result = await apiFetch(endpoint, { method: action.method || 'POST' });
+      var msg = action.success_message || 'Done';
+      if (result && typeof result.assigned === 'number') msg = 'Assigned ' + result.assigned + (result.skipped ? ', skipped ' + result.skipped : '') + '.';
+      else if (result && result.writer && result.writer.name) msg = 'Assigned to ' + result.writer.name + '.';
+      btn.textContent = '✓ ' + msg;
+      btn.classList.add('brief-action-done');
+    } catch (err) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      toast('Action failed: ' + (err.message || err));
+    }
+  });
 
   load();
 })();

@@ -112,6 +112,23 @@
       return;
     }
     stream.innerHTML = events.map(renderCard).join('');
+    hydrateBriefFeedback();
+  }
+
+  // After the feed renders, fetch each visible brief's existing feedback so
+  // the current user's prior vote shows as active. One request per brief —
+  // cheap and simple; could batch later if the feed grows.
+  function hydrateBriefFeedback() {
+    document.querySelectorAll('[data-brief-feedback]').forEach(async function (wrap) {
+      var eventId = wrap.getAttribute('data-brief-feedback');
+      try {
+        var data = await apiFetch('/newsroom-feed/' + eventId + '/feedback');
+        if (data.my_vote) {
+          var btn = wrap.querySelector('[data-brief-vote="' + data.my_vote + '"]');
+          if (btn) btn.classList.add('active');
+        }
+      } catch (_) { /* silent — feedback UI isn't critical */ }
+    });
   }
 
   var EMOJIS = ['🔥', '💡', '🚩', '👀'];
@@ -165,12 +182,15 @@
         ? (payload.manual ? 'Week in Review (manual)' : 'Week in Review')
         : (payload.manual ? 'Day Brief (manual)' : 'End-of-Day Brief');
       var title = '<div class="feed-title">' + titleIcon + ' ' + esc(titleText) + '</div>';
-      // Version-2 structured payloads render rich; older prose-only payloads
-      // fall back to the original longTextCard path.
+      var feedbackRow = '<div class="brief-feedback" data-brief-feedback="' + e.id + '">'
+        + '<button class="brief-thumb" data-brief-vote="up" title="Good brief">👍</button>'
+        + '<button class="brief-thumb" data-brief-vote="down" title="Needs adjustment">👎</button>'
+        + '<span class="brief-feedback-status"></span>'
+        + '</div>';
       if (payload.version === 2) {
-        inner = title + renderBriefCard(payload);
+        inner = title + renderBriefCard(payload) + feedbackRow;
       } else {
-        inner = title + longTextCard(payload.text, null);
+        inner = title + longTextCard(payload.text, null) + feedbackRow;
       }
     } else {
       inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
@@ -285,6 +305,14 @@
     if (actionItems.length) {
       parts.push('<div class="brief-section"><div class="brief-section-title">Action items</div>'
         + '<div class="brief-actions">' + actionItems.map(function (a) {
+          if (a.action && a.action.endpoint) {
+            // Inline-executable — encode action payload via encodeURIComponent
+            // so quotes inside JSON can't escape the attribute. Click handler
+            // decodes + parses.
+            var encoded = encodeURIComponent(JSON.stringify(a.action));
+            return '<button class="brief-action-btn brief-action-exec" data-brief-action="' + encoded + '">'
+              + esc(a.label || '') + '</button>';
+          }
           return '<a class="brief-action-btn" href="' + esc(a.link || '#') + '">' + esc(a.label || '') + ' →</a>';
         }).join('') + '</div></div>');
     }
@@ -308,11 +336,37 @@
       var cls = 'brief-metric-trend brief-trend-' + (isGoodTrend(key, m.trend) ? 'good' : 'bad');
       trendHtml = '<span class="' + cls + '">' + arrow + ' ' + sign + m.delta_pct + '%</span>';
     }
-    return '<div class="brief-metric">'
+    // Clickable → opens Maxwell with a prefilled question about this metric.
+    // Encode key + raw value so the handler can build a rich prompt even
+    // after the card is re-rendered.
+    var metricData = encodeURIComponent(JSON.stringify({ key: key, value: m.value, baseline: m.baseline, delta_pct: m.delta_pct, trend: m.trend }));
+    return '<button class="brief-metric brief-metric-clickable" data-brief-metric="' + metricData + '" title="Ask Maxwell about this">'
       + '<div class="brief-metric-value">' + esc(display) + '</div>'
       + '<div class="brief-metric-label">' + esc(label) + '</div>'
       + trendHtml
-      + '</div>';
+      + '</button>';
+  }
+
+  // Build a contextual question for Maxwell based on the metric the editor
+  // tapped. Keep questions concise; Maxwell already has the day's data in
+  // the conversation context key and can elaborate.
+  function metricQuestion(m) {
+    var key = m.key;
+    var v = m.value;
+    var dp = m.delta_pct;
+    var trendWord = dp == null ? '' : (dp > 0 ? ' (up ' + dp + '%)' : ' (down ' + Math.abs(dp) + '%)');
+    switch (key) {
+      case 'articles_published': return 'Walk me through today\'s published articles' + trendWord + '.';
+      case 'pitches_created':    return 'Break down today\'s pitch activity' + trendWord + '.';
+      case 'pitches_pending':    return 'What\'s in the pitch pipeline right now (' + v + ' pending)?';
+      case 'review_queue':       return 'What\'s stuck in the review queue (' + v + ' articles)?';
+      case 'ai_spend_usd':       return 'Break down today\'s AI spend ($' + Number(v).toFixed(2) + ')' + trendWord + '. Which operations drove it?';
+      case 'research_ingested':  return 'Summarise today\'s research intake (' + v + ' sources). Anything worth a pitch?';
+      case 'orphaned_pitches':   return 'Walk me through the ' + v + ' orphaned commissioned pitches. Which writer fits each?';
+      case 'coverage_gaps':      return 'Which beats did we miss this week, and what should we cover next week?';
+      case 'top_article_views':  return 'What made the top article this week work? What can we learn?';
+      default:                   return 'Tell me about ' + (METRIC_LABELS[key] || key).toLowerCase() + '.';
+    }
   }
 
   var METRIC_LABELS = {
@@ -367,6 +421,72 @@
   // Wire reaction + reply handlers (event-delegated on stream container)
   document.addEventListener('click', async function (ev) {
     var t = ev.target;
+    // Metric chip → Maxwell bubble with a contextual question
+    var metricBtn = t.closest && t.closest('.brief-metric-clickable');
+    if (metricBtn && metricBtn.dataset.briefMetric) {
+      ev.preventDefault();
+      if (!window.Maxwell || !window.Maxwell.ask) return;
+      try {
+        var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
+        window.Maxwell.ask(metricQuestion(m), { autoSend: true });
+      } catch (_) {}
+      return;
+    }
+    // Brief feedback thumbs — upsert / clear current user's vote
+    var thumb = t.closest && t.closest('.brief-thumb');
+    if (thumb) {
+      ev.preventDefault();
+      var wrap = thumb.closest('.brief-feedback');
+      if (!wrap) return;
+      var eventId = wrap.getAttribute('data-brief-feedback');
+      var currentVote = thumb.dataset.briefVote;
+      var alreadyActive = thumb.classList.contains('active');
+      var toSend = alreadyActive ? null : currentVote; // toggle off if re-clicked
+      try {
+        await apiFetch('/newsroom-feed/' + eventId + '/feedback', {
+          method: 'POST',
+          body: JSON.stringify({ vote: toSend }),
+        });
+        wrap.querySelectorAll('.brief-thumb').forEach(function (b) { b.classList.remove('active'); });
+        if (toSend) thumb.classList.add('active');
+        var status = wrap.querySelector('.brief-feedback-status');
+        if (status) status.textContent = toSend === 'up' ? 'Thanks for the signal.' : toSend === 'down' ? 'Noted — Maxwell will adjust.' : '';
+      } catch (err) {
+        alert('Feedback failed: ' + (err.message || err));
+      }
+      return;
+    }
+    // Inline brief action button — server-computed, payload.action carries the
+    // endpoint + method. Encoded via encodeURIComponent in the renderer so
+    // quotes in JSON don't break the attribute.
+    var briefActionBtn = t.closest && t.closest('.brief-action-exec');
+    if (briefActionBtn && briefActionBtn.dataset.briefAction) {
+      ev.preventDefault();
+      var action;
+      try { action = JSON.parse(decodeURIComponent(briefActionBtn.dataset.briefAction)); }
+      catch (_) { return; }
+      if (action.confirm && !window.confirm(action.confirm)) return;
+      briefActionBtn.disabled = true;
+      var origText = briefActionBtn.textContent;
+      briefActionBtn.textContent = 'Working…';
+      try {
+        var endpoint = action.endpoint.replace(/^\/api/, '');
+        var result = await apiFetch(endpoint, { method: action.method || 'POST' });
+        var msg = action.success_message || 'Done';
+        if (result && typeof result.assigned === 'number') {
+          msg = 'Assigned ' + result.assigned + (result.skipped ? ', skipped ' + result.skipped : '') + '.';
+        } else if (result && result.writer && result.writer.name) {
+          msg = 'Assigned to ' + result.writer.name + '.';
+        }
+        briefActionBtn.textContent = '✓ ' + msg;
+        briefActionBtn.classList.add('brief-action-done');
+      } catch (err) {
+        briefActionBtn.textContent = origText;
+        briefActionBtn.disabled = false;
+        alert('Action failed: ' + (err.message || err));
+      }
+      return;
+    }
     if (t.dataset && t.dataset.expand) {
       var el = document.getElementById(t.dataset.expand);
       if (el) {
