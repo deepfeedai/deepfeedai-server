@@ -206,8 +206,11 @@ router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requ
   ).get(pitch.source_article_id, req.tenantId);
   if (!source) return res.status(404).json({ error: 'Source article not found' });
 
-  const { findBestWriter } = require('../lib/writer-assign');
-  const writer = await findBestWriter(source, req.tenantId);
+  // Use the fallback variant so a missing beat/keyword match doesn't leave
+  // the editor with a "no eligible writer" error when the tenant has
+  // writers available. Falls back to the least-busy non-system writer.
+  const { findWriterWithFallback } = require('../lib/writer-assign');
+  const writer = await findWriterWithFallback(source, req.tenantId);
   if (!writer || !writer.id) {
     return res.status(409).json({ error: 'no_eligible_writer', message: 'No eligible writers in this tenant — add a writer or assign manually.' });
   }
@@ -262,7 +265,7 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
 
   if (!rows.length) return res.json({ assigned: 0, skipped: 0, results: [] });
 
-  const { findBestWriter } = require('../lib/writer-assign');
+  const { findWriterWithFallback } = require('../lib/writer-assign');
   const { synthesizeFromPitch } = require('../lib/synthesis');
   const results = [];
   let assigned = 0;
@@ -275,7 +278,7 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
       ).get(p.source_article_id, req.tenantId);
       if (!source) { skipped++; results.push({ id: p.id, skipped: 'source_missing' }); continue; }
 
-      const writer = await findBestWriter(source, req.tenantId);
+      const writer = await findWriterWithFallback(source, req.tenantId);
       if (!writer || !writer.id) { skipped++; results.push({ id: p.id, skipped: 'no_writer' }); continue; }
 
       await db.prepare(
@@ -394,8 +397,8 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
         'SELECT id, title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
       ).get(pitch.source_article_id, req.tenantId);
       if (source) {
-        const { findBestWriter } = require('../lib/writer-assign');
-        const writer = await findBestWriter(source, req.tenantId);
+        const { findWriterWithFallback } = require('../lib/writer-assign');
+        const writer = await findWriterWithFallback(source, req.tenantId);
         if (writer && writer.id) {
           await db.prepare(
             'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
