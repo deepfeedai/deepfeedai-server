@@ -130,9 +130,14 @@ async function parsePitchAction(text, sourceArticleId, tenantId) {
 // stored context_article_id so follow-ups resolve naturally.
 const ANAPHORA_RE = /\b(that|it|this(?:\s+one)?|the\s+(article|piece|story|pitch))\b/i;
 
-// POST /api/newsroom-chat — body: { writer_id, message, context_article_id?, intent? }
+// POST /api/newsroom-chat
+// body: {
+//   writer_id, message, intent?,
+//   context_article_id?,                    primary source attached
+//   context_attached_article_ids?: number[] additional sources for multi-source pitches
+// }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
-  const { writer_id, message, context_article_id, intent } = req.body || {};
+  const { writer_id, message, context_article_id, context_attached_article_ids, intent } = req.body || {};
   if (!writer_id || !message) return res.status(400).json({ error: 'writer_id and message required' });
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
@@ -148,6 +153,23 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     resolvedArticleId = parseInt(context_article_id, 10) || null;
   } else if (ANAPHORA_RE.test(message)) {
     resolvedArticleId = await ctx.getLastContextArticleId(contextKey, req.tenantId, writerId);
+  }
+
+  // Multi-source: tenant-check any additional attachment ids the editor
+  // queued up (feed-inbox "create pitch from selection"). Strip anything
+  // foreign; drop the primary if it's duplicated in the list.
+  let additionalIds = [];
+  if (Array.isArray(context_attached_article_ids) && context_attached_article_ids.length) {
+    const ints = context_attached_article_ids.map(n => parseInt(n, 10)).filter(Boolean);
+    if (ints.length) {
+      const rows = await db.prepare(
+        'SELECT id, title, category, source FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2'
+      ).all(ints, req.tenantId).catch(() => []);
+      const valid = new Map(rows.map(r => [r.id, r]));
+      additionalIds = ints.filter(n => n !== resolvedArticleId && valid.has(n));
+      // Stash the lookup for the enrichment block below
+      req._additionalArticles = additionalIds.map(id => valid.get(id));
+    }
   }
 
   // Optionally enrich the message with article context (title, summary, category)
@@ -186,6 +208,16 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
         }
       }
     }
+  }
+
+  // If the editor queued multi-source context, append a brief block listing
+  // each additional source so Maxwell sees the full set and can call
+  // proposePitch with source_article_ids[] that covers them all.
+  if (additionalIds.length && Array.isArray(req._additionalArticles)) {
+    const lines = req._additionalArticles.map(a =>
+      `  - #${a.id} "${a.title}"${a.category ? ' (' + a.category + ')' : ''}${a.source ? ' — ' + a.source : ''}`
+    ).join('\n');
+    enrichedMessage += `\n\n[Additional sources the editor has queued for a multi-source pitch — include their IDs in source_article_ids when you call proposePitch:\n${lines}]`;
   }
 
   const meta = {

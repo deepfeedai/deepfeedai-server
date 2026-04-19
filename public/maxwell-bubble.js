@@ -194,7 +194,18 @@
       var extra = '';
       if (proposal.proposal_type === 'pitch') {
         var srcCount = Array.isArray(proposal.source_article_ids) ? proposal.source_article_ids.length : 1;
-        if (srcCount > 1) extra += '<div class="mx-card-meta">' + srcCount + ' sources</div>';
+        if (srcCount > 1) {
+          extra += '<div class="mx-card-meta">' + srcCount + ' sources:</div>';
+          var titles = Array.isArray(proposal.source_titles) ? proposal.source_titles : [];
+          if (titles.length) {
+            extra += '<ul class="mx-card-sources">'
+              + titles.slice(0, 5).map(function (s) {
+                return '<li>' + esc((s.title || 'Article #' + s.id).slice(0, 80)) + '</li>';
+              }).join('')
+              + (titles.length > 5 ? '<li class="mx-card-sources-more">+ ' + (titles.length - 5) + ' more</li>' : '')
+              + '</ul>';
+          }
+        }
         if (window.renderPitchTypeSelect) {
           extra += '<div class="mx-card-type-row"><span>Type:</span> ' + window.renderPitchTypeSelect(proposal.pitch_type) + '</div>';
         }
@@ -307,6 +318,10 @@
             writer_id: maxwellId,
             message:   text,
             context_article_id: ctx && ctx.id ? ctx.id : undefined,
+            // Multi-source pitch composing — editor queued N sources in the
+            // pill. Server enriches the message with all of them so Maxwell
+            // can propose a pitch that bundles them.
+            context_attached_article_ids: (ctx && Array.isArray(ctx.additional_ids) && ctx.additional_ids.length) ? ctx.additional_ids : undefined,
           }),
         });
         typing.remove();
@@ -366,6 +381,10 @@
         '.mx-card.done { opacity:0.6; }',
         '.mx-card-body { margin-bottom:8px; }',
         '.mx-card-meta { font-size:11px; color:var(--muted, #888); margin-bottom:6px; }',
+        '.mx-card-sources { list-style:none; padding:0; margin:0 0 8px; font-size:12px; }',
+        '.mx-card-sources li { padding:3px 0; color:var(--text, #fff); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+        '.mx-card-sources li::before { content:"· "; color:var(--muted, #888); }',
+        '.mx-card-sources .mx-card-sources-more { color:var(--muted, #888); font-style:italic; }',
         '.mx-card-type-row { display:flex; align-items:center; gap:6px; margin-bottom:8px; font-size:12px; color:var(--muted, #888); }',
         '.mx-card-type-row .pitch-type-select { padding:3px 6px; background:var(--bg-card, #1a1a1a); border:1px solid var(--border, #333); color:var(--text, #fff); border-radius:5px; font-size:12px; font-family:inherit; }',
         '.mx-card-actions { display:flex; gap:6px; }',
