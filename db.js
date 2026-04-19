@@ -1250,6 +1250,10 @@ async function initDb() {
     // Phase B follow-up — enriched articles explicitly attached to a pitch so synthesis
     // includes them regardless of embedding-similarity / beat-category / timing
     `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS attached_article_ids JSONB DEFAULT '[]'`,
+    // Pitch type — aligns article_pitches with the existing story_pitches.pitch_type
+    // so commissioned and writer-generated pitches can be filtered/grouped the same way.
+    // Default 'original' so pre-existing rows keep working.
+    `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS pitch_type TEXT DEFAULT 'original'`,
     // Social newsroom Phase 2 — activity feed events
     // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
     // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
