@@ -112,6 +112,11 @@
     if (actionItems.length) {
       parts.push('<div class="brief-section"><div class="brief-section-title">Action items</div>'
         + '<div class="brief-actions">' + actionItems.map(function (a) {
+          if (a.action && a.action.endpoint) {
+            var encoded = encodeURIComponent(JSON.stringify(a.action));
+            return '<button class="brief-action-btn brief-action-exec" data-brief-action="' + encoded + '">'
+              + esc(a.label || '') + '</button>';
+          }
           return '<a class="brief-action-btn" href="' + esc(a.link || '#') + '">' + esc(a.label || '') + ' →</a>';
         }).join('') + '</div></div>');
     }
@@ -194,6 +199,33 @@
   document.getElementById('kindFilter').addEventListener('change', load);
   document.getElementById('rangeFilter').addEventListener('change', load);
   document.getElementById('searchInput').addEventListener('input', render);
+
+  // Inline brief-action button click handler — same as the activity page.
+  document.addEventListener('click', async function (ev) {
+    var btn = ev.target.closest && ev.target.closest('.brief-action-exec');
+    if (!btn || !btn.dataset.briefAction) return;
+    ev.preventDefault();
+    var action;
+    try { action = JSON.parse(decodeURIComponent(btn.dataset.briefAction)); }
+    catch (_) { return; }
+    if (action.confirm && !window.confirm(action.confirm)) return;
+    btn.disabled = true;
+    var orig = btn.textContent;
+    btn.textContent = 'Working…';
+    try {
+      var endpoint = action.endpoint.replace(/^\/api/, '');
+      var result = await apiFetch(endpoint, { method: action.method || 'POST' });
+      var msg = action.success_message || 'Done';
+      if (result && typeof result.assigned === 'number') msg = 'Assigned ' + result.assigned + (result.skipped ? ', skipped ' + result.skipped : '') + '.';
+      else if (result && result.writer && result.writer.name) msg = 'Assigned to ' + result.writer.name + '.';
+      btn.textContent = '✓ ' + msg;
+      btn.classList.add('brief-action-done');
+    } catch (err) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      toast('Action failed: ' + (err.message || err));
+    }
+  });
 
   load();
 })();

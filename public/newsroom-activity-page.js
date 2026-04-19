@@ -285,6 +285,14 @@
     if (actionItems.length) {
       parts.push('<div class="brief-section"><div class="brief-section-title">Action items</div>'
         + '<div class="brief-actions">' + actionItems.map(function (a) {
+          if (a.action && a.action.endpoint) {
+            // Inline-executable — encode action payload via encodeURIComponent
+            // so quotes inside JSON can't escape the attribute. Click handler
+            // decodes + parses.
+            var encoded = encodeURIComponent(JSON.stringify(a.action));
+            return '<button class="brief-action-btn brief-action-exec" data-brief-action="' + encoded + '">'
+              + esc(a.label || '') + '</button>';
+          }
           return '<a class="brief-action-btn" href="' + esc(a.link || '#') + '">' + esc(a.label || '') + ' →</a>';
         }).join('') + '</div></div>');
     }
@@ -367,6 +375,37 @@
   // Wire reaction + reply handlers (event-delegated on stream container)
   document.addEventListener('click', async function (ev) {
     var t = ev.target;
+    // Inline brief action button — server-computed, payload.action carries the
+    // endpoint + method. Encoded via encodeURIComponent in the renderer so
+    // quotes in JSON don't break the attribute.
+    var briefActionBtn = t.closest && t.closest('.brief-action-exec');
+    if (briefActionBtn && briefActionBtn.dataset.briefAction) {
+      ev.preventDefault();
+      var action;
+      try { action = JSON.parse(decodeURIComponent(briefActionBtn.dataset.briefAction)); }
+      catch (_) { return; }
+      if (action.confirm && !window.confirm(action.confirm)) return;
+      briefActionBtn.disabled = true;
+      var origText = briefActionBtn.textContent;
+      briefActionBtn.textContent = 'Working…';
+      try {
+        var endpoint = action.endpoint.replace(/^\/api/, '');
+        var result = await apiFetch(endpoint, { method: action.method || 'POST' });
+        var msg = action.success_message || 'Done';
+        if (result && typeof result.assigned === 'number') {
+          msg = 'Assigned ' + result.assigned + (result.skipped ? ', skipped ' + result.skipped : '') + '.';
+        } else if (result && result.writer && result.writer.name) {
+          msg = 'Assigned to ' + result.writer.name + '.';
+        }
+        briefActionBtn.textContent = '✓ ' + msg;
+        briefActionBtn.classList.add('brief-action-done');
+      } catch (err) {
+        briefActionBtn.textContent = origText;
+        briefActionBtn.disabled = false;
+        alert('Action failed: ' + (err.message || err));
+      }
+      return;
+    }
     if (t.dataset && t.dataset.expand) {
       var el = document.getElementById(t.dataset.expand);
       if (el) {
