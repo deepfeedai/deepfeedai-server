@@ -49,6 +49,11 @@
   .brief-action-btn:hover { background:var(--bg-card); border-color:var(--primary); }
   .brief-action-btn.brief-action-exec { cursor:pointer; }
   .brief-action-btn.brief-action-done { background:rgba(34,197,94,0.12); border-color:rgba(34,197,94,0.35); color:#22c55e; cursor:default; }
+  .brief-feedback { display:flex; gap:6px; align-items:center; margin-top:10px; padding-top:8px; border-top:1px dashed var(--border); }
+  .brief-thumb { background:var(--surface2); border:1px solid var(--border); color:var(--muted); padding:4px 10px; border-radius:999px; font-size:13px; cursor:pointer; transition:all 0.15s; }
+  .brief-thumb:hover { color:var(--text); border-color:var(--primary); }
+  .brief-thumb.active { background:rgba(124,58,237,0.15); border-color:var(--primary); color:var(--primary); }
+  .brief-feedback-status { font-size:11px; color:var(--muted); }
   .brief-prose { font-size:13px; color:var(--text); line-height:1.6; white-space:pre-wrap; word-wrap:break-word; }
 </style>
 </head>

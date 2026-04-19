@@ -112,6 +112,23 @@
       return;
     }
     stream.innerHTML = events.map(renderCard).join('');
+    hydrateBriefFeedback();
+  }
+
+  // After the feed renders, fetch each visible brief's existing feedback so
+  // the current user's prior vote shows as active. One request per brief —
+  // cheap and simple; could batch later if the feed grows.
+  function hydrateBriefFeedback() {
+    document.querySelectorAll('[data-brief-feedback]').forEach(async function (wrap) {
+      var eventId = wrap.getAttribute('data-brief-feedback');
+      try {
+        var data = await apiFetch('/newsroom-feed/' + eventId + '/feedback');
+        if (data.my_vote) {
+          var btn = wrap.querySelector('[data-brief-vote="' + data.my_vote + '"]');
+          if (btn) btn.classList.add('active');
+        }
+      } catch (_) { /* silent — feedback UI isn't critical */ }
+    });
   }
 
   var EMOJIS = ['🔥', '💡', '🚩', '👀'];
@@ -165,12 +182,15 @@
         ? (payload.manual ? 'Week in Review (manual)' : 'Week in Review')
         : (payload.manual ? 'Day Brief (manual)' : 'End-of-Day Brief');
       var title = '<div class="feed-title">' + titleIcon + ' ' + esc(titleText) + '</div>';
-      // Version-2 structured payloads render rich; older prose-only payloads
-      // fall back to the original longTextCard path.
+      var feedbackRow = '<div class="brief-feedback" data-brief-feedback="' + e.id + '">'
+        + '<button class="brief-thumb" data-brief-vote="up" title="Good brief">👍</button>'
+        + '<button class="brief-thumb" data-brief-vote="down" title="Needs adjustment">👎</button>'
+        + '<span class="brief-feedback-status"></span>'
+        + '</div>';
       if (payload.version === 2) {
-        inner = title + renderBriefCard(payload);
+        inner = title + renderBriefCard(payload) + feedbackRow;
       } else {
-        inner = title + longTextCard(payload.text, null);
+        inner = title + longTextCard(payload.text, null) + feedbackRow;
       }
     } else {
       inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
@@ -410,6 +430,30 @@
         var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
         window.Maxwell.ask(metricQuestion(m), { autoSend: true });
       } catch (_) {}
+      return;
+    }
+    // Brief feedback thumbs — upsert / clear current user's vote
+    var thumb = t.closest && t.closest('.brief-thumb');
+    if (thumb) {
+      ev.preventDefault();
+      var wrap = thumb.closest('.brief-feedback');
+      if (!wrap) return;
+      var eventId = wrap.getAttribute('data-brief-feedback');
+      var currentVote = thumb.dataset.briefVote;
+      var alreadyActive = thumb.classList.contains('active');
+      var toSend = alreadyActive ? null : currentVote; // toggle off if re-clicked
+      try {
+        await apiFetch('/newsroom-feed/' + eventId + '/feedback', {
+          method: 'POST',
+          body: JSON.stringify({ vote: toSend }),
+        });
+        wrap.querySelectorAll('.brief-thumb').forEach(function (b) { b.classList.remove('active'); });
+        if (toSend) thumb.classList.add('active');
+        var status = wrap.querySelector('.brief-feedback-status');
+        if (status) status.textContent = toSend === 'up' ? 'Thanks for the signal.' : toSend === 'down' ? 'Noted — Maxwell will adjust.' : '';
+      } catch (err) {
+        alert('Feedback failed: ' + (err.message || err));
+      }
       return;
     }
     // Inline brief action button — server-computed, payload.action carries the
