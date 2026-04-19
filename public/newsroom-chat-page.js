@@ -342,6 +342,7 @@
       } else {
         appendBubble('assistant', resp.text || '(no response)');
         if (resp.actions && resp.actions.length) appendActionButtons(resp.actions);
+        if (resp.parse_hint) appendParseHint(resp.parse_hint, text, intent);
       }
     } catch (err) {
       typing.remove();
@@ -396,6 +397,25 @@
     card.innerHTML = inner;
     thread.appendChild(card);
     scrollToBottom();
+  }
+
+  // Inline banner shown when the backend detected a pitch recommendation but
+  // couldn't parse the structured payload. Offers a Retry that re-sends the
+  // original message so the model can regenerate the block.
+  function appendParseHint(hint, originalText, originalIntent) {
+    var thread = document.getElementById('chatThread');
+    var banner = document.createElement('div');
+    banner.className = 'chat-parse-hint';
+    banner.innerHTML = '<span class="chat-parse-hint-text">' + esc(hint) + '</span>'
+      + '<button class="btn btn-outline btn-sm chat-parse-hint-retry">↻ Retry</button>';
+    thread.appendChild(banner);
+    scrollToBottom();
+    banner.querySelector('.chat-parse-hint-retry').addEventListener('click', function () {
+      banner.remove();
+      var input = document.getElementById('chatInput');
+      if (input) input.value = originalText;
+      sendMessage(originalIntent || 'pitch');
+    });
   }
 
   async function handleProposalClick(e) {

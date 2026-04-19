@@ -65,33 +65,57 @@ function stripHallucinatedToolCalls(text) {
 }
 
 // Parse <<<PITCH:{...}>>> blocks Maxwell appends when proposing a pitch.
-// Returns { text: cleaned, actions: [] } — actions is empty when no block is found.
-// Also resolves writer_name → writer_id via DB lookup.
+// Returns { text, actions, parse_hint? }. parse_hint surfaces when a PITCH
+// block was detected but the payload could not be parsed or lacked required
+// fields — the UI shows this as a retry banner instead of silently dropping
+// the action button.
+const { parseTruncatedJsonObject, stripFences } = require('../lib/json-parse-safe');
+
 async function parsePitchAction(text, sourceArticleId, tenantId) {
   const cleaned = stripHallucinatedToolCalls(text);
-  const match = cleaned.match(/\n*<<<PITCH:([\s\S]*?)>>>\s*$/);
-  if (!match) return { text: cleaned, actions: [] };
-  try {
-    const data = JSON.parse(match[1]);
-    const cleanText = cleaned.slice(0, cleaned.lastIndexOf('<<<PITCH:')).trimEnd();
-    if (data.writer_name && data.writer_name !== 'null' && tenantId) {
-      const writerRow = await db.prepare(
-        `SELECT id FROM writers WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) AND is_system = false LIMIT 1`
-      ).get(tenantId, data.writer_name).catch(() => null);
-      if (writerRow) data.writer_id = writerRow.id;
+  const blocks = [...cleaned.matchAll(/<<<PITCH:([\s\S]*?)>>>/g)];
+  if (!blocks.length) return { text: cleaned, actions: [] };
+
+  // Strip ALL PITCH blocks from the visible text regardless of parse outcome.
+  const stripped = cleaned.replace(/\n*<<<PITCH:[\s\S]*?>>>\s*/g, '').trimEnd();
+
+  // Try each block (last-one-wins); JSON.parse first, then truncation recovery.
+  let data = null;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const raw = stripFences(blocks[i][1].trim());
+    try { data = JSON.parse(raw); break; }
+    catch {
+      try {
+        const recovered = parseTruncatedJsonObject(raw);
+        if (recovered && Object.keys(recovered).length) { data = recovered; break; }
+      } catch { /* try next block */ }
     }
-    delete data.writer_name;
-    return {
-      text: cleanText,
-      actions: [{
-        type: 'create_pitch',
-        label: '📋 Create Pitch',
-        payload: { source_article_id: sourceArticleId, ...data },
-      }],
-    };
-  } catch {
-    return { text: cleaned.slice(0, cleaned.lastIndexOf('<<<PITCH:')).trimEnd(), actions: [] };
   }
+
+  if (!data || !data.angle_summary || String(data.angle_summary).trim() === '') {
+    return {
+      text: stripped,
+      actions: [],
+      parse_hint: 'I had a pitch recommendation but the structured payload was malformed. Tap Retry to regenerate.',
+    };
+  }
+
+  if (data.writer_name && data.writer_name !== 'null' && tenantId) {
+    const writerRow = await db.prepare(
+      `SELECT id FROM writers WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) AND is_system = false LIMIT 1`
+    ).get(tenantId, data.writer_name).catch(() => null);
+    if (writerRow) data.writer_id = writerRow.id;
+  }
+  delete data.writer_name;
+
+  return {
+    text: stripped,
+    actions: [{
+      type: 'create_pitch',
+      label: '📋 Create Pitch',
+      payload: { source_article_id: sourceArticleId, ...data },
+    }],
+  };
 }
 
 // POST /api/newsroom-chat — body: { writer_id, message, context_article_id?, intent? }
@@ -196,11 +220,12 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     typeof response === 'string' ? response : (response?.text || '')
   );
   const sourceId = context_article_id ? parseInt(context_article_id, 10) : null;
-  const { text, actions } = await parsePitchAction(rawText, sourceId, req.tenantId);
+  const { text, actions, parse_hint } = await parsePitchAction(rawText, sourceId, req.tenantId);
 
   res.json({
     text,
     actions: actions.length ? actions : undefined,
+    parse_hint: parse_hint || undefined,
     voice: typeof response === 'object' ? !!response?.voice : false,
     cleared: typeof response === 'object' ? !!response?.clearChannel : false,
   });
