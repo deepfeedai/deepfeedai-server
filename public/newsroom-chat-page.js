@@ -422,13 +422,24 @@
     var thread = document.getElementById('chatThread');
     var card = document.createElement('div');
     card.className = 'chat-proposal-card';
-    var inner = '<div class="chat-proposal-actions">';
+    var actionsRow = document.createElement('div');
+    actionsRow.className = 'chat-proposal-actions';
+    // Build buttons via DOM API so dataset.action is stored as a property
+    // (the browser handles attribute encoding). String concatenation would
+    // require manual &quot; escaping since esc() intentionally only encodes
+    // &, <, > — quotes inside JSON would break the enclosing attribute.
     actions.forEach(function (action) {
-      inner += '<button class="btn btn-primary btn-sm chat-action-btn" data-action="' + esc(JSON.stringify(action)) + '">' + esc(action.label) + '</button>';
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-sm chat-action-btn';
+      btn.dataset.action = JSON.stringify(action);
+      btn.textContent = action.label;
+      actionsRow.appendChild(btn);
     });
-    inner += '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>';
-    inner += '</div>';
-    card.innerHTML = inner;
+    var skip = document.createElement('button');
+    skip.className = 'btn btn-outline btn-sm chat-proposal-reject';
+    skip.textContent = '✕ Skip';
+    actionsRow.appendChild(skip);
+    card.appendChild(actionsRow);
     thread.appendChild(card);
     scrollToBottom();
   }
