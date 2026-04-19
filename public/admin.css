@@ -651,11 +651,21 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 200;
+  /* Sits above the mobile bottom nav (9000) so modal footers like the
+     Assign-writer Cancel/Assign buttons aren't covered by the tab bar. */
+  z-index: 9500;
   padding: var(--space-4);
+  /* Reserve space for the mobile bottom nav + home-indicator so tall modals
+     don't extend under the tab bar. No effect on desktop (display:none on
+     .mbnav above 768px). */
+  padding-bottom: calc(var(--space-4) + 70px + env(safe-area-inset-bottom, 0px));
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
+}
+
+@media (min-width: 769px) {
+  .modal-overlay { padding-bottom: var(--space-4); }
 }
 
 .modal-overlay.open {
