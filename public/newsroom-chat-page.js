@@ -382,9 +382,18 @@
         + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
       approveLabel = '✓ Apply headline';
     } else if (proposal.proposal_type === 'pitch') {
-      inner = '<div class="chat-proposal-headline">📋 Pitch</div>'
+      // Multi-source badge + type dropdown (editor can override Maxwell's
+      // inferred type before approving). Selected value is read back on
+      // approve click and merged into the POST payload.
+      var sourceCount = Array.isArray(proposal.source_article_ids) ? proposal.source_article_ids.length : 1;
+      var sourceChip = sourceCount > 1 ? ' <span class="chat-proposal-src-chip">' + sourceCount + ' sources</span>' : '';
+      var typeSelect = window.renderPitchTypeSelect
+        ? '<div class="chat-proposal-type-row"><span class="chat-proposal-type-label">Type:</span> ' + window.renderPitchTypeSelect(proposal.pitch_type) + '</div>'
+        : '';
+      inner = '<div class="chat-proposal-headline">📋 Pitch' + sourceChip + '</div>'
         + '<div class="chat-proposal-rationale">' + esc(proposal.angle_summary || '') + '</div>'
-        + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '');
+        + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '')
+        + typeSelect;
       approveLabel = '✓ Create pitch';
     } else if (proposal.proposal_type === 'approve_article') {
       inner = '<div class="chat-proposal-headline">✓ Approve for publication</div>'
@@ -428,6 +437,16 @@
     // (the browser handles attribute encoding). String concatenation would
     // require manual &quot; escaping since esc() intentionally only encodes
     // &, <, > — quotes inside JSON would break the enclosing attribute.
+    // Show a type dropdown for any create_pitch action so the editor can
+     // override Maxwell's inferred type before hitting Create Pitch.
+    var pitchAction = actions.find(function (a) { return a.type === 'create_pitch'; });
+    if (pitchAction && window.renderPitchTypeSelect) {
+      var typeRow = document.createElement('div');
+      typeRow.className = 'chat-proposal-type-row';
+      typeRow.innerHTML = '<span class="chat-proposal-type-label">Type:</span> '
+        + window.renderPitchTypeSelect((pitchAction.payload && pitchAction.payload.pitch_type) || 'original');
+      card.appendChild(typeRow);
+    }
     actions.forEach(function (action) {
       var btn = document.createElement('button');
       btn.className = 'btn btn-primary btn-sm chat-action-btn';
@@ -482,10 +501,17 @@
       return;
     }
 
-    // Action button (e.g. create_pitch from Maxwell)
+    // Action button (e.g. create_pitch from Maxwell). If the card hosts a
+    // pitch-type dropdown, merge its current value into the payload so the
+    // editor's override wins over Maxwell's inferred type.
     if (actionBtn) {
       try {
         var action = JSON.parse(actionBtn.dataset.action);
+        var typeSel = card.querySelector('.pitch-type-select');
+        if (typeSel && action && action.type === 'create_pitch') {
+          action.payload = action.payload || {};
+          action.payload.pitch_type = typeSel.value;
+        }
         var result = await apiFetch('/newsroom-chat/actions/approve', {
           method: 'POST',
           body: JSON.stringify(action),
@@ -500,9 +526,15 @@
       return;
     }
 
-    // Approve (existing tool proposal: thumbnail, headline)
+    // Approve (existing tool proposal: thumbnail, headline, pitch, approve,
+    // kill, assign, feature). Pitch card may include a type dropdown — merge
+    // its value into proposal.pitch_type before POSTing.
     try {
       var proposal = JSON.parse(card.dataset.proposal);
+      var typeSelP = card.querySelector('.pitch-type-select');
+      if (typeSelP && proposal.proposal_type === 'pitch') {
+        proposal.pitch_type = typeSelP.value;
+      }
       var result = await apiFetch('/newsroom-chat/actions/approve', {
         method: 'POST',
         body: JSON.stringify(proposal),
