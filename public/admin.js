@@ -223,6 +223,7 @@ function renderSidebar() {
   [
     { id: 'navKitScript',         src: '/nav-kit.js' },
     { id: 'commandPaletteScript', src: '/command-palette.js' },
+    { id: 'navExtrasScript',      src: '/nav-extras.js' },
   ].forEach(function (m) {
     if (document.getElementById(m.id)) return;
     var s = document.createElement('script');
