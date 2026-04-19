@@ -159,14 +159,14 @@ router.post('/trigger-brief', auth, requirePermission('articles.write'), require
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
   ).get(req.tenantId);
 
-  const text = await generateDailyBrief(req.tenantId);
-  if (!text) return res.status(500).json({ error: 'Brief generation returned empty — check AI provider config.' });
+  const brief = await generateDailyBrief(req.tenantId);
+  if (!brief) return res.status(500).json({ error: 'Brief generation returned empty — check AI provider config.' });
 
   await recordEvent({
     tenantId: req.tenantId,
     type: 'daily_brief',
     actorWriterId: maxwell?.id || null,
-    payload: { text, manual: true },
+    payload: { ...brief, text: brief.prose, manual: true },
   });
 
   res.json({ ok: true });
@@ -181,14 +181,14 @@ router.post('/trigger-digest', auth, requirePermission('articles.write'), requir
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
   ).get(req.tenantId);
 
-  const text = await generateWeeklyDigest(req.tenantId);
-  if (!text) return res.status(500).json({ error: 'Digest generation returned empty — check AI provider config.' });
+  const digest = await generateWeeklyDigest(req.tenantId);
+  if (!digest) return res.status(500).json({ error: 'Digest generation returned empty — check AI provider config.' });
 
   await recordEvent({
     tenantId: req.tenantId,
     type: 'weekly_digest',
     actorWriterId: maxwell?.id || null,
-    payload: { text, manual: true },
+    payload: { ...digest, text: digest.prose, manual: true },
   });
 
   res.json({ ok: true });
