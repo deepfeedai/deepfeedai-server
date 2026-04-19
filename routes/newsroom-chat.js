@@ -118,6 +118,11 @@ async function parsePitchAction(text, sourceArticleId, tenantId) {
   };
 }
 
+// Matches anaphoric references ("that", "it", "this one", "the article") used
+// without a fresh context_article_id. Triggers rehydration from the last turn's
+// stored context_article_id so follow-ups resolve naturally.
+const ANAPHORA_RE = /\b(that|it|this(?:\s+one)?|the\s+(article|piece|story|pitch))\b/i;
+
 // POST /api/newsroom-chat — body: { writer_id, message, context_article_id?, intent? }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const { writer_id, message, context_article_id, intent } = req.body || {};
@@ -125,10 +130,23 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
 
+  const userId = req.user?.sub || 'anon';
+  const contextKey = buildWebContextKey(userId, writerId);
+
+  // Resolve article context: fresh attachment wins; otherwise rehydrate from
+  // the most recent turn that referenced an article when the user used a
+  // demonstrative pronoun ("make that a pitch", "it looks good").
+  let resolvedArticleId = null;
+  if (context_article_id) {
+    resolvedArticleId = parseInt(context_article_id, 10) || null;
+  } else if (ANAPHORA_RE.test(message)) {
+    resolvedArticleId = await ctx.getLastContextArticleId(contextKey, req.tenantId, writerId);
+  }
+
   // Optionally enrich the message with article context (title, summary, category)
   let enrichedMessage = message;
-  if (context_article_id) {
-    const articleId = parseInt(context_article_id, 10);
+  if (resolvedArticleId) {
+    const articleId = resolvedArticleId;
     if (articleId) {
       const article = await db.prepare(
         'SELECT title, summary, full_content, category, source, source_url, content_type FROM articles WHERE id = $1 AND tenant_id = $2'
@@ -163,12 +181,11 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     }
   }
 
-  const userId = req.user?.sub || 'anon';
-  const contextKey = buildWebContextKey(userId, writerId);
   const meta = {
     platform: 'web',
     userId: String(userId),
     userName: req.user?.name || req.user?.email || 'editor',
+    contextArticleId: resolvedArticleId,
   };
 
   // Fetch writer early so we can detect Maxwell for pitch instruction injection.
@@ -185,7 +202,7 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
       const rosterLines = writerRows.map(w => `- ${w.name}${w.beat ? ` (beat: ${w.beat})` : ''}`).join('\n');
       enrichedMessage += `\n\n[Newsroom writers available for assignment:\n${rosterLines}]`;
     }
-    if (context_article_id) {
+    if (resolvedArticleId) {
       enrichedMessage += `\n\n[ROLE REMINDER — do not display this: You are the editorial director. You do NOT write articles — you assess stories and assign them to writers. Your job is to evaluate this story's news value and recommend which writer from the roster above should cover it and why. Never say you will write or pitch the story yourself. When you have a clear recommendation, append exactly this block on its own line at the very end of your response: <<<PITCH:{"angle_summary":"one sentence angle here","writer_name":"Exact Writer Name from the roster"}>>> — only include it when you have a concrete recommendation, not in exploratory replies.]`;
     }
   }
@@ -197,16 +214,15 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     let toolResult;
     try {
       toolResult = await agentTools.handleWithTools(
-        req.tenantId, writer, enrichedMessage, contextKey, meta,
-        context_article_id ? parseInt(context_article_id, 10) : null,
+        req.tenantId, writer, enrichedMessage, contextKey, meta, resolvedArticleId,
       );
     } catch (err) {
       return res.status(500).json({ error: err.message || 'agent tool error' });
     }
     if (toolResult.type === 'tool_proposal') {
-      return res.json({ text: toolResult.preview_text, proposal: toolResult });
+      return res.json({ text: toolResult.preview_text, proposal: toolResult, resolved_article_id: resolvedArticleId });
     }
-    return res.json({ text: toolResult.text });
+    return res.json({ text: toolResult.text, resolved_article_id: resolvedArticleId });
   }
 
   let response;
@@ -219,13 +235,13 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
   const rawText = stripHallucinatedToolCalls(
     typeof response === 'string' ? response : (response?.text || '')
   );
-  const sourceId = context_article_id ? parseInt(context_article_id, 10) : null;
-  const { text, actions, parse_hint } = await parsePitchAction(rawText, sourceId, req.tenantId);
+  const { text, actions, parse_hint } = await parsePitchAction(rawText, resolvedArticleId, req.tenantId);
 
   res.json({
     text,
     actions: actions.length ? actions : undefined,
     parse_hint: parse_hint || undefined,
+    resolved_article_id: resolvedArticleId || undefined,
     voice: typeof response === 'object' ? !!response?.voice : false,
     cleared: typeof response === 'object' ? !!response?.clearChannel : false,
   });

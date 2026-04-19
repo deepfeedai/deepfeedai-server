@@ -1195,6 +1195,11 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_convo_history_lookup ON conversation_history(tenant_id, writer_id, channel_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_convo_history_cleanup ON conversation_history(created_at)`,
+    // Per-turn article context pointer — enables anaphora resolution on
+    // follow-up messages like "make that a pitch" when no fresh article is
+    // attached. Populated by the web chat route when context_article_id is
+    // supplied; null on messaging-channel turns.
+    `ALTER TABLE conversation_history ADD COLUMN IF NOT EXISTS context_article_id INTEGER`,
     // Conversation summaries for long-term context
     `CREATE TABLE IF NOT EXISTS conversation_summaries (
       id          SERIAL PRIMARY KEY,

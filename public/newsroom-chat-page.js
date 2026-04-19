@@ -336,6 +336,17 @@
         body: JSON.stringify(payload),
       });
       typing.remove();
+      // If the server rehydrated an article from prior context (anaphora), sync
+      // the context bar so the editor can see which article was used.
+      if (resp.resolved_article_id && !activeArticleId) {
+        activeArticleId = resp.resolved_article_id;
+        var bar = document.getElementById('chatContextBar');
+        var label = document.getElementById('chatContextLabel');
+        if (bar && label) {
+          label.textContent = 'Article #' + resp.resolved_article_id + ' (from context)';
+          bar.style.display = 'flex';
+        }
+      }
       if (resp.proposal) {
         appendBubble('assistant', resp.text || '');
         appendProposalCard(resp.proposal);
