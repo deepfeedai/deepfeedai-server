@@ -84,8 +84,10 @@
       header.innerHTML = ''
         + '<div class="mx-head-title"><span class="mx-head-icon">📋</span> Maxwell <span class="mx-head-sub">Editorial Director</span></div>'
         + '<div class="mx-head-ctx" id="mxHeadCtx"></div>'
+        + '<button class="mx-head-reset" title="Start fresh — clear sources + conversation" aria-label="Reset">↻</button>'
         + '<button class="mx-head-close" aria-label="Close">✕</button>';
       header.querySelector('.mx-head-close').addEventListener('click', closePanel);
+      header.querySelector('.mx-head-reset').addEventListener('click', function () { resetThread({ keepOpen: true }); });
 
       thread = el('div', { id: 'mxThread', class: 'mx-thread' });
 
@@ -262,6 +264,15 @@
         });
         card.classList.add('done');
         appendBubble('assistant', result.text || 'Done!');
+        // After a successful pitch creation, reset the session so the next
+        // pitch composition starts from a clean slate — no stale sources
+        // carried over from the pill, no prior turns in the thread history.
+        // The editor sees a confirmation bubble above the reset.
+        if (proposal.proposal_type === 'pitch' && result && !result.error) {
+          setTimeout(function () {
+            resetThread({ keepOpen: false, silent: true });
+          }, 400);
+        }
       } catch (err) {
         card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
         appendBubble('assistant', '⚠️ ' + (err.message || 'apply failed'));
@@ -382,8 +393,9 @@
         '.mx-head-sub { font-size:11px; color:var(--muted, #888); font-weight:400; margin-left:4px; }',
         '.mx-head-ctx { flex:1; min-width:0; font-size:11px; }',
         '.mx-head-ctx-pill { display:inline-block; background:var(--surface2, #1f1f1f); padding:3px 8px; border-radius:999px; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
-        '.mx-head-close { background:none; border:0; color:var(--muted, #888); font-size:14px; cursor:pointer; padding:4px 8px; border-radius:6px; }',
-        '.mx-head-close:hover { color:var(--text, #fff); background:var(--surface2, #222); }',
+        '.mx-head-close, .mx-head-reset { background:none; border:0; color:var(--muted, #888); font-size:14px; cursor:pointer; padding:4px 8px; border-radius:6px; }',
+        '.mx-head-close:hover, .mx-head-reset:hover { color:var(--text, #fff); background:var(--surface2, #222); }',
+        '.mx-head-reset { font-size:15px; }',
         '.mx-thread { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:8px; }',
         '.mx-bubble-msg { max-width:88%; padding:8px 12px; border-radius:12px; font-size:13px; line-height:1.45; white-space:pre-wrap; word-wrap:break-word; }',
         '.mx-user      { align-self:flex-end;   background:var(--primary, #7c3aed); color:#fff; }',
@@ -418,12 +430,30 @@
       if (panel && panel.classList.contains('open')) refreshContextBadge();
     }, 2000);
 
-    // Public API — lets any page (briefs, activity feed) prefill + open the
-    // bubble with a contextual question. If autoSend is true the message
-    // fires immediately; otherwise the editor tweaks before hitting send.
+    // Reset the whole session: clear the attached article context, wipe
+    // the client-side thread DOM, and ask the server to forget our
+    // conversation_history for this context key. Used by the header ↻
+    // button, the Feed Inbox multi-source flow before starting a new
+    // composition, and the auto-reset after a pitch is approved.
+    async function resetThread(opts) {
+      opts = opts || {};
+      if (window.ArticleContext) window.ArticleContext.clear();
+      if (thread) thread.innerHTML = '';
+      if (maxwellId) {
+        try { await apiFetch('/newsroom-chat/clear', { method: 'POST', body: JSON.stringify({ writer_id: maxwellId }) }); }
+        catch (_) { /* silent — client is already reset, server drift is non-fatal */ }
+      }
+      if (!opts.silent && panel && panel.classList.contains('open')) {
+        appendBubble('assistant', 'Fresh start — sources cleared, prior conversation dropped.');
+      }
+      refreshContextBadge();
+      if (opts.keepOpen && panel && !panel.classList.contains('open')) openPanel();
+    }
+
     window.Maxwell = {
       open:  function () { ensurePanel(); openPanel(); },
       close: function () { closePanel(); },
+      reset: function (opts) { return resetThread(opts || {}); },
       ask: function (question, opts) {
         opts = opts || {};
         ensurePanel();

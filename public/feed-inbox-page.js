@@ -536,19 +536,24 @@
       alert('Maxwell bubble unavailable. Ensure editor_workspace is enabled.');
       return;
     }
-    window.ArticleContext.set({
-      id: primary?.id,
-      title: primary?.title || null,
-      slug: primary?.slug || null,
-      writer_id: primary?.writer_id || null,
-      writer_name: primary?.writer_name || null,
-      additional_ids: rest,
-      additional_titles: restArticles.map(a => a.title || null),
+    // Start from a clean slate: drop any leftover article context + prior
+    // conversation from a previous pitch session. Prevents the "my old
+    // sources came along for the ride" bug.
+    (window.Maxwell.reset ? window.Maxwell.reset({ silent: true }) : Promise.resolve()).then(function () {
+      window.ArticleContext.set({
+        id: primary?.id,
+        title: primary?.title || null,
+        slug: primary?.slug || null,
+        writer_id: primary?.writer_id || null,
+        writer_name: primary?.writer_name || null,
+        additional_ids: rest,
+        additional_titles: restArticles.map(a => a.title || null),
+      });
+      const prompt = ids.length > 1
+        ? `Pitch a ${typeMeta.label.toLowerCase()} on these ${ids.length} sources — what's the strongest angle and who should cover it?`
+        : `Pitch a ${typeMeta.label.toLowerCase()} on this source — what's the angle and who should cover it?`;
+      window.Maxwell.ask(prompt, { autoSend: false });
     });
-    const prompt = ids.length > 1
-      ? `Pitch a ${typeMeta.label.toLowerCase()} on these ${ids.length} sources — what's the strongest angle and who should cover it?`
-      : `Pitch a ${typeMeta.label.toLowerCase()} on this source — what's the angle and who should cover it?`;
-    window.Maxwell.ask(prompt, { autoSend: false });
   });
 
   // ── Uncategorized banner ─────────────────────────────────
