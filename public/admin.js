@@ -228,6 +228,7 @@ function renderSidebar() {
     { id: 'turboNavScript',           src: '/turbo-nav.js' },
     { id: 'articleContextPillScript', src: '/article-context-pill.js' },
     { id: 'maxwellBubbleScript',      src: '/maxwell-bubble.js' },
+    { id: 'writerDrawerScript',       src: '/writer-drawer.js' },
   ].forEach(function (m) {
     if (document.getElementById(m.id)) return;
     var s = document.createElement('script');
