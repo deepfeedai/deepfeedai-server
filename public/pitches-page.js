@@ -272,7 +272,8 @@
       var html = '<div class="review-card" data-pitch="' + p.id + '">';
       html += '<div class="review-card-header">';
       html += '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>';
-      html += '<div style="display:flex;align-items:center;gap:6px;">' + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>';
+      var typeBadge = (window.renderPitchTypeBadge && p.pitch_type) ? window.renderPitchTypeBadge(p.pitch_type) : '';
+      html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + typeBadge + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>';
       html += '</div>';
       html += '<div class="review-meta">';
       html += '<span>' + initiator + '</span>';

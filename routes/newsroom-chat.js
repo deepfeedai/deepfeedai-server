@@ -108,6 +108,13 @@ async function parsePitchAction(text, sourceArticleId, tenantId) {
   }
   delete data.writer_name;
 
+  // Normalise `type` → pitch_type so downstream rendering and apply paths
+  // see a single canonical field regardless of what the LLM emitted.
+  const { normalisePitchType } = require('../lib/pitch-types');
+  const pitchType = normalisePitchType(data.type || data.pitch_type);
+  delete data.type;
+  data.pitch_type = pitchType;
+
   return {
     text: stripped,
     actions: [{
@@ -123,9 +130,14 @@ async function parsePitchAction(text, sourceArticleId, tenantId) {
 // stored context_article_id so follow-ups resolve naturally.
 const ANAPHORA_RE = /\b(that|it|this(?:\s+one)?|the\s+(article|piece|story|pitch))\b/i;
 
-// POST /api/newsroom-chat — body: { writer_id, message, context_article_id?, intent? }
+// POST /api/newsroom-chat
+// body: {
+//   writer_id, message, intent?,
+//   context_article_id?,                    primary source attached
+//   context_attached_article_ids?: number[] additional sources for multi-source pitches
+// }
 router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
-  const { writer_id, message, context_article_id, intent } = req.body || {};
+  const { writer_id, message, context_article_id, context_attached_article_ids, intent } = req.body || {};
   if (!writer_id || !message) return res.status(400).json({ error: 'writer_id and message required' });
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
@@ -141,6 +153,23 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     resolvedArticleId = parseInt(context_article_id, 10) || null;
   } else if (ANAPHORA_RE.test(message)) {
     resolvedArticleId = await ctx.getLastContextArticleId(contextKey, req.tenantId, writerId);
+  }
+
+  // Multi-source: tenant-check any additional attachment ids the editor
+  // queued up (feed-inbox "create pitch from selection"). Strip anything
+  // foreign; drop the primary if it's duplicated in the list.
+  let additionalIds = [];
+  if (Array.isArray(context_attached_article_ids) && context_attached_article_ids.length) {
+    const ints = context_attached_article_ids.map(n => parseInt(n, 10)).filter(Boolean);
+    if (ints.length) {
+      const rows = await db.prepare(
+        'SELECT id, title, category, source FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2'
+      ).all(ints, req.tenantId).catch(() => []);
+      const valid = new Map(rows.map(r => [r.id, r]));
+      additionalIds = ints.filter(n => n !== resolvedArticleId && valid.has(n));
+      // Stash the lookup for the enrichment block below
+      req._additionalArticles = additionalIds.map(id => valid.get(id));
+    }
   }
 
   // Optionally enrich the message with article context (title, summary, category)
@@ -181,6 +210,16 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
     }
   }
 
+  // If the editor queued multi-source context, append a brief block listing
+  // each additional source so Maxwell sees the full set and can call
+  // proposePitch with source_article_ids[] that covers them all.
+  if (additionalIds.length && Array.isArray(req._additionalArticles)) {
+    const lines = req._additionalArticles.map(a =>
+      `  - #${a.id} "${a.title}"${a.category ? ' (' + a.category + ')' : ''}${a.source ? ' — ' + a.source : ''}`
+    ).join('\n');
+    enrichedMessage += `\n\n[Additional sources the editor has queued for a multi-source pitch — include their IDs in source_article_ids when you call proposePitch:\n${lines}]`;
+  }
+
   const meta = {
     platform: 'web',
     userId: String(userId),
@@ -203,7 +242,7 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
       enrichedMessage += `\n\n[Newsroom writers available for assignment:\n${rosterLines}]`;
     }
     if (resolvedArticleId) {
-      enrichedMessage += `\n\n[ROLE REMINDER — do not display this: You are the editorial director. You do NOT write articles — you assess stories and assign them to writers. Your job is to evaluate this story's news value and recommend which writer from the roster above should cover it and why. Never say you will write or pitch the story yourself. When you have a clear recommendation, append exactly this block on its own line at the very end of your response: <<<PITCH:{"angle_summary":"one sentence angle here","writer_name":"Exact Writer Name from the roster"}>>> — only include it when you have a concrete recommendation, not in exploratory replies.]`;
+      enrichedMessage += `\n\n[ROLE REMINDER — do not display this: You are the editorial director. You do NOT write articles — you assess stories and assign them to writers. Your job is to evaluate this story's news value and recommend which writer from the roster above should cover it and why. Never say you will write or pitch the story yourself. When you have a clear recommendation, append exactly this block on its own line at the very end of your response: <<<PITCH:{"angle_summary":"one sentence angle","writer_name":"Exact Writer Name","type":"original|follow_up|roundup|deep_dive|explainer|counter_angle|prediction_check|analysis|breaking"}>>> — pick the type from the source count and shape (roundup needs 3+ sources; follow_up continues a prior story; original is a single fresh angle). Only include the block when you have a concrete recommendation, not in exploratory replies.]`;
     }
   }
 
@@ -263,25 +302,45 @@ router.post('/actions/approve', auth, requirePermission('articles.read'), requir
   const actionType = proposal.type || proposal.proposal_type;
 
   if (actionType === 'create_pitch') {
-    const { source_article_id, angle_summary } = proposal.payload || proposal;
+    const payload = proposal.payload || proposal;
+    const { source_article_id, angle_summary } = payload;
     if (!source_article_id || !angle_summary) {
       return res.status(400).json({ error: 'source_article_id and angle_summary required' });
     }
     const userId = req.user?.sub || null;
-    // Verify the source article belongs to this tenant
+    const { normalisePitchType } = require('../lib/pitch-types');
+    const pitchType = normalisePitchType(payload.pitch_type || payload.type);
+
+    // Verify the primary source belongs to this tenant.
     const source = await db.prepare(
       'SELECT id FROM articles WHERE id = $1 AND tenant_id = $2'
     ).get(parseInt(source_article_id, 10), req.tenantId);
     if (!source) return res.status(404).json({ error: 'Source article not found' });
 
+    // Multi-source: accept attached_article_ids or source_article_ids[] from
+    // the payload; tenant-check each id and drop the primary/duplicates.
+    const rawIds = Array.isArray(payload.attached_article_ids)
+      ? payload.attached_article_ids
+      : (Array.isArray(payload.source_article_ids) ? payload.source_article_ids : []);
+    let attachedIds = [];
+    if (rawIds.length) {
+      const ints = rawIds.map(n => parseInt(n, 10)).filter(Boolean);
+      if (ints.length) {
+        const rows = await db.prepare('SELECT id FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2').all(ints, req.tenantId);
+        const valid = new Set(rows.map(r => r.id));
+        attachedIds = [...new Set(ints.filter(n => n !== source.id && valid.has(n)))];
+      }
+    }
+
     const row = await db.prepare(`
       INSERT INTO article_pitches
-        (tenant_id, source_article_id, requested_by_editor_id, angle_summary, status)
-      VALUES ($1, $2, $3, $4, 'proposed')
+        (tenant_id, source_article_id, attached_article_ids, requested_by_editor_id, angle_summary, pitch_type, status)
+      VALUES ($1, $2, $3::jsonb, $4, $5, $6, 'proposed')
       RETURNING id
-    `).get(req.tenantId, source.id, userId, angle_summary.slice(0, 2000));
+    `).get(req.tenantId, source.id, JSON.stringify(attachedIds), userId, angle_summary.slice(0, 2000), pitchType);
 
-    return res.json({ text: `Pitch created! It's in the queue and ready for writer assignment.`, pitch_id: row.id });
+    const sourceNote = attachedIds.length ? ` (bundling ${attachedIds.length + 1} sources)` : '';
+    return res.json({ text: `Pitch created${sourceNote}! It's in the queue and ready for writer assignment.`, pitch_id: row.id, pitch_type: pitchType });
   }
 
   // Tool proposals (thumbnail, headline, pitch, approve_article, kill_article,

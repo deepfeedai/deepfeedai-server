@@ -503,6 +503,54 @@
     applyFilters({ preservePage: true });
   });
 
+  // Populate the pitch-type dropdown once PITCH_TYPES is available
+  (function initBulkPitchType() {
+    const sel = document.getElementById('bulkPitchType');
+    if (!sel) return;
+    const poll = () => {
+      if (!window.PITCH_TYPES) return setTimeout(poll, 100);
+      sel.innerHTML = window.PITCH_TYPES
+        .map(t => `<option value="${t.key}">${t.icon} ${t.label}</option>`).join('');
+    };
+    poll();
+  })();
+
+  // Bulk "Create pitch from selection" — hands the selected source IDs off
+  // to Maxwell via window.ArticleContext (primary + additional_ids) and
+  // opens the Maxwell bubble with a pre-filled prompt that includes the
+  // chosen pitch type. Maxwell sees all sources in the enriched chat
+  // context and can call proposePitch({ type, source_article_ids }).
+  document.getElementById('bulkPitchBtn')?.addEventListener('click', () => {
+    if (!selectedIds.size) return;
+    if (selectedIds.size > 10) {
+      if (!confirm(`You've selected ${selectedIds.size} sources — that's a lot for one pitch. Continue?`)) return;
+    }
+    const ids = [...selectedIds];
+    const primary = allArticles.find(a => a.id === ids[0]);
+    const rest    = ids.slice(1);
+    const restArticles = rest.map(id => allArticles.find(a => a.id === id)).filter(Boolean);
+    const typeSel = document.getElementById('bulkPitchType');
+    const type = typeSel && typeSel.value ? typeSel.value : (ids.length >= 3 ? 'roundup' : ids.length >= 2 ? 'deep_dive' : 'original');
+    const typeMeta = (window.PITCH_TYPE_MAP && window.PITCH_TYPE_MAP[type]) || { label: 'Original' };
+    if (!window.ArticleContext || !window.Maxwell) {
+      alert('Maxwell bubble unavailable. Ensure editor_workspace is enabled.');
+      return;
+    }
+    window.ArticleContext.set({
+      id: primary?.id,
+      title: primary?.title || null,
+      slug: primary?.slug || null,
+      writer_id: primary?.writer_id || null,
+      writer_name: primary?.writer_name || null,
+      additional_ids: rest,
+      additional_titles: restArticles.map(a => a.title || null),
+    });
+    const prompt = ids.length > 1
+      ? `Pitch a ${typeMeta.label.toLowerCase()} on these ${ids.length} sources — what's the strongest angle and who should cover it?`
+      : `Pitch a ${typeMeta.label.toLowerCase()} on this source — what's the angle and who should cover it?`;
+    window.Maxwell.ask(prompt, { autoSend: false });
+  });
+
   // ── Uncategorized banner ─────────────────────────────────
   document.getElementById('uncatFixAllBtn')?.addEventListener('click', async () => {
     const btn = document.getElementById('uncatFixAllBtn');

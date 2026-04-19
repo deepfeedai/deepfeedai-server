@@ -84,10 +84,15 @@
       if (!ctx) return;
 
       var pill = el('div', { id: 'articleContextPill', class: 'article-context-pill' });
+      // When multiple sources are queued (multi-source pitch composing), show
+      // "Title +N more" so the editor knows the full stack is attached.
+      var additionalCount = Array.isArray(ctx.additional_ids) ? ctx.additional_ids.length : 0;
+      var titleHtml = esc(ctx.title || ('Article #' + ctx.id))
+        + (additionalCount > 0 ? ' <span class="acp-more">+' + additionalCount + '</span>' : '');
       pill.innerHTML = ''
         + '<button class="acp-btn" aria-haspopup="menu">'
         +   '<span class="acp-icon">📄</span>'
-        +   '<span class="acp-title">' + esc(ctx.title || ('Article #' + ctx.id)) + '</span>'
+        +   '<span class="acp-title">' + titleHtml + '</span>'
         +   '<span class="acp-caret">▾</span>'
         + '</button>'
         + '<button class="acp-clear" title="Clear article context" aria-label="Clear">✕</button>';
@@ -134,6 +139,7 @@
         '.acp-btn:hover { background:var(--bg-card, #1a1a1a); }',
         '.acp-icon { font-size:13px; }',
         '.acp-title { max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }',
+        '.acp-more { display:inline-block; margin-left:4px; padding:1px 6px; border-radius:999px; background:var(--primary, #7c3aed); color:#fff; font-size:10px; font-weight:700; vertical-align:middle; }',
         '.acp-caret { color:var(--muted, #888); font-size:10px; }',
         '.acp-clear { background:none; border:0; color:var(--muted, #888); font-size:13px; cursor:pointer; padding:4px 6px; border-radius:6px; }',
         '.acp-clear:hover { color:var(--text, #fff); background:var(--surface2, #222); }',
