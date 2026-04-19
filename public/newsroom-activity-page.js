@@ -158,12 +158,20 @@
     } else if (e.event_type === 'editor_broadcast') {
       inner = '<div class="feed-title">📣 ' + esc(payload.text || '') + '</div>'
         + (replyCount > 0 ? '' : '<div class="feed-meta" style="color:var(--muted);font-size:12px;">Routing to writers — replies will appear below.</div>');
-    } else if (e.event_type === 'daily_brief') {
-      inner = '<div class="feed-title">' + (payload.manual ? '📋 Day Brief (manual)' : '📋 End-of-Day Brief') + '</div>'
-        + longTextCard(payload.text, null);
-    } else if (e.event_type === 'weekly_digest') {
-      inner = '<div class="feed-title">' + (payload.manual ? '📰 Week in Review (manual)' : '📰 Week in Review') + '</div>'
-        + longTextCard(payload.text, null);
+    } else if (e.event_type === 'daily_brief' || e.event_type === 'weekly_digest') {
+      var isWeekly = e.event_type === 'weekly_digest';
+      var titleIcon = isWeekly ? '📰' : '📋';
+      var titleText = isWeekly
+        ? (payload.manual ? 'Week in Review (manual)' : 'Week in Review')
+        : (payload.manual ? 'Day Brief (manual)' : 'End-of-Day Brief');
+      var title = '<div class="feed-title">' + titleIcon + ' ' + esc(titleText) + '</div>';
+      // Version-2 structured payloads render rich; older prose-only payloads
+      // fall back to the original longTextCard path.
+      if (payload.version === 2) {
+        inner = title + renderBriefCard(payload);
+      } else {
+        inner = title + longTextCard(payload.text, null);
+      }
     } else {
       inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
     }
@@ -208,6 +216,145 @@
   }
 
   // Render a collapsible long-text block (for standups, briefs, digests)
+  // ── Structured brief rendering (version 2) ────────────────
+  //
+  // Renders a version-2 brief payload as a rich card:
+  //   • headline
+  //   • hero metric chips with trend arrows (vs baseline)
+  //   • top-priority callout (if present)
+  //   • highlights list (linked where possible)
+  //   • coverage gaps
+  //   • action items
+  //   • expandable prose section
+  //
+  // All links route to the admin via onclick-less <a href> so right-click →
+  // open-in-new-tab works too. Server computes every number; the LLM only
+  // labels/explains.
+  function renderBriefCard(payload) {
+    var parts = [];
+
+    if (payload.headline) {
+      parts.push('<div class="brief-headline">' + esc(payload.headline) + '</div>');
+    }
+
+    var metrics = payload.metrics || {};
+    var metricKeys = Object.keys(metrics);
+    if (metricKeys.length) {
+      parts.push('<div class="brief-metrics">' + metricKeys.map(function (key) {
+        var m = metrics[key];
+        return renderMetricChip(key, m);
+      }).join('') + '</div>');
+    }
+
+    if (payload.top_priority && payload.top_priority.label) {
+      var tp = payload.top_priority;
+      var cta = tp.cta ? '<span class="brief-priority-cta">' + esc(tp.cta) + ' →</span>' : '';
+      var inner = '<span class="brief-priority-icon">⚡</span>'
+        + '<span class="brief-priority-label">' + esc(tp.label) + '</span>'
+        + cta;
+      parts.push(tp.link
+        ? '<a class="brief-priority" href="' + esc(tp.link) + '">' + inner + '</a>'
+        : '<div class="brief-priority">' + inner + '</div>');
+    }
+
+    var highlights = Array.isArray(payload.highlights) ? payload.highlights : [];
+    if (highlights.length) {
+      parts.push('<div class="brief-section"><div class="brief-section-title">Highlights</div>'
+        + '<ul class="brief-list">'
+        + highlights.map(function (h) {
+          var icon = highlightIcon(h.type);
+          var body = '<span class="brief-list-icon">' + icon + '</span>'
+            + '<span class="brief-list-title">' + esc(h.title || '') + '</span>'
+            + (h.writer ? '<span class="brief-list-meta">· ' + esc(h.writer) + '</span>' : '')
+            + (h.note ? '<span class="brief-list-meta">· ' + esc(h.note) + '</span>' : '');
+          return '<li>' + (h.link ? '<a href="' + esc(h.link) + '">' + body + '</a>' : body) + '</li>';
+        }).join('')
+        + '</ul></div>');
+    }
+
+    var gaps = Array.isArray(payload.gaps) ? payload.gaps : [];
+    if (gaps.length) {
+      parts.push('<div class="brief-section"><div class="brief-section-title">Coverage gaps</div>'
+        + '<div class="brief-gaps">' + gaps.map(function (g) {
+          var label = g.beat + (g.days ? ' · ' + g.days + 'd' : '') + (g.note ? ' · ' + g.note : '');
+          return '<span class="brief-gap-chip">' + esc(label) + '</span>';
+        }).join('') + '</div></div>');
+    }
+
+    var actionItems = Array.isArray(payload.action_items) ? payload.action_items : [];
+    if (actionItems.length) {
+      parts.push('<div class="brief-section"><div class="brief-section-title">Action items</div>'
+        + '<div class="brief-actions">' + actionItems.map(function (a) {
+          return '<a class="brief-action-btn" href="' + esc(a.link || '#') + '">' + esc(a.label || '') + ' →</a>';
+        }).join('') + '</div></div>');
+    }
+
+    if (payload.prose) {
+      parts.push('<div class="brief-section"><div class="brief-section-title">Editor\'s note</div>'
+        + longTextCard(payload.prose, null) + '</div>');
+    }
+
+    return parts.join('');
+  }
+
+  function renderMetricChip(key, m) {
+    if (!m || typeof m.value === 'undefined') return '';
+    var label = METRIC_LABELS[key] || key.replace(/_/g, ' ');
+    var display = formatMetricValue(key, m.value);
+    var trendHtml = '';
+    if (m.trend && m.trend !== 'flat' && m.delta_pct != null) {
+      var arrow = m.trend === 'up' ? '↑' : '↓';
+      var sign = m.delta_pct > 0 ? '+' : '';
+      var cls = 'brief-metric-trend brief-trend-' + (isGoodTrend(key, m.trend) ? 'good' : 'bad');
+      trendHtml = '<span class="' + cls + '">' + arrow + ' ' + sign + m.delta_pct + '%</span>';
+    }
+    return '<div class="brief-metric">'
+      + '<div class="brief-metric-value">' + esc(display) + '</div>'
+      + '<div class="brief-metric-label">' + esc(label) + '</div>'
+      + trendHtml
+      + '</div>';
+  }
+
+  var METRIC_LABELS = {
+    articles_published: 'Published',
+    pitches_created:    'New pitches',
+    pitches_pending:    'Pending pitches',
+    review_queue:       'In review',
+    ai_spend_usd:       'AI spend',
+    research_ingested:  'Sources ingested',
+    orphaned_pitches:   'Orphaned',
+    coverage_gaps:      'Coverage gaps',
+    top_article_views:  'Top views',
+  };
+
+  function formatMetricValue(key, value) {
+    if (key === 'ai_spend_usd') return '$' + Number(value || 0).toFixed(2);
+    return String(value);
+  }
+
+  // Up isn't always good (AI spend rising is bad, orphans rising is bad).
+  function isGoodTrend(key, trend) {
+    var upIsBad = ['ai_spend_usd', 'review_queue', 'orphaned_pitches', 'coverage_gaps'];
+    if (upIsBad.indexOf(key) >= 0) return trend === 'down';
+    return trend === 'up';
+  }
+
+  function highlightIcon(type) {
+    switch (type) {
+      case 'published':      return '✓';
+      case 'stalled_pitch':  return '⏱';
+      case 'review_backlog': return '📚';
+      case 'orphan':         return '⚠';
+      case 'engagement':     return '📈';
+      case 'top_engagement': return '🔥';
+      case 'gap':            return '○';
+      case 'best_coverage':  return '★';
+      case 'pipeline':       return '⚙';
+      case 'stalled':        return '⏱';
+      default:               return '·';
+    }
+  }
+
   function longTextCard(text, label) {
     if (!text) return label ? '<div class="feed-snippet">' + esc(label) + '</div>' : '';
     var id = 'lt-' + Math.random().toString(36).slice(2);
