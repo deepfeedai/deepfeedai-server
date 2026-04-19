@@ -202,8 +202,66 @@
           runAction(btn, id);
         });
       });
-      itemEl.addEventListener('click', function () { markRead(id); });
+      itemEl.addEventListener('click', function (ev) {
+        // If the click landed inside an actionable button, let its handler run.
+        if (ev.target.closest('.dfa-bell-action-btn')) { markRead(id); return; }
+        markRead(id);
+        // Deep-link: if this notification has an implicit target page, jump
+        // there and carry context into the article-pill when relevant.
+        var notif = state.items.find(function (x) { return x.id === id; });
+        var link  = deepLinkFor(notif);
+        if (link) {
+          // Set the article context pill so downstream pages show continuity.
+          if (notif && notif.payload && window.ArticleContext && notif.payload.article_id) {
+            window.ArticleContext.set({
+              id:          notif.payload.article_id,
+              title:       notif.payload.article_title || notif.title || null,
+              slug:        notif.payload.article_slug  || null,
+              writer_id:   notif.payload.writer_id     || null,
+              writer_name: notif.payload.writer_name   || null,
+            });
+          }
+          if (window.TurboNav && window.TurboNav.enabled && window.TurboNav.enabled()) {
+            window.TurboNav.visit(link);
+          } else {
+            window.location.href = link;
+          }
+        }
+      });
     });
+  }
+
+  // Map common notification kinds to deep-link URLs. Payload shape varies
+  // per kind (see lib/notifications.js callers); we look for whatever ids are
+  // present and fall back to the most relevant list page. Unknown kinds
+  // simply don't navigate — click still marks as read.
+  function deepLinkFor(n) {
+    if (!n) return null;
+    var kind = n.kind || '';
+    var p = n.payload || {};
+    if (p.deep_link) return p.deep_link;        // explicit server override wins
+    if (kind === 'pitch_created' || kind === 'pitch_approved' || kind === 'pitch_rejected') {
+      if (p.pitch_id) return '/pitches.html?id=' + p.pitch_id;
+      if (p.source_article_id) return '/pitches.html?source_article_id=' + p.source_article_id;
+      return '/pitches.html';
+    }
+    if (kind === 'article_published' || kind === 'article_needs_review' || kind === 'article_revised') {
+      if (p.article_id) return '/article-editor.html?id=' + p.article_id;
+      if (p.article_slug) return '/preview.html?slug=' + encodeURIComponent(p.article_slug);
+      return '/articles.html';
+    }
+    if (kind === 'standup' || kind === 'daily_brief' || kind === 'weekly_digest') {
+      return '/newsroom-activity.html';
+    }
+    if (kind === 'comment_created' || kind === 'comment_reply') {
+      return '/comments.html' + (p.article_id ? '?article_id=' + p.article_id : '');
+    }
+    if (kind === 'synthesis_completed') {
+      return p.article_id ? '/article-editor.html?id=' + p.article_id : '/synthesis.html';
+    }
+    // Fallback: if payload carries an article_id, open the editor.
+    if (p.article_id) return '/article-editor.html?id=' + p.article_id;
+    return null;
   }
 
   function renderItem(n) {
