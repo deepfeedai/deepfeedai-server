@@ -21,7 +21,9 @@
   .briefs-empty { text-align:center; padding:60px 20px; color:var(--muted); }
   .brief-headline { font-size:14px; font-weight:700; color:var(--text); margin:10px 0 6px; letter-spacing:-0.01em; }
   .brief-metrics { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 12px; }
-  .brief-metric { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; min-width:90px; flex:0 0 auto; }
+  .brief-metric { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:8px 10px; min-width:90px; flex:0 0 auto; text-align:left; font-family:inherit; color:inherit; }
+  .brief-metric-clickable { cursor:pointer; transition:border-color 0.15s, background 0.15s; }
+  .brief-metric-clickable:hover { border-color:var(--primary); background:var(--bg-card); }
   .brief-metric-value { font-size:18px; font-weight:700; line-height:1.1; }
   .brief-metric-label { font-size:11px; color:var(--muted); margin-top:2px; text-transform:uppercase; letter-spacing:0.3px; }
   .brief-metric-trend { font-size:10px; font-weight:600; display:inline-block; margin-top:3px; padding:1px 6px; border-radius:4px; }

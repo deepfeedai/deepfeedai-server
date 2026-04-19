@@ -148,11 +148,29 @@
       trend = '<span class="brief-metric-trend brief-trend-' + (good ? 'good' : 'bad') + '">'
         + arrow + ' ' + (m.delta_pct > 0 ? '+' : '') + m.delta_pct + '%</span>';
     }
-    return '<div class="brief-metric">'
+    var metricData = encodeURIComponent(JSON.stringify({ key: key, value: m.value, baseline: m.baseline, delta_pct: m.delta_pct, trend: m.trend }));
+    return '<button class="brief-metric brief-metric-clickable" data-brief-metric="' + metricData + '" title="Ask Maxwell about this">'
       + '<div class="brief-metric-value">' + esc(display) + '</div>'
       + '<div class="brief-metric-label">' + esc(label) + '</div>'
       + trend
-      + '</div>';
+      + '</button>';
+  }
+
+  function metricQuestion(m) {
+    var key = m.key, v = m.value, dp = m.delta_pct;
+    var trendWord = dp == null ? '' : (dp > 0 ? ' (up ' + dp + '%)' : ' (down ' + Math.abs(dp) + '%)');
+    switch (key) {
+      case 'articles_published': return 'Walk me through this period\'s published articles' + trendWord + '.';
+      case 'pitches_created':    return 'Break down the pitch activity' + trendWord + '.';
+      case 'pitches_pending':    return 'What\'s in the pitch pipeline right now (' + v + ' pending)?';
+      case 'review_queue':       return 'What\'s stuck in the review queue (' + v + ' articles)?';
+      case 'ai_spend_usd':       return 'Break down the AI spend ($' + Number(v).toFixed(2) + ')' + trendWord + '. Which operations drove it?';
+      case 'research_ingested':  return 'Summarise the research intake (' + v + ' sources). Anything worth a pitch?';
+      case 'orphaned_pitches':   return 'Walk me through the ' + v + ' orphaned commissioned pitches. Which writer fits each?';
+      case 'coverage_gaps':      return 'Which beats did we miss, and what should we cover next?';
+      case 'top_article_views':  return 'What made the top article work? What can we learn?';
+      default:                   return 'Tell me about ' + (METRIC_LABELS[key] || key).toLowerCase() + '.';
+    }
   }
 
   function highlightIcon(type) {
@@ -199,6 +217,18 @@
   document.getElementById('kindFilter').addEventListener('change', load);
   document.getElementById('rangeFilter').addEventListener('change', load);
   document.getElementById('searchInput').addEventListener('input', render);
+
+  // Metric chip click → Maxwell bubble with a contextual question
+  document.addEventListener('click', function (ev) {
+    var metricBtn = ev.target.closest && ev.target.closest('.brief-metric-clickable');
+    if (!metricBtn || !metricBtn.dataset.briefMetric) return;
+    ev.preventDefault();
+    if (!window.Maxwell || !window.Maxwell.ask) return;
+    try {
+      var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
+      window.Maxwell.ask(metricQuestion(m), { autoSend: true });
+    } catch (_) {}
+  });
 
   // Inline brief-action button click handler — same as the activity page.
   document.addEventListener('click', async function (ev) {

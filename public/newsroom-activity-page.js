@@ -316,11 +316,37 @@
       var cls = 'brief-metric-trend brief-trend-' + (isGoodTrend(key, m.trend) ? 'good' : 'bad');
       trendHtml = '<span class="' + cls + '">' + arrow + ' ' + sign + m.delta_pct + '%</span>';
     }
-    return '<div class="brief-metric">'
+    // Clickable → opens Maxwell with a prefilled question about this metric.
+    // Encode key + raw value so the handler can build a rich prompt even
+    // after the card is re-rendered.
+    var metricData = encodeURIComponent(JSON.stringify({ key: key, value: m.value, baseline: m.baseline, delta_pct: m.delta_pct, trend: m.trend }));
+    return '<button class="brief-metric brief-metric-clickable" data-brief-metric="' + metricData + '" title="Ask Maxwell about this">'
       + '<div class="brief-metric-value">' + esc(display) + '</div>'
       + '<div class="brief-metric-label">' + esc(label) + '</div>'
       + trendHtml
-      + '</div>';
+      + '</button>';
+  }
+
+  // Build a contextual question for Maxwell based on the metric the editor
+  // tapped. Keep questions concise; Maxwell already has the day's data in
+  // the conversation context key and can elaborate.
+  function metricQuestion(m) {
+    var key = m.key;
+    var v = m.value;
+    var dp = m.delta_pct;
+    var trendWord = dp == null ? '' : (dp > 0 ? ' (up ' + dp + '%)' : ' (down ' + Math.abs(dp) + '%)');
+    switch (key) {
+      case 'articles_published': return 'Walk me through today\'s published articles' + trendWord + '.';
+      case 'pitches_created':    return 'Break down today\'s pitch activity' + trendWord + '.';
+      case 'pitches_pending':    return 'What\'s in the pitch pipeline right now (' + v + ' pending)?';
+      case 'review_queue':       return 'What\'s stuck in the review queue (' + v + ' articles)?';
+      case 'ai_spend_usd':       return 'Break down today\'s AI spend ($' + Number(v).toFixed(2) + ')' + trendWord + '. Which operations drove it?';
+      case 'research_ingested':  return 'Summarise today\'s research intake (' + v + ' sources). Anything worth a pitch?';
+      case 'orphaned_pitches':   return 'Walk me through the ' + v + ' orphaned commissioned pitches. Which writer fits each?';
+      case 'coverage_gaps':      return 'Which beats did we miss this week, and what should we cover next week?';
+      case 'top_article_views':  return 'What made the top article this week work? What can we learn?';
+      default:                   return 'Tell me about ' + (METRIC_LABELS[key] || key).toLowerCase() + '.';
+    }
   }
 
   var METRIC_LABELS = {
@@ -375,6 +401,17 @@
   // Wire reaction + reply handlers (event-delegated on stream container)
   document.addEventListener('click', async function (ev) {
     var t = ev.target;
+    // Metric chip → Maxwell bubble with a contextual question
+    var metricBtn = t.closest && t.closest('.brief-metric-clickable');
+    if (metricBtn && metricBtn.dataset.briefMetric) {
+      ev.preventDefault();
+      if (!window.Maxwell || !window.Maxwell.ask) return;
+      try {
+        var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
+        window.Maxwell.ask(metricQuestion(m), { autoSend: true });
+      } catch (_) {}
+      return;
+    }
     // Inline brief action button — server-computed, payload.action carries the
     // endpoint + method. Encoded via encodeURIComponent in the renderer so
     // quotes in JSON don't break the attribute.
