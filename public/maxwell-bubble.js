@@ -84,7 +84,9 @@
       header.innerHTML = ''
         + '<div class="mx-head-title"><span class="mx-head-icon">📋</span> Maxwell <span class="mx-head-sub">Editorial Director</span></div>'
         + '<div class="mx-head-ctx" id="mxHeadCtx"></div>'
-        + '<button class="mx-head-reset" title="Start fresh — clear sources + conversation" aria-label="Reset">↻</button>'
+
+        + '<button class="mx-head-reset" title="Clear conversation and sources" aria-label="Clear chat">↻ Clear</button>'
+
         + '<button class="mx-head-close" aria-label="Close">✕</button>';
       header.querySelector('.mx-head-close').addEventListener('click', closePanel);
       header.querySelector('.mx-head-reset').addEventListener('click', function () { resetThread({ keepOpen: true }); });
@@ -184,9 +186,55 @@
       input.style.height = Math.min(120, input.scrollHeight) + 'px';
     }
 
+
+    // ── Minimal markdown → HTML (assistant messages only) ────
+    function mdInline(s) {
+      return s
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__(.+?)__/g, '<strong>$1</strong>')
+        .replace(/\*([^\*\n]+?)\*/g, '<em>$1</em>')
+        .replace(/_([^_\n]+?)_/g, '<em>$1</em>')
+        .replace(/`([^`]+?)`/g, '<code>$1</code>');
+    }
+    function mdToHtml(raw) {
+      // Escape HTML to prevent XSS, then apply markdown on top.
+      var s = raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var lines = s.split('\n');
+      var html = '';
+      var listDepth = 0; // 0=none, 1=outer, 2=inner
+      lines.forEach(function (line) {
+        var hm = line.match(/^(#{1,3})\s+(.+)$/);
+        if (hm) {
+          if (listDepth) { html += listDepth > 1 ? '</ul></li></ul>' : '</ul>'; listDepth = 0; }
+          html += '<p class="mx-md-h' + hm[1].length + '">' + mdInline(hm[2]) + '</p>';
+          return;
+        }
+        var im = line.match(/^(\s*)[\-\*]\s+(.*)$/);
+        if (im) {
+          var depth = im[1].length > 0 ? 2 : 1;
+          if (listDepth === 0) { html += '<ul class="mx-md-ul">'; listDepth = 1; }
+          if (depth === 2 && listDepth === 1) { html += '<ul class="mx-md-ul mx-md-ul-sub">'; listDepth = 2; }
+          if (depth === 1 && listDepth === 2) { html += '</ul>'; listDepth = 1; }
+          html += '<li>' + mdInline(im[2]) + '</li>';
+          return;
+        }
+        if (listDepth) { html += listDepth > 1 ? '</ul></ul>' : '</ul>'; listDepth = 0; }
+        if (line.trim() === '') { html += '<br>'; return; }
+        html += '<p class="mx-md-p">' + mdInline(line) + '</p>';
+      });
+      if (listDepth) html += listDepth > 1 ? '</ul></ul>' : '</ul>';
+      return html;
+    }
+
     // ── Thread rendering ──────────────────────────────────
     function appendBubble(role, text) {
-      var b = el('div', { class: 'mx-bubble-msg mx-' + role }, [text]);
+      var b = el('div', { class: 'mx-bubble-msg mx-' + role });
+      if (role === 'assistant') {
+        b.innerHTML = mdToHtml(text);
+      } else {
+        b.textContent = text;
+      }
+
       thread.appendChild(b);
       scrollDown();
       return b;
@@ -397,9 +445,15 @@
         '.mx-head-close:hover, .mx-head-reset:hover { color:var(--text, #fff); background:var(--surface2, #222); }',
         '.mx-head-reset { font-size:15px; }',
         '.mx-thread { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:8px; }',
-        '.mx-bubble-msg { max-width:88%; padding:8px 12px; border-radius:12px; font-size:13px; line-height:1.45; white-space:pre-wrap; word-wrap:break-word; }',
-        '.mx-user      { align-self:flex-end;   background:var(--primary, #7c3aed); color:#fff; }',
+
+        '.mx-bubble-msg { max-width:88%; padding:8px 12px; border-radius:12px; font-size:13px; line-height:1.45; word-wrap:break-word; }',
+        '.mx-user      { align-self:flex-end;   background:var(--primary, #7c3aed); color:#fff; white-space:pre-wrap; }',
         '.mx-assistant { align-self:flex-start; background:var(--surface2, #1f1f1f); }',
+        '.mx-assistant .mx-md-p { margin:0 0 4px; } .mx-assistant .mx-md-h1,.mx-assistant .mx-md-h2,.mx-assistant .mx-md-h3 { margin:6px 0 2px; font-weight:600; }',
+        '.mx-assistant .mx-md-h1 { font-size:14px; } .mx-assistant .mx-md-h2 { font-size:13px; } .mx-assistant .mx-md-h3 { font-size:13px; color:var(--muted,#888); }',
+        '.mx-assistant .mx-md-ul { margin:4px 0 4px 14px; padding:0; list-style:disc; } .mx-assistant .mx-md-ul-sub { margin:2px 0 2px 12px; list-style:circle; }',
+        '.mx-assistant .mx-md-ul li { margin-bottom:2px; } .mx-assistant code { background:rgba(255,255,255,0.08); border-radius:3px; padding:1px 4px; font-size:12px; }',
+
         '.mx-typing { align-self:flex-start; font-size:12px; color:var(--muted, #888); padding:4px 8px; }',
         '.mx-card { align-self:flex-start; max-width:95%; background:var(--surface2, #1f1f1f); border:1px solid var(--border, #333); border-radius:10px; padding:10px 12px; font-size:13px; }',
         '.mx-card.done { opacity:0.6; }',
