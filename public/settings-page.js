@@ -639,6 +639,11 @@ let apiKeyVisible = false;
         body: JSON.stringify(payload),
       });
 
+      if (geminiKey) {
+        document.getElementById('geminiApiKeyPortal').value = '';
+        document.getElementById('geminiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';
+        document.getElementById('geminiKeyStatus').textContent = '✅ API key is set (leave blank to keep current value)';
+      }
       if (openaiKey) {
         document.getElementById('openaiApiKeyPortal').value = '';
         document.getElementById('openaiApiKeyPortal').placeholder = '••••••••••••••••••••••••••••••••';

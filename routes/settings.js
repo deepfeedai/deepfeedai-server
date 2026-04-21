@@ -22,7 +22,7 @@ const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secr
 const R2_KEYS = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
 const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
 // Keys that tenants can save via PUT /api/settings (BYAI — tenant-level provider config)
-const TENANT_AI_KEYS = ['openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
+const TENANT_AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
 const STRIPE_KEYS = ['stripe_secret_key', 'stripe_webhook_secret'];
 // Platform-only keys exclude tenant-saveable AI keys
 const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS.filter(k => !TENANT_AI_KEYS.includes(k)), ...STRIPE_KEYS];
