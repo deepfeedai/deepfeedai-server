@@ -384,4 +384,143 @@ router.get('/available-models', requireAdmin, requirePermission('settings.read')
   res.json({ models: CURATED_MODELS[provider] || [] });
 }));
 
+// GET /api/settings/tenant-info
+// Returns basic tenant metadata (slug, name) for admin UI use.
+router.get('/tenant-info', requireAdmin, asyncHandler(async (req, res) => {
+  const tenant = await db.prepare('SELECT slug, name FROM tenants WHERE id = $1').get(req.tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  res.json({ slug: tenant.slug, name: tenant.name });
+}));
+
+// POST /api/settings/reset-content
+// Wipes all content tables for the tenant (articles, writers, sources, etc.)
+// while preserving settings, users, roles, and API keys.
+// Resets wizard_completed so the setup wizard can be re-run.
+// Auth: admin JWT (tenant-admin). Blocked on the platform tenant.
+router.post('/reset-content', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { confirm } = req.body || {};
+  if (confirm !== 'RESET') {
+    return res.status(400).json({ error: 'Type RESET to confirm' });
+  }
+
+  const tenantId = req.tenantId;
+  const platformId = await getPlatformTenantId().catch(() => 1);
+  if (!tenantId || tenantId === platformId) {
+    return res.status(403).json({ error: 'Cannot reset the platform tenant' });
+  }
+
+  // Order matters: child rows before parent rows (FK constraints).
+  // Preserves: settings, users, roles, tenant_admins, tenants, tenant_domains,
+  //            file_storage, tenant_storage_usage, auth_codes.
+  const CONTENT_TABLES = [
+    'comment_reports', 'comment_reactions', 'article_reactions', 'article_favorites',
+    'writer_follows', 'writer_beats',
+    'newsroom_reactions', 'newsroom_replies', 'newsroom_messages', 'newsroom_events',
+    'brief_feedback',
+    'comments',
+    'notifications', 'user_notifications', 'notification_preferences',
+    'newsletter_sends',
+    'article_pitches', 'story_pitches', 'article_revisions',
+    'analytics_events', 'ai_usage',
+    'saved_searches', 'featured_rotation_log',
+    'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
+    'synthesis_forecasts', 'synthesis_watchlist', 'pipeline_runs',
+    'chat_conversations', 'conversation_history', 'conversation_summaries', 'chat_user_profiles',
+    'action_tokens',
+    'cron_runs', 'audit_log',
+    'articles',
+    'messaging_channels', 'writer_memory', 'voices',
+    'sources', 'writers', 'categories',
+  ];
+
+  const pool = getPool();
+  let totalRows = 0;
+  for (const table of CONTENT_TABLES) {
+    try {
+      const result = await pool.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      totalRows += result.rowCount || 0;
+    } catch { /* ignore — table may not yet exist */ }
+  }
+
+  // Reset wizard so they can re-run setup
+  await pool.query(
+    `INSERT INTO settings (tenant_id, key, value, updated_at) VALUES ($1, 'wizard_completed', '0', NOW())
+     ON CONFLICT (tenant_id, key) DO UPDATE SET value = '0', updated_at = NOW()`,
+    [tenantId]
+  );
+
+  bustAppConfigCache(tenantId);
+  bustSiteConfigCache();
+
+  await logAudit(req, 'reset-content', 'tenant', tenantId, { rows_deleted: totalRows }).catch(() => {});
+
+  res.json({ ok: true, deleted: totalRows });
+}));
+
+// POST /api/settings/delete-site
+// Hard-deletes all tenant data and the tenant record itself (self-service purge).
+// Confirmation: body must include { confirm: '<tenant-slug>' }.
+// Auth: admin JWT (tenant-admin). Blocked on the platform tenant.
+router.post('/delete-site', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { confirm } = req.body || {};
+  const tenantId = req.tenantId;
+  const platformId = await getPlatformTenantId().catch(() => 1);
+
+  if (!tenantId || tenantId === platformId) {
+    return res.status(403).json({ error: 'Cannot delete the platform tenant' });
+  }
+
+  const tenant = await db.prepare('SELECT slug, name FROM tenants WHERE id = $1').get(tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+  if (!confirm || confirm.trim().toLowerCase() !== tenant.slug.toLowerCase()) {
+    return res.status(400).json({ error: `Type "${tenant.slug}" to confirm deletion` });
+  }
+
+  const PURGE_TABLES = [
+    'comment_reports', 'comment_reactions', 'article_reactions', 'article_favorites',
+    'writer_follows', 'writer_beats',
+    'newsroom_reactions', 'newsroom_replies', 'newsroom_messages', 'newsroom_events',
+    'brief_feedback',
+    'comments', 'articles', 'sources', 'writers', 'categories', 'voices',
+    'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
+    'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
+    'synthesis_forecasts', 'synthesis_watchlist', 'pipeline_runs',
+    'notifications', 'user_notifications', 'notification_preferences',
+    'newsletter_sends',
+    'article_pitches', 'story_pitches', 'article_revisions',
+    'chat_conversations', 'conversation_history', 'conversation_summaries', 'chat_user_profiles',
+    'messaging_channels', 'action_tokens', 'writer_memory',
+    'featured_rotation_log', 'cron_runs', 'audit_log',
+    'tenant_domains', 'tenant_storage_usage', 'tenant_feature_overrides',
+    'roles', 'users', 'tenant_admins',
+    'settings',
+  ];
+
+  const pool = getPool();
+  let totalRows = 0;
+  for (const table of PURGE_TABLES) {
+    try {
+      const result = await pool.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      totalRows += result.rowCount || 0;
+    } catch { /* ignore — table may not yet exist */ }
+  }
+
+  await db.prepare('DELETE FROM tenants WHERE id = $1').run(tenantId);
+
+  // Log to platform audit (tenant is gone, so log against platformId)
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, user_id, action, resource_type, resource_id, meta, created_at)
+       VALUES ($1, $2, 'delete-site', 'tenant', $3, $4, NOW())`,
+      [platformId, req.user?.sub || null, String(tenantId), JSON.stringify({ slug: tenant.slug, rows_deleted: totalRows })]
+    );
+  } catch { /* non-fatal */ }
+
+  bustAppConfigCache(tenantId);
+  bustSiteConfigCache();
+
+  res.json({ ok: true });
+}));
+
 module.exports = router;

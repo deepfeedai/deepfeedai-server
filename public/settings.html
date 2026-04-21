@@ -302,6 +302,34 @@
           <div id="themeStatus" class="settings-status"></div>
         </div>
 
+        <!-- Danger Zone -->
+        <div class="settings-card" style="border-color:#7f1d1d;">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x26A0;&#xFE0F;</div>
+            <div>
+              <div class="settings-card-title" style="color:#ef4444;">Danger Zone</div>
+              <div class="settings-card-subtitle">These actions are irreversible. Proceed with caution.</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;font-size:14px;margin-bottom:2px;">Reset Newsroom</div>
+                <div class="text-muted text-xs">Wipes all articles, writers, sources, and categories. Your settings and API keys are preserved. Re-runs the setup wizard.</div>
+              </div>
+              <button class="btn btn-outline btn-sm" id="openResetModal" style="border-color:#ef4444;color:#ef4444;white-space:nowrap;flex-shrink:0;">Reset Newsroom</button>
+            </div>
+            <div style="border-top:1px solid var(--border);"></div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;font-size:14px;margin-bottom:2px;">Delete Site</div>
+                <div class="text-muted text-xs">Permanently deletes this site and all of its data. This cannot be undone.</div>
+              </div>
+              <button class="btn btn-danger btn-sm" id="openDeleteModal" style="white-space:nowrap;flex-shrink:0;">Delete Site</button>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /general -->
 
       <!-- ═══ Integrations ═══ -->
@@ -1355,6 +1383,49 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Skip</button>
       <button class="btn btn-primary" id="settingsRecategorizeBtn">Re-categorize</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Newsroom Modal -->
+<div class="modal-overlay" id="resetNewsroomModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title" style="color:#ef4444;">Reset Newsroom</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;">This will permanently delete all articles, writers, sources, and categories. Your settings and API keys will be preserved.</p>
+      <p style="margin-bottom:16px;color:var(--muted);font-size:13px;">The setup wizard will be re-enabled so you can start fresh.</p>
+      <div class="form-group">
+        <label class="form-label">Type <strong>RESET</strong> to confirm</label>
+        <input type="text" class="form-control" id="resetConfirmInput" placeholder="RESET" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmResetBtn" disabled>Reset Newsroom</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Site Modal -->
+<div class="modal-overlay" id="deleteSiteModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title" style="color:#ef4444;">Delete Site</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;">This will permanently delete <strong>all data</strong> for this site including articles, writers, settings, and users. This action cannot be undone.</p>
+      <div class="form-group">
+        <label class="form-label">Type your site slug to confirm: <strong id="deleteSiteSlugLabel"></strong></label>
+        <input type="text" class="form-control" id="deleteConfirmInput" placeholder="" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" disabled>Delete Site Permanently</button>
     </div>
   </div>
 </div>

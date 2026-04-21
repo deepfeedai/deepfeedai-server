@@ -2924,3 +2924,83 @@ let apiKeyVisible = false;
   })();
 
   loadSettings();
+
+  // ── Danger Zone ──────────────────────────────────────────────────
+
+  // Reset Newsroom
+  (function () {
+    var input = document.getElementById('resetConfirmInput');
+    var btn   = document.getElementById('confirmResetBtn');
+    var openBtn = document.getElementById('openResetModal');
+    if (!input || !btn || !openBtn) return;
+
+    openBtn.addEventListener('click', function () {
+      input.value = '';
+      btn.disabled = true;
+      openModal('resetNewsroomModal');
+      setTimeout(function () { input.focus(); }, 100);
+    });
+
+    input.addEventListener('input', function () {
+      btn.disabled = input.value.trim() !== 'RESET';
+    });
+
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.textContent = 'Resetting…';
+      try {
+        await apiFetch('/settings/reset-content', { method: 'POST', body: JSON.stringify({ confirm: 'RESET' }) });
+        closeModal('resetNewsroomModal');
+        showAlert('Newsroom reset. Redirecting to setup wizard…');
+        setTimeout(function () { window.location.href = '/wizard.html'; }, 2000);
+      } catch (err) {
+        showAlert('Reset failed: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Reset Newsroom';
+      }
+    });
+  })();
+
+  // Delete Site
+  (function () {
+    var input   = document.getElementById('deleteConfirmInput');
+    var btn     = document.getElementById('confirmDeleteBtn');
+    var openBtn = document.getElementById('openDeleteModal');
+    var slugLabel = document.getElementById('deleteSiteSlugLabel');
+    if (!input || !btn || !openBtn) return;
+
+    var tenantSlug = '';
+
+    openBtn.addEventListener('click', async function () {
+      input.value = '';
+      btn.disabled = true;
+      // Fetch the tenant slug to show in the modal
+      try {
+        var data = await apiFetch('/settings/tenant-info');
+        tenantSlug = data.slug || '';
+      } catch { tenantSlug = ''; }
+      if (slugLabel) slugLabel.textContent = tenantSlug || '(your site slug)';
+      input.placeholder = tenantSlug || 'your-site-slug';
+      openModal('deleteSiteModal');
+      setTimeout(function () { input.focus(); }, 100);
+    });
+
+    input.addEventListener('input', function () {
+      btn.disabled = !tenantSlug || input.value.trim().toLowerCase() !== tenantSlug.toLowerCase();
+    });
+
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      try {
+        await apiFetch('/settings/delete-site', { method: 'POST', body: JSON.stringify({ confirm: input.value.trim() }) });
+        closeModal('deleteSiteModal');
+        showAlert('Site deleted. You will be redirected shortly.');
+        setTimeout(function () { window.location.href = '/login.html'; }, 2500);
+      } catch (err) {
+        showAlert('Delete failed: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Delete Site Permanently';
+      }
+    });
+  })();
