@@ -1331,4 +1331,5 @@ onReady(function() {
     if (aiBtn) aiBtn.style.display = 'none';
   }
   init();
+  window.pageRefresh = loadWriters;
 });

@@ -308,4 +308,5 @@
   });
 
   load();
+  window.pageRefresh = load;
 })();

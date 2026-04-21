@@ -719,5 +719,6 @@
       try { await loadCategories(); } catch { /* best-effort */ }
     }
     loadArticles();
+    window.pageRefresh = loadArticles;
   });
 })();

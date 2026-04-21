@@ -288,4 +288,5 @@ async function init() {
 onReady(function() {
   if (!requireAuth()) return;
   init();
+  window.pageRefresh = loadRoles;
 });

@@ -122,5 +122,6 @@
     document.getElementById('refreshPreviewBtn')?.addEventListener('click', loadPreview);
     document.getElementById('sendBtn')?.addEventListener('click', sendNewsletter);
     loadHistory();
+    window.pageRefresh = function () { loadPreview(); loadHistory(); };
   });
 })();

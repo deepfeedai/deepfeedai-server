@@ -28,6 +28,7 @@ onReady(async () => {
   if (urlTab    === 'queue')    activeFilter = 'queue';
 
   await Promise.all([loadComments(), loadQueue()]);
+  window.pageRefresh = () => Promise.all([loadComments(), loadQueue()]);
   initFilters();
 
   // Sync filter tab UI after load

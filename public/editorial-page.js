@@ -8,6 +8,7 @@
   var articles = [];
 
   init();
+  window.pageRefresh = loadReviewQueue;
 
   async function init() {
     initModals();

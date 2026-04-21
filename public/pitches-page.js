@@ -770,5 +770,10 @@
   onReady(function () {
     if (!requireAuth()) return;
     init();
+    window.pageRefresh = function () {
+      if (activeTab === 'commissions') return loadCommissions();
+      if (activeTab === 'newsroom') return loadNewsroom();
+      return loadPitches();
+    };
   });
 })();

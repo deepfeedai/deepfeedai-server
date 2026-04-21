@@ -604,6 +604,10 @@ onReady(function() {
   // Load initial tab
   loadOverview();
   loadAppModules();
+  window.pageRefresh = function () {
+    var tabFns = { overview: loadOverview, logs: loadAppLogs, requests: loadRequests, errors: loadErrors, audit: loadAuditLog, cron: loadCron, aiops: loadAiOps, health: loadHealth };
+    return (tabFns[currentTab] || loadOverview)();
+  };
 
   // Filter listeners
   var dAppLogs = debounce(function() { appLogPage = 1; loadAppLogs(); }, 400);

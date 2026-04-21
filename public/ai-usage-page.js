@@ -713,4 +713,5 @@
   renderSidebar();
   loadData();
   loadCreditsSection();
+  window.pageRefresh = function () { loadData(); loadCreditsSection(); };
 })();

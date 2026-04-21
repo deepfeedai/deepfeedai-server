@@ -229,6 +229,7 @@
     document.getElementById('notifMarkAllBtn').addEventListener('click', markAllRead);
 
     fetchPage(true);
+    window.pageRefresh = function () { fetchPage(true); };
   }
 
   if (document.readyState !== 'loading') init();

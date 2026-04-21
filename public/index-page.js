@@ -26,21 +26,25 @@ onReady(async () => {
   }).catch(() => {});
 
   // Main data load
-  let stats;
-  try {
-    stats = await apiFetch('/dashboard/stats');
-  } catch (err) {
-    showAlert('Failed to load dashboard: ' + err.message, 'error');
-    return;
+  async function loadDashboard() {
+    let stats;
+    try {
+      stats = await apiFetch('/dashboard/stats');
+    } catch (err) {
+      showAlert('Failed to load dashboard: ' + err.message, 'error');
+      return;
+    }
+    renderKPIs(stats);
+    renderNewsroomPulse(stats);
+    renderSparkline(stats);
+    renderAISpend(stats);
+    renderCategories(stats);
+    renderAttention(stats);
+    renderRecentArticles(stats);
   }
 
-  renderKPIs(stats);
-  renderNewsroomPulse(stats);
-  renderSparkline(stats);
-  renderAISpend(stats);
-  renderCategories(stats);
-  renderAttention(stats);
-  renderRecentArticles(stats);
+  await loadDashboard();
+  window.pageRefresh = loadDashboard;
 });
 
 // ── Delta badge ────────────────────────────────────────────

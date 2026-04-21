@@ -369,6 +369,7 @@ let sources = [];
     } catch {}
 
     await Promise.all([loadSources(), loadCategories()]);
+    window.pageRefresh = () => Promise.all([loadSources(), loadCategories()]);
   });
 
   // Fetch all sources

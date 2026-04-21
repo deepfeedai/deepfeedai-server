@@ -356,7 +356,7 @@ function renderSidebar() {
     } catch (e) { /* ignore */ }
   }
 
-  // Inject settings gear icon into topbar (after user, before credits)
+  // Inject settings gear + refresh button into topbar
   var topbarEl = document.querySelector('.topbar');
   if (topbarEl && !topbarEl.querySelector('.topbar-settings-link')) {
     var settingsGearLink = document.createElement('a');
@@ -365,10 +365,36 @@ function renderSidebar() {
     settingsGearLink.title = 'Settings';
     settingsGearLink.setAttribute('aria-label', 'Settings');
     settingsGearLink.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
-    // Insert before topbarUser or at end of topbar
+
+    var refreshBtn = document.createElement('button');
+    refreshBtn.id = 'topbarRefreshBtn';
+    refreshBtn.className = 'topbar-refresh-btn';
+    refreshBtn.title = 'Refresh page data';
+    refreshBtn.setAttribute('aria-label', 'Refresh');
+    refreshBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+    refreshBtn.addEventListener('click', function () {
+      var svg = refreshBtn.querySelector('svg');
+      if (svg) svg.classList.add('topbar-refresh-spinning');
+      var done = function () { if (svg) svg.classList.remove('topbar-refresh-spinning'); };
+      if (typeof window.pageRefresh === 'function') {
+        try {
+          var result = window.pageRefresh();
+          if (result && typeof result.then === 'function') result.then(done, done);
+          else setTimeout(done, 400);
+        } catch (e) { done(); }
+      } else {
+        location.reload();
+      }
+    });
+
     var userSpan = document.getElementById('topbarUser');
-    if (userSpan) topbarEl.insertBefore(settingsGearLink, userSpan);
-    else topbarEl.appendChild(settingsGearLink);
+    if (userSpan) {
+      topbarEl.insertBefore(refreshBtn, userSpan);
+      topbarEl.insertBefore(settingsGearLink, userSpan);
+    } else {
+      topbarEl.appendChild(refreshBtn);
+      topbarEl.appendChild(settingsGearLink);
+    }
   }
 
   // Inject credit widget into topbar

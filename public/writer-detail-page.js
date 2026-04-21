@@ -681,5 +681,6 @@
     renderSidebar();
     initModals();
     loadWriterDetail();
+    window.pageRefresh = loadWriterDetail;
   });
 })();

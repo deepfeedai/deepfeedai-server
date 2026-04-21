@@ -2659,6 +2659,25 @@ tr:hover .td-edit-btn { opacity: 1; }
   flex-shrink: 0;
 }
 .topbar-settings-link:hover { background: rgba(255,255,255,0.06); color: var(--text); text-decoration: none; }
+.topbar-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.topbar-refresh-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.topbar-refresh-btn:active { background: rgba(255,255,255,0.1); }
+@keyframes topbar-spin { to { transform: rotate(360deg); } }
+.topbar-refresh-spinning { animation: topbar-spin 0.5s linear; }
 
 /* Mobile */
 @media (max-width: 768px) {
