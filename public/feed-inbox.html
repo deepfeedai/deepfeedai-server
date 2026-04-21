@@ -48,6 +48,10 @@
               <button class="tab-btn" data-tab="week">This Week <span class="tab-badge" id="weekCount"></span></button>
             </div>
             <div class="btn-group">
+              <div class="view-toggle-group" role="group">
+                <button class="btn btn-sm btn-outline view-toggle-btn active" id="viewTable" title="Table view">☰ Table</button>
+                <button class="btn btn-sm btn-outline view-toggle-btn" id="viewFolders" title="Folder view">📁 Folders</button>
+              </div>
               <button class="btn btn-outline btn-sm" id="fetchSourcesBtn" title="Trigger RSS fetch now">🔄 Fetch Sources</button>
               <div class="dropdown" id="purgeDropdown" style="position:relative;">
                 <button class="btn btn-danger btn-sm" id="purgeArticlesBtn" title="Purge feed articles">🗑 Purge Feed</button>
@@ -143,7 +147,7 @@
           </div>
 
           <!-- Table view -->
-          <div class="table-wrap"><div class="table-scroll">
+          <div id="tableViewWrap" class="table-wrap"><div class="table-scroll">
             <table id="inboxTable" class="feed-inbox-table">
               <thead>
                 <tr>
@@ -163,6 +167,9 @@
               </tbody>
             </table>
           </div></div>
+
+          <!-- Folder view -->
+          <div id="folderViewContainer" style="display:none;"></div>
 
           <div id="inboxPagination"></div>
         </div><!-- /inbox-main -->

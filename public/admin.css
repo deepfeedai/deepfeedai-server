@@ -2466,6 +2466,8 @@ tr:hover .td-edit-btn { opacity: 1; }
   .folder-panel { width: 100%; position: static; }
   #folderList { display: flex; flex-wrap: wrap; gap: 4px; }
   .folder-item { flex: 0 0 auto; }
+  /* Folder card actions always visible on touch */
+  .folder-card-actions { opacity: 1; }
 }
 
 /* Editorial review action buttons stack under 480px */
@@ -2686,6 +2688,45 @@ tr:hover .td-edit-btn { opacity: 1; }
 .topbar-refresh-btn:active { background: rgba(255,255,255,0.1); }
 @keyframes topbar-spin { to { transform: rotate(360deg); } }
 .topbar-refresh-spinning { animation: topbar-spin 0.5s linear; }
+
+/* ── Feed Inbox — View toggle ──────────────────────────── */
+.view-toggle-group { display: flex; }
+.view-toggle-group .btn { border-radius: 0; border-right-width: 0; }
+.view-toggle-group .btn:first-child { border-radius: 6px 0 0 6px; }
+.view-toggle-group .btn:last-child  { border-radius: 0 6px 6px 0; border-right-width: 1px; }
+.view-toggle-btn.active { background: var(--accent, #6366f1); color: #fff; border-color: var(--accent, #6366f1); }
+
+/* ── Feed Inbox — Folder grouped view ──────────────────── */
+.folder-section { margin-bottom: 20px; }
+.folder-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.folder-section-name { font-weight: 600; font-size: 14px; }
+.folder-section-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+.folder-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--bg-card);
+  transition: background 0.1s;
+}
+.folder-card:hover { background: var(--bg-hover, rgba(255,255,255,.04)); }
+.folder-card.row-selected { background: rgba(99,102,241,.08); border-color: rgba(99,102,241,.35); }
+.folder-card-check { padding-top: 2px; flex-shrink: 0; }
+.folder-card-body { flex: 1; min-width: 0; }
+.folder-card-title { font-size: 13px; font-weight: 500; line-height: 1.4; margin-bottom: 4px; }
+.folder-card-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.folder-card-actions { display: flex; gap: 2px; flex-shrink: 0; opacity: 0; transition: opacity 0.15s; }
+.folder-card:hover .folder-card-actions { opacity: 1; }
 
 /* ── Feed Inbox — Folder panel ─────────────────────────── */
 .inbox-layout {

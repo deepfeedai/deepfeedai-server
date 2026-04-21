@@ -18,6 +18,7 @@
   let scoreFilter = 'all';
   let pitchStatusFilter = 'all';
   let activeTab = 'all';
+  let viewMode = 'table'; // 'table' | 'folders'
   let page = 1;
   let pageSize = 50;
 
@@ -372,13 +373,13 @@
       }
     }
 
-    // Search
+    // Search — every word must appear somewhere in title+summary (AND logic)
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(a =>
-        (a.title && a.title.toLowerCase().includes(q)) ||
-        (a.summary && a.summary.toLowerCase().includes(q))
-      );
+      const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+      filtered = filtered.filter(a => {
+        const haystack = ((a.title || '') + ' ' + (a.summary || '')).toLowerCase();
+        return words.every(w => haystack.includes(w));
+      });
     }
 
     // Source
@@ -448,7 +449,102 @@
       countEl.classList.toggle('filter-count-active', anyFilter);
     }
 
-    renderTable();
+    renderView();
+  }
+
+  // ── View switching ────────────────────────────────────────
+
+  function renderView() {
+    const tableWrap = document.getElementById('tableViewWrap');
+    const folderWrap = document.getElementById('folderViewContainer');
+    const paginationEl = document.getElementById('inboxPagination');
+    if (viewMode === 'folders') {
+      if (tableWrap) tableWrap.style.display = 'none';
+      if (folderWrap) folderWrap.style.display = '';
+      if (paginationEl) paginationEl.innerHTML = '';
+      renderFolderView();
+    } else {
+      if (tableWrap) tableWrap.style.display = '';
+      if (folderWrap) folderWrap.style.display = 'none';
+      renderTable();
+    }
+  }
+
+  function renderFolderView() {
+    const container = document.getElementById('folderViewContainer');
+    if (!container) return;
+
+    // Group filtered articles by folder
+    const grouped = new Map(); // group_id → { name, color, articles[] }
+    const ungrouped = [];
+
+    articles.forEach(a => {
+      if (a.group_id) {
+        if (!grouped.has(a.group_id)) {
+          grouped.set(a.group_id, { name: a.group_name || 'Unknown', color: a.group_color || '#6366f1', articles: [] });
+        }
+        grouped.get(a.group_id).articles.push(a);
+      } else {
+        ungrouped.push(a);
+      }
+    });
+
+    const sections = [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+    let html = '';
+    sections.forEach(g => { html += renderFolderSection(g.name, g.color, g.articles); });
+    if (ungrouped.length) html += renderFolderSection('Ungrouped', null, ungrouped);
+    if (!html) html = '<p class="text-muted" style="text-align:center;padding:40px 0;">No articles match the current filters.</p>';
+
+    container.innerHTML = html;
+
+    // Wire checkboxes
+    container.querySelectorAll('.row-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = parseInt(cb.dataset.id);
+        if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+        const card = document.getElementById('fcard-' + id);
+        if (card) card.classList.toggle('row-selected', cb.checked);
+        updateBulkToolbar();
+      });
+    });
+  }
+
+  function renderFolderSection(name, color, sectionArticles) {
+    const dot = `<span class="folder-dot" style="background:${color ? escHtml(color) : 'var(--muted)'};width:10px;height:10px;flex-shrink:0;"></span>`;
+    const cards = sectionArticles.map(renderFolderCard).join('');
+    return `<div class="folder-section">
+      <div class="folder-section-header">
+        ${dot}
+        <span class="folder-section-name">${escHtml(name)}</span>
+        <span class="folder-section-count">${sectionArticles.length} article${sectionArticles.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="folder-section-body">${cards}</div>
+    </div>`;
+  }
+
+  function renderFolderCard(a) {
+    const checked = selectedIds.has(a.id) ? 'checked' : '';
+    const scoreClass = a.editorial_score >= 7 ? 'badge-success' : a.editorial_score >= 5 ? 'badge-warning' : 'badge-danger';
+    return `<div class="folder-card ${selectedIds.has(a.id) ? 'row-selected' : ''}" id="fcard-${a.id}">
+      <label class="folder-card-check"><input type="checkbox" class="row-check" data-id="${a.id}" ${checked} /></label>
+      <div class="folder-card-body">
+        <div class="folder-card-title">${escHtml(a.title)}${pitchBadge(a.pitch_status)}</div>
+        <div class="folder-card-meta">
+          ${a.source ? `<span class="text-muted text-sm">${escHtml(a.source)}</span>` : ''}
+          ${a.category ? `<span class="badge badge-muted">${escHtml(a.category)}</span>` : ''}
+          ${a.editorial_score != null ? `<span class="badge ${scoreClass}">${a.editorial_score}</span>` : ''}
+          <span class="text-muted text-sm">${relativeTime(a.created_at)}</span>
+        </div>
+      </div>
+      <div class="folder-card-actions">
+        ${safeUrl(a.source_url) ? `<a class="btn btn-ghost btn-sm" href="${escHtml(safeUrl(a.source_url))}" target="_blank" rel="noopener" title="View source">🔗</a>` : ''}
+        <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id},${escHtml(JSON.stringify(a.title||''))},${escHtml(JSON.stringify(a.category||''))})">💬</button>
+        <button class="btn btn-ghost btn-sm" title="Pitch via Maxwell" onclick="pitchWithMaxwell(${a.id},${escHtml(JSON.stringify(a.title||''))})">📋</button>
+        <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁</button>
+        <button class="btn btn-ghost btn-sm" title="Delete" onclick="deleteArticle(${a.id})">🗑️</button>
+      </div>
+    </div>`;
   }
 
   // ── Render ───────────────────────────────────────────────
@@ -608,7 +704,7 @@
       allArticles = allArticles.filter(a => a.id !== id);
       selectedIds.delete(id);
       renderFolderPanel();
-      applyFilters({ preservePage: true });
+      applyFilters({ preservePage: true }); // also re-renders view
       showAlert('Article deleted.', 'success');
     } catch (err) {
       showAlert('Delete failed: ' + err.message, 'error');
@@ -719,6 +815,20 @@
   }
 
   // ── Event listeners ──────────────────────────────────────
+
+  // View toggle
+  document.getElementById('viewTable')?.addEventListener('click', () => {
+    viewMode = 'table';
+    document.getElementById('viewTable')?.classList.add('active');
+    document.getElementById('viewFolders')?.classList.remove('active');
+    renderView();
+  });
+  document.getElementById('viewFolders')?.addEventListener('click', () => {
+    viewMode = 'folders';
+    document.getElementById('viewFolders')?.classList.add('active');
+    document.getElementById('viewTable')?.classList.remove('active');
+    renderView();
+  });
 
   // Tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
