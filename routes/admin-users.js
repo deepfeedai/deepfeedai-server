@@ -10,12 +10,14 @@ const { auth }            = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { validate, userCreate, userUpdate, passwordReset, passwordChange } = require('../lib/schemas');
+const storage = require('../lib/storage');
+const { extFromMime } = require('../lib/r2');
 
 // GET / — list local users for current tenant
 router.get('/', auth, requirePermission('users.read'), asyncHandler(async (req, res) => {
   const tenantId = req.tenantId || req.user.tenantId || 1;
   const users = await db.prepare(
-    'SELECT id, username, email, display_name, role, is_active, last_login_at, created_at FROM users WHERE tenant_id = $1 ORDER BY created_at'
+    'SELECT id, username, email, display_name, avatar_url, role, is_active, last_login_at, created_at FROM users WHERE tenant_id = $1 ORDER BY created_at'
   ).all(tenantId);
   res.json(users);
 }));
@@ -48,7 +50,7 @@ router.put('/me/password', auth, asyncHandler(async (req, res) => {
 router.get('/:id', auth, requirePermission('users.read'), asyncHandler(async (req, res) => {
   const tenantId = req.tenantId || req.user.tenantId || 1;
   const user = await db.prepare(
-    'SELECT id, username, email, display_name, role, is_active, last_login_at, created_at, created_by, updated_at FROM users WHERE id = $1 AND tenant_id = $2'
+    'SELECT id, username, email, display_name, avatar_url, role, is_active, last_login_at, created_at, created_by, updated_at FROM users WHERE id = $1 AND tenant_id = $2'
   ).get(req.params.id, tenantId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
@@ -111,7 +113,7 @@ router.put('/:id', auth, requirePermission('users.update'), asyncHandler(async (
   }
 
   const updated = await db.prepare(
-    'UPDATE users SET display_name = $1, email = $2, role = $3, is_active = $4, updated_at = NOW() WHERE id = $5 AND tenant_id = $6 RETURNING id, username, email, display_name, role, is_active, last_login_at, created_at, updated_at'
+    'UPDATE users SET display_name = $1, email = $2, role = $3, is_active = $4, updated_at = NOW() WHERE id = $5 AND tenant_id = $6 RETURNING id, username, email, display_name, avatar_url, role, is_active, last_login_at, created_at, updated_at'
   ).get(
     body.display_name !== undefined ? body.display_name : existing.display_name,
     body.email !== undefined ? (body.email || null) : existing.email,
@@ -124,6 +126,37 @@ router.put('/:id', auth, requirePermission('users.update'), asyncHandler(async (
   await logAuditWithDiff(req, 'users.update', 'users', parseInt(req.params.id), existing, updated);
 
   res.json({ ...updated, reloginRequired: body.role && body.role !== existing.role });
+}));
+
+// POST /:id/avatar — upload avatar image for a user (base64 dataUrl)
+router.post('/:id/avatar', auth, requirePermission('users.update'), asyncHandler(async (req, res) => {
+  const { dataUrl } = req.body || {};
+  if (!dataUrl) return res.status(400).json({ error: 'dataUrl required' });
+
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'Invalid dataUrl format' });
+
+  const mimeType = match[1];
+  const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+  if (!ALLOWED_MIME.has(mimeType)) {
+    return res.status(400).json({ error: 'Only JPEG, PNG, WebP, or GIF allowed' });
+  }
+
+  const buf = Buffer.from(match[2], 'base64');
+  if (buf.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 2MB)' });
+
+  const tenantId = req.tenantId || req.user.tenantId || 1;
+  const user = await db.prepare('SELECT id FROM users WHERE id = $1 AND tenant_id = $2').get(req.params.id, tenantId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const ext = extFromMime(mimeType);
+  const url = await storage.upload(buf, mimeType, `avatars/user-${req.params.id}-${Date.now()}.${ext}`, tenantId);
+
+  await db.prepare('UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(url, req.params.id, tenantId);
+
+  await logAudit(req, 'users.avatar-upload', 'users', parseInt(req.params.id), {}).catch(() => {});
+
+  res.json({ url });
 }));
 
 // DELETE /:id/permanent — hard delete user (must be before /:id to avoid param matching)

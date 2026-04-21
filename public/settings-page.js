@@ -2443,55 +2443,6 @@ let apiKeyVisible = false;
     } catch {}
   };
 
-  // ── Your Profile (self-service) ───────────────────────────────
-  async function loadProfile() {
-    try {
-      var me = await apiFetch('/auth/me');
-      var u = document.getElementById('profileUsername');
-      var d = document.getElementById('profileDisplayName');
-      var a = document.getElementById('profileAvatarUrl');
-      var p = document.getElementById('profileAvatarPreview');
-      if (u) u.value = me.username || '';
-      if (d) d.value = me.display_name || '';
-      if (a) a.value = me.avatar_url || '';
-      if (p && me.avatar_url) { p.src = me.avatar_url; p.style.visibility = ''; }
-    } catch (err) {
-      console.warn('profile load failed', err);
-    }
-  }
-  var avatarUrlEl = document.getElementById('profileAvatarUrl');
-  if (avatarUrlEl) {
-    avatarUrlEl.addEventListener('input', function () {
-      var p = document.getElementById('profileAvatarPreview');
-      if (!p) return;
-      var v = avatarUrlEl.value.trim();
-      if (v) { p.src = v; p.style.visibility = ''; } else { p.removeAttribute('src'); p.style.visibility = 'hidden'; }
-    });
-  }
-  var saveProfileBtn = document.getElementById('saveProfileBtn');
-  if (saveProfileBtn) {
-    saveProfileBtn.addEventListener('click', async function () {
-      var status = document.getElementById('profileStatus');
-      var d = document.getElementById('profileDisplayName').value.trim();
-      var a = document.getElementById('profileAvatarUrl').value.trim();
-      saveProfileBtn.disabled = true;
-      if (status) { status.textContent = 'Saving...'; status.className = 'settings-status'; }
-      try {
-        await apiFetch('/auth/me', {
-          method: 'PATCH',
-          body: JSON.stringify({ display_name: d, avatar_url: a || null }),
-        });
-        if (status) { status.textContent = 'Saved.'; status.className = 'settings-status success'; }
-        showAlert('Profile saved');
-      } catch (err) {
-        if (status) { status.textContent = 'Save failed: ' + (err.message || err); status.className = 'settings-status error'; }
-      } finally {
-        saveProfileBtn.disabled = false;
-      }
-    });
-  }
-  loadProfile();
-
   // ── Team section (Users + Roles) ──────────────────────────────────
   (function initTeam() {
     var teamPanel = document.querySelector('.tab-panel[data-tab="team"]');
@@ -2598,12 +2549,23 @@ let apiKeyVisible = false;
       }).join('');
     }
 
+    function _resetAvatarUI() {
+      var preview = document.getElementById('userAvatarPreview');
+      var status  = document.getElementById('userAvatarStatus');
+      var fileInput = document.getElementById('userAvatarFile');
+      if (preview) { preview.removeAttribute('src'); preview.style.visibility = 'hidden'; }
+      if (status)  status.textContent = '';
+      if (fileInput) fileInput.value = '';
+    }
+
     function openAddUser() {
       document.getElementById('userModalTitle').textContent = 'Add User';
       document.getElementById('userId').value = '';
       ['userUsername','userDisplayName','userEmail','userPassword'].forEach(function(id) { document.getElementById(id).value = ''; });
       document.getElementById('passwordGroup').style.display = '';
       document.getElementById('activeGroup').style.display = 'none';
+      document.getElementById('userAvatarGroup').style.display = 'none';
+      _resetAvatarUI();
       populateRoleDropdown();
       openModal('userModal');
       document.getElementById('userUsername').focus();
@@ -2621,6 +2583,12 @@ let apiKeyVisible = false;
       document.getElementById('passwordGroup').style.display = 'none';
       document.getElementById('activeGroup').style.display = '';
       document.getElementById('userActive').checked = !!u.is_active;
+      document.getElementById('userAvatarGroup').style.display = '';
+      _resetAvatarUI();
+      if (u.avatar_url) {
+        var prev = document.getElementById('userAvatarPreview');
+        if (prev) { prev.src = u.avatar_url; prev.style.visibility = ''; }
+      }
       populateRoleDropdown(u.role);
       openModal('userModal');
       document.getElementById('userUsername').focus();
@@ -2645,6 +2613,44 @@ let apiKeyVisible = false;
         await loadTeamUsers();
       } catch (err) { showAlert('Save failed: ' + err.message, 'error'); }
     }
+
+    // Avatar upload — fires immediately on file select, uploads to storage, updates preview
+    (function wireAvatarUpload() {
+      var pickBtn   = document.getElementById('userAvatarPickBtn');
+      var fileInput = document.getElementById('userAvatarFile');
+      if (!pickBtn || !fileInput) return;
+
+      pickBtn.addEventListener('click', function () { fileInput.click(); });
+
+      fileInput.addEventListener('change', function () {
+        var file = fileInput.files[0];
+        if (!file) return;
+        var userId = document.getElementById('userId').value;
+        if (!userId) return; // avatar upload requires an existing user ID
+        var status = document.getElementById('userAvatarStatus');
+        var preview = document.getElementById('userAvatarPreview');
+        if (status) status.textContent = 'Uploading…';
+
+        var reader = new FileReader();
+        reader.onload = async function (e) {
+          if (preview) { preview.src = e.target.result; preview.style.visibility = ''; }
+          try {
+            var data = await apiFetch('/admin/users/' + userId + '/avatar', {
+              method: 'POST',
+              body: JSON.stringify({ dataUrl: e.target.result }),
+            });
+            if (preview) { preview.src = data.url; preview.style.visibility = ''; }
+            if (status) status.textContent = '✅ Uploaded';
+            // Refresh local user cache so avatar shows in the list
+            var u = _users.find(function (x) { return x.id === parseInt(userId, 10); });
+            if (u) u.avatar_url = data.url;
+          } catch (err) {
+            if (status) status.textContent = 'Upload failed: ' + err.message;
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    })();
 
     async function deactivateUser(id, username) {
       if (!confirm('Deactivate "' + username + '"? They will no longer be able to log in.')) return;
