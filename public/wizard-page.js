@@ -122,6 +122,7 @@
         "styleGuide": "Focus on measurable outcomes — cost savings, efficiency gains, deployment scale. Ground stories in specific use cases, not abstract possibilities."
       }
     ],
+    "searchQuery": "\"artificial intelligence\" OR \"machine learning\" OR \"large language model\" OR OpenAI OR Anthropic OR \"deep learning\" OR LLM OR ChatGPT OR \"generative AI\" OR \"neural network\"",
     "sources": [
       {"name": "The Verge AI", "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"},
       {"name": "TechCrunch AI", "url": "https://techcrunch.com/category/artificial-intelligence/feed/"},
@@ -221,6 +222,7 @@
         "styleGuide": "Lead with what the company does, then funding details. Assess technology readiness level and realistic path to scale."
       }
     ],
+    "searchQuery": "\"climate change\" OR \"clean energy\" OR \"solar power\" OR \"wind energy\" OR \"electric vehicle\" OR \"carbon emissions\" OR \"net zero\"",
     "sources": [
       {"name": "CleanTechnica", "url": "https://cleantechnica.com/feed/"},
       {"name": "Carbon Brief", "url": "https://www.carbonbrief.org/feed/"},
@@ -316,6 +318,7 @@
         "styleGuide": "Focus on technical progress over token speculation. Explain what is actually being built and its real-world utility."
       }
     ],
+    "searchQuery": "Bitcoin OR Ethereum OR cryptocurrency OR blockchain OR DeFi OR \"Web3\" OR NFT OR \"crypto market\"",
     "sources": [
       {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
       {"name": "The Block", "url": "https://www.theblock.co/rss.xml"},
@@ -411,6 +414,7 @@
         "styleGuide": "Explain novel techniques clearly and assess defensive implications. Always credit researchers and link to original work."
       }
     ],
+    "searchQuery": "cybersecurity OR ransomware OR malware OR \"data breach\" OR \"zero-day\" OR vulnerability OR hacking OR infosec",
     "sources": [
       {"name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews"},
       {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/"},
@@ -506,6 +510,7 @@
         "styleGuide": "Note ratings performance, social media buzz, and format innovations. Be candid about production quality and authenticity."
       }
     ],
+    "searchQuery": "Netflix OR Hollywood OR \"box office\" OR streaming OR \"film industry\" OR \"TV show\" OR Disney",
     "sources": [
       {"name": "Deadline", "url": "https://deadline.com/feed/"},
       {"name": "Variety", "url": "https://variety.com/feed/"},
@@ -601,6 +606,7 @@
         "styleGuide": "Lead with the problem the company solves, then funding details. Note competitive landscape and realistic path to profitability."
       }
     ],
+    "searchQuery": "fintech OR \"financial technology\" OR payments OR neobank OR \"digital banking\" OR insurtech OR Stripe OR PayPal",
     "sources": [
       {"name": "Finextra", "url": "https://www.finextra.com/rss/headlines.aspx"},
       {"name": "TechCrunch Fintech", "url": "https://techcrunch.com/category/fintech/feed/"},
@@ -695,6 +701,7 @@
         "styleGuide": "Be candid about monetization practices. Highlight genuinely good games that respect players' time and money."
       }
     ],
+    "searchQuery": "gaming OR \"video game\" OR esports OR PlayStation OR Xbox OR Nintendo OR \"game release\" OR Twitch OR Steam",
     "sources": [
       {"name": "Kotaku", "url": "https://kotaku.com/rss"},
       {"name": "IGN", "url": "https://feeds.feedburner.com/ign/all"},
@@ -790,6 +797,7 @@
         "styleGuide": "Explain policy impact on patients and providers. Present stakeholder perspectives fairly. Note implementation timelines and enforcement."
       }
     ],
+    "searchQuery": "\"health technology\" OR \"digital health\" OR medtech OR biotech OR \"medical device\" OR telemedicine OR FDA",
     "sources": [
       {"name": "STAT News", "url": "https://www.statnews.com/feed/"},
       {"name": "Fierce Healthcare", "url": "https://www.fiercehealthcare.com/rss/xml"},
@@ -885,6 +893,7 @@
         "styleGuide": "Write for everyday investors. Be practical and jargon-free. Include specific numbers and comparisons. Always disclaim financial advice."
       }
     ],
+    "searchQuery": "\"stock market\" OR investing OR \"day trading\" OR \"S&P 500\" OR \"hedge fund\" OR \"personal finance\" OR \"earnings report\"",
     "sources": [
       {"name": "MarketWatch", "url": "https://www.marketwatch.com/rss/topstories"},
       {"name": "Seeking Alpha", "url": "https://seekingalpha.com/feed.xml"},
@@ -980,6 +989,7 @@
         "styleGuide": "Distinguish confirmed news from speculation with appropriate sourcing caveats. Cover contract status and creative plans. Protect sources."
       }
     ],
+    "searchQuery": "WWE OR AEW OR \"pro wrestling\" OR wrestling OR WrestleMania OR SmackDown OR RAW OR \"wrestling results\"",
     "sources": [
       {"name": "Wrestling Observer", "url": "https://www.f4wonline.com/feed"},
       {"name": "Fightful", "url": "https://www.fightful.com/rss.xml"},
@@ -1075,6 +1085,7 @@
         "styleGuide": "Include nightly rates, location context, and standout amenities. Note loyalty program status and booking strategies for best value."
       }
     ],
+    "searchQuery": "travel OR cruise OR \"flight deals\" OR \"hotel deals\" OR tourism OR destination OR airline OR \"vacation deals\"",
     "sources": [
       {"name": "Skift", "url": "https://skift.com/feed/"},
       {"name": "The Points Guy", "url": "https://thepointsguy.com/feed/"},
@@ -1818,7 +1829,9 @@
       await apiFetch('/setup/wizard-complete', { method: 'POST' }).catch(function () {
         return apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ wizard_completed: '1' }) });
       });
-      apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ wizard_niche: selectedNiche }) }).catch(function () {});
+
+      apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ wizard_niche: selectedNiche, live_news_query: (niche && niche.searchQuery) || '' }) }).catch(function () {});
+
 
       // Show success
       document.getElementById('launchReady').style.display = 'none';

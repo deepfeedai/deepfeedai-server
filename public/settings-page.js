@@ -1228,7 +1228,6 @@ let apiKeyVisible = false;
     var payload = {};
     var query = document.getElementById('liveNewsQuery').value.trim();
     payload.live_news_query = query || '';
-    payload.auto_publish_live = document.getElementById('autoPublishLive').checked ? '1' : '0';
     await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
   });
 
@@ -1410,7 +1409,6 @@ let apiKeyVisible = false;
 
     // Live News settings
     if (settings.live_news_query) document.getElementById('liveNewsQuery').value = settings.live_news_query;
-    if (settings.auto_publish_live === '1') document.getElementById('autoPublishLive').checked = true;
   }
 
   // Save Google OAuth

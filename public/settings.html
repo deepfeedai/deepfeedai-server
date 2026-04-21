@@ -684,19 +684,13 @@
             <div class="settings-card-icon">&#x1F50D;</div>
             <div>
               <div class="settings-card-title">Live News Search Query</div>
-              <div class="settings-card-subtitle">What topics the live-news cron searches for. Leave blank for the default AI/ML query.</div>
+              <div class="settings-card-subtitle">What topics the live-news cron searches for. Leave blank to use your niche default.</div>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Search Query</label>
-            <input type="text" class="form-control" id="liveNewsQuery" placeholder='e.g. Bitcoin OR Ethereum OR "crypto market"' />
-            <div class="text-muted text-xs" style="margin-top:4px;">Supports AND/OR operators and quoted phrases. Used by both NewsAPI and Brave Search cron jobs.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-check">
-              <input type="checkbox" id="autoPublishLive" /> Auto-publish live news articles
-            </label>
-            <div class="text-muted text-xs" style="margin-top:2px;">When enabled, fetched articles are published immediately instead of saved as drafts.</div>
+            <input type="text" class="form-control" id="liveNewsQuery" placeholder='"artificial intelligence" OR "machine learning" OR LLM OR OpenAI OR Anthropic OR ChatGPT OR "generative AI"' />
+            <div class="text-muted text-xs" style="margin-top:4px;">Supports AND/OR operators and quoted phrases. Used by both NewsAPI and Brave Search cron jobs. Override this if your newsroom covers a different topic.</div>
           </div>
           <div class="btn-group mt-5">
             <button class="btn btn-primary btn-sm" id="saveLiveNewsBtn">Save Live News Settings</button>
