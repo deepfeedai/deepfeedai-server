@@ -2460,6 +2460,14 @@ tr:hover .td-edit-btn { opacity: 1; }
   .filter-bar-toggle { display: none !important; }
 }
 
+@media (max-width: 768px) {
+  /* Folder panel stacks above table on mobile */
+  .inbox-layout { flex-direction: column; }
+  .folder-panel { width: 100%; position: static; }
+  #folderList { display: flex; flex-wrap: wrap; gap: 4px; }
+  .folder-item { flex: 0 0 auto; }
+}
+
 /* Editorial review action buttons stack under 480px */
 @media (max-width: 480px) {
   .review-actions,
@@ -2678,6 +2686,136 @@ tr:hover .td-edit-btn { opacity: 1; }
 .topbar-refresh-btn:active { background: rgba(255,255,255,0.1); }
 @keyframes topbar-spin { to { transform: rotate(360deg); } }
 .topbar-refresh-spinning { animation: topbar-spin 0.5s linear; }
+
+/* ── Feed Inbox — Folder panel ─────────────────────────── */
+.inbox-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.inbox-main {
+  flex: 1;
+  min-width: 0;
+}
+.folder-panel {
+  width: 200px;
+  min-width: 180px;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  position: sticky;
+  top: 72px;
+}
+.folder-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.folder-panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.folder-new-btn {
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px !important;
+  color: var(--muted);
+}
+.folder-new-btn:hover { color: var(--text); }
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  user-select: none;
+}
+.folder-item:hover { background: var(--bg-hover, rgba(255,255,255,.05)); }
+.folder-item.active {
+  background: rgba(99,102,241,.15);
+  color: #818cf8;
+  font-weight: 600;
+}
+.folder-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.folder-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-count {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.folder-actions {
+  display: none;
+  gap: 1px;
+  flex-shrink: 0;
+}
+.folder-item:hover .folder-actions,
+.folder-item.active .folder-actions { display: flex; }
+.folder-actions .btn { font-size: 11px; padding: 1px 4px !important; min-height: 0; }
+.folder-new-form {
+  padding: 8px 4px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+.folder-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.folder-name-input:focus { border-color: #6366f1; }
+.folder-form-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 6px;
+}
+.folder-color-input {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+/* Folder chip in table rows */
+.folder-chip {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  margin-left: 5px;
+  vertical-align: middle;
+  opacity: 0.85;
+  white-space: nowrap;
+}
 
 /* Mobile */
 @media (max-width: 768px) {

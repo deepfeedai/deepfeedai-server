@@ -5,6 +5,8 @@
 (function () {
   let allArticles = [];
   let articles = [];
+  let groups = [];
+  let activeGroupId = null; // null=All, 'none'=Ungrouped, number=group id
   let sortCol = 'created_at';
   let sortDir = 'desc';
   let selectedIds = new Set();
@@ -14,6 +16,7 @@
   let dateFilter = 'all';
   let statusFilter = 'all';
   let scoreFilter = 'all';
+  let pitchStatusFilter = 'all';
   let activeTab = 'all';
   let page = 1;
   let pageSize = 50;
@@ -27,6 +30,188 @@
     if (!url) return '';
     return /^https?:\/\//i.test(url) ? url : '';
   }
+
+  // ── Folder panel ─────────────────────────────────────────
+
+  async function loadGroups() {
+    try {
+      const data = await apiFetch('/feed-groups');
+      groups = data.groups || [];
+      renderFolderPanel();
+      populateBulkMoveDropdown();
+    } catch (err) {
+      console.error('Failed to load groups:', err);
+    }
+  }
+
+  function renderFolderPanel() {
+    const list = document.getElementById('folderList');
+    if (!list) return;
+
+    const totalCount = allArticles.length;
+    const ungrpCount = allArticles.filter(a => !a.group_id).length;
+
+    let html = '';
+
+    html += `<div class="folder-item ${activeGroupId === null ? 'active' : ''}" data-group="all">
+      <span class="folder-dot" style="background:var(--muted)"></span>
+      <span class="folder-name">All</span>
+      <span class="folder-count">${totalCount}</span>
+    </div>`;
+
+    html += `<div class="folder-item ${activeGroupId === 'none' ? 'active' : ''}" data-group="none">
+      <span class="folder-dot" style="background:var(--border-color,#444)"></span>
+      <span class="folder-name">Ungrouped</span>
+      <span class="folder-count">${ungrpCount}</span>
+    </div>`;
+
+    groups.forEach(g => {
+      const isActive = activeGroupId === g.id;
+      const count = allArticles.filter(a => a.group_id === g.id).length;
+      html += `<div class="folder-item ${isActive ? 'active' : ''}" data-group="${g.id}">
+        <span class="folder-dot" style="background:${escHtml(g.color)}"></span>
+        <span class="folder-name">${escHtml(g.name)}</span>
+        <span class="folder-count">${count}</span>
+        <div class="folder-actions">
+          <button class="btn btn-ghost btn-sm folder-edit-btn" data-id="${g.id}" title="Rename">✏</button>
+          <button class="btn btn-ghost btn-sm folder-delete-btn" data-id="${g.id}" title="Delete">✕</button>
+        </div>
+      </div>`;
+    });
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.folder-item').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('.folder-actions')) return;
+        const gid = el.dataset.group;
+        setActiveGroup(gid === 'all' ? null : gid === 'none' ? 'none' : parseInt(gid));
+      });
+    });
+
+    list.querySelectorAll('.folder-edit-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        startEditGroup(parseInt(btn.dataset.id));
+      });
+    });
+
+    list.querySelectorAll('.folder-delete-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        deleteGroup(parseInt(btn.dataset.id));
+      });
+    });
+  }
+
+  function setActiveGroup(id) {
+    activeGroupId = id;
+    renderFolderPanel();
+    applyFilters();
+  }
+
+  function startEditGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!g) return;
+    const list = document.getElementById('folderList');
+    const item = list ? list.querySelector(`[data-group="${id}"]`) : null;
+    if (!item) return;
+
+    item.innerHTML = `
+      <input type="text" class="folder-name-input" value="${escHtml(g.name)}" maxlength="60" style="flex:1;min-width:0;" />
+      <input type="color" class="folder-color-input" value="${g.color}" />
+      <button class="btn btn-primary btn-sm folder-save-edit-btn" data-id="${id}">✓</button>
+      <button class="btn btn-ghost btn-sm folder-cancel-edit-btn">✕</button>
+    `;
+    item.style.flexWrap = 'wrap';
+    item.querySelector('.folder-name-input').focus();
+
+    item.querySelector('.folder-save-edit-btn').addEventListener('click', async () => {
+      const newName = item.querySelector('.folder-name-input').value.trim();
+      const newColor = item.querySelector('.folder-color-input').value;
+      if (!newName) return;
+      try {
+        const updated = await apiFetch('/feed-groups/' + id, {
+          method: 'PUT',
+          body: JSON.stringify({ name: newName, color: newColor }),
+        });
+        const idx = groups.findIndex(x => x.id === id);
+        if (idx >= 0) groups[idx] = { ...groups[idx], name: updated.name, color: updated.color };
+        renderFolderPanel();
+        populateBulkMoveDropdown();
+      } catch (err) {
+        showAlert('Rename failed: ' + err.message, 'error');
+        renderFolderPanel();
+      }
+    });
+
+    item.querySelector('.folder-cancel-edit-btn').addEventListener('click', () => renderFolderPanel());
+  }
+
+  async function deleteGroup(id) {
+    const g = groups.find(x => x.id === id);
+    if (!confirm(`Delete folder "${g?.name || id}"? Articles will become ungrouped.`)) return;
+    try {
+      await apiFetch('/feed-groups/' + id, { method: 'DELETE' });
+      groups = groups.filter(x => x.id !== id);
+      allArticles.forEach(a => { if (a.group_id === id) a.group_id = null; });
+      if (activeGroupId === id) activeGroupId = null;
+      renderFolderPanel();
+      populateBulkMoveDropdown();
+      applyFilters({ preservePage: true });
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  function populateBulkMoveDropdown() {
+    const sel = document.getElementById('bulkMoveFolder');
+    if (!sel) return;
+    sel.innerHTML = `<option value="">📁 Move to…</option>`
+      + groups.map(g => `<option value="${g.id}">${escHtml(g.name)}</option>`).join('')
+      + `<option value="none">— Ungrouped</option>`;
+  }
+
+  // New folder form
+  document.getElementById('newFolderBtn')?.addEventListener('click', () => {
+    const form = document.getElementById('folderNewForm');
+    if (!form) return;
+    const visible = form.style.display !== 'none';
+    form.style.display = visible ? 'none' : '';
+    if (!visible) document.getElementById('folderNameInput')?.focus();
+  });
+
+  document.getElementById('folderSaveBtn')?.addEventListener('click', async () => {
+    const nameInput = document.getElementById('folderNameInput');
+    const colorInput = document.getElementById('folderColorInput');
+    const name = nameInput?.value.trim();
+    const color = colorInput?.value || '#6366f1';
+    if (!name) { nameInput?.focus(); return; }
+    try {
+      const newGroup = await apiFetch('/feed-groups', {
+        method: 'POST',
+        body: JSON.stringify({ name, color }),
+      });
+      groups.push(newGroup);
+      if (nameInput) nameInput.value = '';
+      document.getElementById('folderNewForm').style.display = 'none';
+      renderFolderPanel();
+      populateBulkMoveDropdown();
+      showAlert(`Folder "${newGroup.name}" created.`, 'success');
+    } catch (err) {
+      showAlert('Create failed: ' + err.message, 'error');
+    }
+  });
+
+  document.getElementById('folderCancelBtn')?.addEventListener('click', () => {
+    const form = document.getElementById('folderNewForm');
+    if (form) form.style.display = 'none';
+  });
+
+  document.getElementById('folderNameInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('folderSaveBtn')?.click();
+    if (e.key === 'Escape') document.getElementById('folderCancelBtn')?.click();
+  });
 
   // ── Sorting ──────────────────────────────────────────────
 
@@ -70,6 +255,15 @@
       filtered = filtered.filter(a => (now - new Date(a.created_at).getTime()) < day);
     } else if (activeTab === 'week') {
       filtered = filtered.filter(a => (now - new Date(a.created_at).getTime()) < 7 * day);
+    }
+
+    // Group filter
+    if (activeGroupId !== null) {
+      if (activeGroupId === 'none') {
+        filtered = filtered.filter(a => !a.group_id);
+      } else {
+        filtered = filtered.filter(a => a.group_id === activeGroupId);
+      }
     }
 
     // Search
@@ -118,6 +312,10 @@
       });
     }
 
+    // Pitch status filter
+    if (pitchStatusFilter !== 'all') {
+      filtered = filtered.filter(a => a.pitch_status === pitchStatusFilter);
+    }
 
     // Sort
     filtered.sort((a, b) => {
@@ -138,7 +336,7 @@
 
     // Filter count indicator
     const countEl = document.getElementById('filterCount');
-    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all';
+    const anyFilter = searchQuery || sourceFilter !== 'all' || categoryFilter !== 'all' || dateFilter !== 'all' || statusFilter !== 'all' || scoreFilter !== 'all' || pitchStatusFilter !== 'all' || activeGroupId !== null;
     if (countEl) {
       countEl.textContent = anyFilter ? `${filtered.length} of ${allArticles.length}` : `${filtered.length} articles`;
       countEl.classList.toggle('filter-count-active', anyFilter);
@@ -149,6 +347,19 @@
 
   // ── Render ───────────────────────────────────────────────
 
+  function pitchBadge(status) {
+    if (!status || status === 'unused') return '';
+    if (status === 'in_pitch') return `<span class="badge" style="background:rgba(234,179,8,.15);color:#ca8a04;font-size:10px;margin-left:4px;">In pitch</span>`;
+    if (status === 'used') return `<span class="badge" style="background:rgba(34,197,94,.12);color:#16a34a;font-size:10px;margin-left:4px;">Used</span>`;
+    return '';
+  }
+
+  function groupChip(a) {
+    if (!a.group_id || !a.group_name) return '';
+    const color = a.group_color || '#6366f1';
+    return `<span class="folder-chip" style="border-color:${escHtml(color)};color:${escHtml(color)};">${escHtml(a.group_name)}</span>`;
+  }
+
   function renderRowHtml(a) {
     const rowClass = selectedIds.has(a.id) ? 'row-selected' : '';
     return `
@@ -158,6 +369,7 @@
       </td>
       <td class="td-title" title="${escHtml(a.title)}">
         <span>${escHtml(a.title)}</span>
+        ${groupChip(a)}${pitchBadge(a.pitch_status)}
       </td>
       <td class="text-muted text-sm" data-label="Source">${escHtml(a.source || '—')}</td>
       <td class="td-category" data-label="Category">
@@ -289,6 +501,7 @@
       await apiFetch('/articles/' + id, { method: 'DELETE' });
       allArticles = allArticles.filter(a => a.id !== id);
       selectedIds.delete(id);
+      renderFolderPanel();
       applyFilters({ preservePage: true });
       showAlert('Article deleted.', 'success');
     } catch (err) {
@@ -303,7 +516,6 @@
         body: JSON.stringify({ articleIds: [id], dryRun: false }),
       });
       if (data.updated > 0 && data.moves) {
-        // Parse "OldCat → NewCat" key to extract the new category
         const moveKey = Object.keys(data.moves)[0] || '';
         const newCat = moveKey.includes(' → ') ? moveKey.split(' → ')[1] : null;
         if (newCat) {
@@ -351,6 +563,9 @@
         if (!batch.length) break;
       }
       allArticles = all;
+
+      // Refresh folder counts with newly loaded articles
+      renderFolderPanel();
 
       // Populate source filter
       populateSourceFilter();
@@ -438,7 +653,6 @@
   }
 
   // Filters
-  // Mobile filter-bar collapse toggle
   const filterToggle = document.getElementById('filterBarToggle');
   const filterBarEl = document.getElementById('filterBar');
   filterToggle?.addEventListener('click', () => {
@@ -447,26 +661,12 @@
     filterToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   });
 
-  document.getElementById('sourceFilter')?.addEventListener('change', e => {
-    sourceFilter = e.target.value;
-    applyFilters();
-  });
-  document.getElementById('categoryFilter')?.addEventListener('change', e => {
-    categoryFilter = e.target.value;
-    applyFilters();
-  });
-  document.getElementById('dateFilter')?.addEventListener('change', e => {
-    dateFilter = e.target.value;
-    applyFilters();
-  });
-  document.getElementById('statusFilter')?.addEventListener('change', e => {
-    statusFilter = e.target.value;
-    applyFilters();
-  });
-  document.getElementById('scoreFilter')?.addEventListener('change', e => {
-    scoreFilter = e.target.value;
-    applyFilters();
-  });
+  document.getElementById('sourceFilter')?.addEventListener('change', e => { sourceFilter = e.target.value; applyFilters(); });
+  document.getElementById('categoryFilter')?.addEventListener('change', e => { categoryFilter = e.target.value; applyFilters(); });
+  document.getElementById('dateFilter')?.addEventListener('change', e => { dateFilter = e.target.value; applyFilters(); });
+  document.getElementById('statusFilter')?.addEventListener('change', e => { statusFilter = e.target.value; applyFilters(); });
+  document.getElementById('scoreFilter')?.addEventListener('change', e => { scoreFilter = e.target.value; applyFilters(); });
+  document.getElementById('pitchStatusFilter')?.addEventListener('change', e => { pitchStatusFilter = e.target.value; applyFilters(); });
 
   // Select all
   document.getElementById('selectAll')?.addEventListener('change', e => {
@@ -494,6 +694,7 @@
     }
     allArticles = allArticles.filter(a => !selectedIds.has(a.id));
     selectedIds.clear();
+    renderFolderPanel();
     showAlert(`Deleted ${deleted} article(s).`, 'success');
     applyFilters({ preservePage: true });
   });
@@ -501,6 +702,56 @@
   document.getElementById('bulkClearBtn')?.addEventListener('click', () => {
     selectedIds.clear();
     applyFilters({ preservePage: true });
+  });
+
+  // Bulk move to folder
+  document.getElementById('bulkMoveBtn')?.addEventListener('click', async () => {
+    if (!selectedIds.size) return;
+    const sel = document.getElementById('bulkMoveFolder');
+    const val = sel?.value;
+    if (!val) { showAlert('Select a folder first.', 'error'); return; }
+
+    const ids = [...selectedIds];
+    try {
+      if (val === 'none') {
+        // Remove from all groups — use the first matched group or just null them
+        for (const g of groups) {
+          const inGroup = ids.filter(id => {
+            const a = allArticles.find(x => x.id === id);
+            return a && a.group_id === g.id;
+          });
+          if (inGroup.length) {
+            await apiFetch('/feed-groups/' + g.id + '/articles', {
+              method: 'DELETE',
+              body: JSON.stringify({ article_ids: inGroup }),
+            });
+          }
+        }
+        allArticles.forEach(a => { if (selectedIds.has(a.id)) { a.group_id = null; a.group_name = null; a.group_color = null; } });
+        showAlert(`Moved ${ids.length} article(s) to Ungrouped.`, 'success');
+      } else {
+        const groupId = parseInt(val);
+        await apiFetch('/feed-groups/' + groupId + '/articles', {
+          method: 'PUT',
+          body: JSON.stringify({ article_ids: ids }),
+        });
+        const g = groups.find(x => x.id === groupId);
+        allArticles.forEach(a => {
+          if (selectedIds.has(a.id)) {
+            a.group_id = groupId;
+            a.group_name = g?.name || null;
+            a.group_color = g?.color || null;
+          }
+        });
+        showAlert(`Moved ${ids.length} article(s) to "${g?.name || 'folder'}".`, 'success');
+      }
+      selectedIds.clear();
+      if (sel) sel.value = '';
+      renderFolderPanel();
+      applyFilters({ preservePage: true });
+    } catch (err) {
+      showAlert('Move failed: ' + err.message, 'error');
+    }
   });
 
   // Populate the pitch-type dropdown once PITCH_TYPES is available
@@ -515,11 +766,6 @@
     poll();
   })();
 
-  // Bulk "Create pitch from selection" — hands the selected source IDs off
-  // to Maxwell via window.ArticleContext (primary + additional_ids) and
-  // opens the Maxwell bubble with a pre-filled prompt that includes the
-  // chosen pitch type. Maxwell sees all sources in the enriched chat
-  // context and can call proposePitch({ type, source_article_ids }).
   document.getElementById('bulkPitchBtn')?.addEventListener('click', () => {
     if (!selectedIds.size) return;
     if (selectedIds.size > 10) {
@@ -536,9 +782,6 @@
       alert('Maxwell bubble unavailable. Ensure editor_workspace is enabled.');
       return;
     }
-    // Start from a clean slate: drop any leftover article context + prior
-    // conversation from a previous pitch session. Prevents the "my old
-    // sources came along for the ride" bug.
     (window.Maxwell.reset ? window.Maxwell.reset({ silent: true }) : Promise.resolve()).then(function () {
       window.ArticleContext.set({
         id: primary?.id,
@@ -718,6 +961,7 @@
     if (typeof loadCategories === 'function') {
       try { await loadCategories(); } catch { /* best-effort */ }
     }
+    loadGroups();
     loadArticles();
     window.pageRefresh = loadArticles;
   });
