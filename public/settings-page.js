@@ -562,17 +562,26 @@ let apiKeyVisible = false;
   }
 
   // Test connection buttons
-  function wirePortalTest(btnId, provider) {
+  // inputId: the password/text input whose current value should be tested.
+  // If the input has a value, it's passed directly to the server so the user
+  // can verify a key before (or without) saving. If the input is empty, the
+  // server tests whatever key is already stored/configured.
+  function wirePortalTest(btnId, provider, inputId) {
     document.getElementById(btnId).addEventListener('click', async function() {
       var btn = this;
       var orig = btn.textContent;
       btn.disabled = true;
       btn.textContent = 'Testing…';
       try {
+        var body = { provider: provider };
+        if (inputId) {
+          var inputEl = document.getElementById(inputId);
+          if (inputEl && inputEl.value.trim()) body.apiKey = inputEl.value.trim();
+        }
         var result = await apiFetch('/settings/test-provider', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: provider }),
+          body: JSON.stringify(body),
         });
         if (result.ok) {
           showAlert(provider.charAt(0).toUpperCase() + provider.slice(1) + ' connection successful ✓');
@@ -587,11 +596,11 @@ let apiKeyVisible = false;
       }
     });
   }
-  wirePortalTest('testGeminiPortal', 'gemini');
-  wirePortalTest('testOpenaiPortal', 'openai');
-  wirePortalTest('testAnthropicPortal', 'anthropic');
-  wirePortalTest('testOpenrouterPortal', 'openrouter');
-  wirePortalTest('testOllamaPortal', 'ollama');
+  wirePortalTest('testGeminiPortal',    'gemini',     'geminiApiKeyPortal');
+  wirePortalTest('testOpenaiPortal',    'openai',     'openaiApiKeyPortal');
+  wirePortalTest('testAnthropicPortal', 'anthropic',  'anthropicApiKeyPortal');
+  wirePortalTest('testOpenrouterPortal','openrouter', 'openrouterApiKeyPortal');
+  wirePortalTest('testOllamaPortal',    'ollama',     'ollamaBaseUrlPortal');
 
   // Save handler
   document.getElementById('saveAiProvidersPortalBtn').addEventListener('click', async function() {

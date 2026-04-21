@@ -304,21 +304,23 @@ router.get('/ai-providers', requireAdmin, requirePermission('settings.read'), as
 }));
 
 // POST /api/settings/test-provider — test connection to a provider
+// Body: { provider, apiKey? } — if apiKey is supplied, it is tested directly
+// (allows testing a key before saving it). Falls back to resolveKey when omitted.
 router.post('/test-provider', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
-  const { provider } = req.body;
+  const { provider, apiKey: bodyKey } = req.body;
   if (!provider || !getSupportedProviders().includes(provider)) {
     return res.status(400).json({ ok: false, error: 'Unsupported provider' });
   }
 
   try {
     if (provider === 'ollama') {
-      const baseUrl = await resolveOllamaBaseUrl(req.tenantId);
+      const baseUrl = bodyKey || await resolveOllamaBaseUrl(req.tenantId);
       if (!baseUrl) return res.json({ ok: false, error: 'No Ollama base URL configured' });
       const models = await ollamaListModels(baseUrl);
       return res.json({ ok: true, models: models.map(m => m.name) });
     }
 
-    const apiKey = await resolveKey(provider, req.tenantId);
+    const apiKey = bodyKey || await resolveKey(provider, req.tenantId);
     if (!apiKey) return res.json({ ok: false, error: `No API key configured for ${provider}` });
 
     // Minimal test call
