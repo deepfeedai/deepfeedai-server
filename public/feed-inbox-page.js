@@ -213,6 +213,109 @@
     if (e.key === 'Escape') document.getElementById('folderCancelBtn')?.click();
   });
 
+  // ── AI Auto-sort ─────────────────────────────────────────
+  let _autoSortPayload = null; // holds last dry-run result for apply step
+
+  document.getElementById('autoSortBtn')?.addEventListener('click', async () => {
+    const ungrouped = allArticles.filter(a => !a.group_id);
+    if (!ungrouped.length) {
+      showAlert('All articles are already in a folder.', 'success');
+      return;
+    }
+    const body = document.getElementById('autoSortPreviewBody');
+    const confirmBtn = document.getElementById('confirmAutoSortBtn');
+    if (body) body.innerHTML = `<p class="text-muted">Asking AI to sort ${ungrouped.length} ungrouped article${ungrouped.length === 1 ? '' : 's'}…</p>`;
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    _autoSortPayload = null;
+    openModal('autoSortModal');
+
+    try {
+      const data = await apiFetch('/feed-groups/auto-sort', {
+        method: 'POST',
+        body: JSON.stringify({ dry_run: true }),
+      });
+      _autoSortPayload = data;
+      renderAutoSortPreview(data);
+    } catch (err) {
+      if (body) body.innerHTML = `<p class="text-danger">Auto-sort failed: ${escHtml(err.message)}</p>`;
+    }
+  });
+
+  function renderAutoSortPreview(data) {
+    const body = document.getElementById('autoSortPreviewBody');
+    const confirmBtn = document.getElementById('confirmAutoSortBtn');
+    if (!body) return;
+
+    const proposals = data.proposals || [];
+    const newFolders = data.new_folders || [];
+
+    if (!proposals.length) {
+      body.innerHTML = '<p class="text-muted">No assignments to make — inbox may already be sorted.</p>';
+      if (confirmBtn) confirmBtn.style.display = 'none';
+      return;
+    }
+
+    // Build a folder → articles map for display
+    const byFolder = {};
+    proposals.forEach(p => {
+      if (!byFolder[p.folder]) byFolder[p.folder] = [];
+      const art = allArticles.find(a => a.id === p.id);
+      byFolder[p.folder].push(art ? art.title : `Article #${p.id}`);
+    });
+
+    let html = '';
+    if (newFolders.length) {
+      html += `<p class="text-muted" style="margin-bottom:8px;">New folders will be created: ${newFolders.map(n => `<strong>${escHtml(n)}</strong>`).join(', ')}</p>`;
+    }
+
+    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+    Object.entries(byFolder).forEach(([folder, titles]) => {
+      const isNew = newFolders.includes(folder);
+      html += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">
+          ${escHtml(folder)}${isNew ? ' <span class="badge badge-muted" style="font-size:10px;">new</span>' : ''}
+          <span class="text-muted" style="font-weight:400;"> · ${titles.length} article${titles.length === 1 ? '' : 's'}</span>
+        </div>
+        <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--muted);">
+          ${titles.slice(0, 5).map(t => `<li>${escHtml(t)}</li>`).join('')}
+          ${titles.length > 5 ? `<li>…and ${titles.length - 5} more</li>` : ''}
+        </ul>
+      </div>`;
+    });
+    html += '</div>';
+
+    body.innerHTML = html;
+    if (confirmBtn) confirmBtn.style.display = '';
+  }
+
+  document.getElementById('confirmAutoSortBtn')?.addEventListener('click', async () => {
+    const confirmBtn = document.getElementById('confirmAutoSortBtn');
+    const body = document.getElementById('autoSortPreviewBody');
+    if (!_autoSortPayload) return;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Applying…';
+    try {
+      const data = await apiFetch('/feed-groups/auto-sort', {
+        method: 'POST',
+        body: JSON.stringify({ dry_run: false }),
+      });
+      closeModal('autoSortModal');
+      const newFolderCount = (data.new_folders || []).length;
+      const folderMsg = newFolderCount ? `, ${newFolderCount} new folder${newFolderCount > 1 ? 's' : ''} created` : '';
+      showAlert(`Auto-sorted ${data.applied} article${data.applied === 1 ? '' : 's'}${folderMsg}.`, 'success');
+      _autoSortPayload = null;
+      // Reload both articles and groups to reflect new assignments
+      await loadGroups();
+      await loadArticles();
+    } catch (err) {
+      showAlert('Apply failed: ' + err.message, 'error');
+      if (body) body.innerHTML = `<p class="text-danger">Apply failed: ${escHtml(err.message)}</p>`;
+    } finally {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Apply assignments';
+    }
+  });
+
   // ── Sorting ──────────────────────────────────────────────
 
   function sortArticles(col) {

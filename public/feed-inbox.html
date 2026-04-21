@@ -22,7 +22,10 @@
         <aside class="folder-panel" id="folderPanel">
           <div class="folder-panel-header">
             <span class="folder-panel-title">Folders</span>
-            <button class="btn btn-ghost btn-sm folder-new-btn" id="newFolderBtn" title="New folder">＋</button>
+            <div style="display:flex;gap:2px;">
+              <button class="btn btn-ghost btn-sm folder-new-btn" id="autoSortBtn" title="AI auto-sort ungrouped articles into folders">✨</button>
+              <button class="btn btn-ghost btn-sm folder-new-btn" id="newFolderBtn" title="New folder">＋</button>
+            </div>
           </div>
           <div id="folderList"></div>
           <div class="folder-new-form" id="folderNewForm" style="display:none;">
@@ -197,6 +200,23 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-danger" id="confirmPurgeBtn">Purge All</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auto-sort preview modal -->
+<div class="modal-overlay" id="autoSortModal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <div class="modal-title">✨ AI Auto-sort Preview</div>
+      <button class="modal-close" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body" id="autoSortPreviewBody" style="max-height:60vh;overflow-y:auto;">
+      <p class="text-muted">Analysing articles…</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="confirmAutoSortBtn" style="display:none;">Apply assignments</button>
     </div>
   </div>
 </div>

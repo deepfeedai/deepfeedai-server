@@ -7,6 +7,145 @@ const { getPool } = require('../db');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
+const { complete } = require('../lib/ai-router');
+
+// POST /api/feed-groups/auto-sort — AI proposes folder assignments for ungrouped articles
+// Body: { article_ids?: number[], dry_run?: bool }
+//   article_ids — if omitted, targets all ungrouped curated articles (max 200)
+//   dry_run — if true (default), returns proposals without writing; false applies immediately
+router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const tid = req.tenantId;
+  const { article_ids, dry_run = true } = req.body || {};
+
+  // 1. Fetch existing folders
+  const groupRows = await getPool().query(
+    `SELECT id, name FROM feed_groups WHERE tenant_id = $1 ORDER BY name ASC`, [tid]
+  );
+  const existingGroups = groupRows.rows; // [{ id, name }]
+
+  // 2. Fetch ungrouped articles to sort
+  let articleRows;
+  if (Array.isArray(article_ids) && article_ids.length) {
+    const ids = article_ids.map(Number).filter(Boolean);
+    articleRows = await getPool().query(
+      `SELECT id, title, category, summary FROM articles
+       WHERE tenant_id = $1 AND id = ANY($2::int[])
+         AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0
+       LIMIT 200`,
+      [tid, ids]
+    );
+  } else {
+    articleRows = await getPool().query(
+      `SELECT id, title, category, summary FROM articles
+       WHERE tenant_id = $1 AND group_id IS NULL
+         AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0
+       ORDER BY created_at DESC LIMIT 200`,
+      [tid]
+    );
+  }
+
+  const articles = articleRows.rows;
+  if (!articles.length) return res.json({ proposals: [], new_folders: [], applied: 0 });
+
+  // 3. Build AI prompt
+  const folderList = existingGroups.length
+    ? existingGroups.map(g => `- ${g.name}`).join('\n')
+    : '(none yet)';
+
+  const articleList = articles
+    .map(a => `${a.id}: ${a.title}${a.category ? ` [${a.category}]` : ''}`)
+    .join('\n');
+
+  const systemPrompt =
+    `You are an editorial assistant helping a journalist organise their research inbox into topic folders.\n` +
+    `Assign each article to the most relevant folder. You may also propose new folder names if no existing folder fits.\n` +
+    `Respond ONLY with a JSON object — no prose, no markdown fences.\n` +
+    `Schema: { "assignments": [ { "id": <number>, "folder": "<folder name>" } ], "new_folders": ["<name>", ...] }\n` +
+    `Rules:\n` +
+    `- Prefer existing folders when a good match exists.\n` +
+    `- Propose a new folder name only when no existing folder fits multiple articles.\n` +
+    `- Keep folder names short (2–4 words), title-case.\n` +
+    `- Every article must appear in assignments exactly once.`;
+
+  const userPrompt =
+    `Existing folders:\n${folderList}\n\nArticles to sort:\n${articleList}`;
+
+  const aiResult = await complete({
+    operation: 'categorize',
+    tenantId: tid,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.2,
+    maxTokens: 2000,
+    trigger: 'manual',
+  });
+
+  if (!aiResult?.content) {
+    return res.status(502).json({ error: 'AI did not return a response. Check provider configuration.' });
+  }
+
+  // 4. Parse AI JSON response (strip any accidental fencing)
+  let parsed;
+  try {
+    const raw = aiResult.content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    parsed = JSON.parse(raw);
+  } catch {
+    return res.status(502).json({ error: 'AI returned invalid JSON', raw: aiResult.content.slice(0, 500) });
+  }
+
+  const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
+  const newFolderNames = Array.isArray(parsed.new_folders) ? parsed.new_folders : [];
+
+  if (dry_run) {
+    return res.json({
+      proposals: assignments,
+      new_folders: newFolderNames,
+      applied: 0,
+    });
+  }
+
+  // 5. Apply: create new folders, then assign articles
+  const pool = getPool();
+  const folderMap = Object.fromEntries(existingGroups.map(g => [g.name.toLowerCase(), g.id]));
+
+  for (const name of newFolderNames) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (!folderMap[key]) {
+      const ins = await pool.query(
+        `INSERT INTO feed_groups (tenant_id, name, color, created_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id, name`,
+        [tid, trimmed, '#6366f1', req.user?.sub || null]
+      );
+      folderMap[key] = ins.rows[0].id;
+    }
+  }
+
+  // Re-fetch all groups to include any we just created
+  const allGroupRows = await pool.query(
+    `SELECT id, name FROM feed_groups WHERE tenant_id = $1`, [tid]
+  );
+  const allGroupMap = Object.fromEntries(allGroupRows.rows.map(g => [g.name.toLowerCase(), g.id]));
+
+  let applied = 0;
+  for (const { id, folder } of assignments) {
+    if (!id || !folder) continue;
+    const gid = allGroupMap[folder.toLowerCase()];
+    if (!gid) continue;
+    await pool.query(
+      `UPDATE articles SET group_id = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+      [gid, id, tid]
+    );
+    applied++;
+  }
+
+  res.json({ proposals: assignments, new_folders: newFolderNames, applied });
+}));
 
 // GET /api/feed-groups — list all groups with article count
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
