@@ -189,6 +189,7 @@ router.get('/:id', auth, requirePermission('articles.read'), requirePitchesEnabl
   res.json(row);
 }));
 
+
 // POST /api/pitches/auto-assign-orphans
 // Bulk recovery: iterates all orphaned pitches (non-terminal status AND no
 // writer) and auto-assigns each. Returns per-pitch results so the UI can
@@ -244,6 +245,7 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
   logAudit(req, 'pitch.bulk_auto_assign', 'article_pitches', null, { assigned, skipped, total: rows.length });
   res.json({ assigned, skipped, results });
 }));
+
 
 // POST /api/pitches/:id/auto-assign
 // One-click recovery: run findBestWriter against the pitch's source article
@@ -303,6 +305,8 @@ router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requ
     synthesis_queued: synthesisQueued,
   });
 }));
+
+
 
 // PATCH /api/pitches/:id/assign — body: { writer_id }
 // Assigns/reassigns the pitching writer. Valid for both 'proposed' and

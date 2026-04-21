@@ -249,10 +249,12 @@
       var m = JSON.parse(decodeURIComponent(metricBtn.dataset.briefMetric));
 
 
+
       // Reset first so prior conversation doesn't bleed into the new question.
       var question = metricQuestion(m);
       Promise.resolve(window.Maxwell.reset ? window.Maxwell.reset({ silent: true }) : null)
         .then(function () { window.Maxwell.ask(question, { autoSend: true }); });
+
 
 
     } catch (_) {}
@@ -308,5 +310,7 @@
   });
 
   load();
+
   window.pageRefresh = load;
+
 })();

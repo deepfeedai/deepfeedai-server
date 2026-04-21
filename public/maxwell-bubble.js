@@ -85,7 +85,9 @@
         + '<div class="mx-head-title"><span class="mx-head-icon">📋</span> Maxwell <span class="mx-head-sub">Editorial Director</span></div>'
         + '<div class="mx-head-ctx" id="mxHeadCtx"></div>'
 
+
         + '<button class="mx-head-reset" title="Clear conversation and sources" aria-label="Clear chat">↻ Clear</button>'
+
 
         + '<button class="mx-head-close" aria-label="Close">✕</button>';
       header.querySelector('.mx-head-close').addEventListener('click', closePanel);
@@ -188,6 +190,7 @@
 
 
 
+
     // ── Minimal markdown → HTML (assistant messages only) ────
     function mdInline(s) {
       return s
@@ -235,6 +238,7 @@
       } else {
         b.textContent = text;
       }
+
 
 
       thread.appendChild(b);
@@ -449,6 +453,7 @@
         '.mx-thread { flex:1; overflow-y:auto; padding:12px 16px; display:flex; flex-direction:column; gap:8px; }',
 
 
+
         '.mx-bubble-msg { max-width:88%; padding:8px 12px; border-radius:12px; font-size:13px; line-height:1.45; word-wrap:break-word; }',
         '.mx-user      { align-self:flex-end;   background:var(--primary, #7c3aed); color:#fff; white-space:pre-wrap; }',
         '.mx-assistant { align-self:flex-start; background:var(--surface2, #1f1f1f); }',
@@ -456,6 +461,7 @@
         '.mx-assistant .mx-md-h1 { font-size:14px; } .mx-assistant .mx-md-h2 { font-size:13px; } .mx-assistant .mx-md-h3 { font-size:13px; color:var(--muted,#888); }',
         '.mx-assistant .mx-md-ul { margin:4px 0 4px 14px; padding:0; list-style:disc; } .mx-assistant .mx-md-ul-sub { margin:2px 0 2px 12px; list-style:circle; }',
         '.mx-assistant .mx-md-ul li { margin-bottom:2px; } .mx-assistant code { background:rgba(255,255,255,0.08); border-radius:3px; padding:1px 4px; font-size:12px; }',
+
 
 
         '.mx-typing { align-self:flex-start; font-size:12px; color:var(--muted, #888); padding:4px 8px; }',

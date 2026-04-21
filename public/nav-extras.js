@@ -60,7 +60,9 @@
     }
 
 
+
     var CHEVRON = '<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
 
 
     // ── Render ─────────────────────────────────────────────
@@ -88,6 +90,7 @@
         if (!items.length) return null;
 
 
+
         var storageKey = 'navExtras.collapsed.' + label.replace(/[^\w]/g, '');
         var isCollapsed = localStorage.getItem(storageKey) === 'true';
 
@@ -106,10 +109,12 @@
           group.appendChild(el('a', {
 
 
+
             class: 'nav-link' + active,
             href: it.href,
             dataset: { navExtrasHref: it.href },
             html: (it.icon || '') + ' <span>' + esc(it.label) + '</span>',
+
 
 
           }));
@@ -118,6 +123,7 @@
         var frag = document.createDocumentFragment();
         frag.appendChild(header);
         frag.appendChild(group);
+
 
 
         return frag;

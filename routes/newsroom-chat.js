@@ -239,10 +239,12 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
       const rosterLines = writerRows.map(w => `- ${w.name}${w.beat ? ` (beat: ${w.beat})` : ''}`).join('\n');
       enrichedMessage += `\n\n[Newsroom writers available for assignment:\n${rosterLines}]`;
     }
+
   }
 
   // Route tool-capable system agents through the native tool-calling path.
   const TOOL_ROLES = ['designer', 'copy-editor', 'editor'];
+
   if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
     let toolResult;
     try {

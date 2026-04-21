@@ -228,7 +228,9 @@
         orphanBadge.style.display = n ? 'inline-flex' : 'none';
       }
     } catch (_) { /* non-fatal */ }
+
     if (window.loadNavBadges) window.loadNavBadges();
+
   }
 
   // Wire the filter tab bar above the grid
