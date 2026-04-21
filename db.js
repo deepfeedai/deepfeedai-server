@@ -1427,6 +1427,18 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_article_links_tenant   ON article_links(tenant_id)`,
     `CREATE INDEX IF NOT EXISTS idx_article_links_original ON article_links(original_article_id)`,
     `CREATE INDEX IF NOT EXISTS idx_article_links_source   ON article_links(source_article_id)`,
+    // Feed inbox folders/groups
+    `CREATE TABLE IF NOT EXISTS feed_groups (
+      id         SERIAL PRIMARY KEY,
+      tenant_id  INTEGER NOT NULL,
+      name       TEXT NOT NULL,
+      color      TEXT NOT NULL DEFAULT '#6366f1',
+      created_by INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, name)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_feed_groups_tenant ON feed_groups(tenant_id)`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES feed_groups(id) ON DELETE SET NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

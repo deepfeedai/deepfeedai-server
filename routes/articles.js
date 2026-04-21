@@ -16,7 +16,45 @@ const { validateBlocks, blocksToMarkdown } = require('../lib/blocks');
 
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
-  let query = 'SELECT * FROM articles WHERE tenant_id = $1';
+  const isCurated = req.query.type === 'curated';
+  // For curated view, join groups and compute pitch_status in SQL
+  let query = isCurated
+    ? `SELECT articles.*,
+              fg.name  AS group_name,
+              fg.color AS group_color,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM story_pitches sp
+                  WHERE sp.tenant_id = articles.tenant_id
+                    AND sp.source_article_ids @> to_jsonb(articles.id)
+                    AND sp.status IN ('approved','synthesized')
+                ) THEN 'used'
+                WHEN EXISTS (
+                  SELECT 1 FROM article_pitches ap
+                  WHERE ap.tenant_id = articles.tenant_id
+                    AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
+                    AND ap.status NOT IN ('dismissed','killed')
+                    AND ap.spawned_article_id IS NOT NULL
+                ) THEN 'used'
+                WHEN EXISTS (
+                  SELECT 1 FROM story_pitches sp
+                  WHERE sp.tenant_id = articles.tenant_id
+                    AND sp.source_article_ids @> to_jsonb(articles.id)
+                    AND sp.status = 'pending'
+                ) THEN 'in_pitch'
+                WHEN EXISTS (
+                  SELECT 1 FROM article_pitches ap
+                  WHERE ap.tenant_id = articles.tenant_id
+                    AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
+                    AND ap.status NOT IN ('dismissed','killed')
+                    AND ap.spawned_article_id IS NULL
+                ) THEN 'in_pitch'
+                ELSE 'unused'
+              END AS pitch_status
+       FROM articles
+       LEFT JOIN feed_groups fg ON fg.id = articles.group_id AND fg.tenant_id = articles.tenant_id
+       WHERE articles.tenant_id = $1`
+    : 'SELECT * FROM articles WHERE tenant_id = $1';
   let countQuery = 'SELECT COUNT(*) AS cnt FROM articles WHERE tenant_id = $1';
   const params = [req.tenantId];
   const countParams = [req.tenantId];
@@ -49,8 +87,31 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   } else if (req.query.type === 'curated') {
     query += ` AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0`;
     countQuery += ` AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0`;
+    // Group filter: ?group_id=<n> or ?group_id=none
+    if (req.query.group_id === 'none') {
+      query += ` AND articles.group_id IS NULL`;
+      countQuery += ` AND articles.group_id IS NULL`;
+    } else if (req.query.group_id) {
+      params.push(parseInt(req.query.group_id));
+      countParams.push(parseInt(req.query.group_id));
+      query += ` AND articles.group_id = $${params.length}`;
+      countQuery += ` AND articles.group_id = $${countParams.length}`;
+    }
+    // Pitch status filter: ?pitch_status=unused|in_pitch|used
+    if (req.query.pitch_status === 'unused') {
+      query += ` AND NOT EXISTS (
+        SELECT 1 FROM story_pitches sp WHERE sp.tenant_id = articles.tenant_id AND sp.source_article_ids @> to_jsonb(articles.id)
+      ) AND NOT EXISTS (
+        SELECT 1 FROM article_pitches ap WHERE ap.tenant_id = articles.tenant_id AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
+      )`;
+      countQuery += ` AND NOT EXISTS (
+        SELECT 1 FROM story_pitches sp WHERE sp.tenant_id = articles.tenant_id AND sp.source_article_ids @> to_jsonb(articles.id)
+      ) AND NOT EXISTS (
+        SELECT 1 FROM article_pitches ap WHERE ap.tenant_id = articles.tenant_id AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
+      )`;
+    }
   }
-  query += ' ORDER BY created_at DESC';
+  query += ' ORDER BY articles.created_at DESC';
 
   // Pagination: ?limit=50&offset=0 (defaults: limit 100, offset 0)
   const limit  = Math.min(Math.max(1, parseInt(req.query.limit) || 100), 500);
