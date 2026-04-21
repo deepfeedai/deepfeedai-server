@@ -183,10 +183,10 @@ const NAV_GROUPS = [
   { label: 'Newsroom', items: [
     { href: '/writers.html', label: 'AI Team', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" /></svg>' },
     { href: '/newsroom-chat.html', label: 'Chat', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg>' },
-    { href: '/editorial.html', label: 'Editorial', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>' },
+    { href: '/editorial.html', label: 'Editorial', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>', badgeId: 'editorial' },
     { href: '/newsroom-activity.html', label: 'Activity', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" /></svg>' },
     { href: '/briefs.html', label: 'Briefs', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>' },
-    { href: '/pitches.html', label: 'Pitches', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>' },
+    { href: '/pitches.html', label: 'Pitches', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>', badgeId: 'pitches' },
   ]},
   { label: 'Content', items: [
     { href: '/articles.html', label: 'Articles', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>' },
@@ -200,7 +200,7 @@ const NAV_GROUPS = [
     { href: '/pipeline.html', label: 'Pipeline', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>' },
   ]},
   { label: 'Engagement', items: [
-    { href: '/comments.html', label: 'Comments', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" /></svg>' },
+    { href: '/comments.html', label: 'Comments', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" /></svg>', badgeId: 'comments' },
     { href: '/newsletter.html', label: 'Newsletter', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>' },
     { href: '/banners.html', label: 'Banners', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3m.38 1.125a23.91 23.91 0 011.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 001.014-5.395m0-3.46c.495.413.811 1.035.811 1.73 0 .695-.316 1.317-.811 1.73m0-3.46a24.347 24.347 0 010 3.46" /></svg>' },
   ]},
@@ -247,13 +247,34 @@ function renderSidebar() {
 
   const pathname = window.location.pathname;
 
+  // Collapsed state persisted per-group; active group always stays open
+  let collapsedGroups;
+  try { collapsedGroups = new Set(JSON.parse(localStorage.getItem('dfa_nav_collapsed') || '[]')); }
+  catch (e) { collapsedGroups = new Set(); }
+
+  let activeGroupKey = null;
+  NAV_GROUPS.forEach(function(group) {
+    group.items.forEach(function(item) {
+      if (pathname === item.href || (item.href === '/index.html' && pathname === '/')) {
+        activeGroupKey = group.label.toLowerCase().replace(/\s+/g, '-');
+      }
+    });
+  });
+
+  const CHEVRON = '<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
   let navHtml = '';
   NAV_GROUPS.forEach(group => {
-    navHtml += '<div class="nav-section">' + group.label + '</div>';
+    const groupKey = group.label.toLowerCase().replace(/\s+/g, '-');
+    const isCollapsed = collapsedGroups.has(groupKey) && groupKey !== activeGroupKey;
+    navHtml += '<div class="nav-section' + (isCollapsed ? ' collapsed' : '') + '" data-nav-toggle="' + groupKey + '">' + group.label + CHEVRON + '</div>';
+    navHtml += '<div class="nav-group' + (isCollapsed ? ' collapsed' : '') + '" data-nav-group="' + groupKey + '">';
     group.items.forEach(item => {
       const active = pathname === item.href || (item.href === '/index.html' && pathname === '/') ? ' active' : '';
-      navHtml += '<a class="nav-link' + active + '" href="' + item.href + '">' + item.icon + ' ' + item.label + '</a>';
+      const badge = item.badgeId ? '<span class="nav-count" id="navBadge-' + item.badgeId + '" style="display:none"></span>' : '';
+      navHtml += '<a class="nav-link' + active + '" href="' + item.href + '">' + item.icon + ' ' + item.label + badge + '</a>';
     });
+    navHtml += '</div>';
   });
 
   // Default logo — will be updated from site config
@@ -273,6 +294,8 @@ function renderSidebar() {
 
   layout.insertAdjacentHTML('afterbegin', sidebarHtml);
   initSidebar();
+  initNavCollapse();
+  loadNavBadges();
   initLogout();
   loadTenantSwitcher();
 
@@ -465,6 +488,40 @@ async function loadCreditData() {
     // Widget shows neutral placeholder — non-fatal
     console.warn('[credit-widget]', err.message);
   }
+}
+
+function initNavCollapse() {
+  document.querySelectorAll('[data-nav-toggle]').forEach(function(toggle) {
+    toggle.addEventListener('click', function() {
+      const key = toggle.dataset.navToggle;
+      const group = document.querySelector('[data-nav-group="' + key + '"]');
+      if (!group) return;
+      const isNowCollapsed = group.classList.toggle('collapsed');
+      toggle.classList.toggle('collapsed', isNowCollapsed);
+      let collapsed;
+      try { collapsed = new Set(JSON.parse(localStorage.getItem('dfa_nav_collapsed') || '[]')); }
+      catch (e) { collapsed = new Set(); }
+      if (isNowCollapsed) collapsed.add(key); else collapsed.delete(key);
+      localStorage.setItem('dfa_nav_collapsed', JSON.stringify([...collapsed]));
+    });
+  });
+}
+
+function updateNavBadge(id, count) {
+  const el = document.getElementById('navBadge-' + id);
+  if (!el) return;
+  count = Number(count) || 0;
+  if (count > 0) { el.textContent = count > 99 ? '99+' : String(count); el.style.display = ''; }
+  else { el.style.display = 'none'; }
+}
+
+function loadNavBadges() {
+  apiFetch('/dashboard/stats').then(function(stats) {
+    if (!stats) return;
+    updateNavBadge('pitches',   stats.pitches  && stats.pitches.pending);
+    updateNavBadge('comments',  stats.comments && stats.comments.queue);
+    updateNavBadge('editorial', stats.articles && stats.articles.in_review);
+  }).catch(function() {});
 }
 
 function initSidebar() {
