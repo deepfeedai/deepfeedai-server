@@ -1195,6 +1195,11 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_convo_history_lookup ON conversation_history(tenant_id, writer_id, channel_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_convo_history_cleanup ON conversation_history(created_at)`,
+    // Per-turn article context pointer — enables anaphora resolution on
+    // follow-up messages like "make that a pitch" when no fresh article is
+    // attached. Populated by the web chat route when context_article_id is
+    // supplied; null on messaging-channel turns.
+    `ALTER TABLE conversation_history ADD COLUMN IF NOT EXISTS context_article_id INTEGER`,
     // Conversation summaries for long-term context
     `CREATE TABLE IF NOT EXISTS conversation_summaries (
       id          SERIAL PRIMARY KEY,
@@ -1245,6 +1250,10 @@ async function initDb() {
     // Phase B follow-up — enriched articles explicitly attached to a pitch so synthesis
     // includes them regardless of embedding-similarity / beat-category / timing
     `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS attached_article_ids JSONB DEFAULT '[]'`,
+    // Pitch type — aligns article_pitches with the existing story_pitches.pitch_type
+    // so commissioned and writer-generated pitches can be filtered/grouped the same way.
+    // Default 'original' so pre-existing rows keep working.
+    `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS pitch_type TEXT DEFAULT 'original'`,
     // Social newsroom Phase 2 — activity feed events
     // event_type values: published | pitched | pitch_approved | pitch_rejected | drafted | enriched | reviewed
     // payload holds card-renderable fields (title, slug, snippet, etc.) so feed reads don't need joins
@@ -1263,6 +1272,21 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
+    // Editor thumbs-up/down feedback on individual briefs + digests. Used
+    // immediately to show the user their prior vote; will later feed into
+    // the brief prompt so Maxwell can adjust tone based on trailing feedback.
+    `CREATE TABLE IF NOT EXISTS brief_feedback (
+      id          SERIAL PRIMARY KEY,
+      tenant_id   INTEGER NOT NULL,
+      event_id    INTEGER NOT NULL,
+      user_id     TEXT NOT NULL,
+      vote        TEXT NOT NULL CHECK (vote IN ('up','down')),
+      note        TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, event_id, user_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_brief_feedback_event ON brief_feedback(tenant_id, event_id)`,
     // Social newsroom Phase 3 — reactions + threading on feed cards.
     // Reactions: signal-bearing emoji (🔥💡🚩👀). Unique per (event, actor, emoji)
     // so an actor can't double-react with the same emoji but can use multiple.

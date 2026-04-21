@@ -3,190 +3,441 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Setup Wizard</title>
+  <title>DeepFeed AI — Newsroom Setup</title>
   <link rel="stylesheet" href="/admin.css" />
+  <style>
+    body { background: var(--bg); color: var(--text); }
+    .setup-wrap { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
+    .setup-header { text-align: center; margin-bottom: var(--space-8); }
+    .setup-header h1 { font-size: 1.5rem; margin-bottom: var(--space-2); }
+    .setup-header p { color: var(--muted); }
+
+    /* Step indicator */
+    .wizard-steps { display: flex; align-items: center; margin-bottom: var(--space-8); overflow-x: auto; padding-bottom: 2px; }
+    .wizard-step { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+    .wizard-step-num { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--muted); background: var(--bg); transition: all 0.2s; }
+    .wizard-step span:not(.wizard-step-num) { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+    .wizard-step.active .wizard-step-num { border-color: var(--accent); color: var(--accent); }
+    .wizard-step.active span:not(.wizard-step-num) { color: var(--accent); font-weight: 600; }
+    .wizard-step.done .wizard-step-num { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .wizard-step-line { flex: 1; height: 2px; background: var(--border); min-width: 8px; }
+
+    /* Panels */
+    .step-hidden { display: none; }
+    .step-active { display: block; }
+
+    /* Mode / provider cards */
+    .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4); }
+    .mode-card { border: 2px solid var(--border); border-radius: 8px; padding: var(--space-5); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+    .mode-card:hover { border-color: var(--accent); }
+    .mode-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+    .mode-card h3 { margin: 0 0 var(--space-2); font-size: 1.05rem; }
+    .mode-card p { color: var(--muted); font-size: 0.875rem; margin: 0 0 var(--space-3); line-height: 1.5; }
+    .mode-card ul { color: var(--muted); font-size: 0.8rem; margin: 0; padding-left: var(--space-4); line-height: 1.7; }
+    .mode-card .mode-icon { font-size: 2rem; margin-bottom: var(--space-3); }
+    @media (max-width: 600px) { .mode-cards { grid-template-columns: 1fr; } }
+
+    .provider-cards { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-2); }
+    .provider-card { border: 2px solid var(--border); border-radius: 8px; padding: var(--space-3) var(--space-4); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; text-align: center; min-width: 100px; }
+    .provider-card:hover { border-color: var(--accent); }
+    .provider-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+    .provider-card .pc-logo { font-size: 1.4rem; font-weight: 800; color: var(--accent); font-family: monospace; }
+    .provider-card .pc-name { font-weight: 600; font-size: 0.9rem; margin-top: var(--space-1); }
+    .provider-card .pc-note { color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+
+    /* Keys */
+    .key-display { background: var(--bg-2, #1e1e2e); border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3); font-family: monospace; font-size: 0.8rem; word-break: break-all; position: relative; margin: var(--space-3) 0; }
+    .key-display button { position: absolute; top: var(--space-2); right: var(--space-2); }
+    .key-warning { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; border-radius: 6px; padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font-size: 0.875rem; line-height: 1.5; }
+    .key-warning strong { display: block; margin-bottom: var(--space-1); }
+    @media (prefers-color-scheme: dark) { .key-warning { background: #451a03; color: #fde68a; border-color: #b45309; } }
+    .key-test-result { font-size: 0.8rem; display: block; margin-top: var(--space-1); min-height: 1.1em; }
+    .key-test-result.ok    { color: var(--success, #34d399); }
+    .key-test-result.error { color: var(--danger,  #ef4444); }
+
+    /* Misc */
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: var(--space-6) 0; }
+    .badge-optional { color: var(--muted); font-weight: normal; font-size: 0.8rem; margin-left: var(--space-2); }
+
+    /* Niche grid */
+    .niche-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-3); }
+    .niche-card { border: 2px solid var(--border); border-radius: 8px; padding: var(--space-4); cursor: pointer; text-align: center; transition: border-color 0.15s, box-shadow 0.15s; }
+    .niche-card:hover { border-color: var(--accent); }
+    .niche-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+    .niche-card .niche-icon { font-size: 2rem; margin-bottom: var(--space-2); }
+    .niche-card .niche-name { font-weight: 600; font-size: 0.9rem; }
+    .niche-card .niche-desc { color: var(--muted); font-size: 0.75rem; margin-top: var(--space-1); line-height: 1.4; }
+
+    /* Theme swatches */
+    .theme-grid { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .theme-swatch { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: 20px; border: 2px solid var(--border); cursor: pointer; font-size: 0.8rem; transition: border-color 0.15s; }
+    .theme-swatch:hover { border-color: var(--accent); }
+    .theme-swatch.selected { border-color: var(--accent); }
+    .theme-swatch-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Source list */
+    .source-list { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+    .source-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+    .source-row:last-child { border-bottom: none; }
+    .source-row input[type="checkbox"] { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
+    .source-row-info { flex: 1; }
+    .source-row-name { font-weight: 600; font-size: 0.875rem; }
+    .source-row-url { color: var(--muted); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+
+    /* Launch steps */
+    .launch-steps { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-4) 0; }
+    .launch-step { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: 6px; background: var(--bg-2, #1e1e2e); font-size: 0.875rem; }
+    .launch-step-icon { font-size: 1.1rem; width: 24px; text-align: center; }
+    .launch-step.active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+    .launch-step.done .launch-step-icon { color: var(--success, #34d399); }
+    .writer-card { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2, #1e1e2e); }
+    .writer-card input[type=checkbox] { margin-top: 3px; flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; }
+    .writer-card-body { flex: 1; min-width: 0; }
+    .writer-card-name { font-weight: 600; font-size: 0.9rem; }
+    .writer-card-beat { display: inline-block; font-size: 0.72rem; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 1px 6px; margin-left: var(--space-2); }
+    .writer-card-bio { color: var(--muted); font-size: 0.8rem; margin-top: 2px; line-height: 1.4; }
+
+    /* Launch summary stats */
+    .launch-stats { display: flex; gap: var(--space-6); flex-wrap: wrap; margin: var(--space-4) 0; }
+    .launch-stat { text-align: center; }
+    .launch-stat-value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+    .launch-stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Welcome step hero */
+    .welcome-hero { text-align: center; padding: var(--space-8) var(--space-4); }
+    .welcome-hero .hero-icon { font-size: 4rem; margin-bottom: var(--space-4); }
+    .welcome-hero h2 { font-size: 1.8rem; margin-bottom: var(--space-2); }
+    .welcome-hero .hero-sub { font-size: 1rem; color: var(--muted); margin-bottom: var(--space-6); line-height: 1.6; max-width: 480px; margin-left: auto; margin-right: auto; }
+    .welcome-checklist { list-style: none; padding: 0; margin: 0 auto var(--space-6); max-width: 320px; text-align: left; display: flex; flex-direction: column; gap: var(--space-2); }
+    .welcome-checklist li { display: flex; align-items: center; gap: var(--space-3); color: var(--muted); font-size: 0.9rem; }
+    .welcome-checklist li .ci { font-size: 1.1rem; }
+
+    /* Existing data banner */
+    .existing-banner { border: 2px solid var(--accent); border-radius: 8px; padding: var(--space-4); margin-bottom: var(--space-6); }
+
+    /* Check rows for seed */
+    .check-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+    .check-row:last-child { border-bottom: none; }
+    .check-icon { font-size: 1.25rem; flex-shrink: 0; }
+    .check-info { flex: 1; }
+    .check-label { font-weight: 600; }
+    .check-detail { color: var(--muted); font-size: 0.875rem; }
+  </style>
 </head>
 <body>
-<div class="admin-layout">
-  <div class="main-content">
-    <header class="topbar">
-      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
-      <div class="topbar-title">Setup Wizard</div>
-    </header>
+<div class="setup-wrap">
 
-    <div class="page-body">
-      <div class="wizard-content">
+  <div class="setup-header">
+    <h1>Deep Feed AI</h1>
+    <p>Newsroom Setup</p>
+  </div>
 
-        <!-- Step indicator -->
-        <div class="wizard-steps" id="wizardSteps">
-          <div class="wizard-step active" data-step="1">
-            <span class="wizard-step-num">1</span> <span>Niche</span>
-          </div>
-          <div class="wizard-step-line"></div>
-          <div class="wizard-step" data-step="2">
-            <span class="wizard-step-num">2</span> <span>Brand</span>
-          </div>
-          <div class="wizard-step-line"></div>
-          <div class="wizard-step" data-step="3">
-            <span class="wizard-step-num">3</span> <span>Sources</span>
-          </div>
-          <div class="wizard-step-line"></div>
-          <div class="wizard-step" data-step="4">
-            <span class="wizard-step-num">4</span> <span>Launch</span>
-          </div>
-        </div>
+  <!-- Step indicator -->
+  <div class="wizard-steps" id="wizardSteps">
+    <div class="wizard-step active" data-step="1"><span class="wizard-step-num">1</span><span>Welcome</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="2"><span class="wizard-step-num">2</span><span>Mode</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span><span>Niche</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="4"><span class="wizard-step-num">4</span><span>Brand</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="5"><span class="wizard-step-num">5</span><span>AI</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="6"><span class="wizard-step-num">6</span><span>Sources</span></div>
+    <div class="wizard-step-line"></div>
+    <div class="wizard-step" data-step="7"><span class="wizard-step-num">7</span><span>Launch</span></div>
+  </div>
 
-        <!-- Step 1: Pick Your Niche -->
-        <div class="wizard-panel active" id="step1">
-          <!-- Existing data warning -->
-          <div id="existingDataBanner" style="display:none;margin-bottom:var(--space-6);">
-            <div class="settings-card" style="max-width:100%;border-color:var(--accent);">
-              <p style="margin-bottom:var(--space-3);">Your site already has <strong id="existingCount"></strong>. How would you like to proceed?</p>
-              <div class="btn-group">
-                <button class="btn btn-danger btn-sm" id="wizardResetBtn">Start Fresh (clear all data)</button>
-                <button class="btn btn-outline btn-sm" id="wizardAppendBtn">Add to existing site</button>
-              </div>
-              <small class="form-help" id="resetStatus" style="margin-top:var(--space-2);"></small>
-            </div>
-          </div>
-          <h2 style="margin-bottom:var(--space-2);">Pick your niche</h2>
-          <p style="color:var(--muted);margin-bottom:var(--space-6);">Choose a topic template to pre-fill your categories and sources. You can customize everything later.</p>
-          <div class="niche-grid" id="nicheGrid"></div>
-        </div>
+  <!-- Step 1: Welcome -->
+  <div class="wizard-panel step-active" id="step1">
+    <div class="welcome-hero">
+      <div class="hero-icon">&#127757;</div>
+      <h2>Welcome to your newsroom</h2>
+      <p class="hero-sub">
+        In a few steps we'll configure your niche, brand, AI providers, and news sources — then launch your site. The whole thing takes about 3 minutes.
+      </p>
+      <ul class="welcome-checklist">
+        <li><span class="ci">&#127968;</span> Choose your deployment mode</li>
+        <li><span class="ci">&#127760;</span> Pick your niche and topic focus</li>
+        <li><span class="ci">&#127775;</span> Set your brand name and look</li>
+        <li><span class="ci">&#129302;</span> Connect your AI providers</li>
+        <li><span class="ci">&#128240;</span> Select your news sources</li>
+      </ul>
+    </div>
+  </div>
 
-        <!-- Step 2: Brand Your Site -->
-        <div class="wizard-panel" id="step2">
-          <h2 style="margin-bottom:var(--space-2);">Brand your site</h2>
-          <p style="color:var(--muted);margin-bottom:var(--space-6);">Give your site a name and pick a look.</p>
-          <div class="form-group">
-            <label class="form-label" for="wSiteName">Site Name</label>
-            <input class="form-control" type="text" id="wSiteName" placeholder="My AI News" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="wTagline">Tagline</label>
-            <input class="form-control" type="text" id="wTagline" placeholder="Your daily signal in the noise" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="wDescription">Site Description</label>
-            <input class="form-control" type="text" id="wDescription" placeholder="Curated news powered by AI and human curation." />
-            <small class="form-help">Used in the footer and for SEO.</small>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="wEmoji">Logo Emoji (optional)</label>
-            <input class="form-control input-narrow" type="text" id="wEmoji" placeholder="&#129302;" maxlength="2" />
-            <small class="form-help">Pick an emoji for your favicon. You can upload a logo later in Settings.</small>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Theme</label>
-            <div class="theme-grid" id="themeGrid"></div>
-          </div>
+  <!-- Step 2: Deployment Mode -->
+  <div class="wizard-panel step-hidden" id="step2">
+    <h2>Deployment Mode</h2>
+    <p style="color:var(--muted);margin-bottom:var(--space-6);">How will you use this instance?</p>
+    <div class="mode-cards">
+      <div class="mode-card selected" id="modeSingle" data-mode="single">
+        <div class="mode-icon">&#127968;</div>
+        <h3>Single-Tenant</h3>
+        <p>One site, one admin. Best for personal use, a single organization, or self-hosting.</p>
+        <ul>
+          <li>Simplest setup</li>
+          <li>All features enabled</li>
+          <li>No subdomain routing</li>
+        </ul>
+      </div>
+      <div class="mode-card" id="modeMulti" data-mode="multi">
+        <div class="mode-icon">&#127959;&#65039;</div>
+        <h3>Multi-Tenant</h3>
+        <p>Host multiple independent sites from one server. Each tenant gets its own content and settings.</p>
+        <ul>
+          <li>Subdomain routing</li>
+          <li>Per-tenant BYOK</li>
+          <li>Platform admin dashboard</li>
+        </ul>
+      </div>
+    </div>
+    <div id="modeStatus" style="font-size:0.875rem;min-height:1.2em;"></div>
 
-          <div style="margin-top:var(--space-6);border-top:1px solid var(--border);padding-top:var(--space-6);">
-            <div class="form-group">
-              <label class="form-label" for="wAiPersona">AI Persona</label>
-              <textarea class="form-control" id="wAiPersona" rows="3" placeholder="You are a concise news analyst who highlights key technical details and business implications..."></textarea>
-              <small class="form-help">Shapes the tone of AI-generated summaries and synthesis articles.</small>
-            </div>
-            <div class="form-group" id="wGeminiKeyGroup" style="display:none;">
-              <label class="form-label" for="wGeminiKey">Gemini API Key</label>
-              <div class="input-action-row">
-                <input class="form-control input-mono" type="password" id="wGeminiKey" placeholder="AIzaSy..." />
-                <button class="btn btn-outline btn-sm" type="button" id="wToggleKeyBtn">Show</button>
-              </div>
-              <small class="form-help">Required for AI summaries, categorization, and keyword generation. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key from Google AI Studio</a></small>
-            </div>
-          </div>
-        </div>
+    <!-- Single-tenant site name -->
+    <div id="modeSingleConfig" style="margin-top:var(--space-4);">
+      <div class="form-group">
+        <label class="form-label" for="singleSiteName">Site Name</label>
+        <input class="form-control" type="text" id="singleSiteName" placeholder="My AI Newsroom" maxlength="100" />
+        <small class="form-help">Displayed in the header and browser tab. Can be changed later in Settings.</small>
+      </div>
+    </div>
 
-        <!-- Step 3: Add Sources -->
-        <div class="wizard-panel" id="step3">
-          <h2 style="margin-bottom:var(--space-2);">Add your sources</h2>
-          <p style="color:var(--muted);margin-bottom:var(--space-6);">We'll fetch articles from these RSS feeds. Uncheck any you don't want.</p>
-          <div class="form-toggles" style="margin-bottom:var(--space-4);">
-            <div class="form-check">
-              <label class="toggle">
-                <input type="checkbox" id="wAutoPublish" />
-                <span class="toggle-slider"></span>
-              </label>
-              <span class="form-check-label">Auto-publish new articles</span>
-            </div>
-          </div>
-          <small class="form-help" style="margin-bottom:var(--space-4);display:block;">When enabled, new articles are published automatically. Otherwise they're saved as drafts for review.</small>
-          <div class="source-list" id="sourceList"></div>
-          <div style="margin-top:var(--space-4);">
-            <button class="btn btn-outline btn-sm" id="addCustomSourceBtn" type="button">+ Add custom source</button>
-            <div id="customSourceRow" style="display:none;margin-top:var(--space-3);">
-              <div class="input-action-row">
-                <input class="form-control" type="url" id="wCustomUrl" placeholder="https://example.com/feed.xml" />
-                <button class="btn btn-outline" id="wCustomFetchBtn" type="button">Add</button>
-              </div>
-              <small class="form-help" id="wCustomStatus"></small>
-            </div>
-          </div>
-        </div>
-
-        <!-- Step 4: Launch -->
-        <div class="wizard-panel" id="step4">
-          <div id="launchReady">
-            <div class="launch-summary">
-              <h2>Ready to launch!</h2>
-              <p>Here's what we'll set up for you.</p>
-              <div class="launch-stats">
-                <div class="launch-stat">
-                  <div class="launch-stat-value" id="launchSourceCount">0</div>
-                  <div class="launch-stat-label">Sources</div>
-                </div>
-                <div class="launch-stat">
-                  <div class="launch-stat-value" id="launchCatCount">0</div>
-                  <div class="launch-stat-label">Categories</div>
-                </div>
-                <div class="launch-stat">
-                  <div class="launch-stat-value" id="launchWriterCount">0</div>
-                  <div class="launch-stat-label">AI Writers</div>
-                </div>
-                <div class="launch-stat">
-                  <div class="launch-stat-value" id="launchThemeName">—</div>
-                  <div class="launch-stat-label">Theme</div>
-                </div>
-              </div>
-            </div>
-            <div class="launch-progress" id="launchProgress" style="display:none;">
-              <div class="launch-step" data-launch="branding"><span class="launch-step-icon">&#9744;</span> Saving branding</div>
-              <div class="launch-step" data-launch="categories"><span class="launch-step-icon">&#9744;</span> Creating categories</div>
-              <div class="launch-step" data-launch="keywords"><span class="launch-step-icon">&#9744;</span> Generating AI keywords</div>
-              <div class="launch-step" data-launch="sources"><span class="launch-step-icon">&#9744;</span> Adding sources</div>
-              <div class="launch-step" data-launch="writer"><span class="launch-step-icon">&#9744;</span> Creating AI writer</div>
-              <div class="launch-step" data-launch="fetch"><span class="launch-step-icon">&#9744;</span> Fetching first articles</div>
-            </div>
-          </div>
-          <div id="launchDone" style="display:none;">
-            <div class="launch-success">
-              <div style="font-size:3rem;margin-bottom:var(--space-4);">&#127881;</div>
-              <h2>Your site is live!</h2>
-              <p style="color:var(--muted);margin-bottom:var(--space-6);">Articles are being fetched and categorized. Head to the dashboard to manage your site.</p>
-              <div class="btn-group" style="justify-content:center;">
-                <a href="/index.html" class="btn btn-primary">Go to Dashboard</a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Footer navigation -->
-        <div class="wizard-footer" id="wizardFooter">
-          <button class="btn btn-outline" id="wizardBack" style="visibility:hidden;">Back</button>
-          <div>
-            <a href="/index.html" class="btn btn-ghost" style="margin-right:var(--space-2);">Skip wizard</a>
-            <button class="btn btn-primary" id="wizardNext">Next</button>
-          </div>
-        </div>
-
+    <!-- Multi-tenant guidance -->
+    <div id="modeMultiConfig" style="display:none;margin-top:var(--space-4);">
+      <div class="key-warning">
+        <strong>Additional configuration required</strong>
+        Set <code>TENANT_BASE_DOMAIN=yourdomain.com</code> in your <code>.env</code> file for subdomain routing
+        (e.g. <code>tenant.yourdomain.com</code>). Each tenant created after setup is automatically provisioned with
+        8 default categories, roles, and a monthly AI budget.
       </div>
     </div>
   </div>
-</div>
 
-<script src="/admin.js"></script>
-<script src="/admin-mobile-nav.js"></script>
+  <!-- Step 3: Niche -->
+  <div class="wizard-panel step-hidden" id="step3">
+    <h2>Pick your niche</h2>
+    <p style="color:var(--muted);margin-bottom:var(--space-4);">Choose a topic template to pre-fill your categories, writers, and sources. You can customize everything later.</p>
+    <div id="existingDataBanner" class="existing-banner" style="display:none;">
+      <p style="margin-bottom:var(--space-3);">Your site already has <strong id="existingCount"></strong>. How would you like to proceed?</p>
+      <div class="btn-group">
+        <button class="btn btn-danger btn-sm" id="wizardResetBtn" type="button">Start Fresh (clear all data)</button>
+        <button class="btn btn-outline btn-sm" id="wizardAppendBtn" type="button">Add to existing site</button>
+      </div>
+      <small class="form-help" id="resetStatus" style="margin-top:var(--space-2);display:block;"></small>
+    </div>
+    <div class="niche-grid" id="nicheGrid"></div>
+    <p style="color:var(--muted);font-size:0.875rem;margin-top:var(--space-4);">Not sure? Pick the closest match — you can customize everything.</p>
+
+    <!-- Writer preview (shown after niche selection) -->
+    <div id="writerPreview" style="display:none;margin-top:var(--space-6);">
+      <h3 style="margin-bottom:var(--space-1);">AI Writers included</h3>
+      <p style="color:var(--muted);font-size:0.875rem;margin-bottom:var(--space-4);">Each writer covers a specific beat. Uncheck any you don't want — you can add or remove writers later in Settings.</p>
+      <div id="writerCards" style="display:flex;flex-direction:column;gap:var(--space-2);"></div>
+    </div>
+  </div>
+
+  <!-- Step 4: Brand -->
+  <div class="wizard-panel step-hidden" id="step4">
+    <h2>Brand your site</h2>
+    <p style="color:var(--muted);margin-bottom:var(--space-6);">Give your site a name and pick a look.</p>
+    <div class="form-group">
+      <label class="form-label" for="wSiteName">Site Name</label>
+      <input class="form-control" type="text" id="wSiteName" placeholder="My AI News" maxlength="100" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="wEmoji">Logo Emoji <span class="badge-optional">(optional)</span></label>
+      <input class="form-control input-narrow" type="text" id="wEmoji" placeholder="&#129302;" maxlength="2" />
+      <small class="form-help">Pick an emoji for your favicon. You can upload a logo later in Settings.</small>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="wTagline">Tagline</label>
+      <input class="form-control" type="text" id="wTagline" placeholder="Your daily signal in the noise" />
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="wDescription">Site Description</label>
+      <input class="form-control" type="text" id="wDescription" placeholder="Curated news powered by AI." />
+      <small class="form-help">Used in the footer and for SEO.</small>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Theme</label>
+      <div class="theme-grid" id="themeGrid"></div>
+    </div>
+  </div>
+
+  <!-- Step 5: AI & Services -->
+  <div class="wizard-panel step-hidden" id="step5">
+    <h2>AI &amp; Services</h2>
+    <p style="color:var(--muted);margin-bottom:var(--space-6);">Configure your AI providers. All settings can be changed later in Settings &#8594; AI Providers.</p>
+
+    <!-- Text AI -->
+    <h3 style="margin-bottom:var(--space-2);">Text AI</h3>
+    <p style="color:var(--muted);font-size:0.875rem;margin-bottom:var(--space-4);">Powers article summaries, categorization, synthesis, and writer agents.</p>
+    <div class="provider-cards" id="textProviderCards">
+      <div class="provider-card selected" data-provider="gemini">
+        <div class="pc-logo">G</div>
+        <div class="pc-name">Gemini</div>
+        <div class="pc-note">Free tier &middot; Flash 2.5</div>
+      </div>
+      <div class="provider-card" data-provider="openai">
+        <div class="pc-logo">&#8853;</div>
+        <div class="pc-name">OpenAI</div>
+        <div class="pc-note">GPT-4o mini</div>
+      </div>
+      <div class="provider-card" data-provider="anthropic">
+        <div class="pc-logo">&#10792;</div>
+        <div class="pc-name">Anthropic</div>
+        <div class="pc-note">Claude Sonnet</div>
+      </div>
+      <div class="provider-card" data-provider="openrouter">
+        <div class="pc-logo">&#10753;</div>
+        <div class="pc-name">OpenRouter</div>
+        <div class="pc-note">Any model</div>
+      </div>
+      <div class="provider-card" data-provider="ollama">
+        <div class="pc-logo">&#11041;</div>
+        <div class="pc-name">Ollama</div>
+        <div class="pc-note">Local &middot; free</div>
+      </div>
+    </div>
+    <div id="textKeyArea"></div>
+
+    <hr class="section-divider" />
+
+    <!-- Image AI -->
+    <h3 style="margin-bottom:var(--space-2);">Image AI <span class="badge-optional">optional</span></h3>
+    <p style="color:var(--muted);font-size:0.875rem;margin-bottom:var(--space-4);">Generates article thumbnails and writer avatars.</p>
+    <div class="provider-cards" id="imageProviderCards">
+      <div class="provider-card selected" data-provider="imagen">
+        <div class="pc-logo">&#127912;</div>
+        <div class="pc-name">Imagen</div>
+        <div class="pc-note">via Gemini key</div>
+      </div>
+      <div class="provider-card" data-provider="dalle">
+        <div class="pc-logo">&#11035;</div>
+        <div class="pc-name">DALL&middot;E 3</div>
+        <div class="pc-note">via OpenAI key</div>
+      </div>
+      <div class="provider-card" data-provider="none">
+        <div class="pc-logo">&#9711;</div>
+        <div class="pc-name">Disable</div>
+        <div class="pc-note">No images</div>
+      </div>
+    </div>
+    <div id="imageKeyNote" style="margin-top:var(--space-3);"></div>
+
+    <hr class="section-divider" />
+
+    <!-- Voice AI -->
+    <h3 style="margin-bottom:var(--space-3);">Voice AI <span class="badge-optional">optional &middot; audio briefings</span></h3>
+    <div class="form-group">
+      <label class="form-label" for="elevenLabsKey">ElevenLabs API Key</label>
+      <div class="input-action-row">
+        <input class="form-control input-mono" type="password" id="elevenLabsKey" placeholder="sk_..." />
+        <button class="btn btn-outline btn-sm" type="button" id="elevenLabsToggle">Show</button>
+        <button class="btn btn-outline btn-sm" type="button" id="elevenLabsTestBtn">Test</button>
+      </div>
+      <small class="form-help"><a href="https://elevenlabs.io" target="_blank" rel="noopener">ElevenLabs</a> &mdash; free tier available</small>
+      <span class="key-test-result" id="elevenLabsTestResult"></span>
+    </div>
+
+    <hr class="section-divider" />
+
+    <!-- Email -->
+    <h3 style="margin-bottom:var(--space-3);">Email <span class="badge-optional">optional &middot; newsletters</span></h3>
+    <div class="form-group">
+      <label class="form-label" for="resendKey">Resend API Key</label>
+      <div class="input-action-row">
+        <input class="form-control input-mono" type="password" id="resendKey" placeholder="re_..." />
+        <button class="btn btn-outline btn-sm" type="button" id="resendTestBtn">Test</button>
+      </div>
+      <small class="form-help"><a href="https://resend.com" target="_blank" rel="noopener">Resend</a> &mdash; 3,000 free emails/month</small>
+      <span class="key-test-result" id="resendTestResult"></span>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="adminEmailAddr">Admin Notification Email <span class="badge-optional">(optional)</span></label>
+      <input class="form-control" type="email" id="adminEmailAddr" placeholder="alerts@yourdomain.com" />
+    </div>
+
+    <div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-5);">
+      <button class="btn btn-primary btn-sm" id="aiSaveBtn" type="button">Save &amp; Continue</button>
+      <span id="aiSaveStatus" style="font-size:0.875rem;"></span>
+    </div>
+    <div id="aiSkipWarning" style="display:none;" class="key-warning">
+      <strong>No AI key verified</strong>
+      Summaries, categorization, and synthesis will be disabled until you add a key in Settings &#8594; AI Providers.
+      <div style="margin-top:var(--space-2);">
+        <button class="btn btn-outline btn-sm" id="aiSkipConfirmBtn" type="button">Skip anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 6: Sources -->
+  <div class="wizard-panel step-hidden" id="step6">
+    <h2>Add your sources</h2>
+    <p style="color:var(--muted);margin-bottom:var(--space-6);">We'll fetch articles from these RSS feeds. Uncheck any you don't want.</p>
+    <div class="source-list" id="sourceList"></div>
+    <div style="margin-top:var(--space-4);">
+      <button class="btn btn-outline btn-sm" id="addCustomSourceBtn" type="button">+ Add custom source</button>
+      <div id="customSourceRow" style="display:none;margin-top:var(--space-3);">
+        <div class="input-action-row">
+          <input class="form-control" type="url" id="wCustomUrl" placeholder="https://example.com/feed.xml" />
+          <button class="btn btn-outline" id="wCustomFetchBtn" type="button">Add</button>
+        </div>
+        <small class="form-help" id="wCustomStatus"></small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 7: Launch -->
+  <div class="wizard-panel step-hidden" id="step7">
+    <div id="launchReady">
+      <h2>Ready to launch!</h2>
+      <p style="color:var(--muted);margin-bottom:var(--space-4);">Here's what we'll set up for you.</p>
+      <div style="background:var(--bg-2,#1e1e2e);border-radius:8px;padding:var(--space-4);margin-bottom:var(--space-4);">
+        <div style="margin-bottom:var(--space-2);"><strong id="launchSiteName" style="font-size:1.1rem;"></strong></div>
+        <div style="color:var(--muted);font-size:0.875rem;" id="launchNicheName"></div>
+      </div>
+      <div class="launch-stats">
+        <div class="launch-stat">
+          <div class="launch-stat-value" id="launchSourceCount">0</div>
+          <div class="launch-stat-label">Sources</div>
+        </div>
+        <div class="launch-stat">
+          <div class="launch-stat-value" id="launchCatCount">0</div>
+          <div class="launch-stat-label">Categories</div>
+        </div>
+        <div class="launch-stat">
+          <div class="launch-stat-value" id="launchWriterCount">0</div>
+          <div class="launch-stat-label">AI Writers</div>
+        </div>
+      </div>
+      <div class="launch-steps" id="launchProgress" style="display:none;">
+        <div class="launch-step" data-launch="branding"><span class="launch-step-icon">&#9744;</span> Saving branding</div>
+        <div class="launch-step" data-launch="categories"><span class="launch-step-icon">&#9744;</span> Creating categories</div>
+        <div class="launch-step" data-launch="keywords"><span class="launch-step-icon">&#9744;</span> Generating AI keywords</div>
+        <div class="launch-step" data-launch="sources"><span class="launch-step-icon">&#9744;</span> Adding sources</div>
+        <div class="launch-step" data-launch="writer"><span class="launch-step-icon">&#9744;</span> Creating AI writers</div>
+        <div class="launch-step" data-launch="agents"><span class="launch-step-icon">&#9744;</span> Seeding system agents</div>
+        <div class="launch-step" data-launch="fetch"><span class="launch-step-icon">&#9744;</span> Fetching first articles</div>
+      </div>
+    </div>
+    <div id="launchDone" style="display:none;text-align:center;padding:var(--space-8) 0;">
+      <div style="font-size:3rem;margin-bottom:var(--space-4);">&#127881;</div>
+      <h2>Your newsroom is live!</h2>
+      <p style="color:var(--muted);margin-bottom:var(--space-6);">Articles are being fetched and categorized. Head to the dashboard to manage your site.</p>
+      <a href="/index.html" class="btn btn-primary">Go to Dashboard &#8594;</a>
+    </div>
+  </div>
+
+  <!-- Footer navigation -->
+  <div class="wizard-footer" id="wizardFooter">
+    <button class="btn btn-outline" id="wizardBack" style="visibility:hidden;">Back</button>
+    <button class="btn btn-primary" id="wizardNext">Let's get started &#8594;</button>
+  </div>
+
+</div>
 <script src="/wizard-page.js"></script>
 </body>
 </html>

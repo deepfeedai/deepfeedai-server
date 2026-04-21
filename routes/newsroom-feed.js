@@ -159,14 +159,14 @@ router.post('/trigger-brief', auth, requirePermission('articles.write'), require
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
   ).get(req.tenantId);
 
-  const text = await generateDailyBrief(req.tenantId);
-  if (!text) return res.status(500).json({ error: 'Brief generation returned empty — check AI provider config.' });
+  const brief = await generateDailyBrief(req.tenantId);
+  if (!brief) return res.status(500).json({ error: 'Brief generation returned empty — check AI provider config.' });
 
   await recordEvent({
     tenantId: req.tenantId,
     type: 'daily_brief',
     actorWriterId: maxwell?.id || null,
-    payload: { text, manual: true },
+    payload: { ...brief, text: brief.prose, manual: true },
   });
 
   res.json({ ok: true });
@@ -181,14 +181,14 @@ router.post('/trigger-digest', auth, requirePermission('articles.write'), requir
     "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
   ).get(req.tenantId);
 
-  const text = await generateWeeklyDigest(req.tenantId);
-  if (!text) return res.status(500).json({ error: 'Digest generation returned empty — check AI provider config.' });
+  const digest = await generateWeeklyDigest(req.tenantId);
+  if (!digest) return res.status(500).json({ error: 'Digest generation returned empty — check AI provider config.' });
 
   await recordEvent({
     tenantId: req.tenantId,
     type: 'weekly_digest',
     actorWriterId: maxwell?.id || null,
-    payload: { text, manual: true },
+    payload: { ...digest, text: digest.prose, manual: true },
   });
 
   res.json({ ok: true });
@@ -331,6 +331,55 @@ router.delete('/:eventId', auth, requirePermission('articles.read'), requireWork
   ).get(eventId, req.tenantId);
   if (!result) return res.status(404).json({ error: 'Event not found or already dismissed' });
   res.json({ ok: true, id: result.id });
+}));
+
+// GET /api/newsroom-feed/:eventId/feedback — current user's brief vote + tallies
+router.get('/:eventId/feedback', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const eventId = parseInt(req.params.eventId, 10);
+  if (!eventId) return res.status(400).json({ error: 'invalid_event_id' });
+  const userId = String(req.user?.sub || '');
+  const mine = userId
+    ? await db.prepare('SELECT vote, note FROM brief_feedback WHERE tenant_id = $1 AND event_id = $2 AND user_id = $3').get(req.tenantId, eventId, userId)
+    : null;
+  const tallies = await db.prepare(
+    `SELECT vote, COUNT(*)::int AS cnt FROM brief_feedback WHERE tenant_id = $1 AND event_id = $2 GROUP BY vote`
+  ).all(req.tenantId, eventId);
+  const out = { up: 0, down: 0, my_vote: mine?.vote || null, my_note: mine?.note || null };
+  tallies.forEach(t => { out[t.vote] = t.cnt; });
+  res.json(out);
+}));
+
+// POST /api/newsroom-feed/:eventId/feedback — upsert the current user's vote
+// Body: { vote: 'up'|'down', note? }  — or { vote: null } to clear.
+router.post('/:eventId/feedback', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const eventId = parseInt(req.params.eventId, 10);
+  if (!eventId) return res.status(400).json({ error: 'invalid_event_id' });
+  const userId = String(req.user?.sub || '');
+  if (!userId) return res.status(401).json({ error: 'unauthorized' });
+
+  const { vote, note } = req.body || {};
+  if (vote && vote !== 'up' && vote !== 'down') return res.status(400).json({ error: 'vote must be up, down, or null' });
+
+  const ev = await db.prepare(
+    `SELECT id, event_type FROM newsroom_events WHERE id = $1 AND tenant_id = $2`
+  ).get(eventId, req.tenantId);
+  if (!ev) return res.status(404).json({ error: 'event_not_found' });
+
+  if (vote === null || vote === undefined || vote === '') {
+    await db.prepare(
+      'DELETE FROM brief_feedback WHERE tenant_id = $1 AND event_id = $2 AND user_id = $3'
+    ).run(req.tenantId, eventId, userId);
+    return res.json({ ok: true, my_vote: null });
+  }
+
+  await db.prepare(`
+    INSERT INTO brief_feedback (tenant_id, event_id, user_id, vote, note, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+    ON CONFLICT (tenant_id, event_id, user_id)
+    DO UPDATE SET vote = EXCLUDED.vote, note = EXCLUDED.note, updated_at = NOW()
+  `).run(req.tenantId, eventId, userId, vote, note || null);
+
+  res.json({ ok: true, my_vote: vote });
 }));
 
 module.exports = router;

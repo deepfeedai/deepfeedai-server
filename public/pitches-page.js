@@ -184,9 +184,21 @@
 
   // ── Commissions (article_pitches — editor/Maxwell) ────────
 
+  // Filter states — 'proposed' (default), 'approved', 'orphaned' (non-terminal
+  // + unassigned — the commissioned pitches that previously vanished from
+  // the flow), 'all' (everything non-terminal).
+  var commissionFilter = 'proposed';
+
+  function commissionFilterToQuery(filter) {
+    if (filter === 'orphaned') return 'orphaned=1';
+    if (filter === 'approved') return 'status=approved';
+    if (filter === 'all')      return 'status=proposed,approved';
+    return 'status=proposed';
+  }
+
   async function loadCommissions() {
     try {
-      var data = await apiFetch('/pitches?status=proposed');
+      var data = await apiFetch('/pitches?' + commissionFilterToQuery(commissionFilter));
       var commissions = data.pitches || [];
       renderCommissionsGrid(commissions);
       var badge = document.getElementById('commissionsBadge');
@@ -194,11 +206,40 @@
         badge.textContent = commissions.length || '';
         badge.style.display = commissions.length ? 'inline-flex' : 'none';
       }
+      // Bulk auto-assign button — only relevant on the orphan view
+      var bulk = document.getElementById('autoAssignAllBtn');
+      if (bulk) bulk.style.display = (commissionFilter === 'orphaned' && commissions.length) ? 'inline-flex' : 'none';
     } catch (err) {
       document.getElementById('commissionsGrid').innerHTML =
         '<div class="review-empty">Failed to load commissions: ' + esc(err.message || err) + '</div>';
     }
+    // Independently fetch the orphan count so the "Needs writer" tab badge
+    // stays accurate regardless of which filter is active. Cheap — one query.
+    try {
+      var o = await apiFetch('/pitches?orphaned=1&limit=1');
+      var orphanBadge = document.getElementById('orphanedBadge');
+      if (orphanBadge) {
+        // `count` is just for this page slice; the orphan count for the
+        // badge is the length field returned — bump limit if you need exact
+        // numbers above 1. Showing ! if any exist is enough to draw the eye.
+        var n = (o.pitches && o.pitches.length) ? '!' : '';
+        orphanBadge.textContent = n;
+        orphanBadge.style.display = n ? 'inline-flex' : 'none';
+      }
+    } catch (_) { /* non-fatal */ }
   }
+
+  // Wire the filter tab bar above the grid
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-commission-filter]');
+    if (!btn) return;
+    var val = btn.getAttribute('data-commission-filter');
+    if (val === commissionFilter) return;
+    commissionFilter = val;
+    var bar = btn.closest('.tab-bar');
+    if (bar) bar.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.toggle('active', b === btn); });
+    loadCommissions();
+  });
 
   function renderCommissionsGrid(list) {
     var grid = document.getElementById('commissionsGrid');
@@ -231,7 +272,8 @@
       var html = '<div class="review-card" data-pitch="' + p.id + '">';
       html += '<div class="review-card-header">';
       html += '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>';
-      html += '<div style="display:flex;align-items:center;gap:6px;">' + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>';
+      var typeBadge = (window.renderPitchTypeBadge && p.pitch_type) ? window.renderPitchTypeBadge(p.pitch_type) : '';
+      html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + typeBadge + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>';
       html += '</div>';
       html += '<div class="review-meta">';
       html += '<span>' + initiator + '</span>';
@@ -243,15 +285,30 @@
       html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>';
       html += esc(p.angle_summary || '');
       html += '</div>';
+      // Status-dependent action buttons. Orphaned / approved views need
+      // different affordances than the default proposed queue.
       html += '<div class="review-actions">';
-      html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
-      html += '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>';
-      html += '<button class="btn btn-ghost btn-sm" onclick="openEnrichCommission(' + p.id + ', ' + titleArg + ')">Enrich sources</button>';
-      if (sc === 2) {
-        html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
+      if (p.status === 'proposed') {
+        html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
+        html += '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>';
+        html += '<button class="btn btn-ghost btn-sm" onclick="openEnrichCommission(' + p.id + ', ' + titleArg + ')">Enrich sources</button>';
+        if (sc === 2) {
+          html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
+        }
+      } else if (p.status === 'approved') {
+        html += '<span class="badge badge-accent" style="align-self:center;">Approved</span>';
+        if (p.spawned_article_id) {
+          html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
+        }
+      } else if (p.status === 'published') {
+        html += '<span class="badge badge-success" style="align-self:center;">Published</span>';
+        if (p.spawned_article_id) {
+          html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
+        }
       }
       if (!p.pitched_by_writer_id) {
-        html += '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer</button>';
+        html += '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')" title="Pick the best writer automatically via beat match">🎯 Auto-assign</button>';
+        html += '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer…</button>';
       }
       html += '</div>';
       html += '</div>';
@@ -425,6 +482,45 @@
     await loadWritersListCache();
     fillWriterSelect(document.getElementById('reassignCommissionWriter'));
     openModal('reassignCommissionModal');
+  };
+
+  // One-click auto-assign: server picks the best writer via findBestWriter.
+  // If the pitch is already approved, synthesis kicks off right after the
+  // assignment so the orphan unsticks without a manual approve step.
+  window.autoAssignCommission = async function (pitchId) {
+    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
+    if (card) card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    try {
+      var result = await apiFetch('/pitches/' + pitchId + '/auto-assign', { method: 'POST' });
+      var name = result && result.writer ? result.writer.name : 'writer';
+      var suffix = result && result.synthesis_queued ? ' — synthesis queued.' : '.';
+      toast('Auto-assigned to ' + name + suffix, 'success');
+      await loadCommissions();
+    } catch (err) {
+      if (card) card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      var msg = err && err.message ? err.message : String(err);
+      if (/no_eligible_writer/.test(msg)) {
+        toast('No eligible writers — add one or assign manually.', 'error');
+      } else {
+        toast('Auto-assign failed: ' + msg, 'error');
+      }
+    }
+  };
+
+  // Bulk auto-assign all orphans in the current tenant. Server caps at 50.
+  window.autoAssignAllOrphans = async function () {
+    if (!confirm('Run auto-assign on every orphaned commissioned pitch (up to 50)?')) return;
+    var btn = document.getElementById('autoAssignAllBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Assigning…'; }
+    try {
+      var result = await apiFetch('/pitches/auto-assign-orphans', { method: 'POST' });
+      toast('Assigned ' + result.assigned + ', skipped ' + result.skipped + '.', result.assigned ? 'success' : 'info');
+      await loadCommissions();
+    } catch (err) {
+      toast('Bulk auto-assign failed: ' + (err.message || err), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 Auto-assign all'; }
+    }
   };
 
   function wireReassignCommission() {

@@ -336,12 +336,24 @@
         body: JSON.stringify(payload),
       });
       typing.remove();
+      // If the server rehydrated an article from prior context (anaphora), sync
+      // the context bar so the editor can see which article was used.
+      if (resp.resolved_article_id && !activeArticleId) {
+        activeArticleId = resp.resolved_article_id;
+        var bar = document.getElementById('chatContextBar');
+        var label = document.getElementById('chatContextLabel');
+        if (bar && label) {
+          label.textContent = 'Article #' + resp.resolved_article_id + ' (from context)';
+          bar.style.display = 'flex';
+        }
+      }
       if (resp.proposal) {
         appendBubble('assistant', resp.text || '');
         appendProposalCard(resp.proposal);
       } else {
         appendBubble('assistant', resp.text || '(no response)');
         if (resp.actions && resp.actions.length) appendActionButtons(resp.actions);
+        if (resp.parse_hint) appendParseHint(resp.parse_hint, text, intent);
       }
     } catch (err) {
       typing.remove();
@@ -359,18 +371,50 @@
     card.dataset.proposal = JSON.stringify(proposal);
 
     var inner = '';
+    var approveLabel = '✓ Looks good';
     if (proposal.proposal_type === 'thumbnail') {
       inner = '<div class="chat-proposal-preview">'
         + '<img src="' + esc(proposal.preview_url) + '" alt="Proposed thumbnail" class="chat-proposal-image" />'
         + '</div>';
+      approveLabel = proposal.article_id ? '✓ Apply to article' : '✓ Looks good';
     } else if (proposal.proposal_type === 'headline') {
       inner = '<div class="chat-proposal-headline">&ldquo;' + esc(proposal.new_headline) + '&rdquo;</div>'
         + (proposal.rationale ? '<div class="chat-proposal-rationale">' + esc(proposal.rationale) + '</div>' : '');
+      approveLabel = '✓ Apply headline';
+    } else if (proposal.proposal_type === 'pitch') {
+      // Multi-source badge + type dropdown (editor can override Maxwell's
+      // inferred type before approving). Selected value is read back on
+      // approve click and merged into the POST payload.
+      var sourceCount = Array.isArray(proposal.source_article_ids) ? proposal.source_article_ids.length : 1;
+      var sourceChip = sourceCount > 1 ? ' <span class="chat-proposal-src-chip">' + sourceCount + ' sources</span>' : '';
+      var typeSelect = window.renderPitchTypeSelect
+        ? '<div class="chat-proposal-type-row"><span class="chat-proposal-type-label">Type:</span> ' + window.renderPitchTypeSelect(proposal.pitch_type) + '</div>'
+        : '';
+      inner = '<div class="chat-proposal-headline">📋 Pitch' + sourceChip + '</div>'
+        + '<div class="chat-proposal-rationale">' + esc(proposal.angle_summary || '') + '</div>'
+        + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '')
+        + typeSelect;
+      approveLabel = '✓ Create pitch';
+    } else if (proposal.proposal_type === 'approve_article') {
+      inner = '<div class="chat-proposal-headline">✓ Approve for publication</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = '✓ Approve & publish';
+    } else if (proposal.proposal_type === 'kill_article') {
+      inner = '<div class="chat-proposal-headline" style="color:#ef4444;">⚠️ Kill article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + (proposal.reason ? ' — ' + esc(proposal.reason) : '') + '</div>'
+        + '<div class="chat-proposal-rationale" style="font-size:11px;opacity:0.7;">Sets status=killed, unpublishes, and archives.</div>';
+      approveLabel = '✗ Confirm kill';
+    } else if (proposal.proposal_type === 'assign_writer') {
+      inner = '<div class="chat-proposal-headline">👤 Reassign writer</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id))
+        + ' → ' + esc(proposal.writer_name || '(unknown)') + '</div>';
+      approveLabel = '✓ Reassign';
+    } else if (proposal.proposal_type === 'feature_article') {
+      inner = '<div class="chat-proposal-headline">⭐ ' + (proposal.featured ? 'Feature' : 'Unfeature') + ' article</div>'
+        + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
+      approveLabel = proposal.featured ? '✓ Feature' : '✓ Unfeature';
     }
-
-    var approveLabel = proposal.proposal_type === 'headline'
-      ? '✓ Apply headline'
-      : (proposal.article_id ? '✓ Apply to article' : '✓ Looks good');
     inner += '<div class="chat-proposal-actions">'
       + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
       + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
@@ -387,15 +431,55 @@
     var thread = document.getElementById('chatThread');
     var card = document.createElement('div');
     card.className = 'chat-proposal-card';
-    var inner = '<div class="chat-proposal-actions">';
+    var actionsRow = document.createElement('div');
+    actionsRow.className = 'chat-proposal-actions';
+    // Build buttons via DOM API so dataset.action is stored as a property
+    // (the browser handles attribute encoding). String concatenation would
+    // require manual &quot; escaping since esc() intentionally only encodes
+    // &, <, > — quotes inside JSON would break the enclosing attribute.
+    // Show a type dropdown for any create_pitch action so the editor can
+     // override Maxwell's inferred type before hitting Create Pitch.
+    var pitchAction = actions.find(function (a) { return a.type === 'create_pitch'; });
+    if (pitchAction && window.renderPitchTypeSelect) {
+      var typeRow = document.createElement('div');
+      typeRow.className = 'chat-proposal-type-row';
+      typeRow.innerHTML = '<span class="chat-proposal-type-label">Type:</span> '
+        + window.renderPitchTypeSelect((pitchAction.payload && pitchAction.payload.pitch_type) || 'original');
+      card.appendChild(typeRow);
+    }
     actions.forEach(function (action) {
-      inner += '<button class="btn btn-primary btn-sm chat-action-btn" data-action="' + esc(JSON.stringify(action)) + '">' + esc(action.label) + '</button>';
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-sm chat-action-btn';
+      btn.dataset.action = JSON.stringify(action);
+      btn.textContent = action.label;
+      actionsRow.appendChild(btn);
     });
-    inner += '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>';
-    inner += '</div>';
-    card.innerHTML = inner;
+    var skip = document.createElement('button');
+    skip.className = 'btn btn-outline btn-sm chat-proposal-reject';
+    skip.textContent = '✕ Skip';
+    actionsRow.appendChild(skip);
+    card.appendChild(actionsRow);
     thread.appendChild(card);
     scrollToBottom();
+  }
+
+  // Inline banner shown when the backend detected a pitch recommendation but
+  // couldn't parse the structured payload. Offers a Retry that re-sends the
+  // original message so the model can regenerate the block.
+  function appendParseHint(hint, originalText, originalIntent) {
+    var thread = document.getElementById('chatThread');
+    var banner = document.createElement('div');
+    banner.className = 'chat-parse-hint';
+    banner.innerHTML = '<span class="chat-parse-hint-text">' + esc(hint) + '</span>'
+      + '<button class="btn btn-outline btn-sm chat-parse-hint-retry">↻ Retry</button>';
+    thread.appendChild(banner);
+    scrollToBottom();
+    banner.querySelector('.chat-parse-hint-retry').addEventListener('click', function () {
+      banner.remove();
+      var input = document.getElementById('chatInput');
+      if (input) input.value = originalText;
+      sendMessage(originalIntent || 'pitch');
+    });
   }
 
   async function handleProposalClick(e) {
@@ -417,10 +501,17 @@
       return;
     }
 
-    // Action button (e.g. create_pitch from Maxwell)
+    // Action button (e.g. create_pitch from Maxwell). If the card hosts a
+    // pitch-type dropdown, merge its current value into the payload so the
+    // editor's override wins over Maxwell's inferred type.
     if (actionBtn) {
       try {
         var action = JSON.parse(actionBtn.dataset.action);
+        var typeSel = card.querySelector('.pitch-type-select');
+        if (typeSel && action && action.type === 'create_pitch') {
+          action.payload = action.payload || {};
+          action.payload.pitch_type = typeSel.value;
+        }
         var result = await apiFetch('/newsroom-chat/actions/approve', {
           method: 'POST',
           body: JSON.stringify(action),
@@ -435,9 +526,15 @@
       return;
     }
 
-    // Approve (existing tool proposal: thumbnail, headline)
+    // Approve (existing tool proposal: thumbnail, headline, pitch, approve,
+    // kill, assign, feature). Pitch card may include a type dropdown — merge
+    // its value into proposal.pitch_type before POSTing.
     try {
       var proposal = JSON.parse(card.dataset.proposal);
+      var typeSelP = card.querySelector('.pitch-type-select');
+      if (typeSelP && proposal.proposal_type === 'pitch') {
+        proposal.pitch_type = typeSelP.value;
+      }
       var result = await apiFetch('/newsroom-chat/actions/approve', {
         method: 'POST',
         body: JSON.stringify(proposal),

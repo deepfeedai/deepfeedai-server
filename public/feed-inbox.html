@@ -100,6 +100,8 @@
       <!-- Bulk action toolbar -->
       <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
         <span id="bulkCount" class="bulk-count">0 selected</span>
+        <button class="btn btn-sm btn-primary" id="bulkPitchBtn" title="Compose a pitch bundling selected sources">📋 Create pitch from selection</button>
+        <select id="bulkPitchType" class="pitch-type-select" style="display:none;" title="Pitch type"></select>
         <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn" title="Re-run category detection on selected">🏷️ Recategorize</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
         <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>

@@ -79,7 +79,14 @@
       <div id="commissionsSection" style="display:none;">
         <div class="section-header">
           <div class="section-title">Commissioned Stories</div>
-          <div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <div class="tab-bar" style="padding:2px;">
+              <button class="tab-btn active" data-commission-filter="proposed">Proposed</button>
+              <button class="tab-btn" data-commission-filter="approved">Approved</button>
+              <button class="tab-btn" data-commission-filter="orphaned">⚠ Needs writer <span class="tab-badge" id="orphanedBadge"></span></button>
+              <button class="tab-btn" data-commission-filter="all">All open</button>
+            </div>
+            <button class="btn btn-outline btn-sm" id="autoAssignAllBtn" onclick="autoAssignAllOrphans()" style="display:none;">🎯 Auto-assign all</button>
             <button class="btn btn-primary btn-sm" id="newCommissionBtn">+ New commission</button>
           </div>
         </div>

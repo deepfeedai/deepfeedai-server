@@ -625,7 +625,7 @@ registerJob({
         // Notify on new pitches
         if (pitches.length) {
           const { notifyNewPitch } = require('./lib/messaging');
-          const writer = await db.prepare('SELECT * FROM writers WHERE id = $1').get(w.id);
+          const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(w.id, tenantId);
           for (const p of pitches) {
             notifyNewPitch(tenantId, p, writer).catch(() => {});
           }
@@ -712,14 +712,16 @@ registerJob({
       "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
     ).get(tenantId).catch(() => null);
 
-    const text = await generateDailyBrief(tenantId);
-    if (!text) return { skipped: 'no data for brief' };
+    const brief = await generateDailyBrief(tenantId);
+    if (!brief) return { skipped: 'no data for brief' };
 
+    // Store the full structured payload. `text` is kept as an alias of
+    // `prose` so any legacy rendering that reads payload.text still works.
     await recordEvent({
       tenantId,
       type: 'daily_brief',
       actorWriterId: maxwell?.id || null,
-      payload: { text },
+      payload: { ...brief, text: brief.prose },
     });
 
     console.log(`[daily-brief] Posted for tenant ${tenantId}`);
@@ -744,14 +746,14 @@ registerJob({
       "SELECT id FROM writers WHERE tenant_id = $1 AND role = 'editor' AND is_system = true LIMIT 1"
     ).get(tenantId).catch(() => null);
 
-    const text = await generateWeeklyDigest(tenantId);
-    if (!text) return { skipped: 'no data for digest' };
+    const digest = await generateWeeklyDigest(tenantId);
+    if (!digest) return { skipped: 'no data for digest' };
 
     await recordEvent({
       tenantId,
       type: 'weekly_digest',
       actorWriterId: maxwell?.id || null,
-      payload: { text },
+      payload: { ...digest, text: digest.prose },
     });
 
     console.log(`[weekly-digest] Posted for tenant ${tenantId}`);
