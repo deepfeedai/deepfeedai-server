@@ -59,6 +59,10 @@
       return { href: href, label: href.replace(/^\/|\.html$/g, '').replace(/-/g, ' '), icon: '⏱' };
     }
 
+
+    var CHEVRON = '<svg class="nav-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+
     // ── Render ─────────────────────────────────────────────
     function render() {
       var nav = document.querySelector('.sidebar-nav');
@@ -82,18 +86,36 @@
 
       function section(label, items) {
         if (!items.length) return null;
-        var frag = document.createDocumentFragment();
-        frag.appendChild(el('div', { class: 'nav-section' }, [label]));
+
+        var storageKey = 'navExtras.collapsed.' + label.replace(/[^\w]/g, '');
+        var isCollapsed = localStorage.getItem(storageKey) === 'true';
+
+        var header = el('div', { class: 'nav-section' + (isCollapsed ? ' collapsed' : ''), html: label + CHEVRON });
+        var group  = el('div', { class: 'nav-group'   + (isCollapsed ? ' collapsed' : '') });
+
+        header.addEventListener('click', function () {
+          var nowCollapsed = !header.classList.contains('collapsed');
+          header.classList.toggle('collapsed', nowCollapsed);
+          group.classList.toggle('collapsed',  nowCollapsed);
+          try { localStorage.setItem(storageKey, nowCollapsed ? 'true' : 'false'); } catch (_) {}
+        });
+
         items.forEach(function (it) {
           var active = pathname === it.href ? ' active' : '';
-          var link = el('a', {
+          group.appendChild(el('a', {
+
             class: 'nav-link' + active,
             href: it.href,
             dataset: { navExtrasHref: it.href },
             html: (it.icon || '') + ' <span>' + esc(it.label) + '</span>',
-          });
-          frag.appendChild(link);
+
+          }));
         });
+
+        var frag = document.createDocumentFragment();
+        frag.appendChild(header);
+        frag.appendChild(group);
+
         return frag;
       }
 
