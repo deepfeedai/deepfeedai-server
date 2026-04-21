@@ -22,6 +22,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
     feedRow,
     sourcesRow,
     pitchRow,
+    commissionRow,
     writerRows,
     aiSpendRows,
     sparklineRows,
@@ -82,12 +83,19 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       FROM sources WHERE tenant_id = $1
     `, [tid]),
 
-    // ── Pending pitches ──────────────────────────────────────────────────
+    // ── Pending story pitches (writer agent → editor) ────────────────────
     pool.query(`
       SELECT COUNT(*)::int AS pending
       FROM story_pitches
       WHERE tenant_id = $1 AND status = 'pending'
     `, [tid]),
+
+    // ── Proposed commissions (article_pitches awaiting action) ───────────
+    pool.query(`
+      SELECT COUNT(*)::int AS proposed
+      FROM article_pitches
+      WHERE tenant_id = $1 AND status = 'proposed'
+    `, [tid]).catch(() => ({ rows: [{ proposed: 0 }] })),
 
     // ── Writers with 7-day article count ────────────────────────────────
     pool.query(`
@@ -234,7 +242,8 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       inactive: Number(s.inactive),
     },
     pitches: {
-      pending: Number(pitchRow.rows[0]?.pending || 0),
+      pending:  Number(pitchRow.rows[0]?.pending  || 0),
+      proposed: Number(commissionRow.rows[0]?.proposed || 0),
     },
     writers: writerRows.rows.map(w => ({
       id:              w.id,

@@ -515,14 +515,23 @@ function updateNavBadge(id, count) {
   else { el.style.display = 'none'; }
 }
 
+let _navBadgeTimer = null;
 function loadNavBadges() {
-  apiFetch('/dashboard/stats').then(function(stats) {
-    if (!stats) return;
-    updateNavBadge('pitches',   stats.pitches  && stats.pitches.pending);
-    updateNavBadge('comments',  stats.comments && stats.comments.queue);
-    updateNavBadge('editorial', stats.articles && stats.articles.in_review);
-  }).catch(function() {});
+  clearTimeout(_navBadgeTimer);
+  _navBadgeTimer = setTimeout(function() {
+    apiFetch('/dashboard/stats').then(function(stats) {
+      if (!stats) return;
+      const pitchCount = (stats.pitches ? (stats.pitches.pending || 0) + (stats.pitches.proposed || 0) : 0);
+      updateNavBadge('pitches',   pitchCount);
+      updateNavBadge('comments',  stats.comments && stats.comments.queue);
+      updateNavBadge('editorial', stats.articles && stats.articles.in_review);
+    }).catch(function() {});
+  }, 100);
 }
+window.loadNavBadges = loadNavBadges;
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden) loadNavBadges();
+});
 
 function initSidebar() {
   const hamburger = document.getElementById('hamburger');
