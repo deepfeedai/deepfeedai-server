@@ -7,36 +7,50 @@
   <link rel="stylesheet" href="/admin.css" />
   <style>
     body { background: var(--bg); color: var(--text); }
-    .setup-wrap { max-width: 680px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
+    .setup-wrap { max-width: 700px; margin: 0 auto; padding: var(--space-8) var(--space-4); }
     .setup-header { text-align: center; margin-bottom: var(--space-8); }
     .setup-header h1 { font-size: 1.5rem; margin-bottom: var(--space-2); }
     .setup-header p { color: var(--muted); }
     .setup-version { font-size: 0.75rem; color: var(--muted); margin-top: var(--space-1); }
-    .setup-mode-badge { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; background: var(--accent); color: #fff; margin-left: var(--space-2); }
+    .setup-tagline { font-size: 0.95rem; color: var(--accent); font-style: italic; margin-top: var(--space-3); }
+
+    /* Step indicator */
+    .wizard-steps { display: flex; align-items: center; margin-bottom: var(--space-8); overflow-x: auto; padding-bottom: 2px; }
+    .wizard-step { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+    .wizard-step-num { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--muted); background: var(--bg); transition: all 0.2s; }
+    .wizard-step span:not(.wizard-step-num) { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+    .wizard-step.active .wizard-step-num { border-color: var(--accent); color: var(--accent); }
+    .wizard-step.active span:not(.wizard-step-num) { color: var(--accent); font-weight: 600; }
+    .wizard-step.done .wizard-step-num { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .wizard-step-line { flex: 1; height: 2px; background: var(--border); min-width: 12px; }
+
+    /* Panels */
+    .step-hidden { display: none; }
+    .step-active { display: block; }
+
+    /* Keys */
     .key-display { background: var(--bg-2, #1e1e2e); border: 1px solid var(--border); border-radius: 6px; padding: var(--space-3); font-family: monospace; font-size: 0.8rem; word-break: break-all; position: relative; margin: var(--space-3) 0; }
     .key-display button { position: absolute; top: var(--space-2); right: var(--space-2); }
     .key-warning { background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; border-radius: 6px; padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font-size: 0.875rem; line-height: 1.5; }
     .key-warning strong { display: block; margin-bottom: var(--space-1); }
-    @media (prefers-color-scheme: dark) {
-      .key-warning { background: #451a03; color: #fde68a; border-color: #b45309; }
-    }
+    @media (prefers-color-scheme: dark) { .key-warning { background: #451a03; color: #fde68a; border-color: #b45309; } }
+
+    /* Review */
     .check-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
     .check-row:last-child { border-bottom: none; }
     .check-icon { font-size: 1.25rem; flex-shrink: 0; }
     .check-label { font-weight: 600; }
     .check-detail { color: var(--muted); font-size: 0.875rem; }
-    .step-hidden { display: none; }
-    .step-active { display: block; }
+    .check-info { flex: 1; }
+
+    /* Misc */
     .password-strength { font-size: 0.75rem; margin-top: var(--space-1); }
-    .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-6); }
-    .mode-card { border: 2px solid var(--border); border-radius: 8px; padding: var(--space-5); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
-    .mode-card:hover { border-color: var(--accent); }
-    .mode-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
-    .mode-card h3 { margin: 0 0 var(--space-2); font-size: 1.1rem; }
-    .mode-card p { color: var(--muted); font-size: 0.875rem; margin: 0 0 var(--space-3); line-height: 1.5; }
-    .mode-card ul { color: var(--muted); font-size: 0.8rem; margin: 0; padding-left: var(--space-4); line-height: 1.7; }
-    .mode-card .mode-icon { font-size: 2rem; margin-bottom: var(--space-3); }
-    @media (max-width: 600px) { .mode-cards { grid-template-columns: 1fr; } }
+    .badge-optional { color: var(--muted); font-weight: normal; font-size: 0.8rem; margin-left: var(--space-2); }
+
+    /* Welcome checklist */
+    .welcome-checklist { list-style: none; padding: 0; margin: var(--space-4) 0; }
+    .welcome-checklist li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; color: var(--muted); font-size: 0.9rem; }
+    .welcome-checklist li span.ci { font-size: 1.1rem; }
   </style>
 </head>
 <body>
@@ -44,47 +58,38 @@
 
   <div class="setup-header">
     <h1>Deep Feed AI</h1>
-    <p>First-time setup — let's get your instance running.</p>
+    <p>First-time setup</p>
+    <div class="setup-tagline">"Your database is connected and you're 60 seconds away from your newsroom."</div>
     <div class="setup-version" id="setupVersion"></div>
   </div>
 
   <!-- Step indicator -->
   <div class="wizard-steps" id="wizardSteps">
-    <div class="wizard-step active" data-step="1"><span class="wizard-step-num">1</span> <span>Welcome</span></div>
+    <div class="wizard-step active" data-step="1"><span class="wizard-step-num">1</span><span>Welcome</span></div>
     <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="2"><span class="wizard-step-num">2</span> <span>Mode</span></div>
+    <div class="wizard-step" data-step="2"><span class="wizard-step-num">2</span><span>Admin</span></div>
     <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span> <span>Admin</span></div>
-    <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="4"><span class="wizard-step-num">4</span> <span>Encryption</span></div>
-    <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="5"><span class="wizard-step-num">5</span> <span>Storage</span></div>
-    <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="6"><span class="wizard-step-num">6</span> <span>Services</span></div>
-    <div class="wizard-step-line"></div>
-    <div class="wizard-step" data-step="7"><span class="wizard-step-num">7</span> <span>Review</span></div>
+    <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span><span>Key</span></div>
   </div>
 
   <!-- Step 1: Welcome -->
   <div class="wizard-panel step-active" id="step1">
     <h2>Welcome</h2>
-    <p style="color:var(--muted);margin-bottom:var(--space-6);">Your Deep Feed AI instance is ready to configure. Here's what we detected:</p>
+    <p style="color:var(--muted);margin-bottom:var(--space-6);">Let's make sure everything is in order before creating your admin account.</p>
     <div class="dash-panel" id="welcomeStatus">
       <div class="check-row">
-        <span class="check-icon">&#9989;</span>
-        <div><div class="check-label">Database</div><div class="check-detail">PostgreSQL connected</div></div>
+        <span class="check-icon" id="welcomeDbIcon">&#8987;</span>
+        <div class="check-info"><div class="check-label">Database</div><div class="check-detail" id="welcomeDbDetail">Checking...</div></div>
       </div>
-      <div class="check-row" id="welcomeMode">
+      <div class="check-row">
         <span class="check-icon">&#9881;&#65039;</span>
-        <div><div class="check-label">Mode</div><div class="check-detail" id="welcomeModeDetail">Detecting...</div></div>
+        <div class="check-info"><div class="check-label">Mode</div><div class="check-detail" id="welcomeModeDetail">Detecting...</div></div>
       </div>
-      <div class="check-row" id="welcomeEnc">
+      <div class="check-row">
         <span class="check-icon" id="welcomeEncIcon">&#8987;</span>
-        <div><div class="check-label">Encryption</div><div class="check-detail" id="welcomeEncDetail">Checking...</div></div>
+        <div class="check-info"><div class="check-label">Encryption</div><div class="check-detail" id="welcomeEncDetail">Checking...</div></div>
       </div>
     </div>
-
-    <!-- Database config (only shown when DATABASE_URL is not set) -->
     <div id="dbConfigSection" style="display:none;margin-top:var(--space-6);">
       <h3>Database Connection</h3>
       <p style="color:var(--muted);margin-bottom:var(--space-4);font-size:0.875rem;">No database configured. Enter your PostgreSQL connection URL to continue.</p>
@@ -99,45 +104,8 @@
     </div>
   </div>
 
-  <!-- Step 2: Deployment Mode -->
+  <!-- Step 2: Admin Account -->
   <div class="wizard-panel step-hidden" id="step2">
-    <h2>Deployment Mode</h2>
-    <p style="color:var(--muted);margin-bottom:var(--space-6);">How will you use this instance? You can change this later via the <code>DEPLOYMENT_MODE</code> environment variable.</p>
-
-    <div class="mode-cards">
-      <div class="mode-card selected" id="modeSingle" data-mode="single">
-        <div class="mode-icon">&#127968;</div>
-        <h3>Single-Tenant</h3>
-        <p>One site, one admin. Best for personal use, a single organization, or self-hosting.</p>
-        <ul>
-          <li>Simplest setup</li>
-          <li>All features enabled by default</li>
-          <li>No subdomain routing needed</li>
-        </ul>
-      </div>
-      <div class="mode-card" id="modeMulti" data-mode="multi">
-        <div class="mode-icon">&#127959;&#65039;</div>
-        <h3>Multi-Tenant</h3>
-        <p>Host multiple independent sites from one server. Each tenant gets its own content, settings, and subdomain.</p>
-        <ul>
-          <li>Subdomain routing (e.g. tenant.yourdomain.com)</li>
-          <li>Per-tenant billing &amp; API keys (BYOK)</li>
-          <li>Platform admin dashboard</li>
-        </ul>
-      </div>
-    </div>
-
-    <div id="modeStatus" style="font-size:0.875rem;"></div>
-    <div id="modeMultiHint" style="display:none;margin-top:var(--space-3);">
-      <div class="key-warning">
-        <strong>Multi-tenant requires additional configuration</strong>
-        After setup, you'll need to set <code>TENANT_BASE_DOMAIN</code> in your <code>.env</code> file for subdomain routing (e.g. <code>TENANT_BASE_DOMAIN=yourdomain.com</code>).
-      </div>
-    </div>
-  </div>
-
-  <!-- Step 3: Admin Account -->
-  <div class="wizard-panel step-hidden" id="step3">
     <h2>Create Admin Account</h2>
     <p style="color:var(--muted);margin-bottom:var(--space-6);">This will be the owner account for your instance.</p>
     <div class="form-group">
@@ -150,14 +118,19 @@
       <div class="password-strength" id="pwStrength"></div>
     </div>
     <div class="form-group">
-      <label class="form-label" for="adminEmail">Email <span style="color:var(--muted);font-weight:normal;">(optional)</span></label>
+      <label class="form-label" for="adminPasswordConfirm">Confirm Password</label>
+      <input class="form-control" type="password" id="adminPasswordConfirm" placeholder="Re-enter password" autocomplete="new-password" />
+      <div class="password-strength" id="pwConfirmStatus"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="adminEmail">Email <span class="badge-optional">(optional)</span></label>
       <input class="form-control" type="email" id="adminEmail" placeholder="admin@example.com" autocomplete="email" />
     </div>
     <div id="adminStatus" style="margin-top:var(--space-3);font-size:0.875rem;"></div>
   </div>
 
-  <!-- Step 4: Encryption -->
-  <div class="wizard-panel step-hidden" id="step4">
+  <!-- Step 3: Encryption Key -->
+  <div class="wizard-panel step-hidden" id="step3">
     <h2>Encryption Key</h2>
     <p style="color:var(--muted);margin-bottom:var(--space-6);">API keys and secrets are encrypted at rest using AES-256-GCM.</p>
     <div class="dash-panel" id="encryptionPanel">
@@ -172,7 +145,7 @@
     <div id="encKeySection" style="display:none;">
       <div class="key-warning">
         <strong>Important: Save this key now</strong>
-        An encryption key was auto-generated for this session. Add it to your <code>.env</code> file to persist it across restarts. Without it, encrypted data (API keys, secrets) will be unreadable after a restart.
+        An encryption key was auto-generated. Add it to your <code>.env</code> file — without it, encrypted secrets become unreadable after a restart.
       </div>
       <div class="key-display">
         <code id="encKeyValue"></code>
@@ -182,107 +155,9 @@
       <div class="key-display"><code id="encEnvLine"></code></div>
     </div>
     <div id="encConfigured" style="display:none;">
-      <p style="color:var(--muted);margin-top:var(--space-3);">Your encryption key is configured via environment variable. No action needed.</p>
+      <p style="color:var(--muted);margin-top:var(--space-3);">Encryption key configured via environment variable. You're all set.</p>
     </div>
-  </div>
-
-  <!-- Step 5: Storage -->
-  <div class="wizard-panel step-hidden" id="step5">
-    <h2>Storage</h2>
-    <p style="color:var(--muted);margin-bottom:var(--space-6);">Choose where uploaded images, thumbnails, and audio files are stored. Local storage works out of the box. S3-compatible storage can be configured later from Settings.</p>
-    <div class="dash-panel" id="storageStatus" style="margin-bottom:var(--space-5);">
-      <div style="display:flex;align-items:center;gap:var(--space-3);">
-        <span id="storageIcon" style="font-size:1.5rem;">&#8987;</span>
-        <div>
-          <div id="storageLabel" style="font-weight:600;">Checking...</div>
-          <div id="storageDetail" style="color:var(--muted);font-size:0.875rem;"></div>
-        </div>
-      </div>
-    </div>
-    <details style="margin-top:var(--space-4);">
-      <summary style="cursor:pointer;color:var(--accent);font-weight:600;">Configure S3-compatible storage</summary>
-      <div style="margin-top:var(--space-4);">
-        <div class="form-group">
-          <label class="form-label" for="s3Endpoint">S3 Endpoint</label>
-          <input class="form-control input-mono" type="url" id="s3Endpoint" placeholder="https://account-id.r2.cloudflarestorage.com" />
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
-          <div class="form-group">
-            <label class="form-label" for="s3AccessKey">Access Key ID</label>
-            <input class="form-control input-mono" type="password" id="s3AccessKey" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="s3SecretKey">Secret Access Key</label>
-            <input class="form-control input-mono" type="password" id="s3SecretKey" />
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
-          <div class="form-group">
-            <label class="form-label" for="s3Bucket">Bucket Name</label>
-            <input class="form-control input-mono" type="text" id="s3Bucket" />
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="s3PublicUrl">Public URL <span style="color:var(--muted);font-weight:normal;">(optional)</span></label>
-            <input class="form-control input-mono" type="url" id="s3PublicUrl" placeholder="https://pub-xxx.r2.dev" />
-          </div>
-        </div>
-        <div style="display:flex;gap:var(--space-3);align-items:center;">
-          <button class="btn btn-outline btn-sm" id="s3SaveBtn" type="button">Save S3 Config</button>
-          <button class="btn btn-outline btn-sm" id="s3TestBtn" type="button">Test Connection</button>
-          <span id="s3Status" style="font-size:0.875rem;"></span>
-        </div>
-      </div>
-    </details>
-  </div>
-
-  <!-- Step 6: AI & Services -->
-  <div class="wizard-panel step-hidden" id="step6">
-    <h2>AI &amp; Services</h2>
-    <p style="color:var(--muted);margin-bottom:var(--space-6);">Configure optional integrations. All of these can also be set later from Settings.</p>
-
-    <h3 style="margin-bottom:var(--space-3);">AI</h3>
-    <div class="form-group">
-      <label class="form-label" for="geminiKey">Gemini API Key <span style="color:var(--muted);font-weight:normal;">(for summaries &amp; categorization)</span></label>
-      <div class="input-action-row">
-        <input class="form-control input-mono" type="password" id="geminiKey" placeholder="AIzaSy..." />
-        <button class="btn btn-outline btn-sm" type="button" id="geminiToggle">Show</button>
-      </div>
-      <small class="form-help"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Get a free key from Google AI Studio</a></small>
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="elevenLabsKey">ElevenLabs API Key <span style="color:var(--muted);font-weight:normal;">(optional — for audio)</span></label>
-      <div class="input-action-row">
-        <input class="form-control input-mono" type="password" id="elevenLabsKey" />
-        <button class="btn btn-outline btn-sm" type="button" id="elevenLabsToggle">Show</button>
-      </div>
-    </div>
-
-    <h3 style="margin-top:var(--space-6);margin-bottom:var(--space-3);">Email</h3>
-    <div class="form-group">
-      <label class="form-label" for="resendKey">Resend API Key <span style="color:var(--muted);font-weight:normal;">(for newsletters)</span></label>
-      <input class="form-control input-mono" type="password" id="resendKey" />
-      <small class="form-help"><a href="https://resend.com" target="_blank" rel="noopener">Resend</a> offers 3,000 free emails/month</small>
-    </div>
-    <div class="form-group">
-      <label class="form-label" for="adminEmailAddr">Admin Email <span style="color:var(--muted);font-weight:normal;">(receives alerts)</span></label>
-      <input class="form-control" type="email" id="adminEmailAddr" />
-    </div>
-
-    <div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-4);">
-      <button class="btn btn-outline btn-sm" id="servicesSaveBtn" type="button">Save</button>
-      <span id="servicesStatus" style="font-size:0.875rem;"></span>
-    </div>
-  </div>
-
-  <!-- Step 7: Review -->
-  <div class="wizard-panel step-hidden" id="step7">
-    <h2>Setup Review</h2>
-    <p style="color:var(--muted);margin-bottom:var(--space-6);">Here's the current status of your instance.</p>
-    <div id="reviewChecks" class="dash-panel"></div>
-    <div id="reviewDone" style="display:none;margin-top:var(--space-6);text-align:center;">
-      <h3>You're all set!</h3>
-      <p style="color:var(--muted);margin-bottom:var(--space-6);">Head to the dashboard to start adding sources and content.</p>
-    </div>
+    <p style="color:var(--muted);font-size:0.875rem;margin-top:var(--space-4);">Next, you'll configure your newsroom — niche, brand, AI providers, and sources.</p>
   </div>
 
   <!-- Footer navigation -->
@@ -292,7 +167,6 @@
   </div>
 
 </div>
-
 <script src="/setup-page.js"></script>
 </body>
 </html>

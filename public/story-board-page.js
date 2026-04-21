@@ -1318,6 +1318,7 @@
     populateFilters();
     adaptToolbarForMode();
     await loadBoard();
+    window.pageRefresh = loadBoard;
 
     // Handle ?articleId=X deep-link from articles page
     var params    = new URLSearchParams(window.location.search);

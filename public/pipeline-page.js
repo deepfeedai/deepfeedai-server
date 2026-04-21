@@ -603,4 +603,5 @@ onReady(async () => {
 
   // Initial load
   loadOrchRuns();
+  window.pageRefresh = loadOrchRuns;
 });

@@ -42,7 +42,7 @@
         <span class="settings-nav-icon">💬</span> Messaging
       </button>
       <button class="settings-nav-item" data-section="team">
-        <span class="settings-nav-icon">👥</span> Team
+        <span class="settings-nav-icon">👥</span> Access
       </button>
     </nav>
   </aside>
@@ -61,37 +61,6 @@
 
       <!-- ═══ General ═══ -->
       <div class="tab-panel active" data-tab="general">
-
-        <!-- Your Profile -->
-        <div class="dash-panel mb-6">
-          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Your Profile</h3>
-          <p class="form-help" style="margin-top:-8px;margin-bottom:12px;">These show up in the newsroom chat and anywhere your account is shown to other admins.</p>
-
-          <div class="form-grid-2">
-            <div class="form-group">
-              <label class="form-label" for="profileUsername">Username</label>
-              <input type="text" class="form-control" id="profileUsername" readonly style="opacity:0.7;" />
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="profileDisplayName">Display Name</label>
-              <input type="text" class="form-control" id="profileDisplayName" placeholder="How your name appears" maxlength="120" />
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="profileAvatarUrl">Avatar URL</label>
-            <div style="display:flex;gap:12px;align-items:center;">
-              <img id="profileAvatarPreview" src="" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg-surface, #141414);flex-shrink:0;" onerror="this.style.visibility='hidden';" />
-              <input type="text" class="form-control" id="profileAvatarUrl" placeholder="https://.../avatar.png (paste a URL)" style="flex:1;" />
-            </div>
-            <p class="form-help">v1: paste an image URL. File upload will come later.</p>
-          </div>
-
-          <div class="btn-group mt-5">
-            <button class="btn btn-primary" id="saveProfileBtn">Save Profile</button>
-          </div>
-          <div id="profileStatus" class="settings-status"></div>
-        </div>
 
         <!-- Branding -->
         <div class="dash-panel mb-6">
@@ -302,10 +271,111 @@
           <div id="themeStatus" class="settings-status"></div>
         </div>
 
+        <!-- Danger Zone -->
+        <div class="settings-card" style="border-color:#7f1d1d;">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#x26A0;&#xFE0F;</div>
+            <div>
+              <div class="settings-card-title" style="color:#ef4444;">Danger Zone</div>
+              <div class="settings-card-subtitle">These actions are irreversible. Proceed with caution.</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;font-size:14px;margin-bottom:2px;">Reset Newsroom</div>
+                <div class="text-muted text-xs">Wipes all articles, writers, sources, and categories. Your settings and API keys are preserved. Re-runs the setup wizard.</div>
+              </div>
+              <button class="btn btn-outline btn-sm" id="openResetModal" style="border-color:#ef4444;color:#ef4444;white-space:nowrap;flex-shrink:0;">Reset Newsroom</button>
+            </div>
+            <div style="border-top:1px solid var(--border);"></div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+              <div>
+                <div style="font-weight:600;font-size:14px;margin-bottom:2px;">Delete Site</div>
+                <div class="text-muted text-xs">Permanently deletes this site and all of its data. This cannot be undone.</div>
+              </div>
+              <button class="btn btn-danger btn-sm" id="openDeleteModal" style="white-space:nowrap;flex-shrink:0;">Delete Site</button>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /general -->
 
       <!-- ═══ Integrations ═══ -->
       <div class="tab-panel" data-tab="integrations">
+
+        <div class="settings-card" id="aiProvidersCard">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🤖</div>
+            <div>
+              <div class="settings-card-title">AI Providers</div>
+              <div class="settings-card-subtitle">Bring your own keys for Gemini, OpenAI, Anthropic, OpenRouter, or self-hosted Ollama</div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Google Gemini API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="geminiApiKeyPortal" placeholder="AIza…" autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testGeminiPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For Gemini 2.5 Flash, Imagen, embeddings. Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
+            <div id="geminiKeyStatus" class="settings-status"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">OpenAI API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="openaiApiKeyPortal" placeholder="sk-..." autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOpenaiPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For GPT-4o, GPT-4.1, etc. Get a key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
+            <div id="openaiKeyStatus" class="settings-status"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Anthropic API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="anthropicApiKeyPortal" placeholder="sk-ant-..." autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testAnthropicPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For Claude Sonnet, Claude Haiku, etc. Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
+            <div id="anthropicKeyStatus" class="settings-status"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">OpenRouter API Key</label>
+            <div class="input-action-row">
+              <input type="password" class="form-control" id="openrouterApiKeyPortal" placeholder="sk-or-..." autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOpenrouterPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For cost-effective multi-model routing. Get a key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a></p>
+            <div id="openrouterKeyStatus" class="settings-status"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Ollama Base URL</label>
+            <div class="input-action-row">
+              <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434" autocomplete="off" />
+              <button class="btn btn-outline btn-sm" id="testOllamaPortal" type="button">Test</button>
+            </div>
+            <p class="form-help">For self-hosted AI with Ollama. Must be accessible from the server.</p>
+            <div id="ollamaUrlStatus" class="settings-status"></div>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label class="form-label">Default AI Provider</label>
+            <div class="form-grid-2">
+              <select class="form-control" id="defaultProviderPortal">
+                <option value="">— use platform default —</option>
+              </select>
+              <select class="form-control" id="defaultModelPortal">
+                <option value="">Default for tier</option>
+              </select>
+            </div>
+            <p class="form-help">Pick which provider handles operations by default. Requires a valid API key above.</p>
+          </div>
+          <details style="margin-top:12px;">
+            <summary style="cursor:pointer;font-weight:500;font-size:14px;user-select:none;">Per-operation overrides</summary>
+            <p class="form-help" style="margin:8px 0 12px;">Override the provider for specific operations. Leave blank to use the default.</p>
+            <div id="operationOverridesPortal"></div>
+          </details>
+          <button class="btn btn-primary" id="saveAiProvidersPortalBtn" style="margin-top:16px;">Save AI Provider Settings</button>
+        </div>
 
         <div class="settings-card">
           <div class="settings-card-header">
@@ -440,79 +510,6 @@
             <p class="form-help">Applies to writer avatars (unless the writer has a per-writer override). Textarea takes priority over dropdown.</p>
           </div>
           <button class="btn btn-primary" id="saveImageProviderBtn">Save Image Provider Settings</button>
-        </div>
-
-        <div class="settings-card" id="aiProvidersCard">
-          <div class="settings-card-header">
-            <div class="settings-card-icon">🤖</div>
-            <div>
-              <div class="settings-card-title">AI Providers</div>
-              <div class="settings-card-subtitle">Bring your own keys for Gemini, OpenAI, Anthropic, OpenRouter, or self-hosted Ollama</div>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Google Gemini API Key</label>
-            <div class="input-action-row">
-              <input type="password" class="form-control" id="geminiApiKeyPortal" placeholder="AIza…" autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="testGeminiPortal" type="button">Test</button>
-            </div>
-            <p class="form-help">For Gemini 2.5 Flash, Imagen, embeddings. Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a></p>
-            <div id="geminiKeyStatus" class="settings-status"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">OpenAI API Key</label>
-            <div class="input-action-row">
-              <input type="password" class="form-control" id="openaiApiKeyPortal" placeholder="sk-..." autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="testOpenaiPortal" type="button">Test</button>
-            </div>
-            <p class="form-help">For GPT-4o, GPT-4.1, etc. Get a key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></p>
-            <div id="openaiKeyStatus" class="settings-status"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Anthropic API Key</label>
-            <div class="input-action-row">
-              <input type="password" class="form-control" id="anthropicApiKeyPortal" placeholder="sk-ant-..." autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="testAnthropicPortal" type="button">Test</button>
-            </div>
-            <p class="form-help">For Claude Sonnet, Claude Haiku, etc. Get a key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a></p>
-            <div id="anthropicKeyStatus" class="settings-status"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">OpenRouter API Key</label>
-            <div class="input-action-row">
-              <input type="password" class="form-control" id="openrouterApiKeyPortal" placeholder="sk-or-..." autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="testOpenrouterPortal" type="button">Test</button>
-            </div>
-            <p class="form-help">For cost-effective multi-model routing. Get a key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai</a></p>
-            <div id="openrouterKeyStatus" class="settings-status"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Ollama Base URL</label>
-            <div class="input-action-row">
-              <input type="text" class="form-control" id="ollamaBaseUrlPortal" placeholder="http://localhost:11434" autocomplete="off" />
-              <button class="btn btn-outline btn-sm" id="testOllamaPortal" type="button">Test</button>
-            </div>
-            <p class="form-help">For self-hosted AI with Ollama. Must be accessible from the server.</p>
-            <div id="ollamaUrlStatus" class="settings-status"></div>
-          </div>
-          <div class="form-group" style="margin-top:16px;">
-            <label class="form-label">Default AI Provider</label>
-            <div class="form-grid-2">
-              <select class="form-control" id="defaultProviderPortal">
-                <option value="">— use platform default —</option>
-              </select>
-              <select class="form-control" id="defaultModelPortal">
-                <option value="">Default for tier</option>
-              </select>
-            </div>
-            <p class="form-help">Pick which provider handles operations by default. Requires a valid API key above.</p>
-          </div>
-          <details style="margin-top:12px;">
-            <summary style="cursor:pointer;font-weight:500;font-size:14px;user-select:none;">Per-operation overrides</summary>
-            <p class="form-help" style="margin:8px 0 12px;">Override the provider for specific operations. Leave blank to use the default.</p>
-            <div id="operationOverridesPortal"></div>
-          </details>
-          <button class="btn btn-primary" id="saveAiProvidersPortalBtn" style="margin-top:16px;">Save AI Provider Settings</button>
         </div>
 
         <div class="settings-card" id="chatAgentEngineCard">
@@ -684,19 +681,13 @@
             <div class="settings-card-icon">&#x1F50D;</div>
             <div>
               <div class="settings-card-title">Live News Search Query</div>
-              <div class="settings-card-subtitle">What topics the live-news cron searches for. Leave blank for the default AI/ML query.</div>
+              <div class="settings-card-subtitle">What topics the live-news cron searches for. Leave blank to use your niche default.</div>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">Search Query</label>
-            <input type="text" class="form-control" id="liveNewsQuery" placeholder='e.g. Bitcoin OR Ethereum OR "crypto market"' />
-            <div class="text-muted text-xs" style="margin-top:4px;">Supports AND/OR operators and quoted phrases. Used by both NewsAPI and Brave Search cron jobs.</div>
-          </div>
-          <div class="form-group">
-            <label class="form-check">
-              <input type="checkbox" id="autoPublishLive" /> Auto-publish live news articles
-            </label>
-            <div class="text-muted text-xs" style="margin-top:2px;">When enabled, fetched articles are published immediately instead of saved as drafts.</div>
+            <input type="text" class="form-control" id="liveNewsQuery" placeholder='"artificial intelligence" OR "machine learning" OR LLM OR OpenAI OR Anthropic OR ChatGPT OR "generative AI"' />
+            <div class="text-muted text-xs" style="margin-top:4px;">Supports AND/OR operators and quoted phrases. Used by both NewsAPI and Brave Search cron jobs. Override this if your newsroom covers a different topic.</div>
           </div>
           <div class="btn-group mt-5">
             <button class="btn btn-primary btn-sm" id="saveLiveNewsBtn">Save Live News Settings</button>
@@ -724,11 +715,7 @@
         </div>
 
         <div class="dash-panel mb-6">
-          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">AI &amp; Newsletter</h3>
-          <div class="form-group">
-            <label class="form-label" for="siteAiPersona">AI Persona (system prompt)</label>
-            <textarea class="form-control" id="siteAiPersona" rows="3" style="resize:vertical;" placeholder="You are a tech news analyst..."></textarea>
-          </div>
+          <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text);">Newsletter</h3>
           <div class="form-grid-2">
             <div class="form-group">
               <label class="form-label" for="siteNewsletterSubject">Newsletter Subject</label>
@@ -1249,6 +1236,17 @@
         <label class="form-label">Email</label>
         <input type="email" class="form-control" id="userEmail" placeholder="john@example.com" />
       </div>
+      <div class="form-group" id="userAvatarGroup" style="display:none;">
+        <label class="form-label">Avatar</label>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <img id="userAvatarPreview" src="" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:var(--bg-surface,#141414);flex-shrink:0;visibility:hidden;" onerror="this.style.visibility='hidden';" />
+          <div>
+            <input type="file" id="userAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" />
+            <button type="button" class="btn btn-outline btn-sm" id="userAvatarPickBtn">Choose image</button>
+            <span id="userAvatarStatus" style="font-size:12px;color:var(--muted);margin-left:8px;"></span>
+          </div>
+        </div>
+      </div>
       <div class="form-group" id="passwordGroup">
         <label class="form-label">Password</label>
         <input type="password" class="form-control" id="userPassword" placeholder="Minimum 8 characters" />
@@ -1365,6 +1363,49 @@
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Skip</button>
       <button class="btn btn-primary" id="settingsRecategorizeBtn">Re-categorize</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reset Newsroom Modal -->
+<div class="modal-overlay" id="resetNewsroomModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title" style="color:#ef4444;">Reset Newsroom</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;">This will permanently delete all articles, writers, sources, and categories. Your settings and API keys will be preserved.</p>
+      <p style="margin-bottom:16px;color:var(--muted);font-size:13px;">The setup wizard will be re-enabled so you can start fresh.</p>
+      <div class="form-group">
+        <label class="form-label">Type <strong>RESET</strong> to confirm</label>
+        <input type="text" class="form-control" id="resetConfirmInput" placeholder="RESET" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmResetBtn" disabled>Reset Newsroom</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Site Modal -->
+<div class="modal-overlay" id="deleteSiteModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title" style="color:#ef4444;">Delete Site</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin-bottom:12px;">This will permanently delete <strong>all data</strong> for this site including articles, writers, settings, and users. This action cannot be undone.</p>
+      <div class="form-group">
+        <label class="form-label">Type your site slug to confirm: <strong id="deleteSiteSlugLabel"></strong></label>
+        <input type="text" class="form-control" id="deleteConfirmInput" placeholder="" autocomplete="off" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" disabled>Delete Site Permanently</button>
     </div>
   </div>
 </div>

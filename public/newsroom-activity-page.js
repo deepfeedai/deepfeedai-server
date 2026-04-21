@@ -4,6 +4,7 @@
   renderSidebar();
 
   init();
+  window.pageRefresh = load;
 
   var broadcasting = false;
 

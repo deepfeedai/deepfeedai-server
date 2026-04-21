@@ -17,30 +17,34 @@ onReady(async () => {
     }
   } catch (e) { /* ignore */ }
 
-  // Load settings for wizard banner check
+  // Load settings — redirect to wizard if not completed
   apiFetch('/settings').then(settings => {
     if (!settings.wizard_completed) {
-      const banner = document.getElementById('wizardBanner');
-      if (banner) banner.style.display = 'block';
+      window.location.href = '/wizard.html';
+      return;
     }
   }).catch(() => {});
 
   // Main data load
-  let stats;
-  try {
-    stats = await apiFetch('/dashboard/stats');
-  } catch (err) {
-    showAlert('Failed to load dashboard: ' + err.message, 'error');
-    return;
+  async function loadDashboard() {
+    let stats;
+    try {
+      stats = await apiFetch('/dashboard/stats');
+    } catch (err) {
+      showAlert('Failed to load dashboard: ' + err.message, 'error');
+      return;
+    }
+    renderKPIs(stats);
+    renderNewsroomPulse(stats);
+    renderSparkline(stats);
+    renderAISpend(stats);
+    renderCategories(stats);
+    renderAttention(stats);
+    renderRecentArticles(stats);
   }
 
-  renderKPIs(stats);
-  renderNewsroomPulse(stats);
-  renderSparkline(stats);
-  renderAISpend(stats);
-  renderCategories(stats);
-  renderAttention(stats);
-  renderRecentArticles(stats);
+  await loadDashboard();
+  window.pageRefresh = loadDashboard;
 });
 
 // ── Delta badge ────────────────────────────────────────────

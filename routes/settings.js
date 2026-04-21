@@ -22,7 +22,7 @@ const SECRET_MANAGER_KEYS = new Set(['jwt_secret', 'user_jwt_secret', 'cron_secr
 const R2_KEYS = ['r2_account_id', 'r2_bucket_name', 'r2_public_url', 'r2_access_key_id', 'r2_secret_access_key'];
 const AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'imagen_model', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
 // Keys that tenants can save via PUT /api/settings (BYAI — tenant-level provider config)
-const TENANT_AI_KEYS = ['openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
+const TENANT_AI_KEYS = ['gemini_api_key', 'imagen_api_key', 'openai_api_key', 'anthropic_api_key', 'openrouter_api_key', 'ollama_base_url', 'ai_provider_config'];
 const STRIPE_KEYS = ['stripe_secret_key', 'stripe_webhook_secret'];
 // Platform-only keys exclude tenant-saveable AI keys
 const PLATFORM_KEYS = [...R2_KEYS, ...AI_KEYS.filter(k => !TENANT_AI_KEYS.includes(k)), ...STRIPE_KEYS];
@@ -304,21 +304,23 @@ router.get('/ai-providers', requireAdmin, requirePermission('settings.read'), as
 }));
 
 // POST /api/settings/test-provider — test connection to a provider
+// Body: { provider, apiKey? } — if apiKey is supplied, it is tested directly
+// (allows testing a key before saving it). Falls back to resolveKey when omitted.
 router.post('/test-provider', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
-  const { provider } = req.body;
+  const { provider, apiKey: bodyKey } = req.body;
   if (!provider || !getSupportedProviders().includes(provider)) {
     return res.status(400).json({ ok: false, error: 'Unsupported provider' });
   }
 
   try {
     if (provider === 'ollama') {
-      const baseUrl = await resolveOllamaBaseUrl(req.tenantId);
+      const baseUrl = bodyKey || await resolveOllamaBaseUrl(req.tenantId);
       if (!baseUrl) return res.json({ ok: false, error: 'No Ollama base URL configured' });
       const models = await ollamaListModels(baseUrl);
       return res.json({ ok: true, models: models.map(m => m.name) });
     }
 
-    const apiKey = await resolveKey(provider, req.tenantId);
+    const apiKey = bodyKey || await resolveKey(provider, req.tenantId);
     if (!apiKey) return res.json({ ok: false, error: `No API key configured for ${provider}` });
 
     // Minimal test call
@@ -380,6 +382,145 @@ router.get('/available-models', requireAdmin, requirePermission('settings.read')
   };
 
   res.json({ models: CURATED_MODELS[provider] || [] });
+}));
+
+// GET /api/settings/tenant-info
+// Returns basic tenant metadata (slug, name) for admin UI use.
+router.get('/tenant-info', requireAdmin, asyncHandler(async (req, res) => {
+  const tenant = await db.prepare('SELECT slug, name FROM tenants WHERE id = $1').get(req.tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  res.json({ slug: tenant.slug, name: tenant.name });
+}));
+
+// POST /api/settings/reset-content
+// Wipes all content tables for the tenant (articles, writers, sources, etc.)
+// while preserving settings, users, roles, and API keys.
+// Resets wizard_completed so the setup wizard can be re-run.
+// Auth: admin JWT (tenant-admin). Blocked on the platform tenant.
+router.post('/reset-content', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { confirm } = req.body || {};
+  if (confirm !== 'RESET') {
+    return res.status(400).json({ error: 'Type RESET to confirm' });
+  }
+
+  const tenantId = req.tenantId;
+  const platformId = await getPlatformTenantId().catch(() => 1);
+  if (!tenantId || tenantId === platformId) {
+    return res.status(403).json({ error: 'Cannot reset the platform tenant' });
+  }
+
+  // Order matters: child rows before parent rows (FK constraints).
+  // Preserves: settings, users, roles, tenant_admins, tenants, tenant_domains,
+  //            file_storage, tenant_storage_usage, auth_codes.
+  const CONTENT_TABLES = [
+    'comment_reports', 'comment_reactions', 'article_reactions', 'article_favorites',
+    'writer_follows', 'writer_beats',
+    'newsroom_reactions', 'newsroom_replies', 'newsroom_messages', 'newsroom_events',
+    'brief_feedback',
+    'comments',
+    'notifications', 'user_notifications', 'notification_preferences',
+    'newsletter_sends',
+    'article_pitches', 'story_pitches', 'article_revisions',
+    'analytics_events', 'ai_usage',
+    'saved_searches', 'featured_rotation_log',
+    'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
+    'synthesis_forecasts', 'synthesis_watchlist', 'pipeline_runs',
+    'chat_conversations', 'conversation_history', 'conversation_summaries', 'chat_user_profiles',
+    'action_tokens',
+    'cron_runs', 'audit_log',
+    'articles',
+    'messaging_channels', 'writer_memory', 'voices',
+    'sources', 'writers', 'categories',
+  ];
+
+  const pool = getPool();
+  let totalRows = 0;
+  for (const table of CONTENT_TABLES) {
+    try {
+      const result = await pool.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      totalRows += result.rowCount || 0;
+    } catch { /* ignore — table may not yet exist */ }
+  }
+
+  // Reset wizard so they can re-run setup
+  await pool.query(
+    `INSERT INTO settings (tenant_id, key, value, updated_at) VALUES ($1, 'wizard_completed', '0', NOW())
+     ON CONFLICT (tenant_id, key) DO UPDATE SET value = '0', updated_at = NOW()`,
+    [tenantId]
+  );
+
+  bustAppConfigCache(tenantId);
+  bustSiteConfigCache();
+
+  await logAudit(req, 'reset-content', 'tenant', tenantId, { rows_deleted: totalRows }).catch(() => {});
+
+  res.json({ ok: true, deleted: totalRows });
+}));
+
+// POST /api/settings/delete-site
+// Hard-deletes all tenant data and the tenant record itself (self-service purge).
+// Confirmation: body must include { confirm: '<tenant-slug>' }.
+// Auth: admin JWT (tenant-admin). Blocked on the platform tenant.
+router.post('/delete-site', requireAdmin, requirePermission('settings.update'), asyncHandler(async (req, res) => {
+  const { confirm } = req.body || {};
+  const tenantId = req.tenantId;
+  const platformId = await getPlatformTenantId().catch(() => 1);
+
+  if (!tenantId || tenantId === platformId) {
+    return res.status(403).json({ error: 'Cannot delete the platform tenant' });
+  }
+
+  const tenant = await db.prepare('SELECT slug, name FROM tenants WHERE id = $1').get(tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+  if (!confirm || confirm.trim().toLowerCase() !== tenant.slug.toLowerCase()) {
+    return res.status(400).json({ error: `Type "${tenant.slug}" to confirm deletion` });
+  }
+
+  const PURGE_TABLES = [
+    'comment_reports', 'comment_reactions', 'article_reactions', 'article_favorites',
+    'writer_follows', 'writer_beats',
+    'newsroom_reactions', 'newsroom_replies', 'newsroom_messages', 'newsroom_events',
+    'brief_feedback',
+    'comments', 'articles', 'sources', 'writers', 'categories', 'voices',
+    'analytics_events', 'ai_usage', 'file_storage', 'saved_searches',
+    'summary_cache', 'thumbnail_cache', 'trends_cache', 'trends_history',
+    'synthesis_forecasts', 'synthesis_watchlist', 'pipeline_runs',
+    'notifications', 'user_notifications', 'notification_preferences',
+    'newsletter_sends',
+    'article_pitches', 'story_pitches', 'article_revisions',
+    'chat_conversations', 'conversation_history', 'conversation_summaries', 'chat_user_profiles',
+    'messaging_channels', 'action_tokens', 'writer_memory',
+    'featured_rotation_log', 'cron_runs', 'audit_log',
+    'tenant_domains', 'tenant_storage_usage', 'tenant_feature_overrides',
+    'roles', 'users', 'tenant_admins',
+    'settings',
+  ];
+
+  const pool = getPool();
+  let totalRows = 0;
+  for (const table of PURGE_TABLES) {
+    try {
+      const result = await pool.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [tenantId]);
+      totalRows += result.rowCount || 0;
+    } catch { /* ignore — table may not yet exist */ }
+  }
+
+  await db.prepare('DELETE FROM tenants WHERE id = $1').run(tenantId);
+
+  // Log to platform audit (tenant is gone, so log against platformId)
+  try {
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, user_id, action, resource_type, resource_id, meta, created_at)
+       VALUES ($1, $2, 'delete-site', 'tenant', $3, $4, NOW())`,
+      [platformId, req.user?.sub || null, String(tenantId), JSON.stringify({ slug: tenant.slug, rows_deleted: totalRows })]
+    );
+  } catch { /* non-fatal */ }
+
+  bustAppConfigCache(tenantId);
+  bustSiteConfigCache();
+
+  res.json({ ok: true });
 }));
 
 module.exports = router;

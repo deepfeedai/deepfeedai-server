@@ -53,6 +53,7 @@
     } catch (err) {
       showAlert('Failed to load pitches: ' + err.message, 'error');
     }
+    if (window.loadNavBadges) window.loadNavBadges();
   }
 
   function renderPitches(pitches) {
@@ -227,6 +228,9 @@
         orphanBadge.style.display = n ? 'inline-flex' : 'none';
       }
     } catch (_) { /* non-fatal */ }
+
+    if (window.loadNavBadges) window.loadNavBadges();
+
   }
 
   // Wire the filter tab bar above the grid
@@ -750,6 +754,7 @@
     wireNewCommission();
 
     loadPitches();
+    loadCommissions(); // populate Commissions tab badge on load (grid is hidden until tab is clicked)
     updatePolling();
   }
 
@@ -767,5 +772,10 @@
   onReady(function () {
     if (!requireAuth()) return;
     init();
+    window.pageRefresh = function () {
+      if (activeTab === 'commissions') return loadCommissions();
+      if (activeTab === 'newsroom') return loadNewsroom();
+      return loadPitches();
+    };
   });
 })();

@@ -1939,6 +1939,7 @@ let articles = [];
     }
 
     await loadArticles();
+    window.pageRefresh = () => loadArticles({ preservePage: true });
 
     // Deep-link: ?id=X scrolls to and highlights a specific article row
     const deepLinkId = new URLSearchParams(window.location.search).get('id');

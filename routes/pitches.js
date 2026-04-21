@@ -53,7 +53,7 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
   }
   // Verify source exists and belongs to tenant
   const source = await db.prepare(
-    'SELECT id, content_type, writer_id FROM articles WHERE id = $1 AND tenant_id = $2'
+    'SELECT id, title, content_type, writer_id FROM articles WHERE id = $1 AND tenant_id = $2'
   ).get(source_article_id, req.tenantId);
   if (!source) return res.status(404).json({ error: 'Source article not found' });
 
@@ -189,6 +189,64 @@ router.get('/:id', auth, requirePermission('articles.read'), requirePitchesEnabl
   res.json(row);
 }));
 
+
+// POST /api/pitches/auto-assign-orphans
+// Bulk recovery: iterates all orphaned pitches (non-terminal status AND no
+// writer) and auto-assigns each. Returns per-pitch results so the UI can
+// report a summary. Capped at 50 to protect budget / DB.
+// IMPORTANT: must be registered BEFORE /:id routes so Express doesn't treat
+// "auto-assign-orphans" as an :id value.
+router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
+  const rows = await db.prepare(`
+    SELECT p.id, p.status, p.source_article_id, p.spawned_article_id
+    FROM article_pitches p
+    WHERE p.tenant_id = $1
+      AND p.status IN ('proposed', 'approved')
+      AND p.pitched_by_writer_id IS NULL
+    ORDER BY p.created_at ASC
+    LIMIT 50
+  `).all(req.tenantId);
+
+  if (!rows.length) return res.json({ assigned: 0, skipped: 0, results: [] });
+
+  const { findWriterWithFallback } = require('../lib/writer-assign');
+  const { synthesizeFromPitch } = require('../lib/synthesis');
+  const results = [];
+  let assigned = 0;
+  let skipped = 0;
+
+  for (const p of rows) {
+    try {
+      const source = await db.prepare(
+        'SELECT id, title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
+      ).get(p.source_article_id, req.tenantId);
+      if (!source) { skipped++; results.push({ id: p.id, skipped: 'source_missing' }); continue; }
+
+      const writer = await findWriterWithFallback(source, req.tenantId);
+      if (!writer || !writer.id) { skipped++; results.push({ id: p.id, skipped: 'no_writer' }); continue; }
+
+      await db.prepare(
+        'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
+      ).run(writer.id, p.id, req.tenantId);
+      assigned++;
+      results.push({ id: p.id, writer_id: writer.id, writer_name: writer.name });
+
+      if (p.status === 'approved' && !p.spawned_article_id) {
+        setImmediate(() => {
+          synthesizeFromPitch(p.id, req.tenantId).catch(err => console.error(`[pitches] bulk synth #${p.id} failed:`, err.message));
+        });
+      }
+    } catch (err) {
+      skipped++;
+      results.push({ id: p.id, skipped: 'error', message: err.message });
+    }
+  }
+
+  logAudit(req, 'pitch.bulk_auto_assign', 'article_pitches', null, { assigned, skipped, total: rows.length });
+  res.json({ assigned, skipped, results });
+}));
+
+
 // POST /api/pitches/:id/auto-assign
 // One-click recovery: run findBestWriter against the pitch's source article
 // and assign the winner. Works on both 'proposed' and 'approved' pitches;
@@ -248,59 +306,7 @@ router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requ
   });
 }));
 
-// POST /api/pitches/auto-assign-orphans
-// Bulk recovery: iterates all orphaned pitches (non-terminal status AND no
-// writer) and auto-assigns each. Returns per-pitch results so the UI can
-// report a summary. Capped at 50 to protect budget / DB.
-router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
-  const rows = await db.prepare(`
-    SELECT p.id, p.status, p.source_article_id, p.spawned_article_id
-    FROM article_pitches p
-    WHERE p.tenant_id = $1
-      AND p.status IN ('proposed', 'approved')
-      AND p.pitched_by_writer_id IS NULL
-    ORDER BY p.created_at ASC
-    LIMIT 50
-  `).all(req.tenantId);
 
-  if (!rows.length) return res.json({ assigned: 0, skipped: 0, results: [] });
-
-  const { findWriterWithFallback } = require('../lib/writer-assign');
-  const { synthesizeFromPitch } = require('../lib/synthesis');
-  const results = [];
-  let assigned = 0;
-  let skipped = 0;
-
-  for (const p of rows) {
-    try {
-      const source = await db.prepare(
-        'SELECT id, title, summary, category, source FROM articles WHERE id = $1 AND tenant_id = $2'
-      ).get(p.source_article_id, req.tenantId);
-      if (!source) { skipped++; results.push({ id: p.id, skipped: 'source_missing' }); continue; }
-
-      const writer = await findWriterWithFallback(source, req.tenantId);
-      if (!writer || !writer.id) { skipped++; results.push({ id: p.id, skipped: 'no_writer' }); continue; }
-
-      await db.prepare(
-        'UPDATE article_pitches SET pitched_by_writer_id = $1 WHERE id = $2 AND tenant_id = $3'
-      ).run(writer.id, p.id, req.tenantId);
-      assigned++;
-      results.push({ id: p.id, writer_id: writer.id, writer_name: writer.name });
-
-      if (p.status === 'approved' && !p.spawned_article_id) {
-        setImmediate(() => {
-          synthesizeFromPitch(p.id, req.tenantId).catch(err => console.error(`[pitches] bulk synth #${p.id} failed:`, err.message));
-        });
-      }
-    } catch (err) {
-      skipped++;
-      results.push({ id: p.id, skipped: 'error', message: err.message });
-    }
-  }
-
-  logAudit(req, 'pitch.bulk_auto_assign', 'article_pitches', null, { assigned, skipped, total: rows.length });
-  res.json({ assigned, skipped, results });
-}));
 
 // PATCH /api/pitches/:id/assign — body: { writer_id }
 // Assigns/reassigns the pitching writer. Valid for both 'proposed' and

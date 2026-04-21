@@ -458,5 +458,6 @@
 
     loadAnalytics();
     initLiveFeed();
+    window.pageRefresh = loadAnalytics;
   });
 })();
