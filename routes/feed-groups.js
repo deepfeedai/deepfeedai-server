@@ -23,22 +23,23 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
   );
   const existingGroups = groupRows.rows; // [{ id, name }]
 
-  // 2. Fetch ungrouped articles to sort
+  // 2. Fetch articles to sort — always exclude uncategorized (useless for grouping)
+  const BASE_FILTER = `(content_type IS NULL OR content_type = 'curated') AND is_archived = 0
+    AND category IS NOT NULL AND category != 'Uncategorized'`;
+
   let articleRows;
   if (Array.isArray(article_ids) && article_ids.length) {
     const ids = article_ids.map(Number).filter(Boolean);
     articleRows = await getPool().query(
-      `SELECT id, title, category, summary FROM articles
-       WHERE tenant_id = $1 AND id = ANY($2::int[])
-         AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0
+      `SELECT id, title, category FROM articles
+       WHERE tenant_id = $1 AND id = ANY($2::int[]) AND ${BASE_FILTER}
        LIMIT 200`,
       [tid, ids]
     );
   } else {
     articleRows = await getPool().query(
-      `SELECT id, title, category, summary FROM articles
-       WHERE tenant_id = $1 AND group_id IS NULL
-         AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0
+      `SELECT id, title, category FROM articles
+       WHERE tenant_id = $1 AND group_id IS NULL AND ${BASE_FILTER}
        ORDER BY created_at DESC LIMIT 200`,
       [tid]
     );

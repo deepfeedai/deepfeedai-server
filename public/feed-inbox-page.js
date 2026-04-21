@@ -217,23 +217,26 @@
   let _autoSortPayload = null; // holds last dry-run result for apply step
 
   document.getElementById('autoSortBtn')?.addEventListener('click', async () => {
-    const ungrouped = allArticles.filter(a => !a.group_id);
-    if (!ungrouped.length) {
-      showAlert('All articles are already in a folder.', 'success');
+    // Use currently filtered view, ungrouped + categorized only
+    const candidates = articles.filter(a => !a.group_id && a.category && a.category !== 'Uncategorized');
+    if (!candidates.length) {
+      showAlert('No ungrouped categorized articles in current view.', 'success');
       return;
     }
     const body = document.getElementById('autoSortPreviewBody');
     const confirmBtn = document.getElementById('confirmAutoSortBtn');
-    if (body) body.innerHTML = `<p class="text-muted">Asking AI to sort ${ungrouped.length} ungrouped article${ungrouped.length === 1 ? '' : 's'}…</p>`;
+    if (body) body.innerHTML = `<p class="text-muted">Asking AI to sort ${candidates.length} article${candidates.length === 1 ? '' : 's'}…</p>`;
     if (confirmBtn) confirmBtn.style.display = 'none';
     _autoSortPayload = null;
     openModal('autoSortModal');
 
     try {
+      const ids = candidates.map(a => a.id);
       const data = await apiFetch('/feed-groups/auto-sort', {
         method: 'POST',
-        body: JSON.stringify({ dry_run: true }),
+        body: JSON.stringify({ dry_run: true, article_ids: ids }),
       });
+      data.article_ids = ids; // carry forward for apply step
       _autoSortPayload = data;
       renderAutoSortPreview(data);
     } catch (err) {
@@ -297,7 +300,7 @@
     try {
       const data = await apiFetch('/feed-groups/auto-sort', {
         method: 'POST',
-        body: JSON.stringify({ dry_run: false }),
+        body: JSON.stringify({ dry_run: false, article_ids: (_autoSortPayload?.article_ids || []) }),
       });
       closeModal('autoSortModal');
       const newFolderCount = (data.new_folders || []).length;
