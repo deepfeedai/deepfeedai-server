@@ -908,7 +908,6 @@ let apiKeyVisible = false;
     { id: 'siteFooterTagline',    key: 'site_footer_tagline' },
     { id: 'siteGaId',             key: 'site_ga_id' },
     { id: 'siteAdsenseId',        key: 'site_adsense_id' },
-    { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
     { id: 'siteDomain',           key: 'site_domain' },
@@ -1150,7 +1149,6 @@ let apiKeyVisible = false;
 
   // ── AI & Newsletter save ────────────────────────────────────────
   panelSave('saveNewsletterBtn', 'newsletterStatus', 'AI & Newsletter', () => saveFields([
-    { id: 'siteAiPersona',        key: 'site_ai_persona' },
     { id: 'siteNewsletterSubject', key: 'site_newsletter_subject' },
     { id: 'siteEmailFromName',    key: 'site_email_from_name' },
   ]));

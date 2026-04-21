@@ -87,6 +87,7 @@
       function section(label, items) {
         if (!items.length) return null;
 
+
         var storageKey = 'navExtras.collapsed.' + label.replace(/[^\w]/g, '');
         var isCollapsed = localStorage.getItem(storageKey) === 'true';
 
@@ -104,10 +105,12 @@
           var active = pathname === it.href ? ' active' : '';
           group.appendChild(el('a', {
 
+
             class: 'nav-link' + active,
             href: it.href,
             dataset: { navExtrasHref: it.href },
             html: (it.icon || '') + ' <span>' + esc(it.label) + '</span>',
+
 
           }));
         });
@@ -115,6 +118,7 @@
         var frag = document.createDocumentFragment();
         frag.appendChild(header);
         frag.appendChild(group);
+
 
         return frag;
       }

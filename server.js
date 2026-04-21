@@ -56,16 +56,6 @@ app.use(helmet({
 
 // ── Public endpoint rate limits ────────────────────────────────────
 // Protect expensive AI endpoints and prevent scraping / quota exhaustion.
-const summaryLimiter = rateLimit({
-  windowMs:       60 * 60 * 1000, // 1 hour
-  max:            30,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  keyGenerator:   (req) => `${req.tenantId || 0}:${req.ip}`,
-  message:        { error: 'Too many summary requests. Please try again later.' },
-  validate:       false,
-  handler:        rateLimitHandler('public.summary'),
-});
 
 const publicApiLimiter = rateLimit({
   windowMs:       60 * 1000, // 1 minute
@@ -111,7 +101,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/summary', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/analytics/client-logs', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
+const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/analytics/client-logs', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -343,7 +333,6 @@ app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
 app.use('/api/sources',   require('./routes/sources'));
 app.use('/api/article',   publicApiLimiter, require('./routes/article'));    // public — single article by slug
 app.use('/api/fetch-url', require('./routes/fetch-url')); // admin — OG scraper
-app.use('/api/summary',   summaryLimiter,   require('./routes/summary'));    // public — AI TLDR (rate limited)
 app.use('/api/media',     aiLimiter, require('./routes/media'));
 // voices route deprecated — ElevenLabs voice IDs now stored directly on writers
 app.use('/api/writers',   require('./routes/writers'));
