@@ -17,11 +17,12 @@ onReady(async () => {
     }
   } catch (e) { /* ignore */ }
 
-  // Load settings — redirect to wizard if not completed
+  // Redirect to wizard only if explicitly incomplete (value '0' or empty string).
+  // Missing/null means a pre-wizard tenant — treat as complete to avoid trapping live sites.
   apiFetch('/settings').then(settings => {
-    if (!settings.wizard_completed) {
+    const v = settings.wizard_completed;
+    if (v === '0' || v === '') {
       window.location.href = '/wizard.html';
-      return;
     }
   }).catch(() => {});
 
