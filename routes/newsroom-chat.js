@@ -230,9 +230,7 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
   // Fetch writer early so we can detect Maxwell for pitch instruction injection.
   const writer = await db.prepare('SELECT id, name, role, is_system, chat_prompt FROM writers WHERE id = $1 AND tenant_id = $2').get(writerId, req.tenantId);
 
-  // For Maxwell (editor agent): always inject the writers roster so he knows who to assign to.
-  // Inject the full pitch instruction + <<<PITCH:>>> format whenever an article is attached,
-  // regardless of the intent param — so manual pitch requests work the same as the 📋 button.
+  // For Maxwell: inject the writers roster so he knows who to assign to.
   if (writer?.is_system && writer?.role === 'editor') {
     const writerRows = await db.prepare(
       `SELECT name, beat FROM writers WHERE tenant_id = $1 AND is_system = false ORDER BY name ASC`
@@ -241,19 +239,10 @@ router.post('/', auth, requirePermission('articles.read'), requireWorkspaceEnabl
       const rosterLines = writerRows.map(w => `- ${w.name}${w.beat ? ` (beat: ${w.beat})` : ''}`).join('\n');
       enrichedMessage += `\n\n[Newsroom writers available for assignment:\n${rosterLines}]`;
     }
-    if (resolvedArticleId) {
-      enrichedMessage += `\n\n[ROLE REMINDER — do not display this: You are the editorial director. You do NOT write articles — you assess stories and assign them to writers. Your job is to evaluate this story's news value and recommend which writer from the roster above should cover it and why. Never say you will write or pitch the story yourself. When you have a clear recommendation, append exactly this block on its own line at the very end of your response: <<<PITCH:{"angle_summary":"one sentence angle","writer_name":"Exact Writer Name","type":"original|follow_up|roundup|deep_dive|explainer|counter_angle|prediction_check|analysis|breaking"}>>> — pick the type from the source count and shape (roundup needs 3+ sources; follow_up continues a prior story; original is a single fresh angle). Only include the block when you have a concrete recommendation, not in exploratory replies.]`;
-    }
   }
 
-  // Route tool-capable system agents (Iris, Vera, and — behind a feature flag —
-  // Maxwell) through the native tool-calling path. Without the flag Maxwell
-  // stays on the legacy <<<PITCH:…>>> path so rollouts can be per-tenant.
-  const TOOL_ROLES = ['designer', 'copy-editor'];
-  if (writer?.is_system && writer?.role === 'editor') {
-    const maxwellTools = await isFeatureEnabled(req.tenantId, 'maxwell_tool_calling').catch(() => false);
-    if (maxwellTools) TOOL_ROLES.push('editor');
-  }
+  // Route tool-capable system agents through the native tool-calling path.
+  const TOOL_ROLES = ['designer', 'copy-editor', 'editor'];
   if (writer?.is_system && TOOL_ROLES.includes(writer?.role)) {
     let toolResult;
     try {
