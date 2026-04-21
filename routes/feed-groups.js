@@ -83,17 +83,20 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     trigger: 'manual',
   });
 
-  if (!aiResult?.content) {
-    return res.status(502).json({ error: 'AI did not return a response. Check provider configuration.' });
+  if (!aiResult) {
+    return res.status(402).json({ error: 'AI request blocked — credit budget exhausted or provider not configured.' });
+  }
+  if (!aiResult.text) {
+    return res.status(502).json({ error: 'AI returned an empty response.', provider: aiResult.provider, model: aiResult.model });
   }
 
   // 4. Parse AI JSON response (strip any accidental fencing)
   let parsed;
   try {
-    const raw = aiResult.content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    const raw = aiResult.text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     parsed = JSON.parse(raw);
   } catch {
-    return res.status(502).json({ error: 'AI returned invalid JSON', raw: aiResult.content.slice(0, 500) });
+    return res.status(502).json({ error: 'AI returned invalid JSON', raw: aiResult.text.slice(0, 500) });
   }
 
   const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
