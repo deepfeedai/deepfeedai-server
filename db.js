@@ -1445,6 +1445,9 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS headline_push   TEXT DEFAULT NULL`,
     // Writing system: article subtype drives structural brief selection during synthesis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS article_subtype TEXT DEFAULT NULL`,
+    // Writing system: follow-up articles link back to their parent
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS parent_article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_parent ON articles(parent_article_id) WHERE parent_article_id IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
