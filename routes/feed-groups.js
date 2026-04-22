@@ -142,13 +142,18 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     return res.status(502).json({ error: 'AI returned an empty response.', provider: aiResult.provider, model: aiResult.model });
   }
 
-  // 5. Parse + validate response
+  // 5. Parse + validate response — extract the JSON object regardless of surrounding text
   let parsed;
   try {
-    const raw = aiResult.text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-    parsed = JSON.parse(raw);
-  } catch {
-    return res.status(502).json({ error: 'AI returned invalid JSON', raw: aiResult.text.slice(0, 500) });
+    const text = aiResult.text;
+    // Find the outermost { ... } block
+    const start = text.indexOf('{');
+    const end   = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end < start) throw new Error('no JSON object found');
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch (e) {
+    console.error('[auto-sort] JSON parse failed:', e.message, '\nRaw:', aiResult.text.slice(0, 800));
+    return res.status(502).json({ error: 'AI returned invalid JSON: ' + e.message, raw: aiResult.text.slice(0, 500) });
   }
 
   // Validate assignments — only keep known article IDs, sanitize folder names
