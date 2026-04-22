@@ -83,35 +83,44 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
     ? JSON.parse(pitch.source_article_ids) : (pitch.source_article_ids || []);
 
   let synthesized = null;
-  if (sourceIds.length >= 2) {
+  let synthesisSkipReason = null;
+
+  if (sourceIds.length < 2) {
+    synthesisSkipReason = `pitch has ${sourceIds.length} source(s) — need at least 2`;
+  } else {
     try {
-      // Build a cluster from the pitched source articles and synthesize
       const { synthesizeCluster } = require('../lib/synthesis');
       const sources = await db.prepare(
-        `SELECT * FROM articles WHERE id = ANY($1) AND tenant_id = $2`
+        `SELECT * FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2`
       ).all(sourceIds, req.tenantId);
 
-      if (sources.length >= 2) {
+      if (sources.length < 2) {
+        synthesisSkipReason = `only ${sources.length} of ${sourceIds.length} source articles found in DB`;
+        console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
+      } else {
         const writer = await db.prepare(
           'SELECT * FROM writers WHERE id = $1 AND tenant_id = $2'
         ).get(pitch.writer_id, req.tenantId);
 
-        if (writer) {
-          const cluster = {
-            topic: pitch.headline,
-            articles: sources,
-          };
+        if (!writer) {
+          synthesisSkipReason = `writer id=${pitch.writer_id} not found`;
+          console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
+        } else {
+          const cluster = { topic: pitch.headline, articles: sources };
           synthesized = await synthesizeCluster(cluster, writer, req.tenantId);
 
-          // Update pitch with synthesized article reference
           if (synthesized) {
             await db.prepare(
               "UPDATE story_pitches SET status = 'synthesized' WHERE id = $1"
             ).run(pitch.id);
+          } else {
+            synthesisSkipReason = 'synthesizeCluster returned null (check AI budget or quality gate)';
+            console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
           }
         }
       }
     } catch (err) {
+      synthesisSkipReason = err.message;
       console.error('[pitches] synthesis from pitch failed:', err.message);
     }
   }
@@ -122,6 +131,7 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
     status: 'ok',
     pitch: { ...pitch, status: synthesized ? 'synthesized' : 'approved' },
     article: synthesized ? { id: synthesized.id, title: synthesized.title, slug: synthesized.slug } : null,
+    synthesis_skip_reason: synthesized ? null : synthesisSkipReason,
   });
 }));
 

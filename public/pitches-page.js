@@ -160,7 +160,8 @@
       if (data.article) {
         showAlert('Pitch approved! Article "' + data.article.title + '" created.');
       } else {
-        showAlert('Pitch approved (not enough sources for synthesis).');
+        var reason = data.synthesis_skip_reason ? ' (' + data.synthesis_skip_reason + ')' : '';
+        showAlert('Pitch approved — synthesis skipped' + reason + '.', 'warning');
       }
       loadPitches();
     } catch (err) {

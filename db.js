@@ -1007,6 +1007,7 @@ async function initDb() {
     // SEO: AI-rewritten headline and story thread label for related article matching
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS generated_title TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_context TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
     // ── Source-first pipeline ───────────────────────────────────────
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT NULL`,
