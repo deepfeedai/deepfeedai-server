@@ -2711,6 +2711,8 @@ tr:hover .td-edit-btn { opacity: 1; }
 }
 .folder-section-name { font-weight: 600; font-size: 14px; }
 .folder-section-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+.folder-section-check-label { display: flex; align-items: center; cursor: pointer; flex-shrink: 0; }
+.folder-section-check-label input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
 .folder-card {
   display: flex;
   align-items: flex-start;

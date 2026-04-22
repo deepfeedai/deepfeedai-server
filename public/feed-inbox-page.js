@@ -74,6 +74,7 @@
         <span class="folder-name">${escHtml(g.name)}</span>
         <span class="folder-count">${count}</span>
         <div class="folder-actions">
+          <button class="btn btn-ghost btn-sm folder-pitch-panel-btn" data-id="${g.id}" title="Pitch folder">📋</button>
           <button class="btn btn-ghost btn-sm folder-edit-btn" data-id="${g.id}" title="Rename">✏</button>
           <button class="btn btn-ghost btn-sm folder-delete-btn" data-id="${g.id}" title="Delete">✕</button>
         </div>
@@ -101,6 +102,16 @@
       btn.addEventListener('click', e => {
         e.stopPropagation();
         deleteGroup(parseInt(btn.dataset.id));
+      });
+    });
+
+    list.querySelectorAll('.folder-pitch-panel-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const id = parseInt(btn.dataset.id);
+        const g = groups.find(x => x.id === id);
+        const folderArts = allArticles.filter(a => a.group_id === id);
+        pitchFolder(id, g?.name || 'Folder', folderArts);
       });
     });
   }
@@ -544,35 +555,122 @@
       }
     });
 
-    const sections = [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const sections = [...grouped.entries()].map(([id, g]) => ({ ...g, id })).sort((a, b) => a.name.localeCompare(b.name));
+
+    // Build sectionMap for event wiring: groupId (int or 'none') → articles[]
+    const sectionMap = new Map();
+    sections.forEach(g => sectionMap.set(g.id, g.articles));
+    if (ungrouped.length) sectionMap.set('none', ungrouped);
 
     let html = '';
-    sections.forEach(g => { html += renderFolderSection(g.name, g.color, g.articles); });
-    if (ungrouped.length) html += renderFolderSection('Ungrouped', null, ungrouped);
+    sections.forEach(g => { html += renderFolderSection(g.name, g.color, g.articles, g.id); });
+    if (ungrouped.length) html += renderFolderSection('Ungrouped', null, ungrouped, 'none');
     if (!html) html = '<p class="text-muted" style="text-align:center;padding:40px 0;">No articles match the current filters.</p>';
 
     container.innerHTML = html;
 
-    // Wire checkboxes
+    // Wire section select-all checkboxes and set indeterminate state
+    container.querySelectorAll('.folder-select-all-check').forEach(cb => {
+      const rawGid = cb.dataset.groupId;
+      const gidKey = rawGid === 'none' ? 'none' : parseInt(rawGid);
+      const sectionArts = sectionMap.get(gidKey) || [];
+      const sectionIds = sectionArts.map(a => a.id);
+      const allSel = sectionIds.length > 0 && sectionIds.every(id => selectedIds.has(id));
+      const someSel = sectionIds.some(id => selectedIds.has(id));
+      cb.checked = allSel;
+      cb.indeterminate = someSel && !allSel;
+      cb.addEventListener('change', () => {
+        toggleFolderSelection(gidKey, cb.checked, sectionArts);
+      });
+    });
+
+    // Wire folder pitch buttons in section headers
+    container.querySelectorAll('.folder-pitch-btn').forEach(btn => {
+      const rawGid = btn.dataset.groupId;
+      const gidKey = rawGid === 'none' ? 'none' : parseInt(rawGid);
+      const name = btn.dataset.groupName || 'Folder';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        pitchFolder(gidKey, name, sectionMap.get(gidKey) || []);
+      });
+    });
+
+    // Wire article checkboxes
     container.querySelectorAll('.row-check').forEach(cb => {
       cb.addEventListener('change', () => {
         const id = parseInt(cb.dataset.id);
         if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
         const card = document.getElementById('fcard-' + id);
         if (card) card.classList.toggle('row-selected', cb.checked);
+
+        // Update parent section's select-all checkbox state
+        const section = cb.closest('.folder-section');
+        if (section) {
+          const sectionCb = section.querySelector('.folder-select-all-check');
+          const allCbs = [...section.querySelectorAll('.row-check')];
+          const allSel = allCbs.every(c => c.checked);
+          const someSel = allCbs.some(c => c.checked);
+          if (sectionCb) { sectionCb.checked = allSel; sectionCb.indeterminate = someSel && !allSel; }
+        }
+
         updateBulkToolbar();
       });
     });
   }
 
-  function renderFolderSection(name, color, sectionArticles) {
+  function toggleFolderSelection(groupId, select, sectionArts) {
+    sectionArts.forEach(a => {
+      if (select) selectedIds.add(a.id); else selectedIds.delete(a.id);
+      const card = document.getElementById('fcard-' + a.id);
+      if (card) {
+        card.classList.toggle('row-selected', select);
+        const cb = card.querySelector('.row-check');
+        if (cb) cb.checked = select;
+      }
+    });
+    updateBulkToolbar();
+  }
+
+  function pitchFolder(groupId, groupName, folderArticles) {
+    if (!folderArticles.length) { showAlert('No articles in this folder.', 'error'); return; }
+    if (!window.ArticleContext || !window.Maxwell) {
+      alert('Maxwell bubble unavailable. Ensure editor_workspace is enabled.');
+      return;
+    }
+    if (folderArticles.length > 15) {
+      if (!confirm(`This folder has ${folderArticles.length} articles — only the first 15 will be sent. Continue?`)) return;
+    }
+    const limited = folderArticles.slice(0, 15);
+    const primary = limited[0];
+    const rest = limited.slice(1);
+    (window.Maxwell.reset ? window.Maxwell.reset({ silent: true }) : Promise.resolve()).then(function () {
+      window.ArticleContext.set({
+        id: primary.id,
+        title: primary.title || null,
+        slug: primary.slug || null,
+        writer_id: primary.writer_id || null,
+        writer_name: primary.writer_name || null,
+        additional_ids: rest.map(a => a.id),
+        additional_titles: rest.map(a => a.title || null),
+      });
+      const prompt = `Pitch a story from the "${groupName}" folder — ${limited.length} source${limited.length === 1 ? '' : 's'} attached. What's the strongest angle and who should cover it?`;
+      window.Maxwell.ask(prompt, { autoSend: false });
+    });
+  }
+
+  function renderFolderSection(name, color, sectionArticles, groupId) {
+    const gidAttr = groupId !== null && groupId !== undefined ? groupId : 'none';
     const dot = `<span class="folder-dot" style="background:${color ? escHtml(color) : 'var(--muted)'};width:10px;height:10px;flex-shrink:0;"></span>`;
     const cards = sectionArticles.map(renderFolderCard).join('');
-    return `<div class="folder-section">
+    return `<div class="folder-section" data-group-id="${gidAttr}">
       <div class="folder-section-header">
+        <label class="folder-section-check-label" title="Select all in ${escHtml(name)}">
+          <input type="checkbox" class="folder-select-all-check" data-group-id="${gidAttr}" />
+        </label>
         ${dot}
         <span class="folder-section-name">${escHtml(name)}</span>
         <span class="folder-section-count">${sectionArticles.length} article${sectionArticles.length === 1 ? '' : 's'}</span>
+        <button class="btn btn-ghost btn-sm folder-pitch-btn" data-group-id="${gidAttr}" data-group-name="${escHtml(name)}" title="Pitch this folder to Maxwell">📋 Pitch</button>
       </div>
       <div class="folder-section-body">${cards}</div>
     </div>`;
