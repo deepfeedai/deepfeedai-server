@@ -11,7 +11,7 @@ version: 1
 Synthesize the following {{articleCount}} related sources published over the last {{timespan}} into an original analytical article. Provide your own analysis and insights connecting the themes. Write in your distinctive voice and style.
 
 Topic area: {{topic}}
-
+{{structuralBrief}}
 Sources (cite these inline using the format [1], [2], etc.):
 {{sourceSummaries}}
 

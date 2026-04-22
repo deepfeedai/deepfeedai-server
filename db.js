@@ -1439,6 +1439,8 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_feed_groups_tenant ON feed_groups(tenant_id)`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES feed_groups(id) ON DELETE SET NULL`,
+    // Writing system: article subtype drives structural brief selection during synthesis
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS article_subtype TEXT DEFAULT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
