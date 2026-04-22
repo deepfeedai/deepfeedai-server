@@ -9,21 +9,40 @@ const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { complete } = require('../lib/ai-router');
 
-// POST /api/feed-groups/auto-sort — AI proposes folder assignments for ungrouped articles
-// Body: { article_ids?: number[], dry_run?: bool }
-//   article_ids — if omitted, targets all ungrouped curated articles (max 200)
-//   dry_run — if true (default), returns proposals without writing; false applies immediately
+const FOLDER_NAME_MAX   = 30;  // chars — keeps panel + chips readable
+const FOLDER_NEW_MAX    = 8;   // new folders per AI run
+const FOLDER_TOTAL_SOFT = 25;  // soft cap per tenant
+
+function sanitizeFolderName(name) {
+  return String(name || '').trim().slice(0, FOLDER_NAME_MAX);
+}
+
+// POST /api/feed-groups/auto-sort
+// Body: { article_ids?, seeds?, dry_run? }
+//   article_ids — explicit list; omit to target all ungrouped categorized articles (≤200)
+//   seeds       — string[] of editor-supplied folder names; AI assigns to these only
+//   dry_run     — true (default) = preview only; false = create folders + assign
 router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const tid = req.tenantId;
   const { article_ids, dry_run = true } = req.body || {};
+  const seeds = Array.isArray(req.body?.seeds)
+    ? req.body.seeds.map(sanitizeFolderName).filter(Boolean)
+    : [];
 
-  // 1. Fetch existing folders
+  // 1. Fetch existing folders + enforce soft cap
   const groupRows = await getPool().query(
     `SELECT id, name FROM feed_groups WHERE tenant_id = $1 ORDER BY name ASC`, [tid]
   );
-  const existingGroups = groupRows.rows; // [{ id, name }]
+  const existingGroups = groupRows.rows;
+  const remainingSlots = FOLDER_TOTAL_SOFT - existingGroups.length;
 
-  // 2. Fetch articles to sort — always exclude uncategorized (useless for grouping)
+  if (!dry_run && remainingSlots <= 0) {
+    return res.status(400).json({
+      error: `Folder limit reached (${FOLDER_TOTAL_SOFT}). Delete some folders before creating more.`,
+    });
+  }
+
+  // 2. Fetch articles — exclude uncategorized, cap at 200
   const BASE_FILTER = `(content_type IS NULL OR content_type = 'curated') AND is_archived = 0
     AND category IS NOT NULL AND category != 'Uncategorized'`;
 
@@ -46,31 +65,64 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
   }
 
   const articles = articleRows.rows;
-  if (!articles.length) return res.json({ proposals: [], new_folders: [], applied: 0 });
+  const totalUngrouped = Array.isArray(article_ids) ? article_ids.length : null;
+  const skipped = totalUngrouped ? Math.max(0, totalUngrouped - articles.length) : 0;
 
-  // 3. Build AI prompt
-  const folderList = existingGroups.length
-    ? existingGroups.map(g => `- ${g.name}`).join('\n')
-    : '(none yet)';
+  if (!articles.length) return res.json({ proposals: [], new_folders: [], applied: 0, skipped: 0 });
+
+  // 3. Build prompt — three distinct modes
+  const isColdStart = existingGroups.length === 0 && seeds.length === 0;
+  const isSeeded    = seeds.length > 0;
+  const maxNew      = Math.min(FOLDER_NEW_MAX, Math.max(0, remainingSlots));
 
   const articleList = articles
     .map(a => `${a.id}: ${a.title}${a.category ? ` [${a.category}]` : ''}`)
     .join('\n');
 
-  const systemPrompt =
-    `You are an editorial assistant helping a journalist organise their research inbox into topic folders.\n` +
-    `Assign each article to the most relevant folder. You may also propose new folder names if no existing folder fits.\n` +
-    `Respond ONLY with a JSON object — no prose, no markdown fences.\n` +
-    `Schema: { "assignments": [ { "id": <number>, "folder": "<folder name>" } ], "new_folders": ["<name>", ...] }\n` +
-    `Rules:\n` +
-    `- Prefer existing folders when a good match exists.\n` +
-    `- Propose a new folder name only when no existing folder fits multiple articles.\n` +
-    `- Keep folder names short (2–4 words), title-case.\n` +
-    `- Every article must appear in assignments exactly once.`;
+  let systemPrompt, userPrompt;
 
-  const userPrompt =
-    `Existing folders:\n${folderList}\n\nArticles to sort:\n${articleList}`;
+  if (isSeeded) {
+    // Editor provided folder names — AI assigns only, never invents new names
+    systemPrompt =
+      `You are an editorial assistant assigning news articles to predefined folders.\n` +
+      `Assign every article to exactly one of the provided folders — the best topical match.\n` +
+      `Never invent new folder names. If an article fits none well, pick the closest one.\n` +
+      `Respond ONLY with a JSON object — no prose, no markdown fences.\n` +
+      `Schema: { "assignments": [ { "id": <number>, "folder": "<folder name>" } ], "new_folders": [] }\n` +
+      `Folder names must be used exactly as given (spelling and capitalisation).`;
+    userPrompt =
+      `Folders to use:\n${seeds.map(s => `- ${s}`).join('\n')}\n\nArticles:\n${articleList}`;
 
+  } else if (isColdStart) {
+    // No existing folders — AI invents the taxonomy from scratch
+    systemPrompt =
+      `You are an editorial assistant building a folder taxonomy for a journalist's research inbox.\n` +
+      `Analyse the article titles and invent ${maxNew} or fewer meaningful topic folders, then assign every article.\n` +
+      `Respond ONLY with a JSON object — no prose, no markdown fences.\n` +
+      `Schema: { "assignments": [ { "id": <number>, "folder": "<folder name>" } ], "new_folders": ["<name>", ...] }\n` +
+      `Rules:\n` +
+      `- Create between 3 and ${maxNew} folders — no more, no fewer.\n` +
+      `- Folder names: 2–4 words, title-case, ≤${FOLDER_NAME_MAX} characters.\n` +
+      `- Group by recurring topic, not by category label.\n` +
+      `- Every article must appear in assignments exactly once.`;
+    userPrompt = `Articles to organise:\n${articleList}`;
+
+  } else {
+    // Existing folders — assign to them, propose new only if truly needed
+    systemPrompt =
+      `You are an editorial assistant organising news articles into topic folders.\n` +
+      `Prefer existing folders. Propose a new folder only when no existing folder fits a clear cluster of articles.\n` +
+      `Respond ONLY with a JSON object — no prose, no markdown fences.\n` +
+      `Schema: { "assignments": [ { "id": <number>, "folder": "<folder name>" } ], "new_folders": ["<name>", ...] }\n` +
+      `Rules:\n` +
+      `- Propose at most ${maxNew} new folder${maxNew === 1 ? '' : 's'} total.\n` +
+      `- Folder names: 2–4 words, title-case, ≤${FOLDER_NAME_MAX} characters.\n` +
+      `- Every article must appear in assignments exactly once.`;
+    userPrompt =
+      `Existing folders:\n${existingGroups.map(g => `- ${g.name}`).join('\n')}\n\nArticles:\n${articleList}`;
+  }
+
+  // 4. Call AI
   const aiResult = await complete({
     operation: 'categorize',
     tenantId: tid,
@@ -90,7 +142,7 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     return res.status(502).json({ error: 'AI returned an empty response.', provider: aiResult.provider, model: aiResult.model });
   }
 
-  // 4. Parse AI JSON response (strip any accidental fencing)
+  // 5. Parse + validate response
   let parsed;
   try {
     const raw = aiResult.text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
@@ -99,46 +151,56 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     return res.status(502).json({ error: 'AI returned invalid JSON', raw: aiResult.text.slice(0, 500) });
   }
 
-  const assignments = Array.isArray(parsed.assignments) ? parsed.assignments : [];
-  const newFolderNames = Array.isArray(parsed.new_folders) ? parsed.new_folders : [];
+  // Validate assignments — only keep known article IDs, sanitize folder names
+  const validIds = new Set(articles.map(a => a.id));
+  const assignments = (Array.isArray(parsed.assignments) ? parsed.assignments : [])
+    .filter(p => p?.id && validIds.has(Number(p.id)) && p.folder)
+    .map(p => ({ id: Number(p.id), folder: sanitizeFolderName(p.folder) }));
+
+  // Enforce new-folder cap; seed mode never gets new folders
+  let newFolderNames = isSeeded ? [] : (Array.isArray(parsed.new_folders) ? parsed.new_folders : [])
+    .map(sanitizeFolderName)
+    .filter(Boolean)
+    .slice(0, maxNew);
+
+  // Deduplicate against existing (case-insensitive)
+  const existingLower = new Set(existingGroups.map(g => g.name.toLowerCase()));
+  newFolderNames = newFolderNames.filter(n => !existingLower.has(n.toLowerCase()));
+
+  const assignedIds = new Set(assignments.map(a => a.id));
+  const missedCount = articles.filter(a => !assignedIds.has(a.id)).length;
 
   if (dry_run) {
-    return res.json({
-      proposals: assignments,
-      new_folders: newFolderNames,
-      applied: 0,
-    });
+    return res.json({ proposals: assignments, new_folders: newFolderNames, skipped, missed: missedCount, applied: 0 });
   }
 
-  // 5. Apply: create new folders, then assign articles
+  // 6. Apply — create new folders then bulk-assign
   const pool = getPool();
   const folderMap = Object.fromEntries(existingGroups.map(g => [g.name.toLowerCase(), g.id]));
 
+  // Assign colors cycling through a palette
+  const PALETTE = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ef4444','#14b8a6'];
+  let colorIdx = existingGroups.length % PALETTE.length;
+
   for (const name of newFolderNames) {
-    const trimmed = name.trim();
-    if (!trimmed) continue;
-    const key = trimmed.toLowerCase();
-    if (!folderMap[key]) {
-      const ins = await pool.query(
-        `INSERT INTO feed_groups (tenant_id, name, color, created_by)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
-         RETURNING id, name`,
-        [tid, trimmed, '#6366f1', req.user?.sub || null]
-      );
-      folderMap[key] = ins.rows[0].id;
-    }
+    const key = name.toLowerCase();
+    if (folderMap[key]) continue;
+    const ins = await pool.query(
+      `INSERT INTO feed_groups (tenant_id, name, color, created_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [tid, name, PALETTE[colorIdx % PALETTE.length], req.user?.sub || null]
+    );
+    folderMap[key] = ins.rows[0].id;
+    colorIdx++;
   }
 
-  // Re-fetch all groups to include any we just created
-  const allGroupRows = await pool.query(
-    `SELECT id, name FROM feed_groups WHERE tenant_id = $1`, [tid]
-  );
+  const allGroupRows = await pool.query(`SELECT id, name FROM feed_groups WHERE tenant_id = $1`, [tid]);
   const allGroupMap = Object.fromEntries(allGroupRows.rows.map(g => [g.name.toLowerCase(), g.id]));
 
   let applied = 0;
   for (const { id, folder } of assignments) {
-    if (!id || !folder) continue;
     const gid = allGroupMap[folder.toLowerCase()];
     if (!gid) continue;
     await pool.query(
@@ -148,7 +210,7 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     applied++;
   }
 
-  res.json({ proposals: assignments, new_folders: newFolderNames, applied });
+  res.json({ proposals: assignments, new_folders: newFolderNames, skipped, missed: missedCount, applied });
 }));
 
 // GET /api/feed-groups — list all groups with article count

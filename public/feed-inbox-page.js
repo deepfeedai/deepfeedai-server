@@ -215,34 +215,74 @@
   });
 
   // ── AI Auto-sort ─────────────────────────────────────────
-  let _autoSortPayload = null; // holds last dry-run result for apply step
+  const FOLDER_TOTAL_SOFT = 25;
+  let _autoSortPayload = null; // holds dry-run result + candidate ids for apply step
 
-  document.getElementById('autoSortBtn')?.addEventListener('click', async () => {
-    // Use currently filtered view, ungrouped + categorized only
-    const candidates = articles.filter(a => !a.group_id && a.category && a.category !== 'Uncategorized');
+  function getAutoSortCandidates() {
+    return articles.filter(a => !a.group_id && a.category && a.category !== 'Uncategorized');
+  }
+
+  function parseSeedInput() {
+    const raw = document.getElementById('seedFoldersInput')?.value || '';
+    return raw.split(',').map(s => s.trim().slice(0, 30)).filter(Boolean);
+  }
+
+  document.getElementById('autoSortBtn')?.addEventListener('click', () => {
+    const candidates = getAutoSortCandidates();
     if (!candidates.length) {
       showAlert('No ungrouped categorized articles in current view.', 'success');
       return;
     }
+    // Reset modal state
+    const seedInput = document.getElementById('seedFoldersInput');
+    if (seedInput) seedInput.value = '';
     const body = document.getElementById('autoSortPreviewBody');
+    if (body) body.innerHTML = '';
     const confirmBtn = document.getElementById('confirmAutoSortBtn');
-    if (body) body.innerHTML = `<p class="text-muted">Asking AI to sort ${candidates.length} article${candidates.length === 1 ? '' : 's'}…</p>`;
     if (confirmBtn) confirmBtn.style.display = 'none';
     _autoSortPayload = null;
+
+    // Show folder limit warning if close
+    if (groups.length >= FOLDER_TOTAL_SOFT) {
+      if (body) body.innerHTML = `<p class="text-danger">Folder limit reached (${FOLDER_TOTAL_SOFT}). Delete some folders before creating more.</p>`;
+      openModal('autoSortModal');
+      return;
+    }
+
     openModal('autoSortModal');
+  });
+
+  async function runAutoSortDryRun() {
+    const candidates = getAutoSortCandidates();
+    if (!candidates.length) {
+      showAlert('No ungrouped categorized articles in current view.', 'success');
+      return;
+    }
+    const seeds = parseSeedInput();
+    const body = document.getElementById('autoSortPreviewBody');
+    const confirmBtn = document.getElementById('confirmAutoSortBtn');
+    if (body) body.innerHTML = `<p class="text-muted">Analysing ${candidates.length} article${candidates.length === 1 ? '' : 's'}…</p>`;
+    if (confirmBtn) confirmBtn.style.display = 'none';
+    _autoSortPayload = null;
 
     try {
       const ids = candidates.map(a => a.id);
       const data = await apiFetch('/feed-groups/auto-sort', {
         method: 'POST',
-        body: JSON.stringify({ dry_run: true, article_ids: ids }),
+        body: JSON.stringify({ dry_run: true, article_ids: ids, seeds }),
       });
-      data.article_ids = ids; // carry forward for apply step
+      data._article_ids = ids;
+      data._seeds = seeds;
       _autoSortPayload = data;
       renderAutoSortPreview(data);
     } catch (err) {
-      if (body) body.innerHTML = `<p class="text-danger">Auto-sort failed: ${escHtml(err.message)}</p>`;
+      if (body) body.innerHTML = `<p class="text-danger">Analysis failed: ${escHtml(err.message)}</p>`;
     }
+  }
+
+  document.getElementById('analyseBtn')?.addEventListener('click', runAutoSortDryRun);
+  document.getElementById('seedFoldersInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') runAutoSortDryRun();
   });
 
   function renderAutoSortPreview(data) {
@@ -250,8 +290,10 @@
     const confirmBtn = document.getElementById('confirmAutoSortBtn');
     if (!body) return;
 
-    const proposals = data.proposals || [];
+    const proposals  = data.proposals  || [];
     const newFolders = data.new_folders || [];
+    const skipped    = data.skipped    || 0;
+    const missed     = data.missed     || 0;
 
     if (!proposals.length) {
       body.innerHTML = '<p class="text-muted">No assignments to make — inbox may already be sorted.</p>';
@@ -259,7 +301,7 @@
       return;
     }
 
-    // Build a folder → articles map for display
+    // Group by folder for display
     const byFolder = {};
     proposals.forEach(p => {
       if (!byFolder[p.folder]) byFolder[p.folder] = [];
@@ -268,21 +310,30 @@
     });
 
     let html = '';
+
+    // Warnings
+    if (skipped > 0) {
+      html += `<p class="text-muted" style="font-size:12px;margin-bottom:8px;">⚠ ${skipped} article${skipped === 1 ? '' : 's'} skipped (200-article limit per run).</p>`;
+    }
+    if (missed > 0) {
+      html += `<p class="text-muted" style="font-size:12px;margin-bottom:8px;">⚠ ${missed} article${missed === 1 ? '' : 's'} not assigned by AI — will remain ungrouped.</p>`;
+    }
     if (newFolders.length) {
-      html += `<p class="text-muted" style="margin-bottom:8px;">New folders will be created: ${newFolders.map(n => `<strong>${escHtml(n)}</strong>`).join(', ')}</p>`;
+      html += `<p style="font-size:12px;margin-bottom:10px;">New folders: ${newFolders.map(n => `<strong>${escHtml(n)}</strong>`).join(', ')}</p>`;
     }
 
-    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
-    Object.entries(byFolder).forEach(([folder, titles]) => {
-      const isNew = newFolders.includes(folder);
+    html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+    Object.entries(byFolder).sort((a, b) => a[0].localeCompare(b[0])).forEach(([folder, titles]) => {
+      const isNew = newFolders.some(n => n.toLowerCase() === folder.toLowerCase());
       html += `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
-        <div style="font-weight:600;font-size:13px;margin-bottom:6px;">
-          ${escHtml(folder)}${isNew ? ' <span class="badge badge-muted" style="font-size:10px;">new</span>' : ''}
+        <div style="font-weight:600;font-size:13px;margin-bottom:5px;">
+          ${escHtml(folder)}
+          ${isNew ? ' <span class="badge badge-muted" style="font-size:10px;">new</span>' : ''}
           <span class="text-muted" style="font-weight:400;"> · ${titles.length} article${titles.length === 1 ? '' : 's'}</span>
         </div>
         <ul style="margin:0;padding-left:16px;font-size:12px;color:var(--muted);">
-          ${titles.slice(0, 5).map(t => `<li>${escHtml(t)}</li>`).join('')}
-          ${titles.length > 5 ? `<li>…and ${titles.length - 5} more</li>` : ''}
+          ${titles.slice(0, 4).map(t => `<li style="margin-bottom:2px;">${escHtml(t)}</li>`).join('')}
+          ${titles.length > 4 ? `<li style="color:var(--muted);">…and ${titles.length - 4} more</li>` : ''}
         </ul>
       </div>`;
     });
@@ -301,14 +352,18 @@
     try {
       const data = await apiFetch('/feed-groups/auto-sort', {
         method: 'POST',
-        body: JSON.stringify({ dry_run: false, article_ids: (_autoSortPayload?.article_ids || []) }),
+        body: JSON.stringify({
+          dry_run: false,
+          article_ids: _autoSortPayload._article_ids || [],
+          seeds: _autoSortPayload._seeds || [],
+        }),
       });
       closeModal('autoSortModal');
-      const newFolderCount = (data.new_folders || []).length;
-      const folderMsg = newFolderCount ? `, ${newFolderCount} new folder${newFolderCount > 1 ? 's' : ''} created` : '';
-      showAlert(`Auto-sorted ${data.applied} article${data.applied === 1 ? '' : 's'}${folderMsg}.`, 'success');
+      const nf = (data.new_folders || []).length;
+      const folderMsg = nf ? `, ${nf} new folder${nf > 1 ? 's' : ''} created` : '';
+      const skippedMsg = data.skipped ? ` (${data.skipped} skipped — over 200 limit)` : '';
+      showAlert(`Sorted ${data.applied} article${data.applied === 1 ? '' : 's'}${folderMsg}${skippedMsg}.`, 'success');
       _autoSortPayload = null;
-      // Reload both articles and groups to reflect new assignments
       await loadGroups();
       await loadArticles();
     } catch (err) {

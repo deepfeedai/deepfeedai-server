@@ -2689,6 +2689,9 @@ tr:hover .td-edit-btn { opacity: 1; }
 @keyframes topbar-spin { to { transform: rotate(360deg); } }
 .topbar-refresh-spinning { animation: topbar-spin 0.5s linear; }
 
+/* ── Feed Inbox — Auto-sort modal ──────────────────────── */
+.autosort-seed-row { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+
 /* ── Feed Inbox — View toggle ──────────────────────────── */
 .view-toggle-group { display: flex; }
 .view-toggle-group .btn { border-radius: 0; border-right-width: 0; }

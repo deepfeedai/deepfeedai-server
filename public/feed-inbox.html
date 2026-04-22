@@ -29,7 +29,7 @@
           </div>
           <div id="folderList"></div>
           <div class="folder-new-form" id="folderNewForm" style="display:none;">
-            <input type="text" class="folder-name-input" id="folderNameInput" placeholder="Folder name…" maxlength="60" />
+            <input type="text" class="folder-name-input" id="folderNameInput" placeholder="Folder name…" maxlength="30" />
             <div class="folder-form-row">
               <input type="color" class="folder-color-input" id="folderColorInput" value="#6366f1" />
               <button class="btn btn-primary btn-sm" id="folderSaveBtn">Add</button>
@@ -211,15 +211,26 @@
   </div>
 </div>
 
-<!-- Auto-sort preview modal -->
+<!-- Auto-sort modal -->
 <div class="modal-overlay" id="autoSortModal">
-  <div class="modal" style="max-width:560px;">
+  <div class="modal" style="max-width:580px;">
     <div class="modal-header">
-      <div class="modal-title">✨ AI Auto-sort Preview</div>
+      <div class="modal-title">✨ AI Auto-sort</div>
       <button class="modal-close" data-close-modal>✕</button>
     </div>
-    <div class="modal-body" id="autoSortPreviewBody" style="max-height:60vh;overflow-y:auto;">
-      <p class="text-muted">Analysing articles…</p>
+    <div class="modal-body">
+      <!-- Seed input -->
+      <div class="autosort-seed-row" id="autoSortSeedRow">
+        <label class="filter-label" style="display:block;margin-bottom:4px;">Folder names <span class="text-muted" style="font-weight:400;">(optional — comma separated)</span></label>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="seedFoldersInput" class="folder-name-input" style="flex:1;"
+                 placeholder="e.g. Fed &amp; Rates, AI Industry, Middle East" maxlength="300" />
+          <button class="btn btn-primary btn-sm" id="analyseBtn">Analyse</button>
+        </div>
+        <p class="text-muted" style="font-size:11px;margin-top:4px;">Leave empty — AI will suggest folder names. Or type your beats and AI will assign articles to them.</p>
+      </div>
+      <!-- Preview -->
+      <div id="autoSortPreviewBody" style="max-height:52vh;overflow-y:auto;margin-top:12px;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Cancel</button>
