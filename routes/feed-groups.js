@@ -216,11 +216,16 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
   const pool = getPool();
   const folderMap = Object.fromEntries(existingGroups.map(g => [g.name.toLowerCase(), g.id]));
 
-  // Assign colors cycling through a palette
   const PALETTE = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ef4444','#14b8a6'];
   let colorIdx = existingGroups.length % PALETTE.length;
 
-  for (const name of newFolderNames) {
+  // In seeded mode, seeds themselves need to be created if they don't exist yet.
+  // In AI mode, newFolderNames comes from the AI response.
+  const foldersToCreate = isSeeded
+    ? seeds.filter(s => !folderMap[s.toLowerCase()])
+    : newFolderNames;
+
+  for (const name of foldersToCreate) {
     const key = name.toLowerCase();
     if (folderMap[key]) continue;
     const ins = await pool.query(
@@ -233,6 +238,9 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     folderMap[key] = ins.rows[0].id;
     colorIdx++;
   }
+
+  // Report created folder names back correctly in seeded mode
+  if (isSeeded) newFolderNames = foldersToCreate;
 
   const allGroupRows = await pool.query(`SELECT id, name FROM feed_groups WHERE tenant_id = $1`, [tid]);
   const allGroupMap = Object.fromEntries(allGroupRows.rows.map(g => [g.name.toLowerCase(), g.id]));
