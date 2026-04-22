@@ -1439,6 +1439,10 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_feed_groups_tenant ON feed_groups(tenant_id)`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES feed_groups(id) ON DELETE SET NULL`,
+    // Writing system: headline variants for different distribution surfaces
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS headline_seo    TEXT DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS headline_social TEXT DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS headline_push   TEXT DEFAULT NULL`,
     // Writing system: article subtype drives structural brief selection during synthesis
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS article_subtype TEXT DEFAULT NULL`,
   ];
