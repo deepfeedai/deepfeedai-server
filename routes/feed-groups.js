@@ -176,7 +176,7 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
       // Stage 3: regex — pull out whatever assignments and folder names exist
       console.warn('[auto-sort] JSON parse failed, falling back to regex extraction. Raw:', rawText.slice(0, 400));
       const assignMatches = [...rawText.matchAll(/"id"\s*:\s*(\d+)[^}]*?"folder"\s*:\s*"([^"]+)"/g)];
-      const folderMatches = [...rawText.matchAll(/"new_folders"\s*:\s*\[([^\]]*)\]/s)];
+      const folderMatches = [...rawText.matchAll(/"new_folders"\s*:\s*\[([^\]]*)\]/gs)];
       if (!assignMatches.length) {
         console.error('[auto-sort] Regex fallback found nothing. Raw:', rawText.slice(0, 800));
         return res.status(502).json({ error: 'AI returned unrecoverable JSON', raw: rawText.slice(0, 500) });
