@@ -123,6 +123,9 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
   }
 
   // 4. Call AI
+  // Each assignment is ~25 tokens; 200 articles → ~5000 tokens output. Give headroom.
+  const neededTokens = Math.min(4000, 500 + articles.length * 25);
+
   const aiResult = await complete({
     operation: 'categorize',
     tenantId: tid,
@@ -131,7 +134,7 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.2,
-    maxTokens: 2000,
+    maxTokens: neededTokens,
     trigger: 'manual',
   });
 
@@ -142,18 +145,48 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     return res.status(502).json({ error: 'AI returned an empty response.', provider: aiResult.provider, model: aiResult.model });
   }
 
-  // 5. Parse + validate response — extract the JSON object regardless of surrounding text
+  // 5. Parse response — three-stage approach: clean JSON → repaired JSON → regex fallback
   let parsed;
+  const rawText = aiResult.text;
+
+  const tryParseJson = (s) => {
+    const start = s.indexOf('{');
+    const end   = s.lastIndexOf('}');
+    if (start === -1 || end < start) throw new Error('no JSON object');
+    return JSON.parse(s.slice(start, end + 1));
+  };
+
   try {
-    const text = aiResult.text;
-    // Find the outermost { ... } block
-    const start = text.indexOf('{');
-    const end   = text.lastIndexOf('}');
-    if (start === -1 || end === -1 || end < start) throw new Error('no JSON object found');
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch (e) {
-    console.error('[auto-sort] JSON parse failed:', e.message, '\nRaw:', aiResult.text.slice(0, 800));
-    return res.status(502).json({ error: 'AI returned invalid JSON: ' + e.message, raw: aiResult.text.slice(0, 500) });
+    // Stage 1: direct extraction
+    parsed = tryParseJson(rawText);
+  } catch {
+    try {
+      // Stage 2: repair trailing commas + close truncated structure
+      let repaired = rawText
+        .replace(/,\s*([}\]])/g, '$1')              // trailing commas
+        .replace(/[\x00-\x1f]/g, ' ');              // control chars
+      const unclosedArrays  = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+      const unclosedObjects = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+      // If truncated mid-string, drop the last incomplete token
+      repaired = repaired.replace(/,?\s*\{[^}]*$/, '');
+      for (let i = 0; i < Math.max(0, unclosedArrays);  i++) repaired += ']';
+      for (let i = 0; i < Math.max(0, unclosedObjects); i++) repaired += '}';
+      parsed = tryParseJson(repaired);
+    } catch {
+      // Stage 3: regex — pull out whatever assignments and folder names exist
+      console.warn('[auto-sort] JSON parse failed, falling back to regex extraction. Raw:', rawText.slice(0, 400));
+      const assignMatches = [...rawText.matchAll(/"id"\s*:\s*(\d+)[^}]*?"folder"\s*:\s*"([^"]+)"/g)];
+      const folderMatches = [...rawText.matchAll(/"new_folders"\s*:\s*\[([^\]]*)\]/s)];
+      if (!assignMatches.length) {
+        console.error('[auto-sort] Regex fallback found nothing. Raw:', rawText.slice(0, 800));
+        return res.status(502).json({ error: 'AI returned unrecoverable JSON', raw: rawText.slice(0, 500) });
+      }
+      const rawFolders = folderMatches[0]?.[1] || '';
+      parsed = {
+        assignments: assignMatches.map(m => ({ id: Number(m[1]), folder: m[2] })),
+        new_folders: [...rawFolders.matchAll(/"([^"]+)"/g)].map(m => m[1]),
+      };
+    }
   }
 
   // Validate assignments — only keep known article IDs, sanitize folder names
