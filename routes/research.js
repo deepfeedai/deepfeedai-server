@@ -28,6 +28,17 @@ router.post('/search', auth, requirePermission('articles.read'), requireResearch
   res.json(r);
 }));
 
+// POST /api/research/check-urls — body: { urls: string[] }
+// Returns which URLs already exist in the tenant's article library (for dedup UI marking).
+router.post('/check-urls', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const { urls } = req.body || {};
+  if (!Array.isArray(urls) || !urls.length) return res.json({ existing: [] });
+  const rows = await db.prepare(
+    'SELECT source_url FROM articles WHERE tenant_id = $1 AND source_url = ANY($2::text[])'
+  ).all(req.tenantId, urls);
+  res.json({ existing: rows.map(r => r.source_url).filter(Boolean) });
+}));
+
 // POST /api/research/ingest — body: { results: [{ url, title, publisher, snippet, source, ... }], pitch_id? }
 // Inserts each non-duplicate result as a curated article with ingest_source='enrichment'.
 // Returns: { ingested: [...], skipped: [...], cap_reached?: bool }

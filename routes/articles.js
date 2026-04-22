@@ -825,6 +825,91 @@ router.put('/:id/reject', auth, requirePermission('articles.update'), asyncHandl
   res.json(updated);
 }));
 
+// POST /api/articles/:id/request-revision
+// Sets status → revision_requested, sends editorial feedback to writer's channel,
+// then fires a rewrite immediately (fire-and-forget).
+router.post('/:id/request-revision', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be sent for revision' });
+
+  // Build feedback from editor_verdict + optional editor note
+  let verdict = article.editor_verdict;
+  if (typeof verdict === 'string') try { verdict = JSON.parse(verdict); } catch { verdict = null; }
+  const score      = verdict?.score ?? null;
+  const issues     = verdict?.issues || [];
+  const suggestion = verdict?.suggestion || '';
+  const editorNote = (req.body?.note || '').trim();
+
+  const feedbackParts = [];
+  if (score !== null) feedbackParts.push(`Score: ${score}/10`);
+  if (issues.length)  feedbackParts.push(`Issues:\n${issues.map(i => '- ' + i).join('\n')}`);
+  if (suggestion)     feedbackParts.push(`Suggestion: ${suggestion}`);
+  if (editorNote)     feedbackParts.push(`Editor note: ${editorNote}`);
+  const feedback = feedbackParts.join('\n\n');
+
+  await db.prepare(`
+    UPDATE articles SET
+      status = 'revision_requested',
+      is_published = 0,
+      review_notes = $1,
+      submitted_for_review_at = NULL,
+      reviewed_by = NULL,
+      reviewed_at = NULL,
+      updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3
+  `).run(feedback || null, article.id, req.tenantId);
+
+  logAudit(req, 'article.request-revision', 'article', parseInt(req.params.id), { title: article.title, score });
+
+  // Notify writer's channel + trigger rewrite (fire-and-forget)
+  setImmediate(() => {
+    (async () => {
+      try {
+        // 1. Send feedback message to writer's channel
+        if (article.writer_id && feedback) {
+          const { sendMessage } = require('../lib/messaging');
+          const channelMsg = `Revision requested — "${article.title}"\n\n${feedback}\n\nRewriting now and will resubmit for review.`;
+          await sendMessage(req.tenantId, article.writer_id, channelMsg).catch(() => {});
+        }
+
+        // 2. Rewrite the article using the feedback, then resubmit
+        if (article.writer_id) {
+          const { rewriteArticleWithFeedback } = require('../lib/synthesis');
+          const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+          if (writer) {
+            const fresh = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(article.id, req.tenantId);
+            await rewriteArticleWithFeedback(fresh, writer, feedback, req.tenantId);
+          }
+        }
+
+        // 3. Notify editors that rewrite has been triggered
+        const { notify } = require('../lib/notifications');
+        const editors = await db.prepare(
+          "SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner', 'admin', 'editor', 'superadmin')"
+        ).all(req.tenantId);
+        for (const ed of editors) {
+          notify({
+            tenantId: req.tenantId,
+            userId:   ed.id,
+            kind:     'article_revision_requested',
+            title:    'Revision in progress',
+            body:     `"${article.title}" sent for revision — rewriting now.`,
+            payload:  { article_id: article.id, title: article.title, feedback: feedback || null },
+            actionable: [
+              { label: 'Open article', actionKind: 'article.open', targetId: article.id, targetType: 'article' },
+            ],
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('[articles.request-revision] background task failed:', err.message);
+      }
+    })();
+  });
+
+  res.json({ ok: true, article_id: article.id, feedback });
+}));
+
 // POST /api/articles/purge-old — archive articles older than N days
 router.post('/purge-old', auth, requirePermission('articles.delete'), asyncHandler(async (req, res) => {
   const {

@@ -33,6 +33,10 @@
     .review-suggestion { font-size:13px; color:var(--text); background:var(--surface2); padding:12px; border-radius:8px; margin:10px 0; }
     .review-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .review-empty { text-align:center; padding:60px 20px; color:var(--muted); }
+    /* Source list inside pitch cards */
+    .pitch-sources { margin:8px 0 10px; display:flex; flex-direction:column; gap:3px; }
+    .pitch-source-row { font-size:12px; color:var(--muted); line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pitch-source-dot { color:var(--accent); margin-right:5px; font-size:8px; vertical-align:middle; }
     /* Newsroom feed */
     .newsroom-item { display:flex; gap:12px; padding:14px 0; border-bottom:1px solid var(--border); }
     .newsroom-item:last-child { border-bottom:none; }
@@ -174,19 +178,35 @@
       <div class="modal-title">Enrich sources</div>
       <button class="modal-close" data-close-modal>✕</button>
     </div>
-    <div class="modal-body">
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="enrichCommissionQuery" type="text" placeholder="Search topic…" style="flex:1;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
-        <button class="btn btn-primary btn-sm" id="enrichCommissionSearchBtn">Search</button>
+    <div class="modal-body" style="padding-bottom:0;">
+      <div class="tab-bar" id="enrichTabBar" style="margin-bottom:12px;">
+        <button class="tab-btn active" data-enrich-tab="web">From web</button>
+        <button class="tab-btn" data-enrich-tab="library" id="enrichLibraryTabBtn">From feed</button>
       </div>
-      <div id="enrichCommissionResults" style="max-height:50vh;overflow-y:auto;font-size:13px;">
-        <div class="text-muted" style="padding:24px 8px;text-align:center;">Enter a topic and press Search.</div>
+      <!-- From web pane -->
+      <div id="enrichWebPane">
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <input id="enrichCommissionQuery" type="text" placeholder="Search topic…" style="flex:1;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;" />
+          <button class="btn btn-primary btn-sm" id="enrichCommissionSearchBtn">Search</button>
+        </div>
+        <div id="enrichCommissionResults" style="max-height:42vh;overflow-y:auto;font-size:13px;">
+          <div class="text-muted" style="padding:24px 8px;text-align:center;">Enter a topic and press Search.</div>
+        </div>
+      </div>
+      <!-- From library pane -->
+      <div id="enrichLibraryPane" style="display:none;">
+        <input id="enrichLibraryQuery" type="text" placeholder="Search by title or source…"
+               style="width:100%;padding:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);border-radius:6px;margin-bottom:8px;" />
+        <div id="enrichLibraryResults" style="max-height:42vh;overflow-y:auto;font-size:13px;">
+          <div class="text-muted" style="padding:24px 8px;text-align:center;">Loading…</div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
       <span id="enrichCommissionQuotaInfo" class="text-muted" style="font-size:12px;flex:1;"></span>
       <button class="btn btn-outline" data-close-modal>Cancel</button>
       <button class="btn btn-primary" id="enrichCommissionIngestBtn" disabled>Ingest selected</button>
+      <button class="btn btn-primary" id="enrichLibraryAddBtn" disabled style="display:none;">Add selected</button>
     </div>
   </div>
 </div>
@@ -228,6 +248,7 @@
     </div>
   </div>
 </div>
+
 
 <script src="/admin.js"></script>
 <script src="/admin-mobile-nav.js"></script>

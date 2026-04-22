@@ -17,7 +17,13 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   const offset = Math.max(parseInt(off) || 0, 0);
 
   let query = `
-    SELECT sp.*, w.name AS writer_name, w.avatar_url AS writer_avatar_url
+    SELECT sp.*, w.name AS writer_name, w.avatar_url AS writer_avatar_url,
+      COALESCE((
+        SELECT json_agg(json_build_object('id', a.id, 'title', a.title, 'source', a.source))
+        FROM articles a
+        WHERE a.id = ANY(ARRAY(SELECT value::int FROM jsonb_array_elements_text(sp.source_article_ids) AS v(value)))
+          AND a.tenant_id = sp.tenant_id
+      ), '[]'::json) AS source_articles
     FROM story_pitches sp
     LEFT JOIN writers w ON w.id = sp.writer_id
     WHERE sp.tenant_id = $1
@@ -55,6 +61,7 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
     ...p,
     source_article_ids: typeof p.source_article_ids === 'string' ? JSON.parse(p.source_article_ids) : (p.source_article_ids || []),
     memory_refs: typeof p.memory_refs === 'string' ? JSON.parse(p.memory_refs) : (p.memory_refs || []),
+    source_articles: typeof p.source_articles === 'string' ? JSON.parse(p.source_articles) : (p.source_articles || []),
   }));
 
   res.json({
@@ -409,6 +416,65 @@ router.post('/channels/enroll', auth, requirePermission('settings.update'), asyn
   }
 
   res.json({ status: 'ok', enrolled: created.length });
+}));
+
+// PATCH /api/admin/pitches/:id/sources — add/replace source articles on a pending pitch
+router.patch('/:id/sources', auth, requirePermission('articles.create'), asyncHandler(async (req, res) => {
+  const { source_article_ids } = req.body;
+  if (!Array.isArray(source_article_ids)) return res.status(400).json({ error: 'source_article_ids must be an array' });
+
+  const pitch = await db.prepare(
+    'SELECT * FROM story_pitches WHERE id = $1 AND tenant_id = $2'
+  ).get(req.params.id, req.tenantId);
+  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
+  if (pitch.status !== 'pending') return res.status(400).json({ error: 'Can only enrich pending pitches' });
+
+  // Validate new IDs are integers
+  const newIds = source_article_ids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+
+  // Merge with existing — don't replace
+  const existing = Array.isArray(pitch.source_article_ids)
+    ? pitch.source_article_ids
+    : (typeof pitch.source_article_ids === 'string' ? JSON.parse(pitch.source_article_ids || '[]') : []);
+  const merged = [...new Set([...existing.map(Number), ...newIds])].filter(n => Number.isFinite(n) && n > 0);
+
+  await db.prepare(
+    'UPDATE story_pitches SET source_article_ids = $1 WHERE id = $2 AND tenant_id = $3'
+  ).run(JSON.stringify(merged), pitch.id, req.tenantId);
+
+  res.json({ status: 'ok', source_article_ids: merged });
+}));
+
+// GET /api/admin/pitches/articles-search — search curated articles to attach to a pitch
+router.get('/articles-search', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const q = (req.query.q || '').trim();
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+  let rows;
+  if (q) {
+    rows = await db.prepare(`
+      SELECT id, title, source, category, published_at, image_url
+      FROM articles
+      WHERE tenant_id = $1
+        AND (content_type IS NULL OR content_type = 'curated')
+        AND is_archived = 0
+        AND (title ILIKE $2 OR source ILIKE $2)
+      ORDER BY published_at DESC
+      LIMIT $3
+    `).all(req.tenantId, `%${q}%`, limit);
+  } else {
+    rows = await db.prepare(`
+      SELECT id, title, source, category, published_at, image_url
+      FROM articles
+      WHERE tenant_id = $1
+        AND (content_type IS NULL OR content_type = 'curated')
+        AND is_archived = 0
+      ORDER BY published_at DESC
+      LIMIT $2
+    `).all(req.tenantId, limit);
+  }
+
+  res.json({ articles: rows });
 }));
 
 module.exports = router;

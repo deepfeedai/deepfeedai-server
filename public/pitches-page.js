@@ -36,7 +36,7 @@
     var status = document.getElementById('pitchStatusFilter').value;
     var writerId = document.getElementById('pitchWriterFilter').value;
 
-    var url = '/admin/pitches?status=' + status;
+    var url = '/admin/pitches?status=' + status + '&_t=' + Date.now();
     if (writerId !== 'all') url += '&writer_id=' + writerId;
 
     try {
@@ -88,13 +88,28 @@
         ? '<img src="' + esc(p.writer_avatar_url) + '" class="pitch-avatar" />'
         : '<div class="pitch-avatar-placeholder">&#9997;&#65039;</div>';
 
+      var sourceArticles = p.source_articles || [];
+      var sourcesHtml = '';
+      if (sourceArticles.length) {
+        sourcesHtml = '<div class="pitch-sources">'
+          + sourceArticles.map(function (a) {
+            return '<div class="pitch-source-row">'
+              + '<span class="pitch-source-dot">&#9679;</span>'
+              + esc(a.title || ('Article #' + a.id))
+              + (a.source ? ' <span style="color:var(--muted);">— ' + esc(a.source) + '</span>' : '')
+              + '</div>';
+          }).join('')
+          + '</div>';
+      }
+
+      var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+      var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+
       var actions = '';
       if (p.status === 'pending') {
         actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve & Write</button>'
-          + '<button class="btn btn-outline btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>';
-        if (sc === 2) {
-          actions += '<span class="text-muted" style="font-size:11px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
-        }
+          + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>';
       } else {
         var statusBadge = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
           : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
@@ -113,10 +128,10 @@
         + '</div>'
         + '<div class="pitch-headline">' + sourceChip + ' ' + esc(p.headline) + '</div>'
         + '<div class="pitch-reasoning">' + esc(p.reasoning) + '</div>'
+        + sourcesHtml
         + '<div class="pitch-meta">'
-        + sourceCount + ' source' + (sourceCount !== 1 ? 's' : '')
-        + (memRefs.length ? ' &middot; connects to: ' + memRefs.map(function (r) { return esc(r); }).join(', ') : '')
-        + ' &middot; ' + relativeTime(p.created_at)
+        + (memRefs.length ? 'Connects to: ' + memRefs.map(function (r) { return esc(r); }).join(', ') + ' &middot; ' : '')
+        + relativeTime(p.created_at)
         + '</div>'
         + '<div class="pitch-actions">' + actions + '</div>'
         + '</div>';
@@ -184,6 +199,126 @@
     }
   };
 
+  // ── Enrich sources modal (shared: story pitches + commissions) ────────────
+
+  var _enrichCtx = { pitchId: null, pitchType: 'story', existingIds: new Set() };
+  var _enrichWebCache = [];
+  var _enrichLibSelected = new Set();
+  var _enrichLibDebounce = null;
+  var _enrichActiveTab = 'web';
+
+  window.openEnrichSources = async function (pitchId, pitchType, existingIds, headline) {
+    _enrichCtx = {
+      pitchId: pitchId,
+      pitchType: pitchType || 'story',
+      existingIds: new Set((existingIds || []).map(Number).filter(Boolean)),
+    };
+    _enrichWebCache = [];
+    _enrichLibSelected = new Set(_enrichCtx.existingIds); // pre-select existing
+
+    // Reset web pane
+    document.getElementById('enrichCommissionQuery').value = headline || '';
+    document.getElementById('enrichCommissionResults').innerHTML =
+      '<div class="text-muted" style="padding:24px 8px;text-align:center;">Press Search to find external coverage.</div>';
+    document.getElementById('enrichCommissionQuotaInfo').textContent = '';
+    document.getElementById('enrichCommissionIngestBtn').disabled = true;
+
+    // Library tab only available for story pitches
+    var libTab = document.getElementById('enrichLibraryTabBtn');
+    if (libTab) libTab.style.display = _enrichCtx.pitchType === 'story' ? '' : 'none';
+
+    // Always start on web tab
+    _switchEnrichTab('web');
+    openModal('enrichCommissionModal');
+  };
+
+  function _switchEnrichTab(tab) {
+    _enrichActiveTab = tab;
+    document.querySelectorAll('#enrichTabBar .tab-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.enrichTab === tab);
+    });
+    document.getElementById('enrichWebPane').style.display     = tab === 'web'     ? '' : 'none';
+    document.getElementById('enrichLibraryPane').style.display = tab === 'library' ? '' : 'none';
+    document.getElementById('enrichCommissionIngestBtn').style.display = tab === 'web'     ? '' : 'none';
+    document.getElementById('enrichLibraryAddBtn').style.display       = tab === 'library' ? '' : 'none';
+    if (tab === 'library') _loadLibraryResults('');
+  }
+
+  document.querySelectorAll('#enrichTabBar .tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { _switchEnrichTab(btn.dataset.enrichTab); });
+  });
+
+  // Library pane — debounced search
+  document.getElementById('enrichLibraryQuery').addEventListener('input', function () {
+    clearTimeout(_enrichLibDebounce);
+    var q = this.value;
+    _enrichLibDebounce = setTimeout(function () { _loadLibraryResults(q); }, 300);
+  });
+
+  async function _loadLibraryResults(q) {
+    var el = document.getElementById('enrichLibraryResults');
+    el.innerHTML = '<div class="text-muted" style="padding:16px 8px;text-align:center;">Loading…</div>';
+    try {
+      var data = await apiFetch('/admin/pitches/articles-search?q=' + encodeURIComponent(q || '') + '&limit=40');
+      var arts = data.articles || [];
+      if (!arts.length) {
+        el.innerHTML = '<div class="text-muted" style="padding:16px 8px;text-align:center;">No articles found.</div>';
+        document.getElementById('enrichLibraryAddBtn').disabled = true;
+        return;
+      }
+      el.innerHTML = arts.map(function (a) {
+        var isAttached = _enrichCtx.existingIds.has(a.id);
+        var isChecked  = _enrichLibSelected.has(a.id);
+        var dt = a.published_at ? new Date(a.published_at).toLocaleDateString() : '';
+        var attachedBadge = isAttached
+          ? ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px;">attached</span>'
+          : '';
+        return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 4px;cursor:pointer;border-bottom:1px solid var(--border);">'
+          + '<input type="checkbox" data-art-id="' + a.id + '" ' + (isChecked ? 'checked' : '') + ' class="enrich-lib-cb" style="margin-top:2px;flex-shrink:0;" />'
+          + '<div style="flex:1;min-width:0;">'
+          + '<div style="font-size:13px;font-weight:500;line-height:1.3;">' + esc(a.title) + attachedBadge + '</div>'
+          + '<div style="font-size:11px;color:var(--muted);">' + esc(a.source || '') + (dt ? ' · ' + dt : '') + (a.category ? ' · ' + esc(a.category) : '') + '</div>'
+          + '</div></label>';
+      }).join('');
+      el.querySelectorAll('.enrich-lib-cb').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+          var id = parseInt(cb.dataset.artId);
+          if (cb.checked) _enrichLibSelected.add(id);
+          else _enrichLibSelected.delete(id);
+          // Enable "Add selected" only when new (non-existing) articles are selected
+          var hasNew = Array.from(_enrichLibSelected).some(function (id) { return !_enrichCtx.existingIds.has(id); });
+          document.getElementById('enrichLibraryAddBtn').disabled = !hasNew;
+        });
+      });
+      // Restore button state
+      var hasNew = Array.from(_enrichLibSelected).some(function (id) { return !_enrichCtx.existingIds.has(id); });
+      document.getElementById('enrichLibraryAddBtn').disabled = !hasNew;
+    } catch (err) {
+      el.innerHTML = '<div style="color:var(--danger);padding:16px 8px;">Failed: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  document.getElementById('enrichLibraryAddBtn').addEventListener('click', async function () {
+    var btn = this;
+    var newIds = Array.from(_enrichLibSelected).filter(function (id) { return !_enrichCtx.existingIds.has(id); });
+    if (!newIds.length) { toast('No new articles selected.', 'warning'); return; }
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await apiFetch('/admin/pitches/' + _enrichCtx.pitchId + '/sources', {
+        method: 'PATCH',
+        body: JSON.stringify({ source_article_ids: newIds }),
+      });
+      closeModal('enrichCommissionModal');
+      toast(newIds.length + ' source(s) added to pitch.', 'success');
+      if (_enrichCtx.pitchType === 'story') await loadPitches();
+      else await loadCommissions();
+    } catch (err) {
+      toast('Failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Add selected';
+    }
+  });
+
   // ── Commissions (article_pitches — editor/Maxwell) ────────
 
   // Filter states — 'proposed' (default), 'approved', 'orphaned' (non-terminal
@@ -200,7 +335,7 @@
 
   async function loadCommissions() {
     try {
-      var data = await apiFetch('/pitches?' + commissionFilterToQuery(commissionFilter));
+      var data = await apiFetch('/pitches?' + commissionFilterToQuery(commissionFilter) + '&_t=' + Date.now());
       var commissions = data.pitches || [];
       renderCommissionsGrid(commissions);
       var badge = document.getElementById('commissionsBadge');
@@ -296,7 +431,7 @@
       if (p.status === 'proposed') {
         html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
         html += '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>';
-        html += '<button class="btn btn-ghost btn-sm" onclick="openEnrichCommission(' + p.id + ', ' + titleArg + ')">Enrich sources</button>';
+        html += '<button class="btn btn-ghost btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">Enrich sources</button>';
         if (sc === 2) {
           html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
         }
@@ -389,51 +524,49 @@
     }
   };
 
-  // ── Commission modals ─────────────────────────────────────
-
-  var enrichCommissionId = null;
-  var enrichCommissionResultsCache = [];
-
-  window.openEnrichCommission = function (pitchId, sourceTitle) {
-    enrichCommissionId = pitchId;
-    enrichCommissionResultsCache = [];
-    document.getElementById('enrichCommissionQuery').value = sourceTitle || '';
-    document.getElementById('enrichCommissionResults').innerHTML = '<div class="text-muted" style="padding:24px 8px;text-align:center;">Press Search to find external coverage.</div>';
-    document.getElementById('enrichCommissionQuotaInfo').textContent = '';
-    document.getElementById('enrichCommissionIngestBtn').disabled = true;
-    openModal('enrichCommissionModal');
-  };
+  // ── Enrich — web pane wiring ──────────────────────────────
 
   function wireEnrichCommissionModal() {
     document.getElementById('enrichCommissionSearchBtn').addEventListener('click', async function () {
       var query = document.getElementById('enrichCommissionQuery').value.trim();
-      if (query.length < 4) { alert('Enter a topic (4+ chars).'); return; }
+      if (query.length < 4) { toast('Enter a topic (4+ chars).', 'warning'); return; }
       var resultsEl = document.getElementById('enrichCommissionResults');
       resultsEl.innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">Searching…</div>';
+      document.getElementById('enrichCommissionIngestBtn').disabled = true;
       try {
         var data = await apiFetch('/research/search', { method: 'POST', body: JSON.stringify({ query: query, count: 10 }) });
-        enrichCommissionResultsCache = data.results || [];
+        _enrichWebCache = data.results || [];
         document.getElementById('enrichCommissionQuotaInfo').textContent =
           'Quota: ' + (data.quota_used || 0) + ' / ' + (data.quota_cap || 0) + ' searches today';
-        if (!enrichCommissionResultsCache.length) {
-          resultsEl.innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">No external results. Errors: ' + JSON.stringify(data.errors || []) + '</div>';
-          document.getElementById('enrichCommissionIngestBtn').disabled = true;
+        if (!_enrichWebCache.length) {
+          resultsEl.innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">No external results.</div>';
           return;
         }
-        resultsEl.innerHTML = enrichCommissionResultsCache.map(function (r, i) {
+        // Check which URLs are already in the DB to prevent duplicate ingestion
+        var urls = _enrichWebCache.map(function (r) { return r.url; }).filter(Boolean);
+        var existingUrls = new Set();
+        try {
+          var ck = await apiFetch('/research/check-urls', { method: 'POST', body: JSON.stringify({ urls: urls }) });
+          (ck.existing || []).forEach(function (u) { existingUrls.add(u); });
+        } catch { /* dedup check is best-effort */ }
+
+        resultsEl.innerHTML = _enrichWebCache.map(function (r, i) {
+          var alreadyIn = existingUrls.has(r.url);
           var meta = [r.publisher || r.source, r.score ? (r.score + ' pts') : '', r.published || ''].filter(Boolean).join(' · ');
-          return '<label style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer;">'
-            + '<input type="checkbox" data-idx="' + i + '" class="enrich-commission-cb" />'
+          return '<label style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer;' + (alreadyIn ? 'opacity:0.5;' : '') + '">'
+            + '<input type="checkbox" data-idx="' + i + '" class="enrich-commission-cb"' + (alreadyIn ? ' disabled' : '') + ' />'
             + '<div style="flex:1;min-width:0;">'
-            + '<div style="font-weight:600;">' + esc(r.title || '(untitled)') + '</div>'
+            + '<div style="font-weight:600;">' + esc(r.title || '(untitled)')
+              + (alreadyIn ? ' <span style="font-size:10px;color:var(--muted);background:var(--surface2);padding:1px 5px;border-radius:4px;">already ingested</span>' : '')
+              + '</div>'
             + '<div class="text-muted" style="font-size:12px;margin:2px 0;">' + esc(meta) + '</div>'
             + '<div style="font-size:12px;color:var(--text);">' + esc((r.snippet || '').slice(0, 200)) + '</div>'
             + '<a href="' + esc(r.url) + '" target="_blank" rel="noopener" style="font-size:11px;">' + esc(r.url) + '</a>'
             + '</div></label>';
         }).join('');
-        document.querySelectorAll('.enrich-commission-cb').forEach(function (cb) {
+        resultsEl.querySelectorAll('.enrich-commission-cb').forEach(function (cb) {
           cb.addEventListener('change', function () {
-            var any = !!document.querySelector('.enrich-commission-cb:checked');
+            var any = !!resultsEl.querySelector('.enrich-commission-cb:checked');
             document.getElementById('enrichCommissionIngestBtn').disabled = !any;
           });
         });
@@ -445,18 +578,24 @@
     document.getElementById('enrichCommissionIngestBtn').addEventListener('click', async function () {
       var picked = [];
       document.querySelectorAll('.enrich-commission-cb:checked').forEach(function (cb) {
-        picked.push(enrichCommissionResultsCache[parseInt(cb.dataset.idx, 10)]);
+        picked.push(_enrichWebCache[parseInt(cb.dataset.idx, 10)]);
       });
       if (!picked.length) return;
       var btn = this;
       btn.disabled = true; btn.textContent = 'Ingesting…';
       try {
-        var data = await apiFetch('/research/ingest', { method: 'POST', body: JSON.stringify({ results: picked, pitch_id: enrichCommissionId }) });
-        alert('Ingested: ' + (data.ingested?.length || 0) + ' · Skipped: ' + (data.skipped?.length || 0));
+        var data = await apiFetch('/research/ingest', {
+          method: 'POST',
+          body: JSON.stringify({ results: picked, pitch_id: _enrichCtx.pitchId }),
+        });
+        var ingested = data.ingested?.length || 0;
+        var skipped  = data.skipped?.length  || 0;
         closeModal('enrichCommissionModal');
-        await loadCommissions();
+        toast('Ingested ' + ingested + (skipped ? ' · ' + skipped + ' skipped (already in library)' : '') + '.', 'success');
+        if (_enrichCtx.pitchType === 'story') await loadPitches();
+        else await loadCommissions();
       } catch (err) {
-        alert('Ingest failed: ' + (err.message || err));
+        toast('Ingest failed: ' + (err.message || err), 'error');
       } finally {
         btn.disabled = false; btn.textContent = 'Ingest selected';
       }

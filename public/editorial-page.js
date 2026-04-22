@@ -151,12 +151,45 @@
 
       html += '<div class="review-actions">';
       html += '<button class="btn btn-primary btn-sm" onclick="approveArticle(' + a.id + ')">Approve & Publish</button>';
-      html += '<button class="btn btn-outline btn-sm" onclick="rejectArticle(' + a.id + ')">Reject to Draft</button>';
+      html += '<button class="btn btn-warning btn-sm" onclick="openRevisionModal(' + a.id + ', ' + JSON.stringify(a.title || '').replace(/"/g, '&quot;') + ')">Request Revision</button>';
+      html += '<button class="btn btn-ghost btn-sm" onclick="rejectArticle(' + a.id + ')">Reject to Draft</button>';
       html += '</div>';
       html += '</div>';
       return html;
     }).join('');
   }
+
+  var _revisionArticleId = null;
+
+  window.openRevisionModal = function (id, title) {
+    _revisionArticleId = id;
+    var titleEl = document.getElementById('revisionArticleTitle');
+    var noteEl  = document.getElementById('revisionEditorNote');
+    if (titleEl) titleEl.textContent = title;
+    if (noteEl)  noteEl.value = '';
+    openModal('revisionModal');
+  };
+
+  window.submitRevision = async function () {
+    if (!_revisionArticleId) return;
+    var noteEl = document.getElementById('revisionEditorNote');
+    var note = noteEl ? noteEl.value.trim() : '';
+    var btn = document.getElementById('revisionSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try {
+      await apiFetch('/articles/' + _revisionArticleId + '/request-revision', {
+        method: 'POST',
+        body: JSON.stringify({ note }),
+      });
+      closeModal('revisionModal');
+      toast('Revision requested — writer notified and rewrite triggered.', 'success');
+      await loadReviewQueue();
+    } catch (err) {
+      toast('Request failed: ' + (err.message || err), 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Request Revision'; }
+    }
+  };
 
   window.approveArticle = async function (id) {
     if (!confirm('Publish this article?')) return;
