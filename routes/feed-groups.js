@@ -219,11 +219,13 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
   const PALETTE = ['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ef4444','#14b8a6'];
   let colorIdx = existingGroups.length % PALETTE.length;
 
-  // In seeded mode, seeds themselves need to be created if they don't exist yet.
-  // In AI mode, newFolderNames comes from the AI response.
-  const foldersToCreate = isSeeded
-    ? seeds.filter(s => !folderMap[s.toLowerCase()])
-    : newFolderNames;
+  // Derive the full set of folder names actually used in assignments.
+  // Don't rely on new_folders — the AI may omit names or spell them differently.
+  // Any name used in an assignment that doesn't already exist must be created.
+  const usedFolderNames = [...new Set(assignments.map(a => a.folder))];
+  const foldersToCreate = usedFolderNames
+    .filter(f => !folderMap[f.toLowerCase()])
+    .slice(0, maxNew);
 
   for (const name of foldersToCreate) {
     const key = name.toLowerCase();
@@ -239,8 +241,8 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
     colorIdx++;
   }
 
-  // Report created folder names back correctly in seeded mode
-  if (isSeeded) newFolderNames = foldersToCreate;
+  // Report what was actually created (authoritative across all modes)
+  newFolderNames = foldersToCreate;
 
   const allGroupRows = await pool.query(`SELECT id, name FROM feed_groups WHERE tenant_id = $1`, [tid]);
   const allGroupMap = Object.fromEntries(allGroupRows.rows.map(g => [g.name.toLowerCase(), g.id]));
