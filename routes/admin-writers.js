@@ -434,8 +434,10 @@ router.post('/:id/generate-chat-prompt', requirePermission('writers.update'), as
   }
 
   const result = await aiComplete({
-    operation: 'chat',
+    operation: 'writer-tldr',
     tenantId: req.tenantId,
+    maxTokens: 512,
+    temperature: 0.8,
     messages: [
       { role: 'system', content: 'You write behavioral instructions for AI chat personas. Your output will be injected as a system prompt — it must be INSTRUCTIONS ABOUT how the persona behaves, NOT example content or articles the persona would write. Never generate sample dialogue or article text.' },
       { role: 'user', content: `Write a chat persona instruction for an AI writer who will respond to messages on Discord/Slack/Telegram.
@@ -449,17 +451,16 @@ Bad example (DO NOT do this):
 "In the ever-evolving landscape of technology, we must consider the implications of AI..."
 
 The instruction should describe:
-- Personality and attitude (how they react to hype, skepticism, excitement)
-- How they explain things (analogies, depth level, references)
-- Conversational quirks (catchphrases, habits, tone shifts)
-- What makes them sound like a real person, not a press release
+- Personality and attitude (how they react to hype, news, skepticism, excitement)
+- Conversational quirks: catchphrases, verbal tics, habits — the things that make them sound like a specific person
+- What triggers their enthusiasm vs their eye-rolls
 
-Write in second person ("You're..."). 4-6 complete sentences. Output ONLY the persona instruction, nothing else.
+Do NOT describe how they explain technical concepts — that belongs in the article-writing prompt, not here. This is purely about chat behavior.
+
+Write in second person ("You're..."). 3-4 punchy sentences. Output ONLY the persona instruction, nothing else.
 
 ${context}` },
     ],
-    temperature: 0.8,
-    maxTokens: 1024,
     trigger: 'manual',
     writerId: parseInt(id),
   });
@@ -471,6 +472,46 @@ ${context}` },
 
   logAudit(req, 'writer.generate-chat-prompt', 'writer', parseInt(id), { name: writer.name });
   res.json({ chat_prompt: result.text });
+}));
+
+// POST /api/admin/writers/:id/generate-prompt — AI-generate full sectioned agent prompt
+router.post('/:id/generate-prompt', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  const beats = await getBeats(id, req.tenantId);
+  const beatNames = beats.map(b => b.name).join(', ') || writer.beat || 'general news';
+
+  const recentArticles = await db.prepare(`
+    SELECT title FROM articles WHERE writer_id = $1 AND tenant_id = $2
+      AND content_type IN ('original','deep-dive') AND is_published = 1
+    ORDER BY published_at DESC LIMIT 8
+  `).all(id, req.tenantId);
+
+  const lines = [];
+  if (writer.bio)          lines.push(`Bio: ${writer.bio}`);
+  if (writer.tone)         lines.push(`Tone: ${writer.tone}`);
+  if (writer.beat_angle)   lines.push(`Angle: ${writer.beat_angle}`);
+  if (writer.style_guide)  lines.push(`Style notes: ${writer.style_guide}`);
+  if (Array.isArray(writer.signature_phrases) && writer.signature_phrases.length)
+    lines.push(`Signature phrases: ${writer.signature_phrases.join(', ')}`);
+  if (recentArticles.length)
+    lines.push(`Recent articles:\n${recentArticles.map(a => `- ${a.title}`).join('\n')}`);
+  const context = lines.join('\n') || '(no additional context)';
+
+  const p = loadPrompt('writer-system-prompt');
+  const { messages, ...meta } = p.render({ name: writer.name, beats: beatNames, context });
+
+  const aiResult = await aiComplete({
+    ...meta, messages, tenantId: req.tenantId,
+    trigger: 'admin', writerId: parseInt(id),
+  });
+
+  if (!aiResult?.text) return res.status(502).json({ error: 'AI generation returned no result' });
+
+  logAudit(req, 'writer.generate-prompt', 'writer', parseInt(id), { name: writer.name });
+  res.json({ prompt: aiResult.text.trim() });
 }));
 
 // POST /api/admin/writers/:id/regenerate-persona — refresh or fully rewrite persona
