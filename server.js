@@ -231,6 +231,12 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── RSS feeds (reader-facing canonical URLs, no /api prefix) ────────
+// Mounted BEFORE express.static so /feed.xml doesn't fall through to
+// the public static directory. The feeds router applies tenantContext
+// internally — same resolver path /api uses.
+app.use(require('./routes/feeds'));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── Tenant Context ──────────────────────────────────────────────────
