@@ -205,4 +205,130 @@ router.get('/feed/writers/:slug.xml', asyncHandler(async (req, res) => {
   }));
 }));
 
+// ── Briefs feed ──────────────────────────────────────────────
+// Each daily brief / weekly digest becomes a feed item. Lets readers
+// subscribe to "Maxwell's daily editorial" in any RSS reader — distinct
+// from the article feed.
+router.get('/feed/briefs.xml', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId || 1;
+  const ctx = await getSiteContext(tenantId);
+  const events = await db.prepare(`
+    SELECT id, event_type, payload, created_at
+      FROM newsroom_events
+     WHERE tenant_id = $1
+       AND event_type IN ('daily_brief', 'weekly_digest')
+       AND dismissed_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT $2
+  `).all(tenantId, MAX_ITEMS).catch(() => []);
+
+  const items = events.map(e => {
+    const payload = (typeof e.payload === 'string' ? JSON.parse(e.payload || '{}') : (e.payload || {}));
+    const isWeekly = e.event_type === 'weekly_digest';
+    const dateStr = payload.period_range
+      || new Date(e.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const title = isWeekly ? `Week in Review — ${dateStr}` : `Day Brief — ${dateStr}`;
+    const headline = payload.headline || '';
+    const prose = payload.prose || payload.text || '';
+    const desc = headline ? `${headline}\n\n${prose}` : prose;
+    const link = `${ctx.siteUrl}/briefs/${e.id}`;
+    return '<item>'
+      + `<title>${cdata(title)}</title>`
+      + `<link>${xmlEscape(link)}</link>`
+      + `<guid isPermaLink="false">brief-${e.id}</guid>`
+      + `<pubDate>${rfc822(e.created_at)}</pubDate>`
+      + (desc ? `<description>${cdata(desc)}</description>` : '')
+      + (prose ? `<content:encoded>${cdata(prose)}</content:encoded>` : '')
+      + '</item>';
+  }).join('');
+
+  const lastBuild = events[0] ? rfc822(events[0].created_at) : new Date().toUTCString();
+  setRssHeaders(res);
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+    + '<channel>'
+    +   `<title>${cdata(ctx.siteName + ' — Editorial Briefs')}</title>`
+    +   `<link>${xmlEscape(ctx.siteUrl)}</link>`
+    +   `<description>${cdata("Maxwell's daily editorial brief and weekly digest from " + ctx.siteName)}</description>`
+    +   '<language>en-us</language>'
+    +   `<lastBuildDate>${lastBuild}</lastBuildDate>`
+    +   `<atom:link href="${xmlEscape(ctx.siteUrl + '/feed/briefs.xml')}" rel="self" type="application/rss+xml"/>`
+    +   items
+    + '</channel></rss>'
+  );
+}));
+
+// ── Podcast feed (iTunes namespace) ──────────────────────────
+// Articles with audio (TTS-narrated via the audio feature) become
+// podcast episodes. iTunes-compatible — readers can paste the URL into
+// Apple Podcasts, Overcast, Pocket Casts, etc.
+router.get('/podcast.xml', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId || 1;
+  const ctx = await getSiteContext(tenantId);
+
+  // Optional cover image lives in settings as podcast_cover_url; falls
+  // back to the site logo or a default placeholder.
+  const cover = await db.prepare(
+    `SELECT value FROM settings WHERE tenant_id = $1 AND key = 'podcast_cover_url' LIMIT 1`
+  ).get(tenantId).catch(() => null);
+  const coverUrl = cover?.value || `${ctx.siteUrl}/podcast-cover.png`;
+
+  const articles = await db.prepare(`
+    SELECT a.id, a.title, a.slug, a.summary, a.image_url, a.published_at,
+           a.audio_url, a.audio_voice_name, w.name AS writer_name
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+     WHERE a.tenant_id = $1 AND a.is_published = 1
+       AND COALESCE(a.is_archived, 0) = 0
+       AND a.audio_status = 'ready' AND a.audio_url IS NOT NULL
+       AND a.content_type IN ('original','deep-dive')
+     ORDER BY a.published_at DESC LIMIT $2
+  `).all(tenantId, MAX_ITEMS).catch(() => []);
+
+  const items = articles.map(a => {
+    const link = `${ctx.siteUrl}/article/${a.slug}`;
+    const author = a.audio_voice_name || a.writer_name || ctx.siteName;
+    const desc = a.summary || a.title || '';
+    return '<item>'
+      + `<title>${cdata(a.title || '(untitled)')}</title>`
+      + `<link>${xmlEscape(link)}</link>`
+      + `<guid isPermaLink="false">audio-${a.id}</guid>`
+      + `<pubDate>${rfc822(a.published_at)}</pubDate>`
+      + `<description>${cdata(desc)}</description>`
+      + `<enclosure url="${xmlEscape(a.audio_url)}" type="audio/mpeg" length="0"/>`
+      + `<itunes:author>${cdata(author)}</itunes:author>`
+      + `<itunes:summary>${cdata(desc)}</itunes:summary>`
+      + (a.image_url ? `<itunes:image href="${xmlEscape(a.image_url)}"/>` : '')
+      + '<itunes:explicit>false</itunes:explicit>'
+      + '</item>';
+  }).join('');
+
+  const lastBuild = articles[0] ? rfc822(articles[0].published_at) : new Date().toUTCString();
+  setRssHeaders(res);
+  res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<rss version="2.0" '
+    +   'xmlns:atom="http://www.w3.org/2005/Atom" '
+    +   'xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" '
+    +   'xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+    + '<channel>'
+    +   `<title>${cdata(ctx.siteName)}</title>`
+    +   `<link>${xmlEscape(ctx.siteUrl)}</link>`
+    +   `<description>${cdata(ctx.tagline + ' — narrated articles')}</description>`
+    +   '<language>en-us</language>'
+    +   `<lastBuildDate>${lastBuild}</lastBuildDate>`
+    +   `<atom:link href="${xmlEscape(ctx.siteUrl + '/podcast.xml')}" rel="self" type="application/rss+xml"/>`
+    +   `<itunes:author>${cdata(ctx.siteName)}</itunes:author>`
+    +   `<itunes:summary>${cdata(ctx.tagline)}</itunes:summary>`
+    +   `<itunes:image href="${xmlEscape(coverUrl)}"/>`
+    +   '<itunes:category text="News"/>'
+    +   '<itunes:explicit>false</itunes:explicit>'
+    +   `<image><url>${xmlEscape(coverUrl)}</url><title>${cdata(ctx.siteName)}</title><link>${xmlEscape(ctx.siteUrl)}</link></image>`
+    +   items
+    + '</channel></rss>'
+  );
+}));
+
 module.exports = router;
