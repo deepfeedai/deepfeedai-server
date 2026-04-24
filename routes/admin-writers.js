@@ -820,4 +820,176 @@ router.delete('/teams/:id', requirePermission('writers.delete'), asyncHandler(as
   res.json({ ok: true });
 }));
 
+// ── Writer voice samples ─────────────────────────────────────────────
+// Short curated exemplars of a writer's voice, tagged by pitch_type,
+// used as few-shot examples in synthesis to anchor generated articles
+// to the writer's distinctive style. Gated by the voice_samples flag —
+// endpoints remain callable regardless, but flag governs whether
+// synthesis consumes them (buildWriterPrompt in lib/writer-assign.js).
+
+const VALID_PITCH_TYPES = new Set([
+  'original', 'follow_up', 'roundup', 'deep_dive', 'explainer',
+  'counter_angle', 'prediction_check', 'analysis', 'breaking',
+]);
+
+const TYPE_HINTS = {
+  original:         'Fresh reporting with a clear single angle. Lead with a specific detail or quote. Short paragraphs.',
+  follow_up:        'Build on a prior story. Open by naming the original; focus on what is new + what it means.',
+  roundup:          'Synthesise 3+ sources on a shared topic. Structure: setup, three points with brief examples, closing take.',
+  deep_dive:        'Extended feature connecting multiple sources into a broader argument. Scene-set, complicate, conclude.',
+  explainer:        'Backgrounder on a topic. Assume a curious-but-unfamiliar reader. Progressive disclosure; clear definitions.',
+  counter_angle:    'Alternative take on a source everyone else covered the obvious way. Name the conventional read first, then dissent.',
+  prediction_check: 'Test a prior forecast. Quote the original prediction, present new evidence, declare validated/invalidated/mixed.',
+  analysis:         'Opinion / editorial framing on a news event. Take a clear position. Show your reasoning.',
+  breaking:         'Urgent, short-turnaround. Tight leads, short sentences, clear facts. No opinion padding.',
+};
+
+// GET /api/admin/writers/:id/samples — list all samples for a writer
+router.get('/:id/samples', requirePermission('writers.read'), asyncHandler(async (req, res) => {
+  const writerId = parseInt(req.params.id, 10);
+  if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
+  const samples = await db.prepare(`
+    SELECT id, pitch_type, title, body, is_pinned, is_negative,
+           source_article_id, quality_score, seed_topic, created_at, updated_at
+      FROM writer_samples
+     WHERE tenant_id = $1 AND writer_id = $2
+     ORDER BY pitch_type ASC, is_pinned DESC, updated_at DESC
+  `).all(req.tenantId, writerId).catch(() => []);
+  res.json({ samples });
+}));
+
+// POST /api/admin/writers/:id/samples/generate
+// Body: { pitch_type, seed_topic?, source_article_id? }
+// Generates a sample via LLM in the writer's voice and persists it.
+router.post('/:id/samples/generate', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const writerId = parseInt(req.params.id, 10);
+  if (!writerId) return res.status(400).json({ error: 'writer_id must be numeric' });
+
+  const pitchType = String(req.body?.pitch_type || 'original').trim();
+  if (!VALID_PITCH_TYPES.has(pitchType)) return res.status(400).json({ error: 'invalid pitch_type' });
+
+  const seedTopic  = req.body?.seed_topic ? String(req.body.seed_topic).slice(0, 300) : null;
+  const sourceArticleId = req.body?.source_article_id ? parseInt(req.body.source_article_id, 10) : null;
+
+  const writer = await db.prepare(
+    'SELECT * FROM writers WHERE id = $1 AND tenant_id = $2'
+  ).get(writerId, req.tenantId);
+  if (!writer) return res.status(404).json({ error: 'Writer not found' });
+
+  // Cap samples per (writer, type) so the table doesn't balloon.
+  const countRow = await db.prepare(
+    'SELECT COUNT(*)::int AS cnt FROM writer_samples WHERE tenant_id = $1 AND writer_id = $2 AND pitch_type = $3'
+  ).get(req.tenantId, writerId, pitchType);
+  if ((countRow?.cnt || 0) >= 5) {
+    return res.status(409).json({ error: 'sample_cap_reached', message: 'Max 5 samples per type. Delete one before generating more.' });
+  }
+
+  // Build persona with existing samples as prior context (if any) so the
+  // new sample stays consistent with what's already pinned.
+  const { buildWriterPrompt } = require('../lib/writer-assign');
+  const systemPrompt = await buildWriterPrompt(writer);
+
+  // Seed context: either from a topic string, a real article, or a short
+  // default if neither is supplied.
+  let seedContext = '';
+  let effectiveSeedTopic = seedTopic;
+  if (sourceArticleId) {
+    const src = await db.prepare(
+      'SELECT title, summary, full_content FROM articles WHERE id = $1 AND tenant_id = $2'
+    ).get(sourceArticleId, req.tenantId);
+    if (src) {
+      effectiveSeedTopic = effectiveSeedTopic || src.title;
+      seedContext = `Reference article to emulate in structure + voice (but rewrite from scratch, don't copy):\nTitle: "${src.title}"\n${src.summary || ''}\n\n${(src.full_content || '').slice(0, 1500)}`;
+    }
+  }
+  if (!effectiveSeedTopic) {
+    effectiveSeedTopic = writer.beat_angle || writer.beat || 'a recent development in your beat';
+  }
+
+  const p = loadPrompt('writer-sample');
+  const { messages, ...meta } = p.render({
+    systemPrompt,
+    pitchType,
+    typeHints: TYPE_HINTS[pitchType] || 'Write in your distinctive voice.',
+    seedTopic: effectiveSeedTopic,
+    seedContext,
+  });
+
+  const result = await aiComplete({
+    ...meta, messages, tenantId: req.tenantId,
+    trigger: 'writer-sample',
+    writerId,
+  });
+  if (!result?.text) return res.status(500).json({ error: 'generation_empty' });
+
+  const raw = result.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    try { parsed = parseTruncatedJsonObject(raw); }
+    catch { return res.status(500).json({ error: 'generation_unparseable', raw: raw.slice(0, 200) }); }
+  }
+  const title = String(parsed?.title || '').trim().slice(0, 200);
+  const body  = String(parsed?.body  || '').trim();
+  if (!title || body.length < 100) return res.status(500).json({ error: 'generation_too_short' });
+
+  const row = await db.prepare(`
+    INSERT INTO writer_samples
+      (tenant_id, writer_id, pitch_type, title, body, source_article_id, seed_topic, created_by_user_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING id, pitch_type, title, body, is_pinned, is_negative, source_article_id, quality_score, seed_topic, created_at, updated_at
+  `).get(req.tenantId, writerId, pitchType, title, body, sourceArticleId, effectiveSeedTopic, req.user?.sub || null);
+
+  logAudit(req, 'writer_sample.generate', 'writer', writerId, { sample_id: row.id, pitch_type: pitchType });
+  res.json({ sample: row });
+}));
+
+// PATCH /api/admin/writers/:id/samples/:sampleId
+// Body: { title?, body?, is_pinned?, is_negative?, quality_score? }
+router.patch('/:id/samples/:sampleId', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const writerId = parseInt(req.params.id, 10);
+  const sampleId = parseInt(req.params.sampleId, 10);
+  if (!writerId || !sampleId) return res.status(400).json({ error: 'invalid ids' });
+
+  const fields = [];
+  const params = [];
+  const allowed = { title: 'string', body: 'string', is_pinned: 'boolean', is_negative: 'boolean', quality_score: 'number' };
+  for (const [key, kind] of Object.entries(allowed)) {
+    if (req.body?.[key] !== undefined) {
+      let v = req.body[key];
+      if (kind === 'string') v = String(v).slice(0, kind === 'title' ? 200 : 10000);
+      if (kind === 'boolean') v = !!v;
+      if (kind === 'number') v = Number(v) || null;
+      params.push(v);
+      fields.push(`${key} = $${params.length}`);
+    }
+  }
+  if (!fields.length) return res.status(400).json({ error: 'no_fields' });
+  params.push(req.tenantId, writerId, sampleId);
+
+  const row = await db.prepare(`
+    UPDATE writer_samples
+       SET ${fields.join(', ')}, updated_at = NOW()
+     WHERE tenant_id = $${params.length - 2}
+       AND writer_id = $${params.length - 1}
+       AND id = $${params.length}
+     RETURNING id, pitch_type, title, body, is_pinned, is_negative, source_article_id, quality_score, seed_topic, created_at, updated_at
+  `).get(...params);
+  if (!row) return res.status(404).json({ error: 'sample_not_found' });
+  logAudit(req, 'writer_sample.update', 'writer', writerId, { sample_id: sampleId, fields: Object.keys(req.body) });
+  res.json({ sample: row });
+}));
+
+// DELETE /api/admin/writers/:id/samples/:sampleId
+router.delete('/:id/samples/:sampleId', requirePermission('writers.update'), asyncHandler(async (req, res) => {
+  const writerId = parseInt(req.params.id, 10);
+  const sampleId = parseInt(req.params.sampleId, 10);
+  const row = await db.prepare(
+    'DELETE FROM writer_samples WHERE tenant_id = $1 AND writer_id = $2 AND id = $3 RETURNING id'
+  ).get(req.tenantId, writerId, sampleId);
+  if (!row) return res.status(404).json({ error: 'sample_not_found' });
+  logAudit(req, 'writer_sample.delete', 'writer', writerId, { sample_id: sampleId });
+  res.json({ ok: true });
+}));
+
 module.exports = router;

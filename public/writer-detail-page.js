@@ -196,6 +196,11 @@
     }
     html += '</div></div>';
 
+    // Voice samples — curated short exemplars fed into synthesis as
+    // few-shot examples so generated articles anchor to this writer's
+    // voice instead of drifting to default LLM tone.
+    html += renderSamplesSection(w.id);
+
     // System Prompt
     if (w.system_prompt) {
       html += '<div class="wd-section"><div class="wd-section-title">System Prompt</div><div class="wd-card" style="font-size:13px;white-space:pre-wrap;color:var(--muted);font-family:monospace;max-height:200px;overflow-y:auto;">' + esc(w.system_prompt) + '</div></div>';
@@ -592,4 +597,166 @@
       }
     });
   });
+
+  // ── Voice samples section ─────────────────────────────────
+  // Renders an empty container on load; samples are fetched + rendered
+  // asynchronously so the main detail page doesn't block on them.
+  var SAMPLE_TYPES = [
+    { key: 'original',         label: 'Original',         icon: '📝' },
+    { key: 'follow_up',        label: 'Follow-up',        icon: '↻'  },
+    { key: 'roundup',          label: 'Roundup',          icon: '🧺' },
+    { key: 'deep_dive',        label: 'Deep dive',        icon: '🔍' },
+    { key: 'explainer',        label: 'Explainer',        icon: '💡' },
+    { key: 'counter_angle',    label: 'Counter-angle',    icon: '⚖'  },
+    { key: 'prediction_check', label: 'Prediction check', icon: '🎯' },
+    { key: 'analysis',         label: 'Analysis',         icon: '📊' },
+    { key: 'breaking',         label: 'Breaking',         icon: '⚡' },
+  ];
+
+  function renderSamplesSection(writerId) {
+    // Returns placeholder HTML; hydrates after the main render completes
+    setTimeout(function () { hydrateSamples(writerId); }, 0);
+    return '<div class="wd-section" id="wdSamplesSection">'
+      +    '<div class="wd-section-title">Voice Samples</div>'
+      +    '<div class="wd-card" id="wdSamplesBody" style="color:var(--muted);font-size:13px;">Loading samples…</div>'
+      + '</div>';
+  }
+
+  async function hydrateSamples(writerId) {
+    var body = document.getElementById('wdSamplesBody');
+    if (!body) return;
+    var samples;
+    try {
+      var data = await apiFetch('/admin/writers/' + writerId + '/samples');
+      samples = data.samples || [];
+    } catch (err) {
+      body.innerHTML = '<div style="color:var(--danger);">Failed to load: ' + esc(err.message || err) + '</div>';
+      return;
+    }
+
+    // Group by pitch_type
+    var byType = {};
+    samples.forEach(function (s) {
+      (byType[s.pitch_type] = byType[s.pitch_type] || []).push(s);
+    });
+
+    var html = '<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">'
+      + 'Short exemplars of this writer\'s voice per pitch type. Pinned + high-quality samples feed into synthesis as few-shot examples (requires <code>voice_samples</code> feature flag).'
+      + '</div>';
+
+    SAMPLE_TYPES.forEach(function (t) {
+      var list = byType[t.key] || [];
+      var countLabel = list.length ? list.length + (list.length === 1 ? ' sample' : ' samples') : 'no samples';
+      html += '<div class="wd-sample-type" style="margin-bottom:14px;">'
+        +    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+        +      '<span style="font-weight:600;font-size:13px;">' + t.icon + ' ' + esc(t.label) + '</span>'
+        +      '<span class="text-muted text-sm">' + countLabel + '</span>'
+        +      '<button class="btn btn-ghost btn-sm wd-sample-gen" data-type="' + t.key + '" data-writer="' + writerId + '" ' + (list.length >= 5 ? 'disabled title="Max 5 samples per type"' : '') + '>✨ Generate</button>'
+        +    '</div>';
+      if (list.length) {
+        html += '<div class="wd-sample-cards" style="display:flex;flex-direction:column;gap:6px;">';
+        list.forEach(function (s) {
+          var pinBadge = s.is_pinned ? '<span class="badge badge-accent" style="font-size:10px;">★ pinned</span>' : '';
+          var negBadge = s.is_negative ? '<span class="badge badge-danger" style="font-size:10px;">✗ anti-example</span>' : '';
+          var preview = esc((s.body || '').slice(0, 180));
+          html += '<div class="wd-sample-card" data-sample="' + s.id + '" data-writer="' + writerId + '" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">'
+            +   '<div style="display:flex;align-items:flex-start;gap:8px;">'
+            +     '<div style="flex:1;min-width:0;">'
+            +       '<div style="font-weight:600;font-size:13px;margin-bottom:2px;">' + esc(s.title) + ' ' + pinBadge + ' ' + negBadge + '</div>'
+            +       '<div class="text-muted" style="font-size:12px;white-space:pre-wrap;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;">' + preview + (s.body && s.body.length > 180 ? '…' : '') + '</div>'
+            +     '</div>'
+            +     '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
+            +       '<button class="btn btn-ghost btn-sm wd-sample-pin" data-sample="' + s.id + '" data-writer="' + writerId + '" title="' + (s.is_pinned ? 'Unpin' : 'Pin') + '">' + (s.is_pinned ? '★' : '☆') + '</button>'
+            +       '<button class="btn btn-ghost btn-sm wd-sample-edit" data-sample="' + s.id + '" data-writer="' + writerId + '" title="Edit">✏</button>'
+            +       '<button class="btn btn-ghost btn-sm wd-sample-del" data-sample="' + s.id + '" data-writer="' + writerId + '" title="Delete">✕</button>'
+            +     '</div>'
+            +   '</div>'
+            + '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+
+    body.innerHTML = html;
+    wireSampleHandlers();
+  }
+
+  function wireSampleHandlers() {
+    document.querySelectorAll('.wd-sample-gen').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var writerId = parseInt(btn.dataset.writer, 10);
+        var pitchType = btn.dataset.type;
+        var seed = prompt('Optional seed topic (blank uses the writer\'s beat):');
+        if (seed === null) return;
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = 'Generating…';
+        try {
+          await apiFetch('/admin/writers/' + writerId + '/samples/generate', {
+            method: 'POST',
+            body: JSON.stringify({ pitch_type: pitchType, seed_topic: seed || undefined }),
+          });
+          await hydrateSamples(writerId);
+        } catch (err) {
+          alert('Generation failed: ' + (err.message || err));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      });
+    });
+    document.querySelectorAll('.wd-sample-pin').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var writerId = parseInt(btn.dataset.writer, 10);
+        var sampleId = parseInt(btn.dataset.sample, 10);
+        var wasPinned = btn.textContent.trim() === '★';
+        try {
+          await apiFetch('/admin/writers/' + writerId + '/samples/' + sampleId, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_pinned: !wasPinned }),
+          });
+          await hydrateSamples(writerId);
+        } catch (err) { alert('Update failed: ' + (err.message || err)); }
+      });
+    });
+    document.querySelectorAll('.wd-sample-del').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('Delete this sample?')) return;
+        var writerId = parseInt(btn.dataset.writer, 10);
+        var sampleId = parseInt(btn.dataset.sample, 10);
+        try {
+          await apiFetch('/admin/writers/' + writerId + '/samples/' + sampleId, { method: 'DELETE' });
+          await hydrateSamples(writerId);
+        } catch (err) { alert('Delete failed: ' + (err.message || err)); }
+      });
+    });
+    document.querySelectorAll('.wd-sample-edit').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var writerId = parseInt(btn.dataset.writer, 10);
+        var sampleId = parseInt(btn.dataset.sample, 10);
+        var card = btn.closest('.wd-sample-card');
+        if (!card) return;
+        // Fetch full sample body (preview was truncated)
+        var list;
+        try {
+          var data = await apiFetch('/admin/writers/' + writerId + '/samples');
+          list = data.samples || [];
+        } catch { list = []; }
+        var sample = list.find(function (s) { return s.id === sampleId; });
+        if (!sample) return alert('Sample not found');
+        var newTitle = prompt('Title:', sample.title);
+        if (newTitle === null) return;
+        var newBody = prompt('Body (markdown):', sample.body);
+        if (newBody === null) return;
+        try {
+          await apiFetch('/admin/writers/' + writerId + '/samples/' + sampleId, {
+            method: 'PATCH',
+            body: JSON.stringify({ title: newTitle, body: newBody }),
+          });
+          await hydrateSamples(writerId);
+        } catch (err) { alert('Edit failed: ' + (err.message || err)); }
+      });
+    });
+  }
 })();
