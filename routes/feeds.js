@@ -331,4 +331,106 @@ router.get('/podcast.xml', asyncHandler(async (req, res) => {
   );
 }));
 
+// ── OPML bundle ──────────────────────────────────────────────
+// Power-user export: a single OPML file that bundles every writer
+// feed + the main feed + briefs feed + all categories. Import once
+// in your reader and you've subscribed to the whole newsroom.
+router.get('/feeds.opml', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId || 1;
+  const ctx = await getSiteContext(tenantId);
+
+  const writers = await db.prepare(`
+    SELECT name, slug FROM writers
+     WHERE tenant_id = $1
+       AND COALESCE(role, 'writer') NOT IN ('editor','designer','copy-editor')
+       AND slug IS NOT NULL
+     ORDER BY name ASC
+  `).all(tenantId).catch(() => []);
+
+  const categories = await db.prepare(`
+    SELECT name FROM categories WHERE tenant_id = $1 ORDER BY name ASC
+  `).all(tenantId).catch(() => []);
+
+  function outline(text, xmlUrl, htmlUrl) {
+    return `<outline type="rss" text="${xmlEscape(text)}" title="${xmlEscape(text)}" xmlUrl="${xmlEscape(xmlUrl)}" htmlUrl="${xmlEscape(htmlUrl)}"/>`;
+  }
+
+  const newsroomOutlines = ''
+    + outline(`${ctx.siteName} — All Articles`, `${ctx.siteUrl}/feed.xml`, ctx.siteUrl)
+    + outline(`${ctx.siteName} — Editorial Briefs`, `${ctx.siteUrl}/feed/briefs.xml`, ctx.siteUrl)
+    + outline(`${ctx.siteName} — Podcast`, `${ctx.siteUrl}/podcast.xml`, ctx.siteUrl);
+
+  const writerOutlines = writers.map(w =>
+    outline(w.name, `${ctx.siteUrl}/feed/writers/${w.slug}.xml`, `${ctx.siteUrl}/writers/${w.slug}`)
+  ).join('');
+
+  const categoryOutlines = categories.map(c => {
+    const slug = c.name.toLowerCase().replace(/\s+/g, '-');
+    return outline(c.name, `${ctx.siteUrl}/feed/category/${slug}.xml`, `${ctx.siteUrl}/category/${slug}`);
+  }).join('');
+
+  res.setHeader('Content-Type', 'text/x-opml; charset=utf-8');
+  res.setHeader('Cache-Control', `public, max-age=${CACHE_SECONDS}`);
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<opml version="2.0">'
+    + '<head>'
+    +   `<title>${xmlEscape(ctx.siteName + ' Feeds')}</title>`
+    +   `<dateCreated>${rfc822(new Date())}</dateCreated>`
+    + '</head>'
+    + '<body>'
+    +   `<outline text="Newsroom" title="Newsroom">${newsroomOutlines}</outline>`
+    +   (writerOutlines    ? `<outline text="Writers" title="Writers">${writerOutlines}</outline>` : '')
+    +   (categoryOutlines  ? `<outline text="Categories" title="Categories">${categoryOutlines}</outline>` : '')
+    + '</body>'
+    + '</opml>'
+  );
+}));
+
+// ── JSON Feed alternative ────────────────────────────────────
+// JSON Feed 1.1 spec — modern alt to RSS, supported by Reeder, NetNewsWire,
+// Feedbin, etc. Same content as /feed.xml, different wire format.
+router.get('/feed.json', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId || 1;
+  const ctx = await getSiteContext(tenantId);
+  const articles = await db.prepare(`
+    SELECT a.id, a.title, a.slug, a.summary, a.full_content, a.image_url, a.category,
+           a.published_at, w.name AS writer_name
+    FROM articles a
+    LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+    WHERE a.tenant_id = $1 AND a.is_published = 1
+      AND COALESCE(a.is_archived, 0) = 0
+      AND a.content_type IN ('original','deep-dive')
+    ORDER BY a.published_at DESC LIMIT $2
+  `).all(tenantId, MAX_ITEMS);
+
+  const items = articles.map(a => {
+    const link = `${ctx.siteUrl}/article/${a.slug}`;
+    const item = {
+      id:    link,
+      url:   link,
+      title: a.title || '(untitled)',
+      date_published: new Date(a.published_at).toISOString(),
+    };
+    if (a.summary)      item.summary       = a.summary;
+    if (a.full_content) item.content_html  = a.full_content;
+    if (a.image_url)    item.image         = a.image_url;
+    if (a.writer_name)  item.authors       = [{ name: a.writer_name }];
+    if (a.category)     item.tags          = [a.category];
+    return item;
+  });
+
+  res.setHeader('Content-Type', 'application/feed+json; charset=utf-8');
+  res.setHeader('Cache-Control', `public, max-age=${CACHE_SECONDS}`);
+  res.json({
+    version:       'https://jsonfeed.org/version/1.1',
+    title:         ctx.siteName,
+    home_page_url: ctx.siteUrl,
+    feed_url:      `${ctx.siteUrl}/feed.json`,
+    description:   ctx.tagline,
+    language:      'en-US',
+    items,
+  });
+}));
+
 module.exports = router;
