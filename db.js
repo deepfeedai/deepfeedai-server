@@ -1273,6 +1273,29 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
+    // Writer voice samples — short curated exemplars of a writer's voice,
+    // tagged by pitch_type, used as few-shot examples during synthesis so
+    // generated articles anchor to the writer's distinctive style instead
+    // of drifting to default LLM voice. Editor-curated: generate via LLM,
+    // edit/pin/rate in UI, best samples float up for use in prompts.
+    `CREATE TABLE IF NOT EXISTS writer_samples (
+      id                 SERIAL PRIMARY KEY,
+      tenant_id          INTEGER NOT NULL,
+      writer_id          INTEGER NOT NULL REFERENCES writers(id) ON DELETE CASCADE,
+      pitch_type         TEXT NOT NULL DEFAULT 'original',
+      title              TEXT NOT NULL,
+      body               TEXT NOT NULL,
+      is_pinned          BOOLEAN DEFAULT false,
+      is_negative        BOOLEAN DEFAULT false,
+      source_article_id  INTEGER,
+      quality_score      NUMERIC(3,1),
+      seed_topic         TEXT,
+      created_by_user_id INTEGER,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_samples_lookup ON writer_samples(tenant_id, writer_id, pitch_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_writer_samples_pinned ON writer_samples(tenant_id, writer_id, is_pinned) WHERE is_pinned = true`,
     // Editor thumbs-up/down feedback on individual briefs + digests. Used
     // immediately to show the user their prior vote; will later feed into
     // the brief prompt so Maxwell can adjust tone based on trailing feedback.
