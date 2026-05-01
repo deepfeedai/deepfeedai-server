@@ -19,6 +19,10 @@ const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 const { computeEffectiveImportance, RANK: IMPORTANCE_RANK } = require('../lib/story-levels');
 const { isFeatureEnabled } = require('../lib/feature-registry');
 
+// In-memory brief cache — keyed by `${tenantId}:${tag}`, TTL 2 hours
+const _briefCache = new Map();
+const BRIEF_TTL   = 2 * 3600 * 1000;
+
 const { getSecrets } = require('../lib/secrets');
 
 async function getUserId(req) {
@@ -527,6 +531,64 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
   });
 
   res.json({ status: 'ok', topics: clusters.slice(0, 25), stats });
+}));
+
+// GET /api/news/topic-pulse/:tag/brief — AI "catch me up" summary for a topic cluster
+router.get('/topic-pulse/:tag/brief', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId;
+  const tag      = req.params.tag;
+  const cacheKey = `${tenantId}:${tag}`;
+
+  // Serve from cache if fresh
+  const cached = _briefCache.get(cacheKey);
+  if (cached && Date.now() - cached.generatedAt < BRIEF_TTL) {
+    return res.json({ status: 'ok', brief: cached.text, generatedAt: cached.generatedAt, cached: true });
+  }
+
+  // Fetch up to 8 recent published articles for this topic
+  const rows = await getPool().query(`
+    SELECT title, summary, published_at
+    FROM articles
+    WHERE tenant_id = $1
+      AND topic_tag = $2
+      AND is_published = 1
+      AND content_type IN ('original', 'deep-dive')
+      AND (is_archived = 0 OR is_archived IS NULL)
+    ORDER BY published_at DESC
+    LIMIT 8
+  `, [tenantId, tag]);
+
+  if (!rows.rows.length) {
+    return res.status(404).json({ status: 'error', error: 'No articles found for this topic' });
+  }
+
+  const articleBlurbs = rows.rows.map((a, i) =>
+    `${i + 1}. ${a.title}${a.summary ? '\n   ' + a.summary.slice(0, 200) : ''}`
+  ).join('\n\n');
+
+  const { complete: aiComplete } = require('../lib/ai-router');
+  const result = await aiComplete({
+    operation:  'topic-brief',
+    tenantId,
+    skipBudget: false,
+    messages: [{
+      role: 'user',
+      content: `You are a news editor briefing a busy reader on a developing story. Based on these articles, write a 3–4 sentence "catch me up" summary. Cover: what happened, who's involved, where things stand now, and what's still unresolved. Be direct and specific — no hedging phrases like "according to reports". No bullet points, just flowing prose.
+
+Articles:
+${articleBlurbs}`,
+    }],
+    temperature: 0.3,
+    maxTokens:   600,
+  });
+
+  const text = (result?.text || '').trim();
+  if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
+
+  const generatedAt = Date.now();
+  _briefCache.set(cacheKey, { text, generatedAt });
+
+  res.json({ status: 'ok', brief: text, generatedAt, cached: false });
 }));
 
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
