@@ -369,6 +369,166 @@ router.get('/updated-at', asyncHandler(async (req, res) => {
   res.json({ updatedAt: result.rows[0]?.ts || null });
 }));
 
+// GET /api/news/topic-pulse — live topic clusters ranked by tier + momentum
+// Returns up to 25 active clusters from the last 48h, each with article list and writer info.
+router.get('/topic-pulse', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId;
+  const now = Date.now();
+  const TWO_HOURS = 2 * 3600_000;
+
+  const [result, statsResult, activityResult] = await Promise.all([
+    getPool().query(`
+      SELECT a.id, a.title, a.slug, a.topic_tag, a.content_type, a.is_published,
+        a.published_at, a.created_at, a.source, a.category, a.summary,
+        a.importance, a.importance_updated_at, a.importance_locked, a.editorial_score,
+        w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1
+        AND a.topic_tag IS NOT NULL
+        AND (a.is_archived = 0 OR a.is_archived IS NULL)
+        AND a.created_at > NOW() - INTERVAL '48 hours'
+      ORDER BY a.created_at DESC
+      LIMIT 500
+    `, [tenantId]),
+
+    getPool().query(`
+      SELECT
+        COUNT(DISTINCT topic_tag) FILTER (WHERE topic_tag IS NOT NULL AND created_at > NOW() - INTERVAL '48 hours') AS active_topics,
+        COUNT(*) FILTER (WHERE content_type = 'curated' AND created_at > NOW() - INTERVAL '1 hour') AS sources_last_hour,
+        COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive') AND published_at > NOW() - INTERVAL '24 hours') AS articles_today,
+        COUNT(DISTINCT writer_id) FILTER (WHERE is_published = 1 AND published_at > NOW() - INTERVAL '24 hours' AND writer_id IS NOT NULL) AS writers_active
+      FROM articles
+      WHERE tenant_id = $1 AND (is_archived = 0 OR is_archived IS NULL)
+    `, [tenantId]),
+
+    getPool().query(`
+      SELECT ne.event_type, ne.payload, ne.created_at, ne.target_article_id,
+        a.topic_tag,
+        w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+      FROM newsroom_events ne
+      JOIN articles a ON a.id = ne.target_article_id AND a.tenant_id = ne.tenant_id
+      JOIN writers w ON w.id = ne.actor_writer_id AND w.tenant_id = ne.tenant_id
+      WHERE ne.tenant_id = $1
+        AND ne.created_at > NOW() - INTERVAL '6 hours'
+        AND a.topic_tag IS NOT NULL
+      ORDER BY ne.created_at DESC
+      LIMIT 200
+    `, [tenantId]).catch(() => ({ rows: [] })),
+  ]);
+
+  const rows = result.rows.map(serializeRow);
+
+  // Index most-recent writer activity per topic_tag
+  const activityByTag = new Map();
+  for (const ev of activityResult.rows) {
+    if (!activityByTag.has(ev.topic_tag)) {
+      activityByTag.set(ev.topic_tag, {
+        event_type:   ev.event_type,
+        writer_name:  ev.writer_name,
+        writer_slug:  ev.writer_slug,
+        avatar_url:   ev.writer_avatar_url,
+        created_at:   ev.created_at,
+      });
+    }
+  }
+
+  const sr = statsResult.rows[0] || {};
+  const stats = {
+    active_topics:    parseInt(sr.active_topics  || 0, 10),
+    sources_last_hour: parseInt(sr.sources_last_hour || 0, 10),
+    articles_today:   parseInt(sr.articles_today  || 0, 10),
+    writers_active:   parseInt(sr.writers_active  || 0, 10),
+  };
+
+  // Group by topic_tag
+  const clusterMap = new Map();
+  for (const row of rows) {
+    if (!clusterMap.has(row.topic_tag)) clusterMap.set(row.topic_tag, []);
+    clusterMap.get(row.topic_tag).push(row);
+  }
+
+  const TIER_RANK = { breaking: 4, major: 3, trending: 2, standard: 1, forming: 0 };
+
+  const clusters = [];
+  for (const [tag, articles] of clusterMap) {
+    const sources   = articles.filter(a => !a.content_type || a.content_type === 'curated');
+    const published = articles.filter(a => a.is_published == 1 && (a.content_type === 'original' || a.content_type === 'deep-dive'));
+    const forming   = published.length === 0;
+
+    // Require at least 2 items total to surface
+    if (sources.length + published.length < 2) continue;
+
+    // Momentum: curated sources arriving in the last 2h (scaled 0–5)
+    const hotSources = sources.filter(a => now - new Date(a.created_at).getTime() < TWO_HOURS).length;
+    const momentum   = Math.min(5, hotSources * 2 + Math.min(published.length, 2));
+
+    // Tier: best effective_importance of published articles, or 'forming'
+    let tier = forming ? 'forming' : 'standard';
+    if (!forming) {
+      for (const a of published) {
+        const eff  = computeEffectiveImportance(a);
+        if ((TIER_RANK[eff] || 0) > (TIER_RANK[tier] || 0)) tier = eff;
+      }
+    }
+
+    // Lead article = earliest published original
+    const sortedPublished = [...published].sort((a, b) => new Date(a.published_at) - new Date(b.published_at));
+    const lead = sortedPublished[0];
+
+    // Display name: lead article title, or most-recent curated title, or formatted tag
+    const topicName = lead?.title
+      || sources[0]?.title
+      || tag.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+    // Unique writers (published articles only)
+    const writerMap = new Map();
+    for (const a of published) {
+      if (a.writer_id && !writerMap.has(a.writer_id)) {
+        writerMap.set(a.writer_id, { id: a.writer_id, name: a.writer_name, slug: a.writer_slug, avatar_url: a.writer_avatar_url });
+      }
+    }
+
+    // Summary: use lead article's AI-generated excerpt, fall back to source titles
+    const summary = lead?.summary
+      || (sources.length ? (sources.length === 1 ? sources[0].title : `${sources.length} sources including: ${sources[0].title}`) : null);
+
+    clusters.push({
+      topic_tag:          tag,
+      topic_name:         topicName,
+      tier,
+      momentum,
+      source_count:       sources.length,
+      article_count:      published.length,
+      forming,
+      first_seen_at:      articles[articles.length - 1]?.created_at,
+      latest_at:          lead ? sortedPublished[sortedPublished.length - 1]?.published_at : sources[0]?.created_at,
+      category:           (lead || sources[0])?.category || null,
+      summary,
+      writer_activity:    activityByTag.get(tag) || null,
+      writers:            [...writerMap.values()],
+      articles:           sortedPublished.slice(0, 5).map(a => ({
+        id: a.id, title: a.title, slug: a.slug,
+        content_type: a.content_type, published_at: a.published_at,
+        writer_name: a.writer_name,
+      })),
+      sources_preview:    forming ? sources.slice(0, 3).map(a => ({
+        id: a.id, title: a.title, source: a.source, created_at: a.created_at,
+      })) : [],
+    });
+  }
+
+  // Sort: tier DESC → momentum DESC → latest_at DESC
+  clusters.sort((a, b) => {
+    const tr = (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0);
+    if (tr !== 0) return tr;
+    if (b.momentum !== a.momentum) return b.momentum - a.momentum;
+    return new Date(b.latest_at || 0) - new Date(a.latest_at || 0);
+  });
+
+  res.json({ status: 'ok', topics: clusters.slice(0, 25), stats });
+}));
+
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
 router.get('/brief', asyncHandler(async (req, res) => {
   const tenantId = req.tenantId;
