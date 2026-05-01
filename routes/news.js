@@ -376,22 +376,70 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
   const now = Date.now();
   const TWO_HOURS = 2 * 3600_000;
 
-  const result = await getPool().query(`
-    SELECT a.id, a.title, a.slug, a.topic_tag, a.content_type, a.is_published,
-      a.published_at, a.created_at, a.source, a.category,
-      a.importance, a.importance_updated_at, a.importance_locked, a.editorial_score,
-      w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
-    FROM articles a
-    LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
-    WHERE a.tenant_id = $1
-      AND a.topic_tag IS NOT NULL
-      AND (a.is_archived = 0 OR a.is_archived IS NULL)
-      AND a.created_at > NOW() - INTERVAL '48 hours'
-    ORDER BY a.created_at DESC
-    LIMIT 500
-  `, [tenantId]);
+  const [result, statsResult, activityResult] = await Promise.all([
+    getPool().query(`
+      SELECT a.id, a.title, a.slug, a.topic_tag, a.content_type, a.is_published,
+        a.published_at, a.created_at, a.source, a.category, a.summary,
+        a.importance, a.importance_updated_at, a.importance_locked, a.editorial_score,
+        w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1
+        AND a.topic_tag IS NOT NULL
+        AND (a.is_archived = 0 OR a.is_archived IS NULL)
+        AND a.created_at > NOW() - INTERVAL '48 hours'
+      ORDER BY a.created_at DESC
+      LIMIT 500
+    `, [tenantId]),
+
+    getPool().query(`
+      SELECT
+        COUNT(DISTINCT topic_tag) FILTER (WHERE topic_tag IS NOT NULL AND created_at > NOW() - INTERVAL '48 hours') AS active_topics,
+        COUNT(*) FILTER (WHERE content_type = 'curated' AND created_at > NOW() - INTERVAL '1 hour') AS sources_last_hour,
+        COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive') AND published_at > NOW() - INTERVAL '24 hours') AS articles_today,
+        COUNT(DISTINCT writer_id) FILTER (WHERE is_published = 1 AND published_at > NOW() - INTERVAL '24 hours' AND writer_id IS NOT NULL) AS writers_active
+      FROM articles
+      WHERE tenant_id = $1 AND (is_archived = 0 OR is_archived IS NULL)
+    `, [tenantId]),
+
+    getPool().query(`
+      SELECT ne.event_type, ne.payload, ne.created_at, ne.target_article_id,
+        a.topic_tag,
+        w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
+      FROM newsroom_events ne
+      JOIN articles a ON a.id = ne.target_article_id AND a.tenant_id = ne.tenant_id
+      JOIN writers w ON w.id = ne.actor_writer_id AND w.tenant_id = ne.tenant_id
+      WHERE ne.tenant_id = $1
+        AND ne.created_at > NOW() - INTERVAL '6 hours'
+        AND a.topic_tag IS NOT NULL
+      ORDER BY ne.created_at DESC
+      LIMIT 200
+    `, [tenantId]).catch(() => ({ rows: [] })),
+  ]);
 
   const rows = result.rows.map(serializeRow);
+
+  // Index most-recent writer activity per topic_tag
+  const activityByTag = new Map();
+  for (const ev of activityResult.rows) {
+    if (!activityByTag.has(ev.topic_tag)) {
+      activityByTag.set(ev.topic_tag, {
+        event_type:   ev.event_type,
+        writer_name:  ev.writer_name,
+        writer_slug:  ev.writer_slug,
+        avatar_url:   ev.writer_avatar_url,
+        created_at:   ev.created_at,
+      });
+    }
+  }
+
+  const sr = statsResult.rows[0] || {};
+  const stats = {
+    active_topics:    parseInt(sr.active_topics  || 0, 10),
+    sources_last_hour: parseInt(sr.sources_last_hour || 0, 10),
+    articles_today:   parseInt(sr.articles_today  || 0, 10),
+    writers_active:   parseInt(sr.writers_active  || 0, 10),
+  };
 
   // Group by topic_tag
   const clusterMap = new Map();
@@ -441,11 +489,9 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       }
     }
 
-    // Summary: most recent curated source titles joined, or lead excerpt
-    const summaryParts = sources.slice(0, 3).map(s => s.title).filter(Boolean);
-    const summary = summaryParts.length
-      ? summaryParts.length === 1 ? summaryParts[0] : `${summaryParts.length} sources including: ${summaryParts[0]}`
-      : null;
+    // Summary: use lead article's AI-generated excerpt, fall back to source titles
+    const summary = lead?.summary
+      || (sources.length ? (sources.length === 1 ? sources[0].title : `${sources.length} sources including: ${sources[0].title}`) : null);
 
     clusters.push({
       topic_tag:          tag,
@@ -459,6 +505,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       latest_at:          lead ? sortedPublished[sortedPublished.length - 1]?.published_at : sources[0]?.created_at,
       category:           (lead || sources[0])?.category || null,
       summary,
+      writer_activity:    activityByTag.get(tag) || null,
       writers:            [...writerMap.values()],
       articles:           sortedPublished.slice(0, 5).map(a => ({
         id: a.id, title: a.title, slug: a.slug,
@@ -479,7 +526,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     return new Date(b.latest_at || 0) - new Date(a.latest_at || 0);
   });
 
-  res.json({ status: 'ok', topics: clusters.slice(0, 25) });
+  res.json({ status: 'ok', topics: clusters.slice(0, 25), stats });
 }));
 
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
