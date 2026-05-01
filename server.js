@@ -616,12 +616,14 @@ registerJob({
         const pitches = await evaluateIncomingArticles(w.id, tenantId);
         totalPitches += pitches.length;
 
-        // Notify on new pitches
+        // Enqueue pitch notifications + 4h follow-up reminders
         if (pitches.length) {
-          const { notifyNewPitch } = require('./lib/messaging');
-          const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(w.id, tenantId);
+          const { enqueueJob } = require('./lib/jobs/queue');
+          const { JOB_TYPE } = require('./lib/jobs/constants');
+          const fourHoursOut = new Date(Date.now() + 4 * 3600_000);
           for (const p of pitches) {
-            notifyNewPitch(tenantId, p, writer).catch(() => {});
+            enqueueJob({ tenantId, type: JOB_TYPE.PITCH_WRITER, payload: { pitchId: p.id, writerId: w.id }, idempotencyKey: `pitch:${tenantId}:${p.id}` }).catch(() => {});
+            enqueueJob({ tenantId, type: JOB_TYPE.WRITER_FOLLOWUP, payload: { pitchId: p.id, writerId: w.id, followupNumber: 1 }, scheduledAt: fourHoursOut, idempotencyKey: `followup:${tenantId}:${p.id}:1` }).catch(() => {});
           }
         }
       } catch (err) {
@@ -795,17 +797,20 @@ registerJob({
 
     if (!candidates.length) return { skipped: 'No candidates', candidates: 0 };
 
-    const { generateAudioForArticle } = require('./lib/media-helpers');
-    let generated = 0;
+    const { enqueueJob } = require('./lib/jobs/queue');
+    const { JOB_TYPE } = require('./lib/jobs/constants');
+    let enqueued = 0;
     for (const article of candidates) {
-      const result = await generateAudioForArticle(article.id, tenantId);
-      if (result) {
-        generated++;
-        console.log(`[Cron] Auto-audio (tenant ${tenantId}): "${article.title}"`);
-      }
+      const { created } = await enqueueJob({
+        tenantId,
+        type:           JOB_TYPE.GENERATE_AUDIO,
+        payload:        { articleId: article.id },
+        idempotencyKey: `audio:${tenantId}:${article.id}`,
+      });
+      if (created) enqueued++;
     }
-    if (generated) console.log(`[Cron] Auto-audio (tenant ${tenantId}): generated ${generated}/${candidates.length}`);
-    return { generated, candidates: candidates.length };
+    if (enqueued) console.log(`[Cron] Auto-audio (tenant ${tenantId}): enqueued ${enqueued}/${candidates.length}`);
+    return { enqueued, candidates: candidates.length };
   },
 });
 
@@ -1272,6 +1277,41 @@ registerJob({
     }
     if (updated > 0) console.log(`[Cron] auto-recategorize (tenant ${tenantId}): ${updated}/${articles.length} articles updated`);
     return { updated, total: articles.length };
+  },
+});
+
+// ── Job queue — worker, stale recovery, purge ────────────────────────────────
+registerJob({
+  name: 'job-worker',
+  description: 'Job queue worker — polls and executes pending jobs',
+  category: 'Worker',
+  defaultSchedule: '*/15 * * * * *',   // every 15 seconds (node-cron supports seconds)
+  handler: async () => {
+    const { pollAndExecute } = require('./lib/jobs/worker');
+    return await pollAndExecute();
+  },
+});
+
+registerJob({
+  name: 'job-stale-recovery',
+  description: 'Job queue — reset stuck running jobs to pending with backoff',
+  category: 'Worker',
+  defaultSchedule: '*/2 * * * *',      // every 2 minutes
+  handler: async () => {
+    const { recoverStaleJobs } = require('./lib/jobs/worker');
+    const recovered = await recoverStaleJobs();
+    return { recovered: recovered.length };
+  },
+});
+
+registerJob({
+  name: 'job-purge',
+  description: 'Job queue — delete done/cancelled jobs >7d and failed >30d',
+  category: 'Worker',
+  defaultSchedule: '0 3 * * *',        // 3am daily
+  handler: async () => {
+    const { purgeOldJobs } = require('./lib/jobs/worker');
+    return await purgeOldJobs();
   },
 });
 
