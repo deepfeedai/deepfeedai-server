@@ -1183,4 +1183,86 @@ router.post('/backfill-embeddings', auth, requirePermission('articles.update'), 
   res.json({ ok: true, type, processed, errors, remaining: remaining?.cnt || 0 });
 }));
 
+// POST /api/articles/backfill-topic-tags — AI-cluster existing articles without a topic_tag
+// ?batch=N  (default: 80, max: 150)
+router.post('/backfill-topic-tags', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { complete: aiComplete } = require('../lib/ai-router');
+  const batchSize = Math.min(parseInt(req.query.batch) || 80, 150);
+
+  const articles = await db.prepare(`
+    SELECT id, title, summary
+    FROM articles
+    WHERE tenant_id = $1
+      AND topic_tag IS NULL
+      AND is_published = 1
+      AND content_type IN ('original', 'deep-dive')
+      AND (is_archived = 0 OR is_archived IS NULL)
+    ORDER BY published_at DESC
+    LIMIT $2
+  `).all(req.tenantId, batchSize);
+
+  if (!articles.length) {
+    return res.json({ ok: true, processed: 0, remaining: 0, message: 'All articles already have topic tags' });
+  }
+
+  // Build a compact list: ID + title + first 120 chars of summary
+  const articleLines = articles.map(a =>
+    `ID_${a.id}: ${a.title}${a.summary ? ' — ' + a.summary.slice(0, 120) : ''}`
+  ).join('\n');
+
+  const result = await aiComplete({
+    operation: 'backfill-topic-tags',
+    tenantId:  req.tenantId,
+    skipBudget: true,
+    messages: [{
+      role: 'user',
+      content: `Assign a topic tag to each news article below. Articles covering the same ongoing story MUST share the same tag.
+
+Tags must be:
+- 2–4 words, lowercase, hyphenated (e.g. "bitcoin-price-rally", "openai-board-crisis", "us-china-tariffs")
+- Specific to the event or story, not just the category
+
+Reply with exactly one line per article:
+ID_<number>: <tag>
+
+Articles:
+${articleLines}`,
+    }],
+    temperature: 0.1,
+    maxTokens: Math.max(articles.length * 20, 800),
+  });
+
+  // Parse ID_N: tag lines
+  const tagMap = new Map();
+  for (const line of (result.text || '').split('\n')) {
+    const m = line.match(/^ID_(\d+):\s*(.+)/i);
+    if (!m) continue;
+    const id  = parseInt(m[1], 10);
+    const tag = m[2].trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+    if (tag) tagMap.set(id, tag);
+  }
+
+  let processed = 0;
+  let errors    = 0;
+  for (const a of articles) {
+    const tag = tagMap.get(a.id);
+    if (!tag) { errors++; continue; }
+    try {
+      await db.prepare('UPDATE articles SET topic_tag = $1 WHERE id = $2 AND tenant_id = $3')
+        .run(tag, a.id, req.tenantId);
+      processed++;
+    } catch (err) {
+      errors++;
+      console.error(`[backfill-topic-tags] Failed for article ${a.id}:`, err.message);
+    }
+  }
+
+  const remaining = await db.prepare(
+    `SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND topic_tag IS NULL AND is_published = 1 AND content_type IN ('original', 'deep-dive') AND (is_archived = 0 OR is_archived IS NULL)`
+  ).get(req.tenantId);
+
+  logAudit(req, 'articles.backfill-topic-tags', 'articles', null, { processed, errors, remaining: remaining?.cnt || 0 });
+  res.json({ ok: true, processed, errors, remaining: remaining?.cnt || 0 });
+}));
+
 module.exports = router;
