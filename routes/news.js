@@ -579,7 +579,7 @@ Articles:
 ${articleBlurbs}`,
     }],
     temperature: 0.3,
-    maxTokens:   600,
+    maxTokens:   1200,
   });
 
   const text = (result?.text || '').trim();
