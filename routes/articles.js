@@ -1232,10 +1232,13 @@ ${articleLines}`,
     maxTokens: Math.max(articles.length * 20, 800),
   });
 
-  // Parse ID_N: tag lines
+  const rawText = result.text || '';
+
+  // Parse response — resilient to markdown decoration (-, *, **, etc.)
+  // Matches: ID_123: tag  OR  - ID_123: tag  OR  **ID_123**: tag
   const tagMap = new Map();
-  for (const line of (result.text || '').split('\n')) {
-    const m = line.match(/^ID_(\d+):\s*(.+)/i);
+  for (const line of rawText.split('\n')) {
+    const m = line.match(/[*_\-\s]*ID_?(\d+)[*_]*:\s*([^\n]+)/i);
     if (!m) continue;
     const id  = parseInt(m[1], 10);
     const tag = m[2].trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
@@ -1262,7 +1265,12 @@ ${articleLines}`,
   ).get(req.tenantId);
 
   logAudit(req, 'articles.backfill-topic-tags', 'articles', null, { processed, errors, remaining: remaining?.cnt || 0 });
-  res.json({ ok: true, processed, errors, remaining: remaining?.cnt || 0 });
+  // Include a snippet of the raw AI response to aid debugging if parse rate is low
+  const parseRate = articles.length ? Math.round(tagMap.size / articles.length * 100) : 0;
+  res.json({
+    ok: true, processed, errors, remaining: remaining?.cnt || 0,
+    ...(parseRate < 80 ? { debug_sample: rawText.slice(0, 400) } : {}),
+  });
 }));
 
 module.exports = router;
