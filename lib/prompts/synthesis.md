@@ -29,6 +29,7 @@ Requirements:
 Respond in exactly this format — no extra commentary:
 TITLE: [a specific, compelling, publication-ready headline — not generic, not clickbait]
 EXCERPT: [1-2 sentence hook that captures the article's key insight — max 280 characters]
+TOPIC_TAG: [2–4 title-case words naming the specific event or ongoing story — e.g. "OpenAI Board Crisis", "Bitcoin Price Rally", "US China Tariffs". Use the same tag across articles about the same continuing story.]
 
 [your article text with inline [1], [2] citations and [@ID] prior-coverage tags]
 
