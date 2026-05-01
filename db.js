@@ -1472,6 +1472,79 @@ async function initDb() {
     // Writing system: follow-up articles link back to their parent
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS parent_article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL`,
     `CREATE INDEX IF NOT EXISTS idx_articles_parent ON articles(parent_article_id) WHERE parent_article_id IS NOT NULL`,
+
+    // ── Job queue ──────────────────────────────────────────────────────────────
+    // To add a new job type: ALTER TABLE jobs DROP CONSTRAINT jobs_type_check;
+    // then ALTER TABLE jobs ADD CONSTRAINT jobs_type_check CHECK (job_type IN (...new list...));
+    `CREATE TABLE IF NOT EXISTS jobs (
+      id                  BIGSERIAL    PRIMARY KEY,
+      tenant_id           INTEGER      NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      job_type            TEXT         NOT NULL,
+      category            TEXT         NOT NULL,
+      priority            INTEGER      NOT NULL DEFAULT 30,
+      status              TEXT         NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending','running','done','failed','cancelled')),
+      payload             JSONB        NOT NULL DEFAULT '{}',
+      result              JSONB,
+      error_message       TEXT,
+      error_stack         TEXT,
+      attempts            INTEGER      NOT NULL DEFAULT 0,
+      max_attempts        INTEGER      NOT NULL DEFAULT 3,
+      last_error          TEXT,
+      scheduled_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      run_at              TIMESTAMPTZ,
+      finished_at         TIMESTAMPTZ,
+      stale_after_minutes INTEGER      NOT NULL DEFAULT 15,
+      parent_job_id       BIGINT       REFERENCES jobs(id) ON DELETE SET NULL,
+      idempotency_key     TEXT,
+      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      created_by          INTEGER,
+      CONSTRAINT jobs_type_check CHECK (job_type IN (
+        'synthesize','deep_dive','topic_brief','editorial_review',
+        'generate_image','generate_audio','generate_embedding',
+        'pitch_writer','writer_followup',
+        'notify_discord','notify_telegram','notify_slack','notify_email',
+        'publish_article',
+        'ingest_external',
+        'backfill_tags','backfill_embeddings',
+        'maintenance_purge','maintenance_vacuum'
+      )),
+      CONSTRAINT jobs_category_check CHECK (category IN (
+        'content_gen','media','writer_comms','notifications',
+        'publishing','ingestion','maintenance'
+      )),
+      CONSTRAINT jobs_priority_check  CHECK (priority IN (10,20,30,40,50)),
+      CONSTRAINT jobs_attempts_check  CHECK (attempts >= 0),
+      CONSTRAINT jobs_max_attempts_check CHECK (max_attempts BETWEEN 1 AND 20),
+      CONSTRAINT jobs_stale_check     CHECK (stale_after_minutes >= 1)
+    )`,
+    // Worker poll — hot path (partial index: only pending rows)
+    `CREATE INDEX IF NOT EXISTS idx_jobs_poll
+       ON jobs (tenant_id, priority ASC, scheduled_at ASC)
+       WHERE status = 'pending'`,
+    // Stale recovery scan
+    `CREATE INDEX IF NOT EXISTS idx_jobs_stale
+       ON jobs (status, run_at)
+       WHERE status = 'running'`,
+    // Parent → children lookup (job chaining)
+    `CREATE INDEX IF NOT EXISTS idx_jobs_parent
+       ON jobs (parent_job_id)
+       WHERE parent_job_id IS NOT NULL`,
+    // Admin dashboard: by tenant + status + time
+    `CREATE INDEX IF NOT EXISTS idx_jobs_admin
+       ON jobs (tenant_id, status, created_at DESC)`,
+    // Admin dashboard: filter by type
+    `CREATE INDEX IF NOT EXISTS idx_jobs_type
+       ON jobs (tenant_id, job_type, status, created_at DESC)`,
+    // Idempotency — partial so NULL keys don't participate
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency
+       ON jobs (tenant_id, idempotency_key)
+       WHERE idempotency_key IS NOT NULL`,
+    // Maintenance purge scan
+    `CREATE INDEX IF NOT EXISTS idx_jobs_cleanup
+       ON jobs (finished_at)
+       WHERE status IN ('done','failed','cancelled') AND finished_at IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
