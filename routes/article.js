@@ -87,7 +87,8 @@ router.get('/', asyncHandler(async (req, res) => {
     generated_title:        match.generated_title        || null,
     topic_tag:              match.topic_tag              || null,
     tldr_context:           match.tldr_context           || null,
-    followups:              match.followups              || [],
+    pull_quote:             match.pull_quote             || null,
+    followups:              match.followups              ?? null,
   });
 }));
 

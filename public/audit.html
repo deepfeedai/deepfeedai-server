@@ -83,6 +83,7 @@
         <button class="log-tab" data-tab="cron">Cron</button>
         <button class="log-tab" data-tab="ai-ops">AI Ops</button>
         <button class="log-tab" data-tab="health">Health</button>
+        <button class="log-tab" data-tab="queue">Queue</button>
       </div>
 
       <!-- ── Overview ── -->
@@ -207,6 +208,40 @@
         </div>
       </div>
 
+      <!-- ── Queue ── -->
+      <div id="queueSection" class="log-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+          <h3 style="margin:0;font-size:16px;">Job Queue</h3>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn btn-outline btn-sm" id="queueRefreshBtn">Refresh</button>
+            <button class="btn btn-outline btn-sm" id="queueEnqueueBtn">+ Enqueue Job</button>
+            <button class="btn btn-sm" id="queuePauseBtn" style="min-width:110px;">—</button>
+          </div>
+        </div>
+        <div class="stat-row" id="queueStats"><div class="stat-box"><div class="stat-label">Loading...</div><div class="stat-value">-</div></div></div>
+        <!-- Active / Failed jobs -->
+        <div style="margin-bottom:16px;">
+          <h4 style="margin:0 0 8px;font-size:13px;font-weight:600;color:var(--text-muted,#94a3b8);">Active &amp; Failed Jobs</h4>
+          <div class="table-wrap"><div class="table-scroll" style="max-height:35vh;">
+            <table><thead><tr><th style="width:50px">ID</th><th>Type</th><th style="width:80px">Category</th><th style="width:70px">Status</th><th style="width:65px">Attempts</th><th>Error</th><th style="width:120px">Created</th><th style="width:100px">Actions</th></tr></thead>
+            <tbody id="queueActiveBody"><tr><td colspan="8"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+          </div></div>
+        </div>
+        <!-- History -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h4 style="margin:0;font-size:13px;font-weight:600;color:var(--text-muted,#94a3b8);">Recent History (24h)</h4>
+            <select class="form-control" id="queueHistoryFilter" style="width:auto;font-size:12px;">
+              <option value="">All Types</option>
+            </select>
+          </div>
+          <div class="table-wrap"><div class="table-scroll" style="max-height:35vh;">
+            <table><thead><tr><th>Type</th><th style="width:80px">Category</th><th style="width:70px">Status</th><th style="width:75px">Duration</th><th style="width:65px">Attempts</th><th style="width:140px">Finished</th></tr></thead>
+            <tbody id="queueHistoryBody"><tr><td colspan="6"><div class="empty-state">Loading...</div></td></tr></tbody></table>
+          </div></div>
+        </div>
+      </div>
+
       <!-- ── Health ── -->
       <div id="healthSection" class="log-section">
         <h3 style="margin:0 0 12px;font-size:16px;">System Health</h3>
@@ -224,6 +259,23 @@
     <button onclick="closeDetailModal()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-muted,#94a3b8);font-size:20px;cursor:pointer;">&times;</button>
     <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;color:var(--text,#e2e8f0);">Details</h3>
     <pre id="detailModalContent" class="log-pre"></pre>
+  </div>
+</div>
+
+<!-- Enqueue Job Modal -->
+<div id="enqueueModal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+  <div style="background:var(--surface,#1e293b);border:1px solid var(--border,#334155);border-radius:12px;padding:24px;max-width:420px;width:90%;position:relative;">
+    <button onclick="closeEnqueueModal()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-muted,#94a3b8);font-size:20px;cursor:pointer;">&times;</button>
+    <h3 style="margin:0 0 16px;font-size:15px;font-weight:600;">Enqueue Job</h3>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;color:var(--text-muted,#94a3b8);display:block;margin-bottom:4px;">Job Type</label>
+      <select class="form-control" id="enqueueType" style="width:100%;"></select>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted,#94a3b8);margin:0 0 16px;">Only maintenance and utility job types can be manually enqueued.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="closeEnqueueModal()">Cancel</button>
+      <button class="btn btn-sm" id="enqueueSubmitBtn">Enqueue</button>
+    </div>
   </div>
 </div>
 

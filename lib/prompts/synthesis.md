@@ -21,6 +21,7 @@ Requirements:
 - Where sources disagree or offer different angles, highlight the contrast.
 - Close with a forward-looking "so what" — what this means for the reader and what to watch next.
 - Write {{paragraphCount}} paragraphs of analytical prose. No section headers, no bullet points, flowing paragraphs only.
+- Use **bold** to emphasize 2–4 key phrases, statistics, or critical terms per article. Use sparingly — only for genuinely important content, not decoration.
 - If you reference your OWN prior article (listed above in "recent coverage"), use the structured tag [@ID] or [@ID|short label]. The server expands this to a proper link. Examples:
     "As I noted last week [@123], the trend is clear."
     "This builds on my [@123|earlier piece] on regional consortia."
@@ -29,6 +30,7 @@ Requirements:
 Respond in exactly this format — no extra commentary:
 TITLE: [a specific, compelling, publication-ready headline — not generic, not clickbait]
 EXCERPT: [1-2 sentence hook that captures the article's key insight — max 280 characters]
+PULL_QUOTE: [the single most striking or quotable sentence from your article — a concrete finding, a sharp contrast, or a memorable claim. Must appear verbatim in the article body. Max 160 characters.]
 TOPIC_TAG: [2–4 title-case words naming the specific event or ongoing story — e.g. "OpenAI Board Crisis", "Bitcoin Price Rally", "US China Tariffs". Use the same tag across articles about the same continuing story.]
 
 [your article text with inline [1], [2] citations and [@ID] prior-coverage tags]

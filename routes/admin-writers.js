@@ -828,13 +828,14 @@ router.delete('/teams/:id', requirePermission('writers.delete'), asyncHandler(as
 // synthesis consumes them (buildWriterPrompt in lib/writer-assign.js).
 
 const VALID_PITCH_TYPES = new Set([
-  'original', 'follow_up', 'roundup', 'deep_dive', 'explainer',
+  'original', 'follow_up', 'thread_update', 'roundup', 'deep_dive', 'explainer',
   'counter_angle', 'prediction_check', 'analysis', 'breaking',
 ]);
 
 const TYPE_HINTS = {
   original:         'Fresh reporting with a clear single angle. Lead with a specific detail or quote. Short paragraphs.',
   follow_up:        'Build on a prior story. Open by naming the original; focus on what is new + what it means.',
+  thread_update:    'Advance an active story thread. Reference prior coverage in the thread; lead with what changed since the last update.',
   roundup:          'Synthesise 3+ sources on a shared topic. Structure: setup, three points with brief examples, closing take.',
   deep_dive:        'Extended feature connecting multiple sources into a broader argument. Scene-set, complicate, conclude.',
   explainer:        'Backgrounder on a topic. Assume a curious-but-unfamiliar reader. Progressive disclosure; clear definitions.',

@@ -1009,6 +1009,32 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_context TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
+    // ── Story threads (N3) ──────────────────────────────────────────
+    // First-class metadata for an ongoing story, joined to articles by
+    // (tenant_id, topic_tag). Upserted on every original/deep-dive publish
+    // and used to power thread-aware UIs (status badges, owner, "X pieces
+    // in this thread"), auto-followup dispatch, and dormancy cron.
+    `CREATE TABLE IF NOT EXISTS story_threads (
+      id               SERIAL PRIMARY KEY,
+      tenant_id        INTEGER NOT NULL,
+      topic_tag        TEXT NOT NULL,
+      name             TEXT,
+      summary          TEXT,
+      status           TEXT NOT NULL DEFAULT 'active',
+      owner_writer_id  INTEGER,
+      lead_article_id  INTEGER,
+      last_article_id  INTEGER,
+      article_count    INTEGER NOT NULL DEFAULT 0,
+      source_count     INTEGER NOT NULL DEFAULT 0,
+      first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_update_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      closed_at        TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, topic_tag)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_story_threads_tenant_status ON story_threads(tenant_id, status, last_update_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_story_threads_owner ON story_threads(tenant_id, owner_writer_id) WHERE owner_writer_id IS NOT NULL`,
     // ── Source-first pipeline ───────────────────────────────────────
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT NULL`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS enriched_summary TEXT DEFAULT NULL`,
@@ -1472,6 +1498,8 @@ async function initDb() {
     // Writing system: follow-up articles link back to their parent
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS parent_article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL`,
     `CREATE INDEX IF NOT EXISTS idx_articles_parent ON articles(parent_article_id) WHERE parent_article_id IS NOT NULL`,
+    // ── Pull quotes ──────────────────────────────────────────────
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS pull_quote TEXT`,
 
     // ── Job queue ──────────────────────────────────────────────────────────────
     // To add a new job type: ALTER TABLE jobs DROP CONSTRAINT jobs_type_check;

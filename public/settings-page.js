@@ -1543,13 +1543,39 @@ let apiKeyVisible = false;
         groups[cat].push(j);
       });
 
-      var categoryOrder = ['Content', 'Media', 'Notifications', 'Monitoring', 'Maintenance'];
-      var html = '';
+      var categoryOrder = ['Content', 'Media', 'Notifications', 'Monitoring', 'Worker', 'Maintenance'];
+
+      // Collapsed state — Worker and Maintenance closed by default
+      var DEFAULT_COLLAPSED = new Set(['Worker', 'Maintenance']);
+      var savedCollapsed;
+      try { savedCollapsed = new Set(JSON.parse(localStorage.getItem('dfa_cron_collapsed') || 'null') || []); }
+      catch(e) { savedCollapsed = new Set(DEFAULT_COLLAPSED); }
+
+      // Search + category count bar
+      var totalJobs = jobs.length;
+      var html = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">'
+        + '<input type="text" id="cronSearchInput" class="form-control form-control-sm" placeholder="Filter jobs…" style="max-width:220px;" />'
+        + '<span class="text-muted text-xs" id="cronSearchCount">' + totalJobs + ' jobs</span>'
+        + '</div>';
 
       categoryOrder.forEach(function(cat) {
         if (!groups[cat]) return;
-        html += '<div style="margin-top:20px;">';
-        html += '<h4 class="text-muted text-sm" style="margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">' + escHtml(cat) + '</h4>';
+        var isCollapsed = savedCollapsed.has(cat);
+        var catCount = groups[cat].length;
+        var errorCount = groups[cat].filter(function(j) { return j.lastRun && j.lastRun.status === 'error'; }).length;
+        var errorBadge = errorCount ? ' <span class="badge badge-danger" style="font-size:10px;">' + errorCount + ' error' + (errorCount > 1 ? 's' : '') + '</span>' : '';
+        var chevron = isCollapsed ? '▶' : '▼';
+
+        html += '<div class="cron-category-section" data-cat="' + escHtml(cat) + '" style="margin-top:16px;">';
+        html += '<button type="button" class="cron-cat-header" data-cat-toggle="' + escHtml(cat) + '" style="'
+          + 'display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;border-bottom:1px solid var(--border);'
+          + 'padding:6px 0;cursor:pointer;text-align:left;font-family:inherit;">'
+          + '<span class="cron-cat-chevron" style="font-size:10px;color:var(--muted);width:10px;">' + chevron + '</span>'
+          + '<span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);">' + escHtml(cat) + '</span>'
+          + '<span class="text-muted text-xs" style="margin-left:4px;">(' + catCount + ')</span>'
+          + errorBadge
+          + '</button>';
+        html += '<div class="cron-cat-body" data-cat-body="' + escHtml(cat) + '" style="' + (isCollapsed ? 'display:none;' : '') + 'padding-top:4px;">';
 
         groups[cat].forEach(function(job) {
           var enabled = job.enabled !== false;
@@ -1572,7 +1598,8 @@ let apiKeyVisible = false;
             }
           }
 
-          html += '<div class="dash-panel" style="margin-bottom:12px;padding:16px;" data-job="' + escHtml(job.name) + '">';
+          var searchText = (job.name + ' ' + (job.description || '') + ' ' + (job.category || '')).toLowerCase();
+          html += '<div class="dash-panel cron-job-card" style="margin-bottom:12px;padding:16px;" data-job="' + escHtml(job.name) + '" data-search-text="' + escHtml(searchText) + '">';
           html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">';
 
           // Left: name + description
@@ -1654,10 +1681,57 @@ let apiKeyVisible = false;
           html += '</div>'; // end job card
         });
 
-        html += '</div>';
+        html += '</div>'; // end cron-cat-body
+        html += '</div>'; // end cron-category-section
       });
 
       container.innerHTML = html;
+
+      // ── Collapse toggle ──────────────────────────────────────
+      container.querySelectorAll('[data-cat-toggle]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var cat = btn.dataset.catToggle;
+          var body = container.querySelector('[data-cat-body="' + cat + '"]');
+          var chevEl = btn.querySelector('.cron-cat-chevron');
+          var isNowCollapsed = body.style.display !== 'none';
+          body.style.display = isNowCollapsed ? 'none' : '';
+          if (chevEl) chevEl.textContent = isNowCollapsed ? '▶' : '▼';
+          // Persist
+          try {
+            var stored = new Set(JSON.parse(localStorage.getItem('dfa_cron_collapsed') || '[]'));
+            if (isNowCollapsed) stored.add(cat); else stored.delete(cat);
+            localStorage.setItem('dfa_cron_collapsed', JSON.stringify(Array.from(stored)));
+          } catch(e) {}
+        });
+      });
+
+      // ── Search filter ────────────────────────────────────────
+      var searchInput = document.getElementById('cronSearchInput');
+      var searchCount = document.getElementById('cronSearchCount');
+      if (searchInput) {
+        searchInput.addEventListener('input', function() {
+          var q = searchInput.value.trim().toLowerCase();
+          var visible = 0;
+          container.querySelectorAll('.cron-job-card').forEach(function(card) {
+            var match = !q || card.dataset.searchText.includes(q);
+            card.style.display = match ? '' : 'none';
+            if (match) visible++;
+          });
+          // Auto-expand sections that have visible matches; hide empty sections
+          container.querySelectorAll('.cron-category-section').forEach(function(section) {
+            var cat = section.dataset.cat;
+            var body = section.querySelector('[data-cat-body="' + cat + '"]');
+            var chevEl = section.querySelector('.cron-cat-chevron');
+            var anyVisible = Array.from(section.querySelectorAll('.cron-job-card')).some(function(c) { return c.style.display !== 'none'; });
+            section.style.display = anyVisible || !q ? '' : 'none';
+            if (q && anyVisible && body) {
+              body.style.display = '';
+              if (chevEl) chevEl.textContent = '▼';
+            }
+          });
+          if (searchCount) searchCount.textContent = (q ? visible + ' of ' : '') + totalJobs + ' jobs';
+        });
+      }
 
       // Wire up toggle handlers
       container.querySelectorAll('[data-job-toggle]').forEach(function(cb) {
@@ -1686,17 +1760,107 @@ let apiKeyVisible = false;
         });
       });
 
-      // Parse existing schedules into builder controls
+      // Parse existing schedules into builder controls (skip jobs not rendered in any category)
       jobs.forEach(function(job) {
+        if (!document.querySelector('[data-cron-interval="' + job.name + '"]')) return;
         var schedule = job.currentSchedule || job.defaultSchedule;
         parseCronToBuilder(schedule, job.name);
         updateCronPreview(job.name);
       });
 
+      // Load job queue panel
+      loadJobQueuePanel();
+
     } catch (err) {
       container.innerHTML = '<div class="empty-state">Failed to load: ' + escHtml(err.message) + '</div>';
     }
   }
+
+  async function loadJobQueuePanel() {
+    var panel = document.getElementById('jobQueuePanel');
+    if (!panel) return;
+    try {
+      var data = await apiFetch('/admin/jobs');
+      var s = data.summary;
+      var jobs = data.jobs || [];
+      var paused = !!data.paused;
+
+      var statsHtml = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">'
+        + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 16px;text-align:center;">'
+        + '<div style="font-size:20px;font-weight:700;">' + s.pending + '</div><div class="text-muted text-xs">Pending</div></div>'
+        + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 16px;text-align:center;">'
+        + '<div style="font-size:20px;font-weight:700;' + (s.running ? 'color:var(--accent)' : '') + '">' + s.running + '</div><div class="text-muted text-xs">Running</div></div>'
+        + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 16px;text-align:center;">'
+        + '<div style="font-size:20px;font-weight:700;' + (s.failed ? 'color:var(--danger)' : '') + '">' + s.failed + '</div><div class="text-muted text-xs">Failed</div></div>'
+        + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 16px;text-align:center;">'
+        + '<div style="font-size:20px;font-weight:700;color:var(--success)">' + s.doneRecent + '</div><div class="text-muted text-xs">Done (24h)</div></div>'
+        + '</div>';
+
+      var pauseLabel = paused ? 'Resume Queue' : 'Pause Queue';
+      var pauseStyle = paused ? 'color:var(--success)' : 'color:var(--danger)';
+      var controlsHtml = '<div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;">'
+        + (paused ? '<div class="text-sm" style="color:var(--warning-text,#856404);background:var(--warning-bg,#fff3cd);padding:6px 10px;border-radius:6px;">Queue is paused — no new jobs will run.</div>' : '')
+        + '<button class="btn btn-outline btn-sm" id="queuePauseSettingsBtn" style="' + pauseStyle + '">' + pauseLabel + '</button>'
+        + '<button class="btn btn-outline btn-sm" id="queueRefreshSettingsBtn">Refresh</button>'
+        + '</div>';
+
+      var tableHtml = '';
+      if (!jobs.length) {
+        tableHtml = '<div class="empty-state" style="padding:20px 0;">No active or failed jobs</div>';
+      } else {
+        var STATUS = { pending: 'badge-warning', running: 'badge-success', failed: 'badge-danger' };
+        tableHtml = '<div style="overflow-x:auto;"><table class="data-table" style="width:100%;font-size:13px;">'
+          + '<thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Attempts</th><th>Error</th><th>Created</th><th></th></tr></thead>'
+          + '<tbody>' + jobs.map(function(j) {
+            var badge = '<span class="badge ' + (STATUS[j.status] || 'badge-muted') + '">' + escHtml(j.status) + '</span>';
+            var err = j.last_error ? ('<span title="' + escHtml(j.last_error) + '" style="font-family:monospace;font-size:11px;">' + escHtml(j.last_error.slice(0, 50)) + '</span>') : '—';
+            var actions = '';
+            if (j.status === 'failed') actions += '<button class="btn btn-outline btn-sm" onclick="retryQueueJobSettings(' + j.id + ')">Retry</button> ';
+            if (j.status === 'pending' || j.status === 'running') actions += '<button class="btn btn-outline btn-sm" onclick="cancelQueueJobSettings(' + j.id + ')">Cancel</button>';
+            return '<tr>'
+              + '<td class="text-muted" style="font-family:monospace;">#' + j.id + '</td>'
+              + '<td style="font-weight:500;">' + escHtml(j.job_type) + '</td>'
+              + '<td>' + badge + '</td>'
+              + '<td class="text-muted">' + j.attempts + '/' + j.max_attempts + '</td>'
+              + '<td>' + err + '</td>'
+              + '<td class="text-muted">' + formatAge(j.created_at) + '</td>'
+              + '<td style="white-space:nowrap">' + actions + '</td>'
+              + '</tr>';
+          }).join('') + '</tbody></table></div>';
+      }
+
+      panel.innerHTML = statsHtml + controlsHtml + tableHtml;
+
+      document.getElementById('queuePauseSettingsBtn')?.addEventListener('click', async function() {
+        try {
+          await apiFetch('/admin/jobs/pause', { method: 'PUT', body: JSON.stringify({ paused: !paused }) });
+          showToast(paused ? 'Queue resumed' : 'Queue paused');
+          loadJobQueuePanel();
+        } catch (err) { showToast(err.message, 'error'); }
+      });
+      document.getElementById('queueRefreshSettingsBtn')?.addEventListener('click', loadJobQueuePanel);
+
+    } catch (err) {
+      if (panel) panel.innerHTML = '<div class="empty-state">Failed to load queue: ' + escHtml(err.message) + '</div>';
+    }
+  }
+
+  window.retryQueueJobSettings = async function(id) {
+    try {
+      await apiFetch('/admin/jobs/' + id + '/retry', { method: 'POST' });
+      showToast('Job queued for retry');
+      loadJobQueuePanel();
+    } catch (err) { showToast(err.message, 'error'); }
+  };
+
+  window.cancelQueueJobSettings = async function(id) {
+    if (!confirm('Cancel this job?')) return;
+    try {
+      await apiFetch('/admin/jobs/' + id, { method: 'DELETE' });
+      showToast('Job cancelled');
+      loadJobQueuePanel();
+    } catch (err) { showToast(err.message, 'error'); }
+  };
 
   function getScheduleOptions(jobName, defaultSchedule) {
     var presets = {
@@ -1731,11 +1895,17 @@ let apiKeyVisible = false;
   }
 
   function buildCronExpression(jobName) {
-    var interval = document.querySelector('[data-cron-interval="' + jobName + '"]').value;
-    var unit = document.querySelector('[data-cron-unit="' + jobName + '"]').value;
-    var hourLimited = document.querySelector('[data-cron-hourlimit="' + jobName + '"]').checked;
-    var hourStart = document.querySelector('[data-cron-hourstart="' + jobName + '"]').value;
-    var hourEnd = document.querySelector('[data-cron-hourend="' + jobName + '"]').value;
+    var intervalEl  = document.querySelector('[data-cron-interval="'   + jobName + '"]');
+    var unitEl      = document.querySelector('[data-cron-unit="'       + jobName + '"]');
+    var hourLimitEl = document.querySelector('[data-cron-hourlimit="'  + jobName + '"]');
+    var hourStartEl = document.querySelector('[data-cron-hourstart="'  + jobName + '"]');
+    var hourEndEl   = document.querySelector('[data-cron-hourend="'    + jobName + '"]');
+    if (!intervalEl || !unitEl || !hourLimitEl || !hourStartEl || !hourEndEl) return null;
+    var interval = intervalEl.value;
+    var unit = unitEl.value;
+    var hourLimited = hourLimitEl.checked;
+    var hourStart = hourStartEl.value;
+    var hourEnd = hourEndEl.value;
 
     var dayCheckboxes = document.querySelectorAll('[data-cron-day="' + jobName + '"]');
     var days = [];
@@ -1882,6 +2052,7 @@ let apiKeyVisible = false;
 
   function updateCronPreview(jobName) {
     var expr = buildCronExpression(jobName);
+    if (!expr) return;
     var descEl = document.querySelector('[data-cron-description="' + jobName + '"]');
     var runsEl = document.querySelector('[data-cron-nextruns="' + jobName + '"]');
     if (!descEl) return;
@@ -1918,6 +2089,7 @@ let apiKeyVisible = false;
     clearTimeout(_saveTimers[jobName]);
     _saveTimers[jobName] = setTimeout(function() {
       var expr = buildCronExpression(jobName);
+      if (!expr) return;
       var savedEl = document.querySelector('[data-cron-saved="' + jobName + '"]');
       updateCronJob(jobName, { schedule: expr }).then(function() {
         if (savedEl) {

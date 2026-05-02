@@ -59,6 +59,7 @@
       var verdict = a.editor_verdict;
       if (typeof verdict === 'string') try { verdict = JSON.parse(verdict); } catch { verdict = null; }
 
+      var hasVerdict = verdict && (verdict.score != null);
       var score = verdict?.score || 0;
       var scoreClass = score >= 7 ? 'review-score-high' : score >= 4 ? 'review-score-mid' : 'review-score-low';
       var issues = verdict?.issues || [];
@@ -78,7 +79,9 @@
             ? ' <span class="badge badge-muted" title="Synthesized from a pitch" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:11px;margin-left:6px;vertical-align:middle;">From pitch #' + fromPitch + '</span>'
             : '')
         + '</div>';
-      html += '<div class="review-score ' + scoreClass + '">' + score + '/10</div>';
+      html += hasVerdict
+        ? '<div class="review-score ' + scoreClass + '">' + score + '/10</div>'
+        : '<button class="btn btn-outline btn-sm" onclick="runEditorialReview(' + a.id + ', this)" style="font-size:11px;">Run review</button>';
       html += '</div>';
 
       html += '<div class="review-meta">';
@@ -153,6 +156,7 @@
       html += '<button class="btn btn-primary btn-sm" onclick="approveArticle(' + a.id + ')">Approve & Publish</button>';
       html += '<button class="btn btn-warning btn-sm" onclick="openRevisionModal(' + a.id + ', ' + JSON.stringify(a.title || '').replace(/"/g, '&quot;') + ')">Request Revision</button>';
       html += '<button class="btn btn-ghost btn-sm" onclick="rejectArticle(' + a.id + ')">Reject to Draft</button>';
+      if (hasVerdict) html += '<button class="btn btn-ghost btn-sm" onclick="runEditorialReview(' + a.id + ', this)" title="Re-run AI review">↻ Re-review</button>';
       html += '</div>';
       html += '</div>';
       return html;
@@ -188,6 +192,21 @@
       toast('Request failed: ' + (err.message || err), 'error');
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Request Revision'; }
+    }
+  };
+
+  window.runEditorialReview = async function (id, btn) {
+    var orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Reviewing…';
+    try {
+      await apiFetch('/articles/' + id + '/editorial-review', { method: 'POST' });
+      toast('Editorial review complete.', 'success');
+      await loadReviewQueue();
+    } catch (err) {
+      toast('Review failed: ' + (err.message || err), 'error');
+      btn.disabled = false;
+      btn.textContent = orig;
     }
   };
 

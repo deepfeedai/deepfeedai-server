@@ -335,6 +335,7 @@ app.use('/api/actions',   require('./routes/actions'));   // cross-channel signe
 app.use('/api/admin-notifications', require('./routes/admin-notifications')); // admin bell + notifications page (PR-D)
 app.use('/api/research',  require('./routes/research'));
 app.use('/api/story-board', require('./routes/story-board'));
+app.use('/api/story-threads', require('./routes/story-threads'));
 app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
 app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
 app.use('/api/sources',   require('./routes/sources'));
@@ -388,6 +389,7 @@ const { router: fetchRouter, fetchAllSources, fetchLiveSources } = require('./ro
 const cron = require('node-cron');
 app.use('/api/fetch', fetchRouter);
 app.use('/api/admin/cron', require('./routes/admin-cron'));
+app.use('/api/admin/jobs', require('./routes/admin-jobs'));
 app.use('/api/admin/metrics', require('./routes/admin-metrics'));
 app.use('/api/admin/logs', require('./routes/admin-logs'));
 

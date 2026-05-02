@@ -56,6 +56,7 @@ function switchTab(name) {
   else if (name === 'cron') loadCron();
   else if (name === 'ai-ops') loadAiOps();
   else if (name === 'health') loadHealth();
+  else if (name === 'queue') loadQueue();
 }
 
 // ── Range buttons ────────────────────────────────────────
@@ -585,6 +586,157 @@ async function loadHealth() {
   } catch (err) { showToast(err.message, 'error'); }
 }
 
+// ── Queue ─────────────────────────────────────────────────
+var queueData = null;
+var queueHistoryFilter = '';
+
+async function loadQueue() {
+  try {
+    queueData = await apiFetch('/admin/jobs?history=true');
+    renderQueueStats(queueData);
+    renderQueueActive(queueData.jobs || []);
+    renderQueueHistory(queueData.history || []);
+
+    var pauseBtn = document.getElementById('queuePauseBtn');
+    if (pauseBtn) {
+      pauseBtn.textContent = queueData.paused ? 'Resume Queue' : 'Pause Queue';
+      pauseBtn.className = 'btn btn-sm ' + (queueData.paused ? 'btn-success' : 'btn-danger');
+    }
+
+    // Populate history filter dropdown from unique job types
+    var types = [...new Set((queueData.history || []).map(function(j) { return j.job_type; }))].sort();
+    var filterSel = document.getElementById('queueHistoryFilter');
+    if (filterSel) {
+      var current = filterSel.value;
+      filterSel.innerHTML = '<option value="">All Types</option>'
+        + types.map(function(t) { return '<option value="' + esc(t) + '"' + (t === current ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+    }
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+function renderQueueStats(data) {
+  var s = data.summary || {};
+  var pausedIndicator = data.paused
+    ? '<div class="stat-box"><div class="stat-label">Queue</div><div class="stat-value" style="color:#fbbf24;font-size:14px;">PAUSED</div></div>'
+    : '<div class="stat-box"><div class="stat-label">Queue</div><div class="stat-value" style="color:#4ade80;font-size:14px;">Active</div></div>';
+  document.getElementById('queueStats').innerHTML =
+    statBox('Pending', s.pending || 0, s.pending > 0 ? 'color:#fbbf24' : '') +
+    statBox('Running', s.running || 0, s.running > 0 ? 'color:#00d9ff' : '') +
+    statBox('Failed', s.failed || 0, s.failed > 0 ? 'color:#f87171' : '') +
+    statBox('Done (24h)', s.doneRecent || 0) +
+    statBox('Total Done', s.done || 0) +
+    pausedIndicator;
+}
+
+function renderQueueActive(jobs) {
+  var tbody = document.getElementById('queueActiveBody');
+  if (!tbody) return;
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No active or failed jobs</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = jobs.map(function(j) {
+    var statusColor = j.status === 'running' ? '#00d9ff' : j.status === 'failed' ? '#f87171' : '#94a3b8';
+    var err = j.error_message || j.last_error || '';
+    var actions = '';
+    if (j.status === 'failed') actions += '<button class="btn btn-ghost btn-sm" onclick="retryQueueJob(' + j.id + ')">Retry</button> ';
+    if (j.status === 'pending' || j.status === 'running') actions += '<button class="btn btn-ghost btn-sm" style="color:#f87171" onclick="cancelQueueJob(' + j.id + ')">Cancel</button>';
+    return '<tr>'
+      + '<td class="text-muted text-sm" style="font-family:monospace;">' + j.id + '</td>'
+      + '<td class="text-sm" style="font-family:monospace;">' + esc(j.job_type) + '</td>'
+      + '<td class="text-muted text-sm">' + esc(j.category || '—') + '</td>'
+      + '<td><span style="color:' + statusColor + ';font-size:11px;font-weight:600;">' + esc(j.status) + '</span></td>'
+      + '<td class="text-sm text-center">' + j.attempts + '/' + j.max_attempts + '</td>'
+      + '<td class="text-sm text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(err) + '">' + esc(err.slice(0, 80) || '—') + '</td>'
+      + '<td class="text-muted text-sm">' + (relativeTime ? relativeTime(j.created_at) : new Date(j.created_at).toLocaleString()) + '</td>'
+      + '<td>' + actions + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function renderQueueHistory(history) {
+  var tbody = document.getElementById('queueHistoryBody');
+  if (!tbody) return;
+  var filtered = queueHistoryFilter
+    ? history.filter(function(j) { return j.job_type === queueHistoryFilter; })
+    : history;
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state">No completed jobs in last 24h</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(function(j) {
+    var statusColor = j.status === 'done' ? '#4ade80' : '#94a3b8';
+    var dur = j.duration_ms != null ? Math.round(parseFloat(j.duration_ms)) : null;
+    var durStr = dur == null ? '—' : dur < 1000 ? dur + 'ms' : (dur / 1000).toFixed(1) + 's';
+    return '<tr>'
+      + '<td class="text-sm" style="font-family:monospace;">' + esc(j.job_type) + '</td>'
+      + '<td class="text-muted text-sm">' + esc(j.category || '—') + '</td>'
+      + '<td><span style="color:' + statusColor + ';font-size:11px;font-weight:600;">' + esc(j.status) + '</span></td>'
+      + '<td class="text-sm">' + durStr + '</td>'
+      + '<td class="text-sm text-center">' + j.attempts + '</td>'
+      + '<td class="text-muted text-sm">' + (relativeTime ? relativeTime(j.finished_at) : new Date(j.finished_at).toLocaleString()) + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+window.retryQueueJob = async function(id) {
+  try {
+    await apiFetch('/admin/jobs/' + id + '/retry', { method: 'POST' });
+    showToast('Job queued for retry');
+    loadQueue();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.cancelQueueJob = async function(id) {
+  try {
+    await apiFetch('/admin/jobs/' + id, { method: 'DELETE' });
+    showToast('Job cancelled');
+    loadQueue();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+async function openEnqueueModal() {
+  var modal = document.getElementById('enqueueModal');
+  var sel = document.getElementById('enqueueType');
+  if (!modal || !sel) return;
+  try {
+    var data = await apiFetch('/admin/jobs/types');
+    sel.innerHTML = data.types.map(function(t) {
+      return '<option value="' + esc(t.type) + '">' + esc(t.type) + ' (' + esc(t.category) + ')</option>';
+    }).join('');
+  } catch (err) {
+    sel.innerHTML = '<option value="maintenance_purge">maintenance_purge</option><option value="backfill_tags">backfill_tags</option>';
+  }
+  modal.style.display = 'flex';
+}
+
+window.closeEnqueueModal = function() {
+  var modal = document.getElementById('enqueueModal');
+  if (modal) modal.style.display = 'none';
+};
+
+async function submitEnqueueJob() {
+  var sel = document.getElementById('enqueueType');
+  var type = sel ? sel.value : '';
+  if (!type) return;
+  try {
+    var result = await apiFetch('/admin/jobs/enqueue', { method: 'POST', body: JSON.stringify({ type }) });
+    closeEnqueueModal();
+    showToast(result.created ? 'Job enqueued: ' + type : 'Job already queued');
+    loadQueue();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function toggleQueuePause() {
+  if (!queueData) return;
+  var newPaused = !queueData.paused;
+  try {
+    await apiFetch('/admin/jobs/pause', { method: 'PUT', body: JSON.stringify({ paused: newPaused }) });
+    showToast(newPaused ? 'Queue paused' : 'Queue resumed');
+    loadQueue();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
 // ── Init ─────────────────────────────────────────────────
 onReady(function() {
   if (!requireAuth()) return;
@@ -601,11 +753,24 @@ onReady(function() {
     if (archBtn) archBtn.style.display = '';
   }
 
-  // Load initial tab
-  loadOverview();
+  // Load initial tab — respect URL hash for direct links (e.g. /audit.html#queue)
+  var hashTab = window.location.hash.replace('#', '');
+  var validTabs = ['overview','app-logs','requests','errors','audit','cron','ai-ops','health','queue'];
+  if (hashTab && validTabs.indexOf(hashTab) !== -1) {
+    var tabBtn = document.querySelector('.log-tab[data-tab="' + hashTab + '"]');
+    if (tabBtn) {
+      document.querySelectorAll('.log-tab').forEach(function(b) { b.classList.remove('active'); });
+      tabBtn.classList.add('active');
+      switchTab(hashTab);
+    } else {
+      loadOverview();
+    }
+  } else {
+    loadOverview();
+  }
   loadAppModules();
   window.pageRefresh = function () {
-    var tabFns = { overview: loadOverview, logs: loadAppLogs, requests: loadRequests, errors: loadErrors, audit: loadAuditLog, cron: loadCron, aiops: loadAiOps, health: loadHealth };
+    var tabFns = { overview: loadOverview, logs: loadAppLogs, requests: loadRequests, errors: loadErrors, audit: loadAuditLog, cron: loadCron, 'ai-ops': loadAiOps, health: loadHealth, queue: loadQueue };
     return (tabFns[currentTab] || loadOverview)();
   };
 
@@ -630,6 +795,22 @@ onReady(function() {
   document.getElementById('auditFrom').addEventListener('change', dAudit);
   document.getElementById('auditTo').addEventListener('change', dAudit);
   document.getElementById('auditSearch').addEventListener('input', dAudit);
+
+  // Queue buttons
+  var queueRefreshBtn = document.getElementById('queueRefreshBtn');
+  var queuePauseBtn = document.getElementById('queuePauseBtn');
+  var queueEnqueueBtn = document.getElementById('queueEnqueueBtn');
+  var queueHistoryFilterEl = document.getElementById('queueHistoryFilter');
+  if (queueRefreshBtn) queueRefreshBtn.addEventListener('click', loadQueue);
+  if (queuePauseBtn) queuePauseBtn.addEventListener('click', toggleQueuePause);
+  if (queueEnqueueBtn) queueEnqueueBtn.addEventListener('click', openEnqueueModal);
+  if (queueHistoryFilterEl) queueHistoryFilterEl.addEventListener('change', function() {
+    queueHistoryFilter = this.value;
+    if (queueData) renderQueueHistory(queueData.history || []);
+  });
+
+  var enqueueSubmitBtn = document.getElementById('enqueueSubmitBtn');
+  if (enqueueSubmitBtn) enqueueSubmitBtn.addEventListener('click', submitEnqueueJob);
 
   // Buttons
   document.getElementById('appLiveTailBtn').addEventListener('click', toggleAppLiveTail);

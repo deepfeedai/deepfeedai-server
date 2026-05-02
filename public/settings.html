@@ -945,6 +945,20 @@
           </div>
         </div>
 
+        <!-- Job Queue -->
+        <div class="settings-card" style="margin-bottom:var(--space-5);">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">&#128259;</div>
+            <div>
+              <div class="settings-card-title">Job Queue</div>
+              <div class="settings-card-subtitle">Active and failed background jobs — retry or cancel individual tasks</div>
+            </div>
+          </div>
+          <div id="jobQueuePanel" style="padding:0 20px 20px;">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
         <!-- Featured Rotation -->
         <div class="settings-card" style="margin-bottom:var(--space-5);">
           <div class="settings-card-header">
@@ -1004,10 +1018,11 @@
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">⏰</div>
-            <div>
+            <div style="flex:1;">
               <div class="settings-card-title">Scheduled Tasks</div>
               <div class="settings-card-subtitle">Manage automated jobs — enable/disable, adjust schedules, view run history</div>
             </div>
+            <a href="/audit.html#queue" target="_blank" class="btn btn-outline btn-sm" style="white-space:nowrap;">View Queue</a>
           </div>
           <div id="cronJobsList"></div>
         </div>

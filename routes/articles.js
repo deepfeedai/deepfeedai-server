@@ -317,6 +317,18 @@ router.get('/review-queue', auth, requirePermission('articles.read'), asyncHandl
   res.json({ articles: result.rows.map(serializeRow), count: result.rows.length });
 }));
 
+// POST /api/articles/:id/editorial-review — trigger AI editorial review on demand
+router.post('/:id/editorial-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare(
+    'SELECT * FROM articles WHERE id = $1 AND tenant_id = $2'
+  ).get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { editorialReview } = require('../lib/editorial');
+  const verdict = await editorialReview(article, req.tenantId, { force: true });
+  res.json({ success: true, verdict });
+}));
+
 // GET /api/articles/preview-by-slug?slug=...  (search current tenant, fallback to all)
 router.get('/preview-by-slug', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const { slug } = req.query;
@@ -1074,8 +1086,8 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
     sourceIds = raw.map(r => (typeof r === 'object' && r !== null) ? r.id : r).filter(Boolean);
   } catch { return res.status(400).json({ error: 'Cannot parse source_article_ids' }); }
 
-  if (sourceIds.length < 3) {
-    return res.status(400).json({ error: `Only ${sourceIds.length} source articles found (need 3+)` });
+  if (sourceIds.length < 2) {
+    return res.status(400).json({ error: `Only ${sourceIds.length} source articles found (need 2+)` });
   }
 
   // Fetch source articles
@@ -1085,8 +1097,8 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
     [...sourceIds, req.tenantId]
   );
 
-  if (sources.rows.length < 3) {
-    return res.status(400).json({ error: `Only ${sources.rows.length} source articles still exist (need 3+)` });
+  if (sources.rows.length < 2) {
+    return res.status(400).json({ error: `Only ${sources.rows.length} source articles still exist (need 2+)` });
   }
 
   // Get the writer
