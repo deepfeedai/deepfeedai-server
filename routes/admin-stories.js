@@ -35,6 +35,7 @@ const {
   generateStoryNameAndSummary,
   runLifecycle,
   backfill,
+  retroBackfillUnassigned,
 } = require('../lib/story-timelines');
 
 // GET / — list stories
@@ -174,6 +175,13 @@ router.post('/backfill', cronOrAuth, requirePermission('articles.update'), async
 router.post('/lifecycle', cronOrAuth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const result = await runLifecycle(req.tenantId);
   res.json({ ok: true, ...result });
+}));
+
+// POST /retro-backfill — sweep recent unassigned articles into matching stories
+router.post('/retro-backfill', cronOrAuth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const windowHours = Math.min(parseInt(req.query.hours) || 48, 168);
+  const result = await retroBackfillUnassigned(req.tenantId, { windowHours });
+  res.json({ ok: true, windowHours, ...result });
 }));
 
 module.exports = router;
