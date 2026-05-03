@@ -10,7 +10,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ## [4.15.0] — 2026-05-03
 
-Living Story Timelines — persistent named story arcs grouping articles across time.
+Living Story Timelines — persistent named story arcs grouping articles across time, with admin UI and feed inbox source support.
 
 ### Added
 
@@ -20,9 +20,18 @@ Living Story Timelines — persistent named story arcs grouping articles across 
 - **Post-publish story detection** — hook #6 in `post-publish.js` calls `detectAndAssignStories` for articles with a `topic_tag`, non-fatally. (`lib/post-publish.js`)
 - **Public stories API** — `GET /api/news/stories` (paginated list, active only), `GET /api/news/stories/:slug` (single story + articles + intensity sparkline), `GET /api/news/stories?forArticle=<id>` (stories containing a specific article for the article page widget). (`routes/stories.js`)
 - **Admin stories API** — `GET/POST/PATCH/DELETE /api/story-timelines` and sub-routes for article management, regeneration, backfill, and lifecycle. CRUD routes require `articles.update` permission; backfill + lifecycle accept `x-cron-secret` only. (`routes/admin-stories.js`)
-- **Backfill endpoint** — `POST /api/story-timelines/backfill` creates stories for topic_tags with ≥3 published articles not yet in a story; `?dry=true` for preview. (`lib/story-timelines.js`)
+- **Stories admin page** — full-featured admin UI at `/stories.html` with tabbed list (active/dormant/archived), search, sort, stats bar, detail drawer with inline name/summary editing, coverage intensity sparkline, article list with key-moment toggle and remove, add-article search (includes feed inbox sources with Source badge), archive/restore, and Maxwell regenerate. (`public/stories.html`, `public/stories-page.js`)
+- **New story modal** — create a named story manually and seed it with articles or feed inbox sources in one step. (`public/stories-page.js`)
+- **Backfill modal** — dry-run preview then one-click creation for all qualifying topic_tag clusters; includes curated feed inbox sources in the threshold count. (`public/stories-page.js`, `lib/story-timelines.js`)
 - **Lifecycle cron** — `POST /api/story-timelines/lifecycle` marks dormant/archived based on `last_activity_at`; registered as a daily 4am cron job. (`server.js`)
 - **Coverage intensity sparkline** — daily article counts for 60 days returned with story detail endpoint. (`lib/story-timelines.js`)
+- **Feed inbox sources in stories** — `articles-search` now includes `content_type='curated'` items (labeled Source) so editors can attach raw feed sources to a story; `_fetchStoryArticles` no longer filters `is_published=1`, exposing `source_url` so the public page can link to the original URL. (`routes/admin-stories.js`, `lib/story-timelines.js`)
+- **Backfill includes curated sources** — backfill query counts both published originals and curated feed inbox items toward the 3-item minimum, enabling stories to be seeded from raw source clusters before any writer covers the topic. (`lib/story-timelines.js`)
+
+### Fixed
+
+- **Archive silently failing** — `updateStory()` always appended `updated_at = NOW()` to every UPDATE, but the column was missing from the `story_timelines` CREATE TABLE definition. Added `updated_at TIMESTAMPTZ DEFAULT NOW()` and a guard migration. (`db.js`)
+- **Tenant isolation** — removed `req.tenantId || 1` fallback from audit log (entries with no tenant are now dropped), scoped cron lock keys per tenant, and added a hard guard in `lib/presence.js` requiring tenantId. (`middleware/audit.js`, `lib/cron-registry.js`, `lib/presence.js`)
 
 ---
 
