@@ -1476,6 +1476,8 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS video_key_moments JSONB   DEFAULT NULL`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS video_transcript  TEXT    DEFAULT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_articles_embed_type ON articles(tenant_id, embed_type, published_at DESC) WHERE embed_type IS NOT NULL`,
+    // Backfill: mark existing YouTube embeds as content_type='video' so they're excluded from Feed Inbox
+    `UPDATE articles SET content_type = 'video' WHERE embed_type = 'youtube' AND (content_type IS NULL OR content_type != 'video')`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

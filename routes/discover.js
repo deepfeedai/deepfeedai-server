@@ -276,12 +276,13 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
 
       const mediaEnabled = embedUrl ? 1 : 0;
 
-      const importStatus = shouldPublish ? 'published' : 'source';
+      const importStatus  = shouldPublish ? 'published' : 'source';
+      const contentType   = embedType === 'youtube' ? 'video' : 'curated';
       const row = await db.prepare(`
-        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, status, source_type, embed_url, embed_type, media_enabled, tenant_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${shouldPublish ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, $13, $14, NOW())
+        INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, status, source_type, embed_url, embed_type, content_type, media_enabled, tenant_id, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${shouldPublish ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, $13, $14, $15, NOW())
         RETURNING id
-      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, shouldPublish ? 1 : 0, importStatus, sourceType, embedUrl, embedType, mediaEnabled, req.tenantId);
+      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, shouldPublish ? 1 : 0, importStatus, sourceType, embedUrl, embedType, contentType, mediaEnabled, req.tenantId);
 
       // Auto-assign writer if requested
       if (autoAssignWriter !== false && row) {
