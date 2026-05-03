@@ -6,6 +6,30 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ## Unreleased
 
+---
+
+## [4.14.0] — 2026-05-03
+
+Topic following, editorial bulk actions, pulse quality fixes, and synthesis clustering improvements.
+
+### Added
+
+- **Topic following** — readers can follow/unfollow topic clusters directly from Pulse cards. Followed topics appear in a "Following" filter chip on the Pulse page and in a new Topics section on the user profile. Post-publish fan-out notifies followers via the notifications system when a new article is published on a followed topic. New `user_topic_follows` table with `GET/POST/DELETE /api/news/topic-pulse/following` and `POST/DELETE /api/news/topic-pulse/:tag/follow` endpoints. (#641, #642)
+- **Editorial bulk actions** — checkbox select-all and per-card checkboxes on the Editorial review queue. Bulk Approve, Reject to Draft, and Reject (discard) buttons act on all selected cards in one API call via `PUT /api/articles/bulk-action`. Permanent discard action also available per-card via `PUT /api/articles/:id/discard` (sets archived + rejected). (#638, #643)
+- **Synthesis: tighter semantic clustering** — four narrowing gates so synthesised originals stay anchored to a single story: topic_tag pre-grouping, named-entity overlap requirement, recency-weighted similarity, and cluster size cap. All gates are tunable per-tenant via settings keys. (#631)
+- **Synthesis: thread-aware follow-ups** — when a writer has published an original on the same topic_tag in the last 14 days, `synthesizeCluster` auto-promotes new pieces to follow-up mode instead of re-stating the same story. Prior arc (up to 5 pieces) is injected as context. (#632)
+- **Story threads metadata** — `story_threads` table stores per-topic thread arcs; `upsertThreadOnPublish` is called on publish for original/deep-dive articles with a topic_tag. (#633)
+- **Pull quotes** — synthesis pipeline AI-extracts a striking sentence and stores it in `articles.pull_quote`; exposed via the article API. (#622)
+- **Bold emphasis** — synthesis prompts instruct the model to bold 2–4 key phrases per article for scannability. (#622)
+- **Job Queue UI** — new Queue and History tabs in Settings → Automation; collapsible category sections and search filter for cron job list. (#622)
+
+### Fixed
+
+- **Imagen person-safety retry** — article thumbnail generation now falls back to `personGeneration='allow_adult'` when the default `dont_allow` returns no image bytes, fixing silent failures on portrait-heavy prompts. (#638)
+- **Pulse topic name** — topic card headers now derive the display name from the topic_tag slug (title-cased) rather than the lead article title, preventing titles from appearing in card headers. (#640)
+- **Pulse cluster threshold** — forming clusters (not yet published) require ≥2 distinct sources; standard published clusters require ≥1 published article. Fixes a regression where sub-threshold clusters produced phantom cards. (#640)
+- **Editorial regenerate threshold** — regenerate now requires 2+ sources (was 3+); on-demand editorial review endpoint + "Run review" button for unscored articles; articles scoring 7+ auto-publish regardless of the editorial publish flag. (#622)
+
 ### Added
 
 - feat(editorial): pitches now show attached-source count chips (red 1 / amber 2 / green 3+); approving a single-source pitch opens a "weak pitch" confirmation modal with [Enrich first] [Approve anyway] [Cancel] so users don't silently push weak pitches into editorial rejection. Articles in review now show "From pitch #N" chip when synthesized from a pitch.
