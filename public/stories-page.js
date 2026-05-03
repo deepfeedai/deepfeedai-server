@@ -510,6 +510,113 @@
     }
   };
 
+  // ── Phase 4: Backfill modal ────────────────────────────────────────────────
+  let _backfillDryResult = null;
+
+  window.openBackfillModal = async function () {
+    _backfillDryResult = null;
+    document.getElementById('backfillBody').innerHTML =
+      '<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Scanning for new story clusters…</p></div>';
+    document.getElementById('backfillRunBtn').disabled = true;
+    document.getElementById('backfillRunBtn').textContent = 'Run Backfill';
+    openModal('backfillModal');
+
+    try {
+      const data = await apiFetch('/story-timelines/backfill?dryRun=true', { method: 'POST' });
+      _backfillDryResult = data;
+      _renderBackfillPreview(data);
+    } catch (err) {
+      document.getElementById('backfillBody').innerHTML =
+        `<div class="s-empty"><div class="ei">⚠️</div><p>${esc(err.message)}</p></div>`;
+    }
+  };
+
+  function _renderBackfillPreview(data) {
+    const body = document.getElementById('backfillBody');
+    const btn  = document.getElementById('backfillRunBtn');
+    const { created = 0, skipped = 0, stories = [] } = data;
+
+    if (created === 0) {
+      body.innerHTML = `
+        <div style="text-align:center;padding:20px 10px;">
+          <div style="font-size:36px;margin-bottom:10px;">✓</div>
+          <p style="font-size:14px;font-weight:600;">Nothing to backfill</p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:6px;">
+            All topic tag clusters already have stories (${skipped} skipped).
+          </p>
+        </div>`;
+      btn.disabled = true;
+      btn.textContent = 'Nothing to create';
+      return;
+    }
+
+    const listHtml = stories.map(s =>
+      `<div class="bf-row">
+        <span class="bf-tag">${esc(s.tag)}</span>
+        <span class="bf-cnt">${s.count} article${s.count !== 1 ? 's' : ''}</span>
+      </div>`
+    ).join('');
+
+    body.innerHTML = `
+      <div class="bf-summary">
+        <div class="bf-stat"><div class="bf-stat-num" style="color:#22c55e">${created}</div><div class="bf-stat-label">Will create</div></div>
+        <div class="bf-stat"><div class="bf-stat-num">${skipped}</div><div class="bf-stat-label">Already covered</div></div>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+        The following topic clusters will each become a new story:
+      </p>
+      <div class="bf-list">${listHtml}</div>`;
+
+    btn.disabled = false;
+    btn.textContent = `Create ${created} Stor${created !== 1 ? 'ies' : 'y'}`;
+  }
+
+  window.runBackfill = async function () {
+    const btn = document.getElementById('backfillRunBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="regen-spin"></span> Creating…';
+    document.getElementById('backfillBody').innerHTML =
+      '<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Creating stories…</p></div>';
+
+    try {
+      const data = await apiFetch('/story-timelines/backfill', { method: 'POST' });
+      _renderBackfillResults(data);
+      // Refresh list in background
+      loadStories();
+    } catch (err) {
+      document.getElementById('backfillBody').innerHTML =
+        `<div class="s-empty"><div class="ei">⚠️</div><p>${esc(err.message)}</p></div>`;
+      btn.disabled = false;
+      btn.textContent = 'Retry';
+    }
+  };
+
+  function _renderBackfillResults(data) {
+    const body = document.getElementById('backfillBody');
+    const footer = document.getElementById('backfillFooter');
+    const { created = 0, skipped = 0, errors = 0, stories = [] } = data;
+
+    const listHtml = stories.map(s => `
+      <div class="bf-result-row">
+        <span style="flex:1;min-width:0;">
+          ${s.id
+            ? `<a class="bf-result-link" href="#" onclick="closeModal('backfillModal');openDrawer(${s.id});return false;">${esc(s.tag)}</a>`
+            : `<span class="bf-tag">${esc(s.tag)}</span>`}
+        </span>
+        <span class="bf-cnt">${s.count} article${s.count !== 1 ? 's' : ''}</span>
+      </div>`).join('');
+
+    body.innerHTML = `
+      <div class="bf-summary">
+        <div class="bf-stat"><div class="bf-stat-num" style="color:#22c55e">${created}</div><div class="bf-stat-label">Created</div></div>
+        <div class="bf-stat"><div class="bf-stat-num">${skipped}</div><div class="bf-stat-label">Skipped</div></div>
+        ${errors ? `<div class="bf-stat"><div class="bf-stat-num" style="color:#ef4444">${errors}</div><div class="bf-stat-label">Errors</div></div>` : ''}
+      </div>
+      ${listHtml ? `<div class="bf-list" style="margin-top:4px;">${listHtml}</div>` : ''}`;
+
+    footer.innerHTML = `<button class="btn" onclick="closeModal('backfillModal')">Done</button>`;
+  }
+
   // ── Phase 3: New Story modal ───────────────────────────────────────────────
   window.openNewStoryModal = function () {
     _newStorySelectedIds = [];

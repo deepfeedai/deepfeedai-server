@@ -172,6 +172,28 @@
     }
     .add-art-results { max-height:180px; overflow-y:auto; }
 
+    /* ── Backfill modal ──────────────────────────────────────────────────────── */
+    .bf-summary { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+    .bf-stat     {
+      flex:1; min-width:70px; background:var(--surface2); border-radius:8px;
+      padding:10px 12px; text-align:center;
+    }
+    .bf-stat-num   { font-size:20px; font-weight:700; }
+    .bf-stat-label { font-size:11px; color:var(--text-muted); margin-top:2px; }
+    .bf-list  { display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto; }
+    .bf-row   {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:6px 10px; background:var(--surface2); border-radius:6px; font-size:12px;
+    }
+    .bf-tag   { font-weight:600; }
+    .bf-cnt   { color:var(--text-muted); }
+    .bf-result-row {
+      display:flex; align-items:center; gap:8px; padding:6px 10px;
+      background:rgba(34,197,94,0.07); border-radius:6px; font-size:12px;
+    }
+    .bf-result-link { color:var(--accent,#6366f1); text-decoration:none; font-weight:600; }
+    .bf-result-link:hover { text-decoration:underline; }
+
     .regen-spin {
       display:inline-block; width:11px; height:11px;
       border:2px solid rgba(255,255,255,0.3); border-top-color:currentColor;
@@ -201,7 +223,8 @@
               <option value="count">Article Count</option>
               <option value="created">Created</option>
             </select>
-            <button class="btn btn-sm" onclick="openNewStoryModal()" style="margin-left:auto;">+ New Story</button>
+            <button class="btn btn-ghost btn-sm" onclick="openBackfillModal()" style="margin-left:auto;">⟳ Backfill</button>
+            <button class="btn btn-sm" onclick="openNewStoryModal()">+ New Story</button>
           </div>
           <div class="s-stats" id="sStats"></div>
           <div class="s-list"  id="sList">
@@ -226,6 +249,23 @@
         </div>
 
       </div><!-- /storiesLayout -->
+    </div>
+  </div>
+</div>
+
+<!-- Backfill modal -->
+<div class="modal-overlay" id="backfillModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title">Backfill Stories</div>
+      <button class="modal-close" onclick="closeModal('backfillModal')">✕</button>
+    </div>
+    <div class="modal-body" id="backfillBody">
+      <div style="text-align:center;padding:30px;"><span class="spinner"></span></div>
+    </div>
+    <div class="modal-footer" id="backfillFooter">
+      <button class="btn btn-ghost" onclick="closeModal('backfillModal')">Cancel</button>
+      <button class="btn" id="backfillRunBtn" onclick="runBackfill()" disabled>Run Backfill</button>
     </div>
   </div>
 </div>
