@@ -38,6 +38,20 @@
     .review-stat-label { font-size:12px; color:var(--muted); margin-top:4px; }
     .btn-warning { background:rgba(251,191,36,0.15); color:#fbbf24; border:1px solid rgba(251,191,36,0.3); }
     .btn-warning:hover { background:rgba(251,191,36,0.25); }
+    .btn-danger { background:rgba(239,68,68,0.12); color:#ef4444; border:1px solid rgba(239,68,68,0.3); }
+    .btn-danger:hover { background:rgba(239,68,68,0.22); }
+    /* Selection toolbar */
+    .review-select-bar { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding:10px 14px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; flex-wrap:wrap; }
+    .review-select-bar label { display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer; user-select:none; }
+    .review-select-bar input[type=checkbox] { width:15px; height:15px; cursor:pointer; accent-color:var(--accent,#6366f1); }
+    .review-select-count { font-size:13px; color:var(--muted); margin-right:4px; }
+    .review-bulk-actions { display:flex; gap:8px; margin-left:auto; flex-wrap:wrap; }
+    /* Per-card checkbox */
+    .review-card-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; gap:10px; }
+    .review-cb-wrap { display:flex; align-items:flex-start; padding-top:2px; flex-shrink:0; }
+    .review-cb-wrap input[type=checkbox] { width:15px; height:15px; cursor:pointer; accent-color:var(--accent,#6366f1); margin-top:2px; }
+    .review-card.selected { border-color:var(--accent,#6366f1); background:rgba(99,102,241,0.04); }
+    .review-title-wrap { flex:1; min-width:0; }
   </style>
 </head>
 <body>
@@ -49,6 +63,7 @@
     </div>
     <div class="page-content" style="max-width:900px;">
       <div class="review-stats" id="reviewStats"></div>
+      <div id="reviewSelectBar"></div>
       <div class="review-grid" id="reviewGrid">
         <div class="review-empty">Loading...</div>
       </div>
