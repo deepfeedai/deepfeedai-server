@@ -317,6 +317,64 @@ router.get('/review-queue', auth, requirePermission('articles.read'), asyncHandl
   res.json({ articles: result.rows.map(serializeRow), count: result.rows.length });
 }));
 
+// PUT /api/articles/bulk-action — approve / reject-draft / discard multiple articles at once
+// Must be declared before /:id routes so 'bulk-action' isn't matched as a numeric id.
+router.put('/bulk-action', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { ids, action } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  if (!['approve', 'reject-draft', 'discard'].includes(action)) {
+    return res.status(400).json({ error: 'action must be: approve, reject-draft, or discard' });
+  }
+
+  const safeIds = [...new Set(ids.map(id => parseInt(id, 10)).filter(id => Number.isFinite(id) && id > 0))];
+  if (!safeIds.length) return res.status(400).json({ error: 'no valid ids provided' });
+
+  // Verify articles belong to this tenant and are in review status
+  const ph = safeIds.map((_, i) => `$${i + 2}`).join(', ');
+  const { rows: candidates } = await getPool().query(
+    `SELECT id, title FROM articles WHERE tenant_id = $1 AND id IN (${ph}) AND status = 'review'`,
+    [req.tenantId, ...safeIds]
+  );
+  if (!candidates.length) return res.json({ processed: 0, skipped: safeIds.length });
+
+  const validIds  = candidates.map(a => a.id);
+  const vph       = validIds.map((_, i) => `$${i + 3}`).join(', ');
+  const reviewer  = req.user?.sub || null;
+
+  if (action === 'approve') {
+    await getPool().query(
+      `UPDATE articles
+       SET status = 'published', is_published = 1, is_archived = 0,
+           reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
+       WHERE tenant_id = $2 AND id IN (${vph})`,
+      [reviewer, req.tenantId, ...validIds]
+    );
+    for (const id of validIds) onArticlePublished(id, req.tenantId).catch(() => {});
+
+  } else if (action === 'reject-draft') {
+    const vph2 = validIds.map((_, i) => `$${i + 2}`).join(', ');
+    await getPool().query(
+      `UPDATE articles
+       SET status = 'draft', is_published = 0, is_archived = 0,
+           submitted_for_review_at = NULL, reviewed_by = NULL, reviewed_at = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND id IN (${vph2})`,
+      [req.tenantId, ...validIds]
+    );
+
+  } else { // discard — hard reject, archive without returning to draft
+    await getPool().query(
+      `UPDATE articles
+       SET status = 'rejected', is_published = 0, is_archived = 1,
+           reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW()
+       WHERE tenant_id = $2 AND id IN (${vph})`,
+      [reviewer, req.tenantId, ...validIds]
+    );
+  }
+
+  logAudit(req, `article.bulk-${action}`, 'articles', null, { count: validIds.length, ids: validIds });
+  res.json({ processed: validIds.length, skipped: safeIds.length - validIds.length });
+}));
+
 // POST /api/articles/:id/editorial-review — trigger AI editorial review on demand
 router.post('/:id/editorial-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const article = await db.prepare(
@@ -834,6 +892,20 @@ router.put('/:id/reject', auth, requirePermission('articles.update'), asyncHandl
     })();
   });
 
+  res.json(updated);
+}));
+
+// PUT /api/articles/:id/discard — hard reject: archive the article without returning it to draft
+router.put('/:id/discard', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be discarded' });
+  const updated = await db.prepare(`
+    UPDATE articles SET status = 'rejected', is_published = 0, is_archived = 1,
+      reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW()
+    WHERE id = $2 AND tenant_id = $3 RETURNING *
+  `).get(req.user?.sub || null, req.params.id, req.tenantId);
+  logAudit(req, 'article.discard', 'article', parseInt(req.params.id), { title: article.title });
   res.json(updated);
 }));
 

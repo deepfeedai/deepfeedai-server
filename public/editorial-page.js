@@ -5,7 +5,8 @@
 
   renderSidebar();
 
-  var articles = [];
+  var articles   = [];
+  var selectedIds = new Set();
 
   init();
   window.pageRefresh = loadReviewQueue;
@@ -27,7 +28,9 @@
     try {
       var data = await apiFetch('/articles/review-queue');
       articles = data.articles || [];
+      selectedIds.clear();
       renderStats(articles);
+      renderSelectBar();
       renderGrid(articles);
     } catch (err) {
       document.getElementById('reviewGrid').innerHTML = '<div class="review-empty">Failed to load review queue: ' + (err.message || err) + '</div>';
@@ -47,6 +50,107 @@
       '<div class="review-stat"><div class="review-stat-num">' + total + '</div><div class="review-stat-label">Pending Review</div></div>' +
       '<div class="review-stat"><div class="review-stat-num">' + avgScore + '</div><div class="review-stat-label">Avg Editor Score</div></div>';
   }
+
+  // ── Selection bar ────────────────────────────────────────────────────────────
+
+  function renderSelectBar() {
+    var bar = document.getElementById('reviewSelectBar');
+    if (!bar) return;
+    if (!articles.length) { bar.innerHTML = ''; return; }
+
+    var n        = selectedIds.size;
+    var allCount = articles.length;
+    var allChecked = n === allCount;
+    var indeterminate = n > 0 && n < allCount;
+
+    bar.innerHTML = '<div class="review-select-bar">'
+      + '<label>'
+        + '<input type="checkbox" id="selectAllCb"' + (allChecked ? ' checked' : '') + ' onchange="toggleSelectAll(this.checked)" />'
+        + (n === 0 ? 'Select all ' + allCount : n + ' of ' + allCount + ' selected')
+      + '</label>'
+      + (n > 0
+          ? '<span class="review-bulk-actions">'
+              + '<button class="btn btn-primary btn-sm" onclick="bulkAction(\'approve\')" id="ba-approve">Approve & Publish</button>'
+              + '<button class="btn btn-warning btn-sm" onclick="bulkAction(\'reject-draft\')" id="ba-reject-draft">Reject to Draft</button>'
+              + '<button class="btn btn-danger btn-sm" onclick="bulkAction(\'discard\')" id="ba-discard">Reject</button>'
+              + '<button class="btn btn-ghost btn-sm" onclick="clearSelection()">Clear</button>'
+            + '</span>'
+          : '')
+      + '</div>';
+
+    // indeterminate can only be set via JS after the element exists
+    if (indeterminate) {
+      var cb = document.getElementById('selectAllCb');
+      if (cb) cb.indeterminate = true;
+    }
+  }
+
+  window.toggleSelectAll = function (checked) {
+    if (checked) articles.forEach(function (a) { selectedIds.add(a.id); });
+    else selectedIds.clear();
+    renderSelectBar();
+    document.querySelectorAll('.review-card').forEach(function (card) {
+      var id = parseInt(card.dataset.id, 10);
+      var cb = card.querySelector('.review-cb');
+      if (cb) cb.checked = checked;
+      card.classList.toggle('selected', checked);
+    });
+  };
+
+  window.toggleCard = function (id, checked) {
+    if (checked) selectedIds.add(id);
+    else selectedIds.delete(id);
+    renderSelectBar();
+    var card = document.querySelector('.review-card[data-id="' + id + '"]');
+    if (card) card.classList.toggle('selected', checked);
+  };
+
+  window.clearSelection = function () {
+    selectedIds.clear();
+    renderSelectBar();
+    document.querySelectorAll('.review-card').forEach(function (card) {
+      card.classList.remove('selected');
+      var cb = card.querySelector('.review-cb');
+      if (cb) cb.checked = false;
+    });
+  };
+
+  // ── Bulk actions ─────────────────────────────────────────────────────────────
+
+  window.bulkAction = async function (action) {
+    if (!selectedIds.size) return;
+    var n = selectedIds.size;
+    var labels = { approve: 'Approve & Publish', 'reject-draft': 'Reject to Draft', discard: 'Reject' };
+    var confirms = {
+      approve:        'Publish ' + n + ' article' + (n > 1 ? 's' : '') + '?',
+      'reject-draft': 'Send ' + n + ' article' + (n > 1 ? 's' : '') + ' back to draft?',
+      discard:        'Permanently reject ' + n + ' article' + (n > 1 ? 's' : '') + '? They will be archived and removed from the queue.',
+    };
+    if (!confirm(confirms[action])) return;
+
+    var ids    = [...selectedIds];
+    var btnId  = 'ba-' + action;
+    var btn    = document.getElementById(btnId);
+    if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
+
+    try {
+      var result = await apiFetch('/articles/bulk-action', {
+        method: 'PUT',
+        body: JSON.stringify({ ids, action }),
+      });
+      var processed = result.processed || ids.length;
+      var skipped   = result.skipped   || 0;
+      var msg = processed + ' article' + (processed > 1 ? 's' : '') + ' updated.';
+      if (skipped) msg += ' (' + skipped + ' skipped — no longer in review)';
+      toast(msg, 'success');
+      await loadReviewQueue();
+    } catch (err) {
+      toast('Bulk action failed: ' + (err.message || err), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = labels[action]; }
+    }
+  };
+
+  // ── Grid ─────────────────────────────────────────────────────────────────────
 
   function renderGrid(list) {
     var grid = document.getElementById('reviewGrid');
@@ -72,13 +176,22 @@
       if (typeof sm === 'string') { try { sm = JSON.parse(sm); } catch { sm = null; } }
       var fromPitch = sm && sm.from_pitch ? sm.from_pitch : null;
 
-      var html = '<div class="review-card" data-id="' + a.id + '">';
+      var isSelected = selectedIds.has(a.id);
+
+      var html = '<div class="review-card' + (isSelected ? ' selected' : '') + '" data-id="' + a.id + '">';
       html += '<div class="review-card-header">';
+      // Checkbox
+      html += '<div class="review-cb-wrap"><input type="checkbox" class="review-cb"'
+        + (isSelected ? ' checked' : '')
+        + ' onchange="toggleCard(' + a.id + ', this.checked)" onclick="event.stopPropagation()" /></div>';
+      // Title + score
+      html += '<div class="review-title-wrap">';
       html += '<div class="review-title">' + esc(a.title || 'Untitled')
         + (fromPitch
             ? ' <span class="badge badge-muted" title="Synthesized from a pitch" style="background:rgba(124,58,237,0.15);color:#a78bfa;font-size:11px;margin-left:6px;vertical-align:middle;">From pitch #' + fromPitch + '</span>'
             : '')
         + '</div>';
+      html += '</div>';
       html += hasVerdict
         ? '<div class="review-score ' + scoreClass + '">' + score + '/10</div>'
         : '<button class="btn btn-outline btn-sm" onclick="runEditorialReview(' + a.id + ', this)" style="font-size:11px;">Run review</button>';
@@ -156,12 +269,15 @@
       html += '<button class="btn btn-primary btn-sm" onclick="approveArticle(' + a.id + ')">Approve & Publish</button>';
       html += '<button class="btn btn-warning btn-sm" onclick="openRevisionModal(' + a.id + ', ' + JSON.stringify(a.title || '').replace(/"/g, '&quot;') + ')">Request Revision</button>';
       html += '<button class="btn btn-ghost btn-sm" onclick="rejectArticle(' + a.id + ')">Reject to Draft</button>';
+      html += '<button class="btn btn-danger btn-sm" onclick="discardArticle(' + a.id + ')">Reject</button>';
       if (hasVerdict) html += '<button class="btn btn-ghost btn-sm" onclick="runEditorialReview(' + a.id + ', this)" title="Re-run AI review">↻ Re-review</button>';
       html += '</div>';
       html += '</div>';
       return html;
     }).join('');
   }
+
+  // ── Individual article actions ────────────────────────────────────────────────
 
   var _revisionArticleId = null;
 
@@ -224,6 +340,16 @@
     if (!confirm('Reject this article back to draft?')) return;
     try {
       await apiFetch('/articles/' + id + '/reject', { method: 'PUT' });
+      await loadReviewQueue();
+    } catch (err) {
+      alert('Reject to draft failed: ' + (err.message || err));
+    }
+  };
+
+  window.discardArticle = async function (id) {
+    if (!confirm('Permanently reject this article? It will be archived and removed from the queue.')) return;
+    try {
+      await apiFetch('/articles/' + id + '/discard', { method: 'PUT' });
       await loadReviewQueue();
     } catch (err) {
       alert('Reject failed: ' + (err.message || err));
