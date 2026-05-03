@@ -148,12 +148,19 @@ router.get('/', asyncHandler(async (req, res) => {
   const conditions = ['a.tenant_id = $1', 'a.is_published = 1', '(a.is_archived = 0 OR a.is_archived IS NULL)', "a.category != 'Uncategorized'"];
   const params = [req.tenantId];
 
-  // "Following" feed: only articles by writers the user follows
+  // "Following" feed: articles by followed writers, categories, or topic tags
   if (feed === 'following') {
     const userId = await getUserId(req);
     if (!userId) return res.status(401).json({ error: 'Unauthorized — sign in to use the following feed' });
     params.push(userId);
-    conditions.push(`a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${params.length})`);
+    const uidIdx = params.length;
+    params.push(req.tenantId);
+    const tidIdx = params.length;
+    conditions.push(
+      `(a.writer_id IN (SELECT writer_id FROM writer_follows WHERE user_id = $${uidIdx} AND tenant_id = $${tidIdx})` +
+      ` OR a.category IN (SELECT category_name FROM user_category_follows WHERE user_id = $${uidIdx} AND tenant_id = $${tidIdx})` +
+      ` OR (a.topic_tag IS NOT NULL AND a.topic_tag IN (SELECT topic_tag FROM user_topic_follows WHERE user_id = $${uidIdx} AND tenant_id = $${tidIdx})))`
+    );
   }
 
   if (category) {
@@ -380,6 +387,16 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
   const now = Date.now();
   const TWO_HOURS = 2 * 3600_000;
 
+  // Load the signed-in user's followed topics so cards can show follow state
+  const userId = await getUserId(req);
+  const followedSet = new Set();
+  if (userId) {
+    const followRows = await db.prepare(
+      'SELECT topic_tag FROM user_topic_follows WHERE user_id = $1 AND tenant_id = $2'
+    ).all(userId, tenantId).catch(() => []);
+    followRows.forEach(r => followedSet.add(r.topic_tag));
+  }
+
   const [result, statsResult, activityResult] = await Promise.all([
     getPool().query(`
       SELECT a.id, a.title, a.slug, a.topic_tag, a.content_type, a.is_published,
@@ -513,6 +530,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     clusters.push({
       topic_tag:          tag,
       topic_name:         topicName,
+      following:          followedSet.has(tag),
       tier,
       momentum,
       source_count:       sources.length,
@@ -687,6 +705,48 @@ router.get('/brief', asyncHandler(async (req, res) => {
     top_keyword: topKeyword,
     featured_synthesis: synthesis,
   });
+}));
+
+// ── Topic following ───────────────────────────────────────────────────────────
+// These endpoints are user-JWT-authenticated (same pattern as favorites).
+
+// GET /api/news/topic-pulse/following — list topic_tags the signed-in user follows
+router.get('/topic-pulse/following', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const rows = await db.prepare(
+    'SELECT topic_tag FROM user_topic_follows WHERE user_id = $1 AND tenant_id = $2 ORDER BY created_at ASC'
+  ).all(userId, req.tenantId);
+
+  res.json({ topics: rows.map(r => r.topic_tag) });
+}));
+
+// POST /api/news/topic-pulse/:tag/follow — follow a topic
+router.post('/topic-pulse/:tag/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const tag = req.params.tag;
+  if (!tag || tag.length > 200) return res.status(400).json({ error: 'Invalid topic tag' });
+
+  await db.prepare(
+    'INSERT INTO user_topic_follows (user_id, tenant_id, topic_tag) VALUES ($1, $2, $3) ON CONFLICT (user_id, tenant_id, topic_tag) DO NOTHING'
+  ).run(userId, req.tenantId, tag);
+
+  res.json({ ok: true, topic_tag: tag, following: true });
+}));
+
+// DELETE /api/news/topic-pulse/:tag/follow — unfollow a topic
+router.delete('/topic-pulse/:tag/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  await db.prepare(
+    'DELETE FROM user_topic_follows WHERE user_id = $1 AND tenant_id = $2 AND topic_tag = $3'
+  ).run(userId, req.tenantId, req.params.tag);
+
+  res.json({ ok: true, topic_tag: req.params.tag, following: false });
 }));
 
 module.exports = router;
