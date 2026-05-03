@@ -7,7 +7,7 @@
  * POST   /                     — manually create a story
  * GET    /:id                  — single story with articles
  * PATCH  /:id                  — update name / summary / status
- * DELETE /:id                  — archive a story
+ * DELETE /:id                  — permanently delete an archived story
  * POST   /:id/regenerate       — re-run Maxwell name + summary
  * POST   /:id/articles         — manually add article to story
  * DELETE /:id/articles/:aid    — remove article from story
@@ -28,6 +28,7 @@ const {
   getStoryById,
   createStory,
   updateStory,
+  deleteStory,
   addArticleToStory,
   removeArticleFromStory,
   setKeyMoment,
@@ -110,10 +111,13 @@ router.patch('/:id', auth, requirePermission('articles.update'), asyncHandler(as
   res.json({ story: updated });
 }));
 
-// DELETE /:id — archive
+// DELETE /:id — permanently delete (must be archived first)
 router.delete('/:id', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
-  const updated = await updateStory(req.tenantId, parseInt(req.params.id), { status: 'archived' });
-  if (!updated) return res.status(404).json({ error: 'story not found' });
+  const story = await getStoryById(req.tenantId, parseInt(req.params.id));
+  if (!story) return res.status(404).json({ error: 'story not found' });
+  if (story.status !== 'archived') return res.status(400).json({ error: 'story must be archived before it can be deleted' });
+  const deleted = await deleteStory(req.tenantId, parseInt(req.params.id));
+  if (!deleted) return res.status(404).json({ error: 'story not found' });
   res.json({ ok: true });
 }));
 

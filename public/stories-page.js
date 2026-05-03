@@ -222,14 +222,17 @@
     const count   = s.article_count || s.articleCount || 0;
     const status  = s.status || 'active';
 
-    // Update archive button label
+    // Update archive/delete buttons based on status
     const archiveBtn = document.getElementById('archiveBtn');
+    const deleteBtn  = document.getElementById('deleteBtn');
     if (status === 'archived') {
       archiveBtn.textContent = 'Restore';
       archiveBtn.onclick = () => restoreStory();
+      if (deleteBtn) deleteBtn.style.display = '';
     } else {
       archiveBtn.textContent = 'Archive';
       archiveBtn.onclick = () => archiveStory();
+      if (deleteBtn) deleteBtn.style.display = 'none';
     }
 
     document.getElementById('dBody').innerHTML = `
@@ -376,7 +379,10 @@
     if (!_pendingArchiveId) return;
     closeModal('archiveModal');
     try {
-      await apiFetch('/story-timelines/' + _pendingArchiveId, { method: 'DELETE' });
+      await apiFetch('/story-timelines/' + _pendingArchiveId, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'archived' }),
+      });
       const s = stories.find(s2 => s2.id === _pendingArchiveId);
       if (s) s.status = 'archived';
       if (openStoryId === _pendingArchiveId && openStory) {
@@ -389,6 +395,27 @@
       showAlert('Archive failed: ' + err.message, 'error');
     }
     _pendingArchiveId = null;
+  };
+
+  window.deleteStoryPrompt = function () {
+    const s = stories.find(s2 => s2.id === openStoryId);
+    document.getElementById('deleteStoryName').textContent = s ? s.name : '';
+    openModal('deleteModal');
+  };
+
+  window.confirmDeleteStory = async function () {
+    if (!openStoryId) return;
+    const id = openStoryId;
+    closeModal('deleteModal');
+    try {
+      await apiFetch('/story-timelines/' + id, { method: 'DELETE' });
+      stories = stories.filter(s => s.id !== id);
+      closeDrawer();
+      renderAll();
+      showAlert('Story deleted', 'success');
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
   };
 
   window.restoreStory = async function () {
