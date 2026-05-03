@@ -1,5 +1,6 @@
 let articles = [];
   let allArticles = []; // full list including archived
+  let allVideos   = []; // separately fetched videos (content_type='video')
   let writersList = []; // cached writers for dropdown
   let deleteTargetId = null;
   let sortCol = 'published_at';
@@ -141,6 +142,29 @@ let articles = [];
       const countEl = document.getElementById('filterCount');
       if (countEl) {
         countEl.textContent = `${filtered.length} draft${filtered.length !== 1 ? 's' : ''}`;
+        countEl.classList.remove('filter-count-active');
+      }
+      renderTable();
+      return;
+    }
+
+    // Videos tab — show all video articles (published + unpublished)
+    if (activeTab === 'videos') {
+      let filtered = allVideos.slice();
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a =>
+          (a.title   && a.title.toLowerCase().includes(q)) ||
+          (a.summary && a.summary.toLowerCase().includes(q))
+        );
+      }
+      filtered.sort((a, b) => new Date(b.published_at || b.created_at) - new Date(a.published_at || a.created_at));
+      articles = filtered;
+      if (!preservePage) artPage = 1;
+      else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
+      const countEl = document.getElementById('filterCount');
+      if (countEl) {
+        countEl.textContent = `${filtered.length} video${filtered.length !== 1 ? 's' : ''}`;
         countEl.classList.remove('filter-count-active');
       }
       renderTable();
@@ -334,6 +358,7 @@ let articles = [];
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
               <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
             ` : ''}
+            ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
@@ -388,6 +413,7 @@ let articles = [];
           ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
             <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
           ` : ''}
+          ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
@@ -435,6 +461,12 @@ let articles = [];
       const c = allArticles.filter(a => a.status === 'review').length;
       reviewCountEl.textContent = c || '';
       reviewCountEl.style.display = c ? 'inline-flex' : 'none';
+    }
+    const videoCountEl = document.getElementById('videoCount');
+    if (videoCountEl) {
+      const c = allVideos.length;
+      videoCountEl.textContent = c || '';
+      videoCountEl.style.display = c ? 'inline-flex' : 'none';
     }
   }
 
@@ -1345,20 +1377,23 @@ let articles = [];
     if (!preservePage && tbody) tbody.innerHTML = skeletonRows(['sk-w-sm','sk-w-full','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm','sk-w-sm'], 5);
     try {
       await loadWriters();
-      // Fetch all articles by paginating through the API (max 500 per request)
       const PAGE_SIZE = 500;
-      let all = [];
-      let offset = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const data = await apiFetch(`/articles?type=editorial&limit=${PAGE_SIZE}&offset=${offset}`);
-        const batch = Array.isArray(data) ? data : (data.articles || []);
-        all = all.concat(batch);
-        hasMore = data.hasMore === true;
-        offset += batch.length;
-        if (!batch.length) break;
+
+      // Fetch editorial articles and videos in parallel
+      async function fetchAll(type) {
+        let all = [], offset = 0, hasMore = true;
+        while (hasMore) {
+          const data = await apiFetch(`/articles?type=${type}&limit=${PAGE_SIZE}&offset=${offset}`);
+          const batch = Array.isArray(data) ? data : (data.articles || []);
+          all = all.concat(batch);
+          hasMore = data.hasMore === true;
+          offset += batch.length;
+          if (!batch.length) break;
+        }
+        return all;
       }
-      allArticles = all;
+
+      [allArticles, allVideos] = await Promise.all([fetchAll('editorial'), fetchAll('video')]);
       applyFilters({ preservePage });
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
@@ -1579,15 +1614,16 @@ let articles = [];
   }
 
   async function togglePublish(id) {
-    const a = allArticles.find(x => x.id === id);
+    const list = activeTab === 'videos' ? allVideos : allArticles;
+    const a = list.find(x => x.id === id);
     if (!a) return;
     const newVal = a.is_published ? 0 : 1;
     const newStatus = newVal ? 'published' : 'draft';
     const rollback = updateArticleRow(id, { is_published: newVal, status: newStatus });
     try {
       const result = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
-      const idx = allArticles.findIndex(x => x.id === id);
-      if (idx !== -1) Object.assign(allArticles[idx], result);
+      const idx = list.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(list[idx], result);
       rerenderRow(id);
     } catch (err) {
       rollback();
@@ -1868,7 +1904,7 @@ let articles = [];
         selectedIds.clear();
         // Show/hide "Show archived" — only relevant in All tab
         const archivedWrap = document.getElementById('showArchivedWrap');
-        if (archivedWrap) archivedWrap.style.display = (activeTab === 'published' || activeTab === 'drafts' || activeTab === 'review') ? 'none' : 'flex';
+        if (archivedWrap) archivedWrap.style.display = (activeTab === 'published' || activeTab === 'drafts' || activeTab === 'review' || activeTab === 'videos') ? 'none' : 'flex';
         // Reset search when switching tabs
         searchQuery = '';
         document.getElementById('articleSearch').value = '';
@@ -1953,13 +1989,13 @@ let articles = [];
 
     // Activate tab from URL hash (e.g. #review, #drafts)
     const hashTab = location.hash.replace('#', '');
-    if (hashTab && ['all', 'published', 'drafts', 'review'].includes(hashTab)) {
+    if (hashTab && ['all', 'published', 'drafts', 'review', 'videos'].includes(hashTab)) {
       activeTab = hashTab;
       document.querySelectorAll('.tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === hashTab);
       });
       const archivedWrap = document.getElementById('showArchivedWrap');
-      if (archivedWrap) archivedWrap.style.display = (hashTab === 'published' || hashTab === 'drafts' || hashTab === 'review') ? 'none' : 'flex';
+      if (archivedWrap) archivedWrap.style.display = (hashTab === 'published' || hashTab === 'drafts' || hashTab === 'review' || hashTab === 'videos') ? 'none' : 'flex';
       applyFilters();
     }
 

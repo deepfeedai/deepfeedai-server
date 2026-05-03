@@ -84,6 +84,9 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   if (req.query.type === 'editorial') {
     query += ` AND content_type IN ('original', 'deep-dive')`;
     countQuery += ` AND content_type IN ('original', 'deep-dive')`;
+  } else if (req.query.type === 'video') {
+    query += ` AND content_type = 'video'`;
+    countQuery += ` AND content_type = 'video'`;
   } else if (req.query.type === 'curated') {
     query += ` AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0`;
     countQuery += ` AND (content_type IS NULL OR content_type = 'curated') AND is_archived = 0`;
