@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Story Timelines</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    .stories-layout { display:flex; min-height:calc(100vh - 56px); overflow:hidden; }
+    .stories-panel  { flex:1; overflow-y:auto; padding:24px; min-width:0; }
+    .stories-drawer {
+      width:390px; min-width:390px; border-left:1px solid var(--border);
+      overflow-y:auto; background:var(--bg-card); flex-shrink:0;
+      display:none; flex-direction:column;
+      position:sticky; top:0; max-height:calc(100vh - 56px);
+    }
+    .stories-layout.drawer-open .stories-drawer { display:flex; }
+
+    /* ── Toolbar ─────────────────────────────────────────────────────────────── */
+    .stories-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
+    .stories-tabs    { display:flex; gap:4px; flex-wrap:wrap; }
+    .s-tab {
+      padding:6px 13px; border-radius:8px; border:none; background:none;
+      cursor:pointer; font-size:13px; color:var(--text-muted); transition:background 0.15s;
+    }
+    .s-tab:hover  { background:var(--surface2); }
+    .s-tab.active { background:var(--accent,#6366f1); color:#fff; }
+    .s-tab .tc    { font-size:11px; opacity:0.75; margin-left:3px; }
+
+    /* ── Stats ───────────────────────────────────────────────────────────────── */
+    .s-stats { display:flex; gap:10px; margin-bottom:20px; flex-wrap:wrap; }
+    .s-stat  {
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:10px; padding:10px 16px; text-align:center; flex:1; min-width:80px;
+    }
+    .s-stat-num   { font-size:20px; font-weight:700; }
+    .s-stat-label { font-size:11px; color:var(--text-muted); margin-top:2px; }
+
+    /* ── Story rows ──────────────────────────────────────────────────────────── */
+    .s-list { display:flex; flex-direction:column; gap:6px; }
+    .s-row  {
+      display:flex; align-items:center; gap:12px; padding:11px 13px;
+      background:var(--bg-card); border:1px solid var(--border);
+      border-radius:10px; cursor:pointer; transition:border-color 0.15s, background 0.15s;
+    }
+    .s-row:hover         { border-color:var(--accent,#6366f1); }
+    .s-row.s-row-active  { border-color:var(--accent,#6366f1); background:rgba(99,102,241,0.05); }
+    .s-cover {
+      width:46px; height:46px; border-radius:8px; flex-shrink:0;
+      background:var(--surface2); display:flex; align-items:center;
+      justify-content:center; font-size:18px; font-weight:700;
+      color:var(--text-muted); overflow:hidden;
+    }
+    .s-cover img { width:100%; height:100%; object-fit:cover; }
+    .s-main    { flex:1; min-width:0; }
+    .s-name    { font-weight:700; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .s-preview { font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+    .s-meta    { display:flex; flex-direction:column; align-items:flex-end; gap:5px; flex-shrink:0; }
+    .s-count   { font-size:12px; color:var(--text-muted); white-space:nowrap; }
+    .s-ago     { font-size:11px; color:var(--text-muted); white-space:nowrap; }
+
+    .s-badge   { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:12px; white-space:nowrap; }
+    .sb-active   { background:rgba(34,197,94,0.12);  color:#22c55e; }
+    .sb-dormant  { background:rgba(251,191,36,0.12); color:#fbbf24; }
+    .sb-archived { background:rgba(107,114,128,0.12); color:#9ca3af; }
+
+    .sparkline { display:flex; align-items:flex-end; gap:1px; height:18px; }
+    .sp-bar    { width:3px; border-radius:1px; background:var(--accent,#6366f1); opacity:0.55; min-height:2px; }
+
+    .s-empty { text-align:center; padding:60px 20px; color:var(--text-muted); }
+    .s-empty .ei { font-size:44px; margin-bottom:10px; }
+
+    /* ── Drawer ──────────────────────────────────────────────────────────────── */
+    .d-header {
+      padding:14px 18px 12px; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:8px; flex-shrink:0; position:sticky; top:0;
+      background:var(--bg-card); z-index:1;
+    }
+    .d-back {
+      background:none; border:none; cursor:pointer; color:var(--text-muted);
+      font-size:13px; padding:4px 8px; border-radius:6px; transition:background 0.15s;
+    }
+    .d-back:hover { background:var(--surface2); color:var(--text); }
+    .d-hdr-actions { margin-left:auto; display:flex; gap:6px; flex-shrink:0; }
+    .d-body        { padding:18px 20px; flex:1; }
+
+    .d-name {
+      font-size:18px; font-weight:700; line-height:1.3; cursor:text;
+      border-radius:6px; padding:3px 6px; margin:-3px -6px;
+      transition:background 0.15s; outline:none; word-break:break-word;
+      min-height:1.4em;
+    }
+    .d-name:hover                  { background:var(--surface2); }
+    .d-name[contenteditable]:focus { background:var(--surface2); box-shadow:0 0 0 2px var(--accent,#6366f1); }
+
+    .d-slug {
+      font-size:11px; color:var(--text-muted); margin-top:5px;
+      display:flex; align-items:center; gap:4px; flex-wrap:wrap;
+    }
+    .d-section       { margin-top:20px; }
+    .d-section-label {
+      font-size:11px; font-weight:700; text-transform:uppercase;
+      letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .d-textarea {
+      width:100%; box-sizing:border-box; padding:10px; background:var(--surface2);
+      border:1px solid var(--border); border-radius:8px; color:var(--text);
+      font-size:13px; line-height:1.6; resize:vertical; min-height:80px;
+      font-family:inherit;
+    }
+    .d-textarea:focus { outline:none; border-color:var(--accent,#6366f1); }
+    .d-save-row       { display:flex; justify-content:flex-end; margin-top:6px; }
+
+    .intensity-wrap {
+      display:flex; align-items:flex-end; gap:2px; height:32px;
+      background:var(--surface2); border-radius:6px; padding:4px 8px;
+    }
+    .i-bar { flex:1; border-radius:2px; background:var(--accent,#6366f1); opacity:0.6; min-height:3px; }
+
+    .a-list  { display:flex; flex-direction:column; gap:5px; margin-top:8px; }
+    .a-item  {
+      display:flex; align-items:flex-start; gap:8px; padding:8px 10px;
+      background:var(--surface2); border-radius:8px; font-size:12px;
+      border:1px solid transparent;
+    }
+    .a-item.a-key    { background:rgba(99,102,241,0.07); border-color:rgba(99,102,241,0.2); }
+    .a-date          { color:var(--text-muted); white-space:nowrap; flex-shrink:0; padding-top:1px; font-size:11px; }
+    .a-info          { flex:1; min-width:0; }
+    .a-title         { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .a-writer        { color:var(--text-muted); font-size:11px; margin-top:2px; }
+    .a-btns          { display:flex; gap:3px; flex-shrink:0; align-items:flex-start; }
+    .btn-key         { background:none; border:none; cursor:pointer; font-size:14px; padding:2px 3px; border-radius:4px; line-height:1; }
+    .btn-key:hover   { background:var(--surface2); }
+    .btn-rm          { background:none; border:none; cursor:pointer; font-size:11px; color:var(--text-muted); padding:2px 5px; border-radius:4px; }
+    .btn-rm:hover    { background:rgba(239,68,68,0.1); color:#ef4444; }
+    .rm-confirm      { display:flex; gap:4px; align-items:center; font-size:11px; }
+    .rm-confirm span { color:var(--text-muted); }
+    .rm-yes          { padding:2px 7px; font-size:11px; border-radius:4px; border:none; cursor:pointer; background:rgba(239,68,68,0.15); color:#ef4444; }
+    .rm-no           { padding:2px 7px; font-size:11px; border-radius:4px; border:none; cursor:pointer; background:var(--surface2); color:var(--text-muted); }
+
+    /* ── Article search (new story modal + drawer add) ──────────────────────── */
+    .art-result {
+      display:flex; align-items:flex-start; gap:8px; padding:7px 10px;
+      border-radius:7px; cursor:pointer; font-size:12px;
+      transition:background 0.1s;
+    }
+    .art-result:hover  { background:var(--surface2); }
+    .art-result-title  { font-weight:600; line-height:1.3; }
+    .art-result-meta   { color:var(--text-muted); font-size:11px; margin-top:2px; }
+    .art-result-add    { margin-left:auto; flex-shrink:0; font-size:18px; color:var(--accent,#6366f1); line-height:1; padding:0 2px; }
+
+    .art-pill {
+      display:inline-flex; align-items:center; gap:5px; font-size:11px;
+      background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.25);
+      border-radius:20px; padding:3px 10px 3px 8px; max-width:200px;
+    }
+    .art-pill span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .art-pill-rm   { cursor:pointer; color:var(--text-muted); font-size:14px; line-height:1; flex-shrink:0; }
+    .art-pill-rm:hover { color:#ef4444; }
+
+    /* ── Drawer add-article inline search ────────────────────────────────────── */
+    .add-art-wrap {
+      margin-top:10px; border:1px solid var(--border);
+      border-radius:8px; overflow:hidden;
+    }
+    .add-art-input {
+      width:100%; box-sizing:border-box; padding:8px 10px;
+      background:var(--surface2); border:none; color:var(--text);
+      font-size:12px; font-family:inherit; outline:none;
+    }
+    .add-art-results { max-height:180px; overflow-y:auto; }
+
+    /* ── Backfill modal ──────────────────────────────────────────────────────── */
+    .bf-summary { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+    .bf-stat     {
+      flex:1; min-width:70px; background:var(--surface2); border-radius:8px;
+      padding:10px 12px; text-align:center;
+    }
+    .bf-stat-num   { font-size:20px; font-weight:700; }
+    .bf-stat-label { font-size:11px; color:var(--text-muted); margin-top:2px; }
+    .bf-list  { display:flex; flex-direction:column; gap:4px; max-height:220px; overflow-y:auto; }
+    .bf-row   {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:6px 10px; background:var(--surface2); border-radius:6px; font-size:12px;
+    }
+    .bf-tag   { font-weight:600; }
+    .bf-cnt   { color:var(--text-muted); }
+    .bf-result-row {
+      display:flex; align-items:center; gap:8px; padding:6px 10px;
+      background:rgba(34,197,94,0.07); border-radius:6px; font-size:12px;
+    }
+    .bf-result-link { color:var(--accent,#6366f1); text-decoration:none; font-weight:600; }
+    .bf-result-link:hover { text-decoration:underline; }
+
+    .regen-spin {
+      display:inline-block; width:11px; height:11px;
+      border:2px solid rgba(255,255,255,0.3); border-top-color:currentColor;
+      border-radius:50%; animation:rspin 0.6s linear infinite; vertical-align:middle;
+    }
+    @keyframes rspin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <div class="topbar">
+      <button class="hamburger" id="hamburger">&#9776;</button>
+      <div class="topbar-title">Story Timelines</div>
+    </div>
+    <div class="page-content" style="padding:0;max-width:none;">
+      <div id="storiesLayout" class="stories-layout">
+
+        <!-- ── List panel ───────────────────────────────────────────────── -->
+        <div class="stories-panel" id="storiesPanel">
+          <div class="stories-toolbar">
+            <div class="stories-tabs" id="sTabs"></div>
+            <input type="text" id="sSearch" class="form-control"
+              placeholder="Search stories…" style="width:180px;max-width:100%;" />
+            <select id="sSort" class="form-control" style="width:auto;">
+              <option value="activity">Last Activity</option>
+              <option value="count">Article Count</option>
+              <option value="created">Created</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="openBackfillModal()" style="margin-left:auto;">⟳ Backfill</button>
+            <button class="btn btn-sm" onclick="openNewStoryModal()">+ New Story</button>
+          </div>
+          <div class="s-stats" id="sStats"></div>
+          <div class="s-list"  id="sList">
+            <div class="s-empty"><div class="ei">📖</div><p>Loading…</p></div>
+          </div>
+        </div>
+
+        <!-- ── Detail drawer ─────────────────────────────────────────────── -->
+        <div id="sDrawer" class="stories-drawer">
+          <div class="d-header">
+            <button class="d-back" onclick="closeDrawer()">← Stories</button>
+            <div class="d-hdr-actions">
+              <button class="btn btn-ghost btn-sm" id="regenBtn" onclick="regenerateStory()">&#8635; Regenerate</button>
+              <button class="btn btn-sm" id="archiveBtn"
+                style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
+                onclick="archiveStory()">Archive</button>
+            </div>
+          </div>
+          <div class="d-body" id="dBody">
+            <div style="text-align:center;padding:40px;"><span class="spinner"></span></div>
+          </div>
+        </div>
+
+      </div><!-- /storiesLayout -->
+    </div>
+  </div>
+</div>
+
+<!-- Backfill modal -->
+<div class="modal-overlay" id="backfillModal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title">Backfill Stories</div>
+      <button class="modal-close" onclick="closeModal('backfillModal')">✕</button>
+    </div>
+    <div class="modal-body" id="backfillBody">
+      <div style="text-align:center;padding:30px;"><span class="spinner"></span></div>
+    </div>
+    <div class="modal-footer" id="backfillFooter">
+      <button class="btn btn-ghost" onclick="closeModal('backfillModal')">Cancel</button>
+      <button class="btn" id="backfillRunBtn" onclick="runBackfill()" disabled>Run Backfill</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Story modal -->
+<div class="modal-overlay" id="newStoryModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title">New Story</div>
+      <button class="modal-close" onclick="closeModal('newStoryModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Story name <span style="color:#ef4444">*</span></label>
+        <input type="text" id="newStoryName" class="form-control" placeholder="e.g. AI Regulation Debate" autocomplete="off" />
+      </div>
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">Add articles (optional)</label>
+        <input type="text" id="newStorySearch" class="form-control" placeholder="Search by title or source…" autocomplete="off" />
+        <div id="newStoryResults" style="margin-top:6px;max-height:180px;overflow-y:auto;"></div>
+        <div id="newStorySelected" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('newStoryModal')">Cancel</button>
+      <button class="btn" id="newStorySubmitBtn" onclick="submitNewStory()">Create Story</button>
+    </div>
+  </div>
+</div>
+
+<!-- Archive confirm modal -->
+<div class="modal-overlay" id="archiveModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title">Archive Story</div>
+      <button class="modal-close" onclick="closeModal('archiveModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);">
+        Archive this story? It will no longer appear publicly but can be restored by changing its status.
+      </p>
+      <p style="font-size:14px;font-weight:600;margin-top:10px;" id="archiveStoryName"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('archiveModal')">Cancel</button>
+      <button class="btn btn-danger" id="archiveConfirmBtn" onclick="confirmArchive()">Archive Story</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/admin-mobile-nav.js"></script>
+<script src="/notifications-bell.js"></script>
+<script src="/stories-page.js"></script>
+</body>
+</html>

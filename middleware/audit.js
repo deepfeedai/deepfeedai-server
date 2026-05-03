@@ -16,6 +16,12 @@ function normalizeIp(ip) {
 
 async function logAudit(req, action, resource, resourceId, details) {
   try {
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      process.stderr.write(`[audit] logAudit called with no tenantId (action=${action}) — dropping entry\n`);
+      return;
+    }
+
     const user = req.user || {};
     const userId = user.sub || user.id || null;
     const userEmail = user.email || user.username || user.displayName || null;
@@ -26,7 +32,7 @@ async function logAudit(req, action, resource, resourceId, details) {
       INSERT INTO audit_log (tenant_id, user_id, user_email, action, resource, resource_id, details, ip_address, user_agent, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
     `).run(
-      req.tenantId || 1,
+      tenantId,
       userId,
       userEmail,
       action,
@@ -39,7 +45,7 @@ async function logAudit(req, action, resource, resourceId, details) {
 
     // Emit for SSE listeners
     auditEmitter.emit('entry', {
-      tenant_id: req.tenantId || 1,
+      tenant_id: tenantId,
       user_email: userEmail,
       action,
       resource,

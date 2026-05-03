@@ -3,6 +3,7 @@
  * Mounted at: /api/story-timelines (auth-guarded)
  *
  * GET    /                     — list all stories (any status)
+ * GET    /articles-search      — search published articles to attach
  * POST   /                     — manually create a story
  * GET    /:id                  — single story with articles
  * PATCH  /:id                  — update name / summary / status
@@ -18,6 +19,7 @@
 
 const express = require('express');
 const router  = express.Router();
+const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
@@ -44,6 +46,41 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
 
   const result = await listStories(req.tenantId, { status, limit, offset });
   res.json(result);
+}));
+
+// GET /articles-search — search published articles to attach to a story
+router.get('/articles-search', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const q             = (req.query.q || '').trim();
+  const excludeStory  = parseInt(req.query.exclude_story) || null;
+  const limit         = Math.min(parseInt(req.query.limit) || 20, 50);
+
+  const params = [req.tenantId, limit];
+  let excludeClause = '';
+  if (excludeStory) {
+    excludeClause = `AND a.id NOT IN (SELECT article_id FROM story_timeline_articles WHERE story_id = $${params.length + 1})`;
+    params.push(excludeStory);
+  }
+
+  let searchClause = '';
+  if (q) {
+    searchClause = `AND (a.title ILIKE $${params.length + 1} OR a.source ILIKE $${params.length + 1})`;
+    params.push(`%${q}%`);
+  }
+
+  const rows = await db.prepare(`
+    SELECT a.id, a.title, a.source, a.category, a.published_at, w.name AS writer_name
+    FROM articles a
+    LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+    WHERE a.tenant_id = $1
+      AND a.status = 'published'
+      AND a.is_archived = 0
+      ${excludeClause}
+      ${searchClause}
+    ORDER BY a.published_at DESC
+    LIMIT $2
+  `).all(...params);
+
+  res.json({ articles: rows || [] });
 }));
 
 // POST / — create story manually
