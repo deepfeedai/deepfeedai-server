@@ -1471,6 +1471,11 @@ async function initDb() {
     )`,
     `CREATE INDEX IF NOT EXISTS idx_user_topic_follows_user ON user_topic_follows(user_id, tenant_id)`,
     `CREATE INDEX IF NOT EXISTS idx_user_topic_follows_tag  ON user_topic_follows(tenant_id, topic_tag)`,
+    // Video Hub — YouTube video metadata columns
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS video_duration    INTEGER DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS video_key_moments JSONB   DEFAULT NULL`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS video_transcript  TEXT    DEFAULT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_articles_embed_type ON articles(tenant_id, embed_type, published_at DESC) WHERE embed_type IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
