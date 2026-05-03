@@ -2,32 +2,44 @@
  * Deep Feed AI — Public Story Timelines API
  * Mounted at: /api/news (via server.js, alongside news.js and videos.js)
  *
- * GET /stories              — list active stories (paginated)
- *                             ?forArticle=<id> — stories containing a specific article
- * GET /stories/:slug        — single story + articles + intensity sparkline
+ * GET  /stories                    — list stories (paginated); ?following=true for user's follows
+ *                                    ?forArticle=<id> — stories containing a specific article
+ * GET  /stories/:slug              — single story + articles + followerCount + isFollowing
+ * POST /stories/:slug/follow       — follow a story (user JWT)
+ * DELETE /stories/:slug/follow     — unfollow a story (user JWT)
  */
 'use strict';
 
 const express = require('express');
 const router  = express.Router();
+const jwt     = require('jsonwebtoken');
 const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
+const { getSecrets }   = require('../lib/secrets');
 const {
   listStories,
   getStory,
 } = require('../lib/story-timelines');
 
+async function getUserId(req) {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) return null;
+    const { userJwtSecret } = await getSecrets();
+    return jwt.verify(auth.slice(7), userJwtSecret).sub;
+  } catch { return null; }
+}
+
 // GET /stories
 router.get('/stories', asyncHandler(async (req, res) => {
-  // ?forArticle=<id> — return stories that contain this article (for article page widget)
+  // ?forArticle=<id> — stories containing a specific article (article page widget)
   if (req.query.forArticle) {
     const articleId = parseInt(req.query.forArticle, 10);
     if (!articleId) return res.json({ status: 'ok', stories: [], totalCount: 0, hasMore: false });
 
     const rows = await db.prepare(`
       SELECT st.id, st.name, st.slug, st.summary, st.status,
-             st.article_count, st.last_activity_at, st.created_at,
-             a.slug  AS cover_slug,
+             st.article_count, st.image_url, st.last_activity_at, st.created_at,
              a.image_url AS cover_image_url
       FROM story_timeline_articles sta
       JOIN story_timelines st ON st.id = sta.story_id AND st.tenant_id = sta.tenant_id
@@ -38,7 +50,48 @@ router.get('/stories', asyncHandler(async (req, res) => {
       LIMIT 5
     `).all(articleId, req.tenantId).catch(() => []);
 
-    return res.json({ status: 'ok', stories: rows, totalCount: rows.length, hasMore: false });
+    return res.json({ status: 'ok', stories: rows.map(r => ({
+      ...r,
+      imageUrl: r.image_url || r.cover_image_url || null,
+    })), totalCount: rows.length, hasMore: false });
+  }
+
+  // ?following=true — only stories the authenticated user follows
+  if (req.query.following === 'true') {
+    const userId = await getUserId(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const limit  = Math.min(parseInt(req.query.limit)  || 20, 50);
+    const offset = Math.max(parseInt(req.query.offset) || 0,  0);
+
+    const rows = await db.prepare(`
+      SELECT st.*, a.image_url AS cover_image_url
+      FROM user_story_follows usf
+      JOIN story_timelines st ON st.id = usf.story_id AND st.tenant_id = usf.tenant_id
+      LEFT JOIN articles a ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
+      WHERE usf.user_id = $1 AND usf.tenant_id = $2
+      ORDER BY st.last_activity_at DESC
+      LIMIT $3 OFFSET $4
+    `).all(userId, req.tenantId, limit, offset).catch(() => []);
+
+    const total = await db.prepare(
+      'SELECT COUNT(*)::int AS cnt FROM user_story_follows WHERE user_id = $1 AND tenant_id = $2'
+    ).get(userId, req.tenantId).catch(() => ({ cnt: 0 }));
+
+    const stories = rows.map(r => ({
+      id:             r.id,
+      name:           r.name,
+      slug:           r.slug,
+      summary:        r.summary,
+      status:         r.status,
+      articleCount:   r.article_count,
+      imageUrl:       r.image_url || r.cover_image_url || null,
+      lastActivityAt: r.last_activity_at,
+      createdAt:      r.created_at,
+      isFollowing:    true,
+    }));
+
+    return res.json({ status: 'ok', stories, totalCount: total?.cnt || 0, hasMore: offset + limit < (total?.cnt || 0) });
   }
 
   const limit  = Math.min(parseInt(req.query.limit)  || 20, 50);
@@ -56,7 +109,63 @@ router.get('/stories', asyncHandler(async (req, res) => {
 router.get('/stories/:slug', asyncHandler(async (req, res) => {
   const story = await getStory(req.tenantId, req.params.slug);
   if (!story) return res.status(404).json({ error: 'story not found' });
-  res.json({ status: 'ok', story });
+
+  const followerCount = await db.prepare(
+    'SELECT COUNT(*)::int AS cnt FROM user_story_follows WHERE story_id = $1 AND tenant_id = $2'
+  ).get(story.id, req.tenantId).then(r => r?.cnt || 0).catch(() => 0);
+
+  let isFollowing = false;
+  const userId = await getUserId(req);
+  if (userId) {
+    const row = await db.prepare(
+      'SELECT 1 FROM user_story_follows WHERE user_id = $1 AND story_id = $2'
+    ).get(userId, story.id).catch(() => null);
+    isFollowing = !!row;
+  }
+
+  res.json({ status: 'ok', story: { ...story, followerCount, isFollowing } });
+}));
+
+// POST /stories/:slug/follow
+router.post('/stories/:slug/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const story = await db.prepare(
+    'SELECT id FROM story_timelines WHERE slug = $1 AND tenant_id = $2'
+  ).get(req.params.slug, req.tenantId);
+  if (!story) return res.status(404).json({ error: 'story not found' });
+
+  await db.prepare(
+    'INSERT INTO user_story_follows (user_id, story_id, tenant_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING'
+  ).run(userId, story.id, req.tenantId);
+
+  const { cnt } = await db.prepare(
+    'SELECT COUNT(*)::int AS cnt FROM user_story_follows WHERE story_id = $1 AND tenant_id = $2'
+  ).get(story.id, req.tenantId);
+
+  res.json({ ok: true, following: true, followerCount: cnt });
+}));
+
+// DELETE /stories/:slug/follow
+router.delete('/stories/:slug/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const story = await db.prepare(
+    'SELECT id FROM story_timelines WHERE slug = $1 AND tenant_id = $2'
+  ).get(req.params.slug, req.tenantId);
+  if (!story) return res.status(404).json({ error: 'story not found' });
+
+  await db.prepare(
+    'DELETE FROM user_story_follows WHERE user_id = $1 AND story_id = $2'
+  ).run(userId, story.id);
+
+  const { cnt } = await db.prepare(
+    'SELECT COUNT(*)::int AS cnt FROM user_story_follows WHERE story_id = $1 AND tenant_id = $2'
+  ).get(story.id, req.tenantId);
+
+  res.json({ ok: true, following: false, followerCount: cnt });
 }));
 
 module.exports = router;

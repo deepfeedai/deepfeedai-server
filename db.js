@@ -1497,6 +1497,15 @@ async function initDb() {
     )`,
     `ALTER TABLE story_timelines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
     `ALTER TABLE story_timelines ADD COLUMN IF NOT EXISTS image_url VARCHAR(500)`,
+    `CREATE TABLE IF NOT EXISTS user_story_follows (
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      story_id   INTEGER NOT NULL REFERENCES story_timelines(id) ON DELETE CASCADE,
+      tenant_id  INTEGER NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (user_id, story_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_story_follows_user  ON user_story_follows(user_id, tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_story_follows_story ON user_story_follows(story_id, tenant_id)`,
     `CREATE TABLE IF NOT EXISTS story_timeline_articles (
       story_id      INTEGER NOT NULL REFERENCES story_timelines(id) ON DELETE CASCADE,
       article_id    INTEGER NOT NULL,
