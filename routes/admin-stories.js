@@ -68,12 +68,12 @@ router.get('/articles-search', auth, requirePermission('articles.read'), asyncHa
   }
 
   const rows = await db.prepare(`
-    SELECT a.id, a.title, a.source, a.category, a.published_at, w.name AS writer_name
+    SELECT a.id, a.title, a.source, a.source_url, a.category, a.content_type, a.published_at, w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
     WHERE a.tenant_id = $1
-      AND a.status = 'published'
-      AND a.is_archived = 0
+      AND (a.status = 'published' OR a.content_type = 'curated')
+      AND (a.is_archived = 0 OR a.is_archived IS NULL)
       ${excludeClause}
       ${searchClause}
     ORDER BY a.published_at DESC

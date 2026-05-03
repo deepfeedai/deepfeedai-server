@@ -643,10 +643,12 @@
       const articles = (data.articles || []).filter(a => !_newStorySelectedIds.find(s => s.id === a.id));
       if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
       el.innerHTML = articles.map(a => {
-        const date = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const date    = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const isSource = a.content_type === 'curated';
+        const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
         return `<div class="art-result" onclick="_addToNewStory(${a.id}, ${JSON.stringify(esc(a.title))})">
           <div style="flex:1;min-width:0;">
-            <div class="art-result-title">${esc(a.title)}</div>
+            <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
           </div>
           <div class="art-result-add">+</div>
@@ -731,10 +733,12 @@
       const articles = data.articles || [];
       if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
       el.innerHTML = articles.map(a => {
-        const date = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const date    = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const isSource = a.content_type === 'curated';
+        const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
         return `<div class="art-result" onclick="_attachArticleToStory(${a.id})">
           <div style="flex:1;min-width:0;">
-            <div class="art-result-title">${esc(a.title)}</div>
+            <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
           </div>
           <div class="art-result-add">+</div>
