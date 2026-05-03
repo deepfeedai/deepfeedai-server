@@ -1491,9 +1491,11 @@ async function initDb() {
       cover_article_id INTEGER,
       created_at       TIMESTAMPTZ DEFAULT NOW(),
       last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ DEFAULT NOW(),
       archived_at      TIMESTAMPTZ,
       UNIQUE(tenant_id, slug)
     )`,
+    `ALTER TABLE story_timelines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
     `CREATE TABLE IF NOT EXISTS story_timeline_articles (
       story_id      INTEGER NOT NULL REFERENCES story_timelines(id) ON DELETE CASCADE,
       article_id    INTEGER NOT NULL,
