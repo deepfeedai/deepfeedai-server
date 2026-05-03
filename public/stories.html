@@ -241,6 +241,9 @@
               <button class="btn btn-sm" id="archiveBtn"
                 style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.25);"
                 onclick="archiveStory()">Archive</button>
+              <button class="btn btn-sm" id="deleteBtn"
+                style="display:none;background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);"
+                onclick="deleteStoryPrompt()">Delete</button>
             </div>
           </div>
           <div class="d-body" id="dBody">
@@ -312,6 +315,26 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('archiveModal')">Cancel</button>
       <button class="btn btn-danger" id="archiveConfirmBtn" onclick="confirmArchive()">Archive Story</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title">Delete Story Permanently</div>
+      <button class="modal-close" onclick="closeModal('deleteModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-muted);">
+        This will permanently delete the story and remove all article associations. This cannot be undone.
+      </p>
+      <p style="font-size:14px;font-weight:600;margin-top:10px;" id="deleteStoryName"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('deleteModal')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDeleteStory()">Delete Permanently</button>
     </div>
   </div>
 </div>
