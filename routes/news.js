@@ -398,7 +398,19 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
 
     getPool().query(`
       SELECT
-        COUNT(DISTINCT topic_tag) FILTER (WHERE topic_tag IS NOT NULL AND created_at > NOW() - INTERVAL '48 hours') AS active_topics,
+        (
+          SELECT COUNT(*) FROM (
+            SELECT topic_tag,
+              COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive')) AS pub_count,
+              COUNT(*) FILTER (WHERE content_type IS NULL OR content_type = 'curated') AS src_count
+            FROM articles
+            WHERE tenant_id = $1 AND topic_tag IS NOT NULL
+              AND (is_archived = 0 OR is_archived IS NULL)
+              AND created_at > NOW() - INTERVAL '48 hours'
+            GROUP BY topic_tag
+          ) t
+          WHERE pub_count >= 1 OR src_count >= 2
+        ) AS active_topics,
         COUNT(*) FILTER (WHERE content_type = 'curated' AND created_at > NOW() - INTERVAL '1 hour') AS sources_last_hour,
         COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive') AND published_at > NOW() - INTERVAL '24 hours') AS articles_today,
         COUNT(DISTINCT writer_id) FILTER (WHERE is_published = 1 AND published_at > NOW() - INTERVAL '24 hours' AND writer_id IS NOT NULL) AS writers_active
@@ -460,8 +472,10 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     const published = articles.filter(a => a.is_published == 1 && (a.content_type === 'original' || a.content_type === 'deep-dive'));
     const forming   = published.length === 0;
 
-    // Require at least 2 items total to surface
-    if (sources.length + published.length < 2) continue;
+    // Surface forming topics only when there are 2+ sources (avoids singleton noise).
+    // Published topics always show even with a single article.
+    if (forming && sources.length < 2) continue;
+    if (!forming && published.length < 1) continue;
 
     // Momentum: curated sources arriving in the last 2h (scaled 0–5)
     const hotSources = sources.filter(a => now - new Date(a.created_at).getTime() < TWO_HOURS).length;
@@ -480,10 +494,9 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     const sortedPublished = [...published].sort((a, b) => new Date(a.published_at) - new Date(b.published_at));
     const lead = sortedPublished[0];
 
-    // Display name: lead article title, or most-recent curated title, or formatted tag
-    const topicName = lead?.title
-      || sources[0]?.title
-      || tag.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    // Display name: derive from the topic_tag slug (human-readable but distinct from article titles).
+    // Using article titles caused the topic header to duplicate the first article row.
+    const topicName = tag.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
     // Unique writers (published articles only)
     const writerMap = new Map();
