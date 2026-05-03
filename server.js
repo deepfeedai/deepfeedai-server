@@ -336,6 +336,7 @@ app.use('/api/admin-notifications', require('./routes/admin-notifications')); //
 app.use('/api/research',  require('./routes/research'));
 app.use('/api/story-board', require('./routes/story-board'));
 app.use('/api/story-threads', require('./routes/story-threads'));
+app.use('/api/story-timelines', require('./routes/admin-stories'));  // admin — living story timelines
 app.use('/api/newsroom-chat', require('./routes/newsroom-chat'));
 app.use('/api/newsroom-feed', require('./routes/newsroom-feed'));
 app.use('/api/sources',   require('./routes/sources'));
@@ -350,6 +351,7 @@ app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/news',      publicApiLimiter, require('./routes/videos'));     // public — video hub
+app.use('/api/news',      publicApiLimiter, require('./routes/stories'));    // public — story timelines
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
 if (tenantUtils.MULTI_TENANT) {
   app.use('/api/tenants', require('./routes/tenants'));    // tenant signup + slug check
@@ -1315,6 +1317,26 @@ registerJob({
   handler: async () => {
     const { purgeOldJobs } = require('./lib/jobs/worker');
     return await purgeOldJobs();
+  },
+});
+
+registerJob({
+  name: 'story-timeline-lifecycle',
+  description: 'Story timelines — mark dormant (7d quiet) and archive (14d quiet)',
+  category: 'Editorial',
+  defaultSchedule: '0 4 * * *',        // 4am daily
+  handler: async () => {
+    const { runLifecycle } = require('./lib/story-timelines');
+    const tenants = await db.prepare(
+      "SELECT DISTINCT tenant_id FROM story_timelines WHERE status IN ('active','dormant')"
+    ).all().catch(() => []);
+    let total = { dormanted: 0, archived: 0 };
+    for (const { tenant_id } of tenants) {
+      const r = await runLifecycle(tenant_id).catch(() => ({ dormanted: 0, archived: 0 }));
+      total.dormanted += r.dormanted;
+      total.archived  += r.archived;
+    }
+    return total;
   },
 });
 

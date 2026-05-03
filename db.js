@@ -1478,6 +1478,34 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_articles_embed_type ON articles(tenant_id, embed_type, published_at DESC) WHERE embed_type IS NOT NULL`,
     // Backfill: mark existing YouTube embeds as content_type='video' so they're excluded from Feed Inbox
     `UPDATE articles SET content_type = 'video' WHERE embed_type = 'youtube' AND (content_type IS NULL OR content_type != 'video')`,
+
+    // Living Story Timelines
+    `CREATE TABLE IF NOT EXISTS story_timelines (
+      id               SERIAL PRIMARY KEY,
+      tenant_id        INTEGER NOT NULL,
+      name             VARCHAR(300) NOT NULL,
+      slug             VARCHAR(320) NOT NULL,
+      summary          TEXT,
+      status           VARCHAR(20) NOT NULL DEFAULT 'active',
+      article_count    INTEGER NOT NULL DEFAULT 0,
+      cover_article_id INTEGER,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      last_activity_at TIMESTAMPTZ DEFAULT NOW(),
+      archived_at      TIMESTAMPTZ,
+      UNIQUE(tenant_id, slug)
+    )`,
+    `CREATE TABLE IF NOT EXISTS story_timeline_articles (
+      story_id      INTEGER NOT NULL REFERENCES story_timelines(id) ON DELETE CASCADE,
+      article_id    INTEGER NOT NULL,
+      tenant_id     INTEGER NOT NULL,
+      is_key_moment BOOLEAN NOT NULL DEFAULT FALSE,
+      added_at      TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (story_id, article_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_story_timelines_tenant_status
+       ON story_timelines(tenant_id, status, last_activity_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_story_timeline_articles_article
+       ON story_timeline_articles(article_id, tenant_id)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
