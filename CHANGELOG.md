@@ -8,6 +8,24 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [4.15.0] — 2026-05-03
+
+Living Story Timelines — persistent named story arcs grouping articles across time.
+
+### Added
+
+- **Living Story Timelines** — named story arcs with many-to-many article membership. Articles auto-join stories on publish via topic_tag matching + pgvector cosine similarity (≥0.78). Maxwell AI generates story names and "story so far" summaries. (`lib/story-timelines.js`, `db.js`)
+- **Story tables** — `story_timelines` and `story_timeline_articles` tables with tenant-scoped indexes. Story lifecycle: active → dormant (7 days quiet) → archived (14 days dormant). (`db.js`)
+- **Maxwell story name + summary** — `lib/prompts/story-name.md` prompt; fire-and-forget generation on story creation and on-demand regeneration. Budget-gate protected. (`lib/story-timelines.js`)
+- **Post-publish story detection** — hook #6 in `post-publish.js` calls `detectAndAssignStories` for articles with a `topic_tag`, non-fatally. (`lib/post-publish.js`)
+- **Public stories API** — `GET /api/news/stories` (paginated list, active only), `GET /api/news/stories/:slug` (single story + articles + intensity sparkline), `GET /api/news/stories?forArticle=<id>` (stories containing a specific article for the article page widget). (`routes/stories.js`)
+- **Admin stories API** — `GET/POST/PATCH/DELETE /api/story-timelines` and sub-routes for article management, regeneration, backfill, and lifecycle. CRUD routes require `articles.update` permission; backfill + lifecycle accept `x-cron-secret` only. (`routes/admin-stories.js`)
+- **Backfill endpoint** — `POST /api/story-timelines/backfill` creates stories for topic_tags with ≥3 published articles not yet in a story; `?dry=true` for preview. (`lib/story-timelines.js`)
+- **Lifecycle cron** — `POST /api/story-timelines/lifecycle` marks dormant/archived based on `last_activity_at`; registered as a daily 4am cron job. (`server.js`)
+- **Coverage intensity sparkline** — daily article counts for 60 days returned with story detail endpoint. (`lib/story-timelines.js`)
+
+---
+
 ## [4.14.0] — 2026-05-03
 
 Topic following, editorial bulk actions, pulse quality fixes, and synthesis clustering improvements.

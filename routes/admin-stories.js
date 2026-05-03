@@ -108,19 +108,28 @@ router.patch('/:id/articles/:aid', auth, requirePermission('articles.update'), a
   res.json({ ok: true });
 }));
 
-// POST /backfill — cron-secret callable (no JWT required)
-router.post('/backfill', asyncHandler(async (req, res) => {
-  const secret = req.headers['x-cron-secret'];
-  if (secret !== process.env.CRON_SECRET) return res.status(401).json({ error: 'unauthorized' });
+// Accepts a valid cron secret OR an admin JWT with articles.update permission.
+function cronOrAuth(req, res, next) {
+  const { getSecrets } = require('../lib/secrets');
+  getSecrets().then(({ cronSecret }) => {
+    const provided = req.headers['x-cron-secret'];
+    if (provided && cronSecret && provided === cronSecret) {
+      req.user = { permissions: ['*'], type: 'cron' };
+      return next();
+    }
+    auth(req, res, next);
+  }).catch(next);
+}
+
+// POST /backfill — JWT (articles.update) or cron-secret
+router.post('/backfill', cronOrAuth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const dryRun = req.query.dry === 'true' || req.body?.dryRun === true;
   const result = await backfill(req.tenantId, { dryRun });
   res.json({ ok: true, dryRun, ...result });
 }));
 
-// POST /lifecycle — cron-secret callable (no JWT required)
-router.post('/lifecycle', asyncHandler(async (req, res) => {
-  const secret = req.headers['x-cron-secret'];
-  if (secret !== process.env.CRON_SECRET) return res.status(401).json({ error: 'unauthorized' });
+// POST /lifecycle — JWT (articles.update) or cron-secret
+router.post('/lifecycle', cronOrAuth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const result = await runLifecycle(req.tenantId);
   res.json({ ok: true, ...result });
 }));
