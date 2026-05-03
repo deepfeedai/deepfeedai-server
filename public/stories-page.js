@@ -12,6 +12,13 @@
   let _regenAttempts = 0;
   let _pendingArchiveId = null;
 
+  // Phase 3: new-story modal
+  let _newStorySelectedIds = []; // [{ id, title }]
+  let _newStorySearchTimer = null;
+
+  // Phase 3: drawer add-article
+  let _addArtSearchTimer = null;
+
   // ── Boot ───────────────────────────────────────────────────────────────────
   onReady(function () {
     if (!requireAuth()) return;
@@ -248,12 +255,21 @@
       <div class="d-section">
         <div class="d-section-label">
           Articles <span style="font-weight:400;color:var(--text-muted)">${count}</span>
+          <button class="btn btn-ghost btn-sm" onclick="toggleAddArticle()" id="addArtBtn"
+            style="font-size:11px;">+ Add</button>
         </div>
         <div class="a-list" id="dArticles">${renderArticleList(s.articles || [])}</div>
+        <div id="addArtWrap" style="display:none;">
+          <div class="add-art-wrap">
+            <input class="add-art-input" id="addArtInput" placeholder="Search by title or source…" autocomplete="off" />
+            <div class="add-art-results" id="addArtResults"></div>
+          </div>
+        </div>
       </div>
     `;
 
     setupNameEdit(s);
+    setupAddArticle(s.id);
   }
 
   function renderIntensityChart(intensity) {
@@ -442,7 +458,7 @@
     if (!openStoryId) return;
     try {
       await apiFetch('/story-timelines/' + openStoryId + '/articles/' + articleId, {
-        method: 'PATCH', body: JSON.stringify({ is_key_moment: !currentlyKey }),
+        method: 'PATCH', body: JSON.stringify({ isKeyMoment: !currentlyKey }),
       });
       // Refresh drawer
       const data = await apiFetch('/story-timelines/' + openStoryId);
@@ -491,6 +507,159 @@
       renderDrawer(openStory);
     } catch (err) {
       showAlert('Failed to remove article: ' + err.message, 'error');
+    }
+  };
+
+  // ── Phase 3: New Story modal ───────────────────────────────────────────────
+  window.openNewStoryModal = function () {
+    _newStorySelectedIds = [];
+    document.getElementById('newStoryName').value    = '';
+    document.getElementById('newStorySearch').value  = '';
+    document.getElementById('newStoryResults').innerHTML = '';
+    document.getElementById('newStorySelected').innerHTML = '';
+    openModal('newStoryModal');
+    setTimeout(() => document.getElementById('newStoryName').focus(), 80);
+
+    const searchEl = document.getElementById('newStorySearch');
+    searchEl.oninput = () => {
+      clearTimeout(_newStorySearchTimer);
+      _newStorySearchTimer = setTimeout(() => _searchNewStoryArticles(searchEl.value.trim()), 280);
+    };
+  };
+
+  async function _searchNewStoryArticles(q) {
+    const el = document.getElementById('newStoryResults');
+    if (!el) return;
+    if (!q) { el.innerHTML = ''; return; }
+    try {
+      const data = await apiFetch('/story-timelines/articles-search?limit=12&q=' + encodeURIComponent(q));
+      const articles = (data.articles || []).filter(a => !_newStorySelectedIds.find(s => s.id === a.id));
+      if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
+      el.innerHTML = articles.map(a => {
+        const date = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        return `<div class="art-result" onclick="_addToNewStory(${a.id}, ${JSON.stringify(esc(a.title))})">
+          <div style="flex:1;min-width:0;">
+            <div class="art-result-title">${esc(a.title)}</div>
+            <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
+          </div>
+          <div class="art-result-add">+</div>
+        </div>`;
+      }).join('');
+    } catch { /* ignore transient errors */ }
+  }
+
+  window._addToNewStory = function (id, title) {
+    if (_newStorySelectedIds.find(s => s.id === id)) return;
+    _newStorySelectedIds.push({ id, title });
+    _renderNewStoryPills();
+    document.getElementById('newStoryResults').innerHTML = '';
+    document.getElementById('newStorySearch').value = '';
+  };
+
+  function _renderNewStoryPills() {
+    const el = document.getElementById('newStorySelected');
+    if (!el) return;
+    el.innerHTML = _newStorySelectedIds.map(s =>
+      `<span class="art-pill">
+        <span>${esc(s.title)}</span>
+        <span class="art-pill-rm" onclick="_removeFromNewStory(${s.id})">×</span>
+      </span>`
+    ).join('');
+  }
+
+  window._removeFromNewStory = function (id) {
+    _newStorySelectedIds = _newStorySelectedIds.filter(s => s.id !== id);
+    _renderNewStoryPills();
+  };
+
+  window.submitNewStory = async function () {
+    const name = (document.getElementById('newStoryName').value || '').trim();
+    if (!name) { document.getElementById('newStoryName').focus(); return; }
+    const btn = document.getElementById('newStorySubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    try {
+      const data = await apiFetch('/story-timelines', {
+        method: 'POST',
+        body: JSON.stringify({ name, articleIds: _newStorySelectedIds.map(s => s.id) }),
+      });
+      closeModal('newStoryModal');
+      await loadStories();
+      if (data.story?.id) openDrawer(data.story.id);
+    } catch (err) {
+      showAlert('Failed to create story: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Create Story';
+    }
+  };
+
+  // ── Phase 3: Drawer add-article ────────────────────────────────────────────
+  function setupAddArticle(storyId) {
+    const input = document.getElementById('addArtInput');
+    if (!input) return;
+    input.oninput = () => {
+      clearTimeout(_addArtSearchTimer);
+      _addArtSearchTimer = setTimeout(() => _searchDrawerArticles(storyId, input.value.trim()), 280);
+    };
+  }
+
+  window.toggleAddArticle = function () {
+    const wrap = document.getElementById('addArtWrap');
+    if (!wrap) return;
+    const open = wrap.style.display !== 'none';
+    wrap.style.display = open ? 'none' : '';
+    const btn = document.getElementById('addArtBtn');
+    if (btn) btn.textContent = open ? '+ Add' : '✕ Cancel';
+    if (!open) setTimeout(() => document.getElementById('addArtInput')?.focus(), 60);
+  };
+
+  async function _searchDrawerArticles(storyId, q) {
+    const el = document.getElementById('addArtResults');
+    if (!el) return;
+    if (!q) { el.innerHTML = ''; return; }
+    try {
+      const url = '/story-timelines/articles-search?limit=12&exclude_story=' + storyId + '&q=' + encodeURIComponent(q);
+      const data = await apiFetch(url);
+      const articles = data.articles || [];
+      if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
+      el.innerHTML = articles.map(a => {
+        const date = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        return `<div class="art-result" onclick="_attachArticleToStory(${a.id})">
+          <div style="flex:1;min-width:0;">
+            <div class="art-result-title">${esc(a.title)}</div>
+            <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
+          </div>
+          <div class="art-result-add">+</div>
+        </div>`;
+      }).join('');
+    } catch { /* ignore */ }
+  }
+
+  window._attachArticleToStory = async function (articleId) {
+    if (!openStoryId) return;
+    const resultsEl = document.getElementById('addArtResults');
+    const inputEl   = document.getElementById('addArtInput');
+    if (resultsEl) resultsEl.innerHTML = '';
+    if (inputEl)   inputEl.value = '';
+    try {
+      await apiFetch('/story-timelines/' + openStoryId + '/articles', {
+        method: 'POST',
+        body: JSON.stringify({ articleId, isKeyMoment: false }),
+      });
+      const data = await apiFetch('/story-timelines/' + openStoryId);
+      openStory = data.story;
+      const listItem = stories.find(s => s.id === openStoryId);
+      if (listItem) {
+        const cnt = openStory.article_count || openStory.articleCount || 0;
+        listItem.article_count = cnt;
+        listItem.articleCount  = cnt;
+        if (openStory.intensity) listItem._intensityCache = openStory.intensity;
+      }
+      renderList();
+      renderDrawer(openStory);
+    } catch (err) {
+      showAlert('Failed to add article: ' + err.message, 'error');
     }
   };
 

@@ -140,6 +140,38 @@
     .rm-yes          { padding:2px 7px; font-size:11px; border-radius:4px; border:none; cursor:pointer; background:rgba(239,68,68,0.15); color:#ef4444; }
     .rm-no           { padding:2px 7px; font-size:11px; border-radius:4px; border:none; cursor:pointer; background:var(--surface2); color:var(--text-muted); }
 
+    /* ── Article search (new story modal + drawer add) ──────────────────────── */
+    .art-result {
+      display:flex; align-items:flex-start; gap:8px; padding:7px 10px;
+      border-radius:7px; cursor:pointer; font-size:12px;
+      transition:background 0.1s;
+    }
+    .art-result:hover  { background:var(--surface2); }
+    .art-result-title  { font-weight:600; line-height:1.3; }
+    .art-result-meta   { color:var(--text-muted); font-size:11px; margin-top:2px; }
+    .art-result-add    { margin-left:auto; flex-shrink:0; font-size:18px; color:var(--accent,#6366f1); line-height:1; padding:0 2px; }
+
+    .art-pill {
+      display:inline-flex; align-items:center; gap:5px; font-size:11px;
+      background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.25);
+      border-radius:20px; padding:3px 10px 3px 8px; max-width:200px;
+    }
+    .art-pill span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .art-pill-rm   { cursor:pointer; color:var(--text-muted); font-size:14px; line-height:1; flex-shrink:0; }
+    .art-pill-rm:hover { color:#ef4444; }
+
+    /* ── Drawer add-article inline search ────────────────────────────────────── */
+    .add-art-wrap {
+      margin-top:10px; border:1px solid var(--border);
+      border-radius:8px; overflow:hidden;
+    }
+    .add-art-input {
+      width:100%; box-sizing:border-box; padding:8px 10px;
+      background:var(--surface2); border:none; color:var(--text);
+      font-size:12px; font-family:inherit; outline:none;
+    }
+    .add-art-results { max-height:180px; overflow-y:auto; }
+
     .regen-spin {
       display:inline-block; width:11px; height:11px;
       border:2px solid rgba(255,255,255,0.3); border-top-color:currentColor;
@@ -169,6 +201,7 @@
               <option value="count">Article Count</option>
               <option value="created">Created</option>
             </select>
+            <button class="btn btn-sm" onclick="openNewStoryModal()" style="margin-left:auto;">+ New Story</button>
           </div>
           <div class="s-stats" id="sStats"></div>
           <div class="s-list"  id="sList">
@@ -193,6 +226,32 @@
         </div>
 
       </div><!-- /storiesLayout -->
+    </div>
+  </div>
+</div>
+
+<!-- New Story modal -->
+<div class="modal-overlay" id="newStoryModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title">New Story</div>
+      <button class="modal-close" onclick="closeModal('newStoryModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Story name <span style="color:#ef4444">*</span></label>
+        <input type="text" id="newStoryName" class="form-control" placeholder="e.g. AI Regulation Debate" autocomplete="off" />
+      </div>
+      <div class="form-group" style="margin-top:14px;">
+        <label class="form-label">Add articles (optional)</label>
+        <input type="text" id="newStorySearch" class="form-control" placeholder="Search by title or source…" autocomplete="off" />
+        <div id="newStoryResults" style="margin-top:6px;max-height:180px;overflow-y:auto;"></div>
+        <div id="newStorySelected" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('newStoryModal')">Cancel</button>
+      <button class="btn" id="newStorySubmitBtn" onclick="submitNewStory()">Create Story</button>
     </div>
   </div>
 </div>
