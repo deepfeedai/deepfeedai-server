@@ -15,9 +15,11 @@
   // Phase 3: new-story modal
   let _newStorySelectedIds = []; // [{ id, title }]
   let _newStorySearchTimer = null;
+  let _newStoryArticleCache = []; // last search results, keyed by id
 
   // Phase 3: drawer add-article
   let _addArtSearchTimer = null;
+  let _addArtArticleCache = []; // last search results, keyed by id
 
   // ── Boot ───────────────────────────────────────────────────────────────────
   onReady(function () {
@@ -641,12 +643,13 @@
     try {
       const data = await apiFetch('/story-timelines/articles-search?limit=12&q=' + encodeURIComponent(q));
       const articles = (data.articles || []).filter(a => !_newStorySelectedIds.find(s => s.id === a.id));
+      _newStoryArticleCache = articles;
       if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
       el.innerHTML = articles.map(a => {
         const date    = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
         const isSource = a.content_type === 'curated';
         const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
-        return `<div class="art-result" onclick="_addToNewStory(${a.id}, ${JSON.stringify(esc(a.title))})">
+        return `<div class="art-result" data-id="${a.id}" onclick="_addToNewStory(${a.id})">
           <div style="flex:1;min-width:0;">
             <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
@@ -657,12 +660,15 @@
     } catch { /* ignore transient errors */ }
   }
 
-  window._addToNewStory = function (id, title) {
-    if (_newStorySelectedIds.find(s => s.id === id)) return;
-    _newStorySelectedIds.push({ id, title });
+  window._addToNewStory = function (id) {
+    const article = _newStoryArticleCache.find(a => a.id === id);
+    if (!article || _newStorySelectedIds.find(s => s.id === id)) return;
+    _newStorySelectedIds.push({ id, title: article.title });
     _renderNewStoryPills();
-    document.getElementById('newStoryResults').innerHTML = '';
-    document.getElementById('newStorySearch').value = '';
+    // Remove the added item from results without clearing the search field
+    _newStoryArticleCache = _newStoryArticleCache.filter(a => a.id !== id);
+    const row = document.querySelector(`#newStoryResults [data-id="${id}"]`);
+    if (row) row.remove();
   };
 
   function _renderNewStoryPills() {
@@ -731,12 +737,13 @@
       const url = '/story-timelines/articles-search?limit=12&exclude_story=' + storyId + '&q=' + encodeURIComponent(q);
       const data = await apiFetch(url);
       const articles = data.articles || [];
+      _addArtArticleCache = articles;
       if (!articles.length) { el.innerHTML = '<div style="padding:8px 10px;font-size:12px;color:var(--text-muted)">No results</div>'; return; }
       el.innerHTML = articles.map(a => {
         const date    = a.published_at ? new Date(a.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
         const isSource = a.content_type === 'curated';
         const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
-        return `<div class="art-result" onclick="_attachArticleToStory(${a.id})">
+        return `<div class="art-result" data-id="${a.id}" onclick="_attachArticleToStory(${a.id})">
           <div style="flex:1;min-width:0;">
             <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
@@ -749,10 +756,13 @@
 
   window._attachArticleToStory = async function (articleId) {
     if (!openStoryId) return;
-    const resultsEl = document.getElementById('addArtResults');
-    const inputEl   = document.getElementById('addArtInput');
-    if (resultsEl) resultsEl.innerHTML = '';
-    if (inputEl)   inputEl.value = '';
+    // Preserve the current search query so we can restore it after re-render
+    const inputEl = document.getElementById('addArtInput');
+    const savedQuery = inputEl ? inputEl.value : '';
+    // Remove the added row immediately so the user sees instant feedback
+    const addedRow = document.querySelector(`#addArtResults [data-id="${articleId}"]`);
+    if (addedRow) addedRow.remove();
+    _addArtArticleCache = _addArtArticleCache.filter(a => a.id !== articleId);
     try {
       await apiFetch('/story-timelines/' + openStoryId + '/articles', {
         method: 'POST',
@@ -769,6 +779,17 @@
       }
       renderList();
       renderDrawer(openStory);
+      // Re-open the add panel and restore the search query
+      const wrap = document.getElementById('addArtWrap');
+      const btn  = document.getElementById('addArtBtn');
+      const inp  = document.getElementById('addArtInput');
+      if (wrap) wrap.style.display = '';
+      if (btn)  btn.textContent = '✕ Cancel';
+      if (inp && savedQuery) {
+        inp.value = savedQuery;
+        inp.focus();
+        _searchDrawerArticles(openStoryId, savedQuery);
+      }
     } catch (err) {
       showAlert('Failed to add article: ' + err.message, 'error');
     }
