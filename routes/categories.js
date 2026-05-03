@@ -3,6 +3,7 @@
  * CRUD for the categories table (replaces site_categories JSON in settings).
  */
 const express = require('express');
+const jwt     = require('jsonwebtoken');
 const router  = express.Router();
 const { getPool } = require('../db');
 const db          = require('../db');
@@ -13,6 +14,19 @@ const { getCategories, bustCategoryCache } = require('../lib/categories');
 const { bustSiteConfigCache } = require('../lib/site-config');
 const { complete: aiComplete } = require('../lib/ai-router');
 const { parseTruncatedJsonArray } = require('../lib/json-parse-safe');
+const { getSecrets } = require('../lib/secrets');
+
+async function getUserId(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  try {
+    const { userJwtSecret } = await getSecrets();
+    const payload = jwt.verify(authHeader.slice(7), userJwtSecret);
+    return payload.sub;
+  } catch {
+    return null;
+  }
+}
 
 // GET /api/categories — public (frontend filter bar needs this)
 router.get('/', asyncHandler(async (req, res) => {
@@ -138,6 +152,45 @@ router.post('/generate-keywords', requireAdmin, requirePermission('categories.up
   }
 
   res.json({ keywords });
+}));
+
+// GET /api/categories/following — list categories the signed-in user follows
+router.get('/following', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const rows = await db.prepare(
+    'SELECT category_name FROM user_category_follows WHERE user_id = $1 AND tenant_id = $2 ORDER BY created_at ASC'
+  ).all(userId, req.tenantId);
+
+  res.json({ categories: rows.map(r => r.category_name) });
+}));
+
+// POST /api/categories/:name/follow — follow a category (user JWT)
+router.post('/:name/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const name = req.params.name;
+  if (!name || name.length > 100) return res.status(400).json({ error: 'Invalid category name' });
+
+  await db.prepare(
+    'INSERT INTO user_category_follows (user_id, tenant_id, category_name) VALUES ($1, $2, $3) ON CONFLICT (user_id, tenant_id, category_name) DO NOTHING'
+  ).run(userId, req.tenantId, name);
+
+  res.json({ ok: true, category: name });
+}));
+
+// DELETE /api/categories/:name/follow — unfollow a category (user JWT)
+router.delete('/:name/follow', asyncHandler(async (req, res) => {
+  const userId = await getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  await db.prepare(
+    'DELETE FROM user_category_follows WHERE user_id = $1 AND tenant_id = $2 AND category_name = $3'
+  ).run(userId, req.tenantId, req.params.name);
+
+  res.json({ ok: true, category: req.params.name });
 }));
 
 module.exports = router;

@@ -1009,32 +1009,6 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS topic_tag TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS tldr_context TEXT`,
     `CREATE INDEX IF NOT EXISTS idx_articles_tenant_topic_tag ON articles(tenant_id, topic_tag)`,
-    // ── Story threads (N3) ──────────────────────────────────────────
-    // First-class metadata for an ongoing story, joined to articles by
-    // (tenant_id, topic_tag). Upserted on every original/deep-dive publish
-    // and used to power thread-aware UIs (status badges, owner, "X pieces
-    // in this thread"), auto-followup dispatch, and dormancy cron.
-    `CREATE TABLE IF NOT EXISTS story_threads (
-      id               SERIAL PRIMARY KEY,
-      tenant_id        INTEGER NOT NULL,
-      topic_tag        TEXT NOT NULL,
-      name             TEXT,
-      summary          TEXT,
-      status           TEXT NOT NULL DEFAULT 'active',
-      owner_writer_id  INTEGER,
-      lead_article_id  INTEGER,
-      last_article_id  INTEGER,
-      article_count    INTEGER NOT NULL DEFAULT 0,
-      source_count     INTEGER NOT NULL DEFAULT 0,
-      first_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      last_update_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      closed_at        TIMESTAMPTZ,
-      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (tenant_id, topic_tag)
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_story_threads_tenant_status ON story_threads(tenant_id, status, last_update_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_story_threads_owner ON story_threads(tenant_id, owner_writer_id) WHERE owner_writer_id IS NOT NULL`,
     // ── Source-first pipeline ───────────────────────────────────────
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS followups JSONB DEFAULT NULL`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS enriched_summary TEXT DEFAULT NULL`,
@@ -1299,29 +1273,6 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
-    // Writer voice samples — short curated exemplars of a writer's voice,
-    // tagged by pitch_type, used as few-shot examples during synthesis so
-    // generated articles anchor to the writer's distinctive style instead
-    // of drifting to default LLM voice. Editor-curated: generate via LLM,
-    // edit/pin/rate in UI, best samples float up for use in prompts.
-    `CREATE TABLE IF NOT EXISTS writer_samples (
-      id                 SERIAL PRIMARY KEY,
-      tenant_id          INTEGER NOT NULL,
-      writer_id          INTEGER NOT NULL REFERENCES writers(id) ON DELETE CASCADE,
-      pitch_type         TEXT NOT NULL DEFAULT 'original',
-      title              TEXT NOT NULL,
-      body               TEXT NOT NULL,
-      is_pinned          BOOLEAN DEFAULT false,
-      is_negative        BOOLEAN DEFAULT false,
-      source_article_id  INTEGER,
-      quality_score      NUMERIC(3,1),
-      seed_topic         TEXT,
-      created_by_user_id INTEGER,
-      created_at         TIMESTAMPTZ DEFAULT NOW(),
-      updated_at         TIMESTAMPTZ DEFAULT NOW()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_writer_samples_lookup ON writer_samples(tenant_id, writer_id, pitch_type)`,
-    `CREATE INDEX IF NOT EXISTS idx_writer_samples_pinned ON writer_samples(tenant_id, writer_id, is_pinned) WHERE is_pinned = true`,
     // Editor thumbs-up/down feedback on individual briefs + digests. Used
     // immediately to show the user their prior vote; will later feed into
     // the brief prompt so Maxwell can adjust tone based on trailing feedback.
@@ -1498,81 +1449,28 @@ async function initDb() {
     // Writing system: follow-up articles link back to their parent
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS parent_article_id INTEGER REFERENCES articles(id) ON DELETE SET NULL`,
     `CREATE INDEX IF NOT EXISTS idx_articles_parent ON articles(parent_article_id) WHERE parent_article_id IS NOT NULL`,
-    // ── Pull quotes ──────────────────────────────────────────────
-    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS pull_quote TEXT`,
-
-    // ── Job queue ──────────────────────────────────────────────────────────────
-    // To add a new job type: ALTER TABLE jobs DROP CONSTRAINT jobs_type_check;
-    // then ALTER TABLE jobs ADD CONSTRAINT jobs_type_check CHECK (job_type IN (...new list...));
-    `CREATE TABLE IF NOT EXISTS jobs (
-      id                  BIGSERIAL    PRIMARY KEY,
-      tenant_id           INTEGER      NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-      job_type            TEXT         NOT NULL,
-      category            TEXT         NOT NULL,
-      priority            INTEGER      NOT NULL DEFAULT 30,
-      status              TEXT         NOT NULL DEFAULT 'pending'
-                          CHECK (status IN ('pending','running','done','failed','cancelled')),
-      payload             JSONB        NOT NULL DEFAULT '{}',
-      result              JSONB,
-      error_message       TEXT,
-      error_stack         TEXT,
-      attempts            INTEGER      NOT NULL DEFAULT 0,
-      max_attempts        INTEGER      NOT NULL DEFAULT 3,
-      last_error          TEXT,
-      scheduled_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      run_at              TIMESTAMPTZ,
-      finished_at         TIMESTAMPTZ,
-      stale_after_minutes INTEGER      NOT NULL DEFAULT 15,
-      parent_job_id       BIGINT       REFERENCES jobs(id) ON DELETE SET NULL,
-      idempotency_key     TEXT,
-      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      created_by          INTEGER,
-      CONSTRAINT jobs_type_check CHECK (job_type IN (
-        'synthesize','deep_dive','topic_brief','editorial_review',
-        'generate_image','generate_audio','generate_embedding',
-        'pitch_writer','writer_followup',
-        'notify_discord','notify_telegram','notify_slack','notify_email',
-        'publish_article',
-        'ingest_external',
-        'backfill_tags','backfill_embeddings',
-        'maintenance_purge','maintenance_vacuum'
-      )),
-      CONSTRAINT jobs_category_check CHECK (category IN (
-        'content_gen','media','writer_comms','notifications',
-        'publishing','ingestion','maintenance'
-      )),
-      CONSTRAINT jobs_priority_check  CHECK (priority IN (10,20,30,40,50)),
-      CONSTRAINT jobs_attempts_check  CHECK (attempts >= 0),
-      CONSTRAINT jobs_max_attempts_check CHECK (max_attempts BETWEEN 1 AND 20),
-      CONSTRAINT jobs_stale_check     CHECK (stale_after_minutes >= 1)
+    // Beat/category following — users follow topic categories
+    `CREATE TABLE IF NOT EXISTS user_category_follows (
+      id            SERIAL PRIMARY KEY,
+      user_id       INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      tenant_id     INTEGER NOT NULL DEFAULT 1,
+      category_name TEXT    NOT NULL,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, tenant_id, category_name)
     )`,
-    // Worker poll — hot path (partial index: only pending rows)
-    `CREATE INDEX IF NOT EXISTS idx_jobs_poll
-       ON jobs (tenant_id, priority ASC, scheduled_at ASC)
-       WHERE status = 'pending'`,
-    // Stale recovery scan
-    `CREATE INDEX IF NOT EXISTS idx_jobs_stale
-       ON jobs (status, run_at)
-       WHERE status = 'running'`,
-    // Parent → children lookup (job chaining)
-    `CREATE INDEX IF NOT EXISTS idx_jobs_parent
-       ON jobs (parent_job_id)
-       WHERE parent_job_id IS NOT NULL`,
-    // Admin dashboard: by tenant + status + time
-    `CREATE INDEX IF NOT EXISTS idx_jobs_admin
-       ON jobs (tenant_id, status, created_at DESC)`,
-    // Admin dashboard: filter by type
-    `CREATE INDEX IF NOT EXISTS idx_jobs_type
-       ON jobs (tenant_id, job_type, status, created_at DESC)`,
-    // Idempotency — partial so NULL keys don't participate
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency
-       ON jobs (tenant_id, idempotency_key)
-       WHERE idempotency_key IS NOT NULL`,
-    // Maintenance purge scan
-    `CREATE INDEX IF NOT EXISTS idx_jobs_cleanup
-       ON jobs (finished_at)
-       WHERE status IN ('done','failed','cancelled') AND finished_at IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_user_category_follows_user   ON user_category_follows(user_id, tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_category_follows_name   ON user_category_follows(tenant_id, category_name)`,
+    // Topic (pulse) following — users follow topic_tag clusters
+    `CREATE TABLE IF NOT EXISTS user_topic_follows (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      tenant_id  INTEGER NOT NULL DEFAULT 1,
+      topic_tag  TEXT    NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, tenant_id, topic_tag)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_topic_follows_user ON user_topic_follows(user_id, tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_topic_follows_tag  ON user_topic_follows(tenant_id, topic_tag)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
