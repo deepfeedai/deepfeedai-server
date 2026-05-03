@@ -46,8 +46,9 @@ router.get('/stories', asyncHandler(async (req, res) => {
   const status = req.query.status
     ? String(req.query.status).split(',').map(s => s.trim()).filter(Boolean)
     : ['active'];
+  const search = req.query.q ? String(req.query.q).slice(0, 200).trim() : null;
 
-  const result = await listStories(req.tenantId, { status, limit, offset });
+  const result = await listStories(req.tenantId, { status, limit, offset, search });
   res.json({ status: 'ok', ...result });
 }));
 

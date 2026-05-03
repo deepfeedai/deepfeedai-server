@@ -44,8 +44,9 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   const status = req.query.status
     ? String(req.query.status).split(',').map(s => s.trim()).filter(Boolean)
     : ['active', 'dormant', 'archived'];
+  const search = req.query.q ? String(req.query.q).slice(0, 200).trim() : null;
 
-  const result = await listStories(req.tenantId, { status, limit, offset });
+  const result = await listStories(req.tenantId, { status, limit, offset, search });
   res.json(result);
 }));
 

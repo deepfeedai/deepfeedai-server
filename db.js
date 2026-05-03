@@ -1496,6 +1496,7 @@ async function initDb() {
       UNIQUE(tenant_id, slug)
     )`,
     `ALTER TABLE story_timelines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE story_timelines ADD COLUMN IF NOT EXISTS image_url VARCHAR(500)`,
     `CREATE TABLE IF NOT EXISTS story_timeline_articles (
       story_id      INTEGER NOT NULL REFERENCES story_timelines(id) ON DELETE CASCADE,
       article_id    INTEGER NOT NULL,
