@@ -349,6 +349,7 @@ app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
+app.use('/api/news',      publicApiLimiter, require('./routes/videos'));     // public — video hub
 app.use('/api/user-auth', require('./routes/user-auth')); // public — OAuth for public users
 if (tenantUtils.MULTI_TENANT) {
   app.use('/api/tenants', require('./routes/tenants'));    // tenant signup + slug check

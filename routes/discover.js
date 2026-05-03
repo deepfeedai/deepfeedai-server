@@ -14,6 +14,7 @@ const { findBestWriter } = require('../lib/writer-assign');
 const { logAudit }       = require('../middleware/audit');
 const { getCuratedScore } = require('../lib/quality-gate');
 const { requireFeature } = require('../middleware/feature-gate');
+const { onArticlePublished } = require('../lib/post-publish');
 
 // ── Date range helper ───────────────────────────────────────────────────────
 
@@ -66,6 +67,105 @@ function resolveDateRange(period, fromParam, toParam) {
   };
 }
 
+// ── Shared helpers ──────────────────────────────────────────────────────────
+
+async function fetchFromSources(config, sourceList, q, fromDate, toDate, braveFreshness) {
+  const fetches = [];
+
+  if (sourceList.includes('brave') && config.brave_api_key) {
+    fetches.push((async () => {
+      try {
+        const url = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=20&freshness=${encodeURIComponent(braveFreshness)}`;
+        const res = await fetch(url, { headers: { 'X-Subscription-Token': config.brave_api_key, 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.results || []).map(item => ({
+          title: item.title, url: item.url, description: item.description || '',
+          source: 'brave', sourceName: item.meta_url?.hostname || new URL(item.url).hostname,
+          publishedAt: item.age || item.page_age || null, imageUrl: item.thumbnail?.src || null,
+        }));
+      } catch (err) { console.error('[Discover] Brave error:', err.message); return []; }
+    })());
+  }
+
+  if (sourceList.includes('newsapi') && config.news_api_key) {
+    fetches.push((async () => {
+      try {
+        let url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${fromDate}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
+        if (toDate) url += `&to=${toDate}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data.articles || [])
+          .filter(item => item.title && item.title !== '[Removed]' && item.url)
+          .map(item => ({
+            title: item.title, url: item.url, description: item.description || '',
+            source: 'newsapi', sourceName: item.source?.name || '',
+            publishedAt: item.publishedAt || null, imageUrl: item.urlToImage || null,
+          }));
+      } catch (err) { console.error('[Discover] NewsAPI error:', err.message); return []; }
+    })());
+  }
+
+  let youtubeQuotaExceeded = false;
+  if (sourceList.includes('youtube') && !config.youtube_api_key) {
+    console.warn('[Discover] YouTube source requested but no API key configured');
+  }
+  if (sourceList.includes('youtube') && config.youtube_api_key) {
+    fetches.push((async () => {
+      try {
+        let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(q)}&maxResults=20&key=${config.youtube_api_key}`;
+        if (fromDate) url += `&publishedAfter=${fromDate}T00:00:00Z`;
+        if (toDate) url += `&publishedBefore=${toDate}T23:59:59Z`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (res.ok) {
+          const data = await res.json();
+          return (data.items || []).flatMap(item => {
+            const videoId = item.id?.videoId;
+            if (!videoId) return [];
+            return [{ title: item.snippet.title, url: `https://www.youtube.com/watch?v=${videoId}`,
+              description: item.snippet.description || '', source: 'youtube',
+              sourceName: item.snippet.channelTitle || 'YouTube', publishedAt: item.snippet.publishedAt,
+              imageUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || null,
+              embedUrl: `https://www.youtube.com/embed/${videoId}` }];
+          });
+        }
+        const errData = await res.json().catch(() => ({}));
+        if (res.status === 403 && errData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
+          youtubeQuotaExceeded = true;
+          console.warn('[Discover] YouTube quota exceeded');
+        } else {
+          console.error('[Discover] YouTube API error:', res.status, errData?.error?.message || '');
+        }
+        return [];
+      } catch (err) { console.error('[Discover] YouTube error:', err.message); return []; }
+    })());
+  }
+
+  const batches = await Promise.all(fetches);
+  return { results: batches.flat(), youtubeQuotaExceeded };
+}
+
+function dedupeAndFilter(results, fromDate, toDate) {
+  const seen = new Set();
+  const deduped = results.filter(r => {
+    const key = r.url.replace(/\/$/, '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (!fromDate && !toDate) return deduped;
+  return deduped.filter(r => {
+    if (!r.publishedAt) return true;
+    const d = new Date(r.publishedAt);
+    if (isNaN(d.getTime())) return true;
+    const iso = d.toISOString().split('T')[0];
+    if (fromDate && iso < fromDate) return false;
+    if (toDate && iso > toDate) return false;
+    return true;
+  });
+}
+
 // ── GET / — Search across sources ───────────────────────────────────────────
 
 router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
@@ -78,146 +178,18 @@ router.get('/', auth, requirePermission('fetch.execute'), asyncHandler(async (re
   // Determine date range
   const { fromDate, toDate, braveFreshness } = resolveDateRange(period, from, to);
 
-  const results = [];
+  const { results, youtubeQuotaExceeded } = await fetchFromSources(config, sourceList, q, fromDate, toDate, braveFreshness);
+  const unique = dedupeAndFilter(results, fromDate, toDate);
 
-  // Query Brave Search API
-  if (sourceList.includes('brave') && config.brave_api_key) {
-    try {
-      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(q)}&count=20&freshness=${encodeURIComponent(braveFreshness)}`;
-      const braveRes = await fetch(braveUrl, {
-        headers: { 'X-Subscription-Token': config.brave_api_key, 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (braveRes.ok) {
-        const data = await braveRes.json();
-        for (const item of (data.results || [])) {
-          results.push({
-            title: item.title,
-            url: item.url,
-            description: item.description || '',
-            source: 'brave',
-            sourceName: item.meta_url?.hostname || new URL(item.url).hostname,
-            publishedAt: item.age || item.page_age || null,
-            imageUrl: item.thumbnail?.src || null,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] Brave search error:', err.message);
-    }
-  }
-
-  // Query NewsAPI
-  if (sourceList.includes('newsapi') && config.news_api_key) {
-    try {
-      let newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(q)}&from=${fromDate}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
-      if (toDate) newsUrl += `&to=${toDate}`;
-      const newsRes = await fetch(newsUrl, { signal: AbortSignal.timeout(10000) });
-      if (newsRes.ok) {
-        const data = await newsRes.json();
-        for (const item of (data.articles || [])) {
-          if (!item.title || item.title === '[Removed]' || !item.url) continue;
-          results.push({
-            title: item.title,
-            url: item.url,
-            description: item.description || '',
-            source: 'newsapi',
-            sourceName: item.source?.name || '',
-            publishedAt: item.publishedAt || null,
-            imageUrl: item.urlToImage || null,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] NewsAPI search error:', err.message);
-    }
-  }
-
-  // Query YouTube Data API v3
-  let youtubeQuotaExceeded = false;
-  if (sourceList.includes('youtube') && !config.youtube_api_key) {
-    console.warn('[Discover] YouTube source requested but no API key configured');
-  }
-  if (sourceList.includes('youtube') && config.youtube_api_key) {
-    try {
-      let ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(q)}&maxResults=20&key=${config.youtube_api_key}`;
-      if (fromDate) ytUrl += `&publishedAfter=${fromDate}T00:00:00Z`;
-      if (toDate) ytUrl += `&publishedBefore=${toDate}T23:59:59Z`;
-      const ytRes = await fetch(ytUrl, { signal: AbortSignal.timeout(10000) });
-      if (ytRes.ok) {
-        const data = await ytRes.json();
-        for (const item of (data.items || [])) {
-          const videoId = item.id?.videoId;
-          if (!videoId) continue;
-          results.push({
-            title: item.snippet.title,
-            url: `https://www.youtube.com/watch?v=${videoId}`,
-            description: item.snippet.description || '',
-            source: 'youtube',
-            sourceName: item.snippet.channelTitle || 'YouTube',
-            publishedAt: item.snippet.publishedAt,
-            imageUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || null,
-            embedUrl: `https://www.youtube.com/embed/${videoId}`,
-          });
-        }
-      } else {
-        const errData = await ytRes.json().catch(() => ({}));
-        if (ytRes.status === 403 && errData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
-          youtubeQuotaExceeded = true;
-          console.warn('[Discover] YouTube API quota exceeded');
-        } else {
-          console.error('[Discover] YouTube API error:', ytRes.status, JSON.stringify(errData?.error?.message || errData));
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] YouTube search error:', err.message);
-    }
-  }
-
-  // Deduplicate by URL
-  const seen = new Set();
-  const deduped = results.filter(r => {
-    const key = r.url.replace(/\/$/, '').toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  // Post-fetch date filtering — remove results outside the requested range
-  const unique = (fromDate || toDate) ? deduped.filter(r => {
-    if (!r.publishedAt) return true; // keep items with no date info
-    const d = new Date(r.publishedAt);
-    if (isNaN(d.getTime())) return true; // keep unparseable dates (e.g. Brave "2h ago")
-    const iso = d.toISOString().split('T')[0];
-    if (fromDate && iso < fromDate) return false;
-    if (toDate && iso > toDate) return false;
-    return true;
-  }) : deduped;
-
-  // Auto-detect category (keyword-only, no AI budget burn)
-  for (const r of unique) {
-    try {
-      const cat = await detectCategory(
-        { title: r.title, contentSnippet: r.description },
-        { tenantId: req.tenantId }
-      );
-      r.detectedCategory = cat || null;
-    } catch {
-      r.detectedCategory = null;
-    }
-  }
-
-  // Check which URLs are already imported
-  for (const r of unique) {
-    try {
-      const existing = await db.prepare(
-        'SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2'
-      ).get(r.url, req.tenantId);
-      r.alreadyImported = !!existing;
-    } catch {
-      r.alreadyImported = false;
-    }
-  }
+  // Categorize + duplicate-check in parallel across all results
+  await Promise.all(unique.map(async r => {
+    const [cat, existing] = await Promise.all([
+      detectCategory({ title: r.title, contentSnippet: r.description }, { tenantId: req.tenantId }).catch(() => null),
+      db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(r.url, req.tenantId).catch(() => null),
+    ]);
+    r.detectedCategory = cat || null;
+    r.alreadyImported  = !!existing;
+  }));
 
   const response = { results: unique, total: unique.length, query: q };
   if (youtubeQuotaExceeded) response.youtubeQuotaExceeded = true;
@@ -286,7 +258,9 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
       }
 
       const sourceType = article.source === 'youtube' ? 'youtube' : 'manual';
-      const embedType = article.source === 'youtube' ? 'youtube' : null;
+      const embedType  = article.source === 'youtube' ? 'youtube' : null;
+      // YouTube videos are finished content — always publish immediately, skip the draft/pitch flow
+      const shouldPublish = importPublished || article.source === 'youtube';
 
       // Reconstruct embed_url server-side from video ID (zero-trust — ignore client embedUrl)
       let embedUrl = null;
@@ -302,12 +276,12 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
 
       const mediaEnabled = embedUrl ? 1 : 0;
 
-      const importStatus = importPublished ? 'published' : 'source';
+      const importStatus = shouldPublish ? 'published' : 'source';
       const row = await db.prepare(`
         INSERT INTO articles (title, slug, summary, source_url, source, image_url, category, is_published, is_featured, published_at, status, source_type, embed_url, embed_type, media_enabled, tenant_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${importPublished ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, $13, $14, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, ${shouldPublish ? 'NOW()' : 'NULL'}, $9, $10, $11, $12, $13, $14, NOW())
         RETURNING id
-      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, importPublished ? 1 : 0, importStatus, sourceType, embedUrl, embedType, mediaEnabled, req.tenantId);
+      `).get(title, slug, summary, article.url, sourceName, imageUrl, category, shouldPublish ? 1 : 0, importStatus, sourceType, embedUrl, embedType, mediaEnabled, req.tenantId);
 
       // Auto-assign writer if requested
       if (autoAssignWriter !== false && row) {
@@ -328,8 +302,13 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
         try {
           const gate = await getCuratedScore({ title, summary, image_url: imageUrl, author: null, source: sourceName }, req.tenantId);
           await db.prepare('UPDATE articles SET editorial_score = $1, status = $2 WHERE id = $3 AND tenant_id = $4')
-            .run(gate.score, importPublished ? 'published' : 'draft', row.id, req.tenantId);
+            .run(gate.score, shouldPublish ? 'published' : 'draft', row.id, req.tenantId);
         } catch { /* non-fatal */ }
+      }
+
+      // Fire post-publish hooks when publishing (topic_tag, story levels, Pulse)
+      if (shouldPublish && row) {
+        onArticlePublished(row.id, req.tenantId).catch(() => {});
       }
 
       results.imported++;
@@ -432,93 +411,17 @@ router.post('/saved/:id/refresh', auth, requirePermission('fetch.execute'), requ
   const sourceList = (search.sources || 'brave,newsapi').split(',').map(s => s.trim().toLowerCase());
   const { fromDate, toDate, braveFreshness } = resolveDateRange(search.period, search.from_date, search.to_date);
 
-  const results = [];
+  const { results, youtubeQuotaExceeded } = await fetchFromSources(config, sourceList, search.query, fromDate, toDate, braveFreshness);
+  const unique = dedupeAndFilter(results, fromDate, toDate);
 
-  if (sourceList.includes('brave') && config.brave_api_key) {
-    try {
-      const braveUrl = `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(search.query)}&count=20&freshness=${encodeURIComponent(braveFreshness)}`;
-      const braveRes = await fetch(braveUrl, {
-        headers: { 'X-Subscription-Token': config.brave_api_key, 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (braveRes.ok) {
-        const data = await braveRes.json();
-        for (const item of (data.results || [])) {
-          results.push({ title: item.title, url: item.url, description: item.description || '', source: 'brave', sourceName: item.meta_url?.hostname || new URL(item.url).hostname, publishedAt: item.age || item.page_age || null, imageUrl: item.thumbnail?.src || null });
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] Brave refresh error:', err.message);
-    }
-  }
-
-  if (sourceList.includes('newsapi') && config.news_api_key) {
-    try {
-      let newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(search.query)}&from=${fromDate}&sortBy=publishedAt&pageSize=20&apiKey=${config.news_api_key}`;
-      if (toDate) newsUrl += `&to=${toDate}`;
-      const newsRes = await fetch(newsUrl, { signal: AbortSignal.timeout(10000) });
-      if (newsRes.ok) {
-        const data = await newsRes.json();
-        for (const item of (data.articles || [])) {
-          if (!item.title || item.title === '[Removed]' || !item.url) continue;
-          results.push({ title: item.title, url: item.url, description: item.description || '', source: 'newsapi', sourceName: item.source?.name || '', publishedAt: item.publishedAt || null, imageUrl: item.urlToImage || null });
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] NewsAPI refresh error:', err.message);
-    }
-  }
-
-  let youtubeQuotaExceeded = false;
-  if (sourceList.includes('youtube') && config.youtube_api_key) {
-    try {
-      let ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=${encodeURIComponent(search.query)}&maxResults=20&key=${config.youtube_api_key}`;
-      if (fromDate) ytUrl += `&publishedAfter=${fromDate}T00:00:00Z`;
-      if (toDate) ytUrl += `&publishedBefore=${toDate}T23:59:59Z`;
-      const ytRes = await fetch(ytUrl, { signal: AbortSignal.timeout(10000) });
-      if (ytRes.ok) {
-        const data = await ytRes.json();
-        for (const item of (data.items || [])) {
-          const videoId = item.id?.videoId;
-          if (!videoId) continue;
-          results.push({ title: item.snippet.title, url: `https://www.youtube.com/watch?v=${videoId}`, description: item.snippet.description || '', source: 'youtube', sourceName: item.snippet.channelTitle || 'YouTube', publishedAt: item.snippet.publishedAt, imageUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || null, embedUrl: `https://www.youtube.com/embed/${videoId}` });
-        }
-      } else if (ytRes.status === 403) {
-        const errData = await ytRes.json().catch(() => ({}));
-        if (errData?.error?.errors?.[0]?.reason === 'quotaExceeded') {
-          youtubeQuotaExceeded = true;
-          console.warn('[Discover] YouTube API quota exceeded (refresh)');
-        }
-      }
-    } catch (err) {
-      console.error('[Discover] YouTube refresh error:', err.message);
-    }
-  }
-
-  // Deduplicate
-  const seen = new Set();
-  const deduped = results.filter(r => { const k = r.url.replace(/\/$/, '').toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
-
-  // Post-fetch date filtering
-  const unique = (fromDate || toDate) ? deduped.filter(r => {
-    if (!r.publishedAt) return true;
-    const d = new Date(r.publishedAt);
-    if (isNaN(d.getTime())) return true;
-    const iso = d.toISOString().split('T')[0];
-    if (fromDate && iso < fromDate) return false;
-    if (toDate && iso > toDate) return false;
-    return true;
-  }) : deduped;
-
-  // Auto-categorize
-  for (const r of unique) {
-    try { r.detectedCategory = await detectCategory({ title: r.title, contentSnippet: r.description }, { tenantId: req.tenantId }) || null; } catch { r.detectedCategory = null; }
-  }
-
-  // Check already imported
-  for (const r of unique) {
-    try { const ex = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(r.url, req.tenantId); r.alreadyImported = !!ex; } catch { r.alreadyImported = false; }
-  }
+  await Promise.all(unique.map(async r => {
+    const [cat, existing] = await Promise.all([
+      detectCategory({ title: r.title, contentSnippet: r.description }, { tenantId: req.tenantId }).catch(() => null),
+      db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(r.url, req.tenantId).catch(() => null),
+    ]);
+    r.detectedCategory = cat || null;
+    r.alreadyImported  = !!existing;
+  }));
 
   // Update saved search with fresh results
   await db.prepare(
