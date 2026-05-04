@@ -1779,6 +1779,74 @@ async function initDb() {
     }
   }
 
+  // ── Writing styles: table + system seeds ──────────────────────
+  try {
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS writing_styles (
+        id          SERIAL PRIMARY KEY,
+        tenant_id   INTEGER NOT NULL DEFAULT 0,
+        name        VARCHAR(100) NOT NULL,
+        slug        VARCHAR(120) NOT NULL,
+        description TEXT,
+        prompt      TEXT NOT NULL,
+        category    VARCHAR(50) DEFAULT 'general',
+        is_system   BOOLEAN DEFAULT false,
+        sort_order  INTEGER DEFAULT 0,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(tenant_id, slug)
+      )
+    `);
+    await p.query(`ALTER TABLE writers  ADD COLUMN IF NOT EXISTS style_id INTEGER REFERENCES writing_styles(id) ON DELETE SET NULL`);
+    await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyled_content   TEXT`);
+    await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyle_style_id   INTEGER REFERENCES writing_styles(id) ON DELETE SET NULL`);
+    await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS final_thoughts      TEXT`);
+
+    const SYSTEM_STYLES = [
+      {
+        slug: 'the-wire', name: 'The Wire', sort_order: 1,
+        description: 'Reuters/AP style — inverted pyramid, just the facts, tight sentences.',
+        prompt: `Write in wire-service style (Reuters, AP). Lead sentence contains the single most important fact. Inverted pyramid: most newsworthy first, supporting detail second, background last. Sentences are short and declarative. No opinion, no colour, no adjectives beyond what the facts support. Every claim is attributable. Use past tense for events, present tense for ongoing situations. Spell out jargon immediately on first use. Numbers are precise. Paragraphs are one to two sentences.`,
+      },
+      {
+        slug: 'the-explainer', name: 'The Explainer', sort_order: 2,
+        description: 'Vox-style — "here\'s why this matters", analogies, reader-first.',
+        prompt: `Write in modern explainer style (Vox, The Atlantic). Open by answering "why does this matter to the reader?" before explaining what happened. Define every technical term immediately after first use. Use concrete analogies to make abstract ideas tangible. Subheadings guide readers through sections. End each section with a clear takeaway. Assume the reader is intelligent but not an expert — never condescending, never lost.`,
+      },
+      {
+        slug: 'the-columnist', name: 'The Columnist', sort_order: 3,
+        description: 'Strong POV, thesis-first, confident opinion journalism.',
+        prompt: `Write with a strong, clear point of view. Open with your thesis — don't bury it. Hook the reader in the first three sentences and declare your argument. Support it with evidence but own your opinion; don't hide behind the data. Use vivid, specific language. Short paragraphs. End with a memorable close that reinforces your thesis. The voice should feel like a confident, informed friend who has a clear take and isn't afraid to say so.`,
+      },
+      {
+        slug: 'the-longread', name: 'The Longread', sort_order: 4,
+        description: 'Magazine depth — narrative arc, scene-setting, immersive prose.',
+        prompt: `Write in longform magazine style (The New Yorker, WIRED). Open with a scene, anecdote, or vivid detail that draws the reader in before introducing the news hook. Build a narrative arc with a clear beginning, middle, and end. Characters and direct quotes bring the story to life. Weave data and context into the narrative rather than bolting them on as bullet points. Every paragraph earns its place. The prose should reward careful, unhurried reading.`,
+      },
+      {
+        slug: 'the-brief', name: 'The Brief', sort_order: 5,
+        description: 'Ultra-compact — 3–5 bullets plus one closing line, under 120 words.',
+        prompt: `Write in ultra-compact briefing format. Structure: three to five bullet points, each a single complete idea with no filler, followed by one closing sentence that gives the "so what." The lead bullet is the most important fact. Total word count must not exceed 120 words. No preamble, no padding, no attribution sentences — every word earns its place. Optimised for reading in under 30 seconds on a mobile device.`,
+      },
+      {
+        slug: 'the-enthusiast', name: 'The Enthusiast', sort_order: 6,
+        description: 'High energy, accessible, knowledgeable — like a passionate expert.',
+        prompt: `Write with high energy and genuine enthusiasm for the subject. Tone is knowledgeable but accessible — a passionate expert explaining something they love to a smart friend. Use vivid, concrete language. Short sentences mixed with slightly longer ones for rhythm. Avoid dry academic phrasing. Don't talk down to the reader, but don't assume expertise either. Express genuine excitement about breakthroughs and discoveries where warranted. Close with a forward-looking line about what comes next.`,
+      },
+    ];
+
+    for (const s of SYSTEM_STYLES) {
+      await p.query(
+        `INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, is_system, sort_order)
+         VALUES (0, $1, $2, $3, $4, true, $5)
+         ON CONFLICT (tenant_id, slug) DO NOTHING`,
+        [s.name, s.slug, s.description, s.prompt, s.sort_order]
+      );
+    }
+  } catch (err) {
+    if (!/already exists/i.test(err.message)) console.error('[DB] writing_styles setup:', err.message);
+  }
+
   // Seed default voice character
   const voiceCount = await prepare('SELECT COUNT(*) as cnt FROM voices').get();
   if (parseInt(voiceCount.cnt) === 0) {

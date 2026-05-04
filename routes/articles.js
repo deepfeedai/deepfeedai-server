@@ -1215,6 +1215,25 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
+// POST /api/articles/:id/final-thoughts — regenerate writer's final thoughts
+router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { regenerateFinalThoughts } = require('../lib/final-thoughts');
+  const text = await regenerateFinalThoughts(req.params.id, req.tenantId);
+  logAudit(req, 'article.final_thoughts', 'article', parseInt(req.params.id), {});
+  res.json({ ok: true, final_thoughts: text });
+}));
+
+// PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
+router.patch('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { text } = req.body;
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text required' });
+  const existing = await db.prepare('SELECT id FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!existing) return res.status(404).json({ error: 'Article not found' });
+  await db.prepare('UPDATE articles SET final_thoughts = $1 WHERE id = $2 AND tenant_id = $3').run(text.trim() || null, req.params.id, req.tenantId);
+  logAudit(req, 'article.final_thoughts_edit', 'article', parseInt(req.params.id), {});
+  res.json({ ok: true, final_thoughts: text.trim() || null });
+}));
+
 // POST /api/articles/backfill-embeddings — Generate embeddings for articles without them
 // ?type=curated|original|all  (default: all)
 // ?batch=N  (default: 50, max: 100)

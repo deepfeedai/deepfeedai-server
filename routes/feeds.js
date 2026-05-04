@@ -51,7 +51,7 @@ router.get('/feed.xml', asyncHandler(async (req, res) => {
   const ctx = await getSiteContext(tenantId);
   const articles = await db.prepare(`
     SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
-           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           a.full_content, a.image_url, a.category, a.importance, a.final_thoughts, a.published_at,
            w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
@@ -73,7 +73,7 @@ router.get('/feed/category/:slug.xml', asyncHandler(async (req, res) => {
   if (!category) return res.status(404).type('text/plain').send('Category not found');
   const articles = await db.prepare(`
     SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
-           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           a.full_content, a.image_url, a.category, a.importance, a.final_thoughts, a.published_at,
            w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
@@ -105,7 +105,7 @@ router.get('/feed/writers/:slug.xml', asyncHandler(async (req, res) => {
   if (!writer) return res.status(404).type('text/plain').send('Writer not found');
   const articles = await db.prepare(`
     SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
-           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           a.full_content, a.image_url, a.category, a.importance, a.final_thoughts, a.published_at,
            $3::text AS writer_name
     FROM articles a
     WHERE a.tenant_id = $1 AND a.writer_id = $2 AND a.is_published = 1
@@ -183,7 +183,7 @@ router.get('/feed.json', asyncHandler(async (req, res) => {
   const ctx = await getSiteContext(tenantId);
   const articles = await db.prepare(`
     SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
-           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           a.full_content, a.image_url, a.category, a.importance, a.final_thoughts, a.published_at,
            w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
