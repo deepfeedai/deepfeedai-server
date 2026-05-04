@@ -294,7 +294,17 @@
       <!-- Style Profile -->
       <details class="style-section">
         <summary>Style Profile</summary>
-        <div class="form-row" style="margin-top:8px;">
+        <div class="form-group" style="margin-top:8px;">
+          <label class="form-label">Writing Style Template</label>
+          <select class="form-control" id="fWriterStyleId">
+            <option value="">— No style template —</option>
+          </select>
+          <p class="form-help" style="margin-top:4px;">
+            Choose a template that defines formatting, structure, and voice. The writer's own prompt and style guide sit on top.
+            <a href="/writing-styles.html" target="_blank" style="color:var(--accent);">Manage styles ↗</a>
+          </p>
+        </div>
+        <div class="form-row">
           <div class="form-group">
             <label class="form-label">Tone</label>
             <select class="form-control" id="fWriterTone">

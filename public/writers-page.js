@@ -1,6 +1,19 @@
 let writers = [];
 let activeRoleFilter = 'all'; // 'all' | 'writer' | 'editor' | 'designer' | 'other'
 let categoriesList = [];
+let writingStylesList = [];
+
+async function loadWritingStyles() {
+  try {
+    writingStylesList = await apiFetch('/admin/writing-styles');
+    var sel = document.getElementById('fWriterStyleId');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— No style template —</option>'
+      + writingStylesList.map(function(s) {
+        return '<option value="' + s.id + '">' + esc(s.name) + (s.is_system ? ' (System)' : '') + '</option>';
+      }).join('');
+  } catch { /* non-fatal */ }
+}
 let perfData = [];
 let pendingDeleteId = null;
 let pendingAvatarDataUrl = null;
@@ -221,6 +234,8 @@ function openAdd() {
   document.getElementById('fWriterTone').value = '';
   document.getElementById('fWriterExpertise').value = '';
   document.getElementById('fWriterStyleGuide').value = '';
+  var styleSelAdd = document.getElementById('fWriterStyleId');
+  if (styleSelAdd) styleSelAdd.value = '';
   document.getElementById('fewShotContainer').innerHTML = '';
   document.getElementById('fWriterGender').value = '';
   document.getElementById('fWriterEthnicity').value = '';
@@ -258,6 +273,8 @@ function openEdit(id) {
   document.getElementById('fWriterTone').value = w.tone || '';
   document.getElementById('fWriterExpertise').value = w.expertise_level || '';
   document.getElementById('fWriterStyleGuide').value = w.style_guide || '';
+  var styleSelEdit = document.getElementById('fWriterStyleId');
+  if (styleSelEdit) styleSelEdit.value = w.style_id || '';
   document.getElementById('fWriterGender').value = w.gender || '';
   document.getElementById('fWriterEthnicity').value = w.ethnicity || '';
   document.getElementById('fWriterIsAuto').checked = !!w.is_auto;
@@ -358,6 +375,8 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
   var tone = document.getElementById('fWriterTone').value;
   var expertise_level = document.getElementById('fWriterExpertise').value;
   var style_guide = document.getElementById('fWriterStyleGuide').value.trim();
+  var styleIdEl = document.getElementById('fWriterStyleId');
+  var style_id = styleIdEl && styleIdEl.value ? parseInt(styleIdEl.value) : null;
   var few_shot_examples = collectFewShotExamples();
   var is_auto = document.getElementById('fWriterIsAuto').checked;
   var synthesis_schedule = document.getElementById('fWriterSchedule').value;
@@ -391,6 +410,7 @@ document.getElementById('saveWriterBtn').addEventListener('click', async functio
     tone: tone || null,
     expertise_level: expertise_level || null,
     style_guide: style_guide || null,
+    style_id: style_id,
     few_shot_examples: few_shot_examples,
     is_auto: is_auto,
     synthesis_schedule: synthesis_schedule,
@@ -1263,6 +1283,7 @@ async function init() {
   renderSidebar();
   initModals();
   await loadCategoriesList();
+  await loadWritingStyles();
   // On mobile, default to card grid view regardless of saved preference
   if (window.innerWidth <= 768 && writerViewMode === 'table') writerViewMode = 'cards';
   await loadWriters();

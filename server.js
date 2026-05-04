@@ -373,7 +373,8 @@ app.use('/api/admin/users',   adminWriteLimiter, require('./routes/admin-users')
 app.use('/api/admin/roles',   require('./routes/admin-roles'));
 app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
-app.use('/api/admin/writers', auth, require('./routes/admin-writers'));
+app.use('/api/admin/writers',        auth, require('./routes/admin-writers'));
+app.use('/api/admin/writing-styles', auth, require('./routes/admin-writing-styles'));
 app.use('/api/admin/pitches', require('./routes/admin-pitches'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/webhooks', require('./routes/webhooks'));

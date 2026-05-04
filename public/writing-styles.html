@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Writing Styles</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    .styles-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .style-card {
+      background: var(--bg-card, #161616);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+    }
+    .style-card.system { border-color: rgba(99,102,241,0.3); }
+    .style-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .style-card-name { font-weight: 700; font-size: 15px; }
+    .style-card-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .style-card-prompt {
+      font-size: 12px;
+      color: var(--text-muted);
+      background: var(--bg-surface, #111);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      line-height: 1.55;
+      max-height: 100px;
+      overflow: hidden;
+      position: relative;
+    }
+    .style-card-prompt::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 32px;
+      background: linear-gradient(transparent, var(--bg-surface, #111));
+      pointer-events: none;
+    }
+    .style-card-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+    .badge-system {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+      background: rgba(99,102,241,0.15); color: #818cf8;
+      border-radius: 4px; padding: 2px 7px;
+    }
+    .preview-box {
+      background: var(--bg-surface, #111);
+      border: 1px solid var(--accent, #e53e3e);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      white-space: pre-wrap;
+      margin-top: 8px;
+    }
+    .section-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-muted);
+      margin: 24px 0 12px;
+    }
+    .preview-loading { color: var(--text-muted); font-size: 13px; font-style: italic; }
+  </style>
+</head>
+<body>
+<script src="/admin.js"></script>
+
+<div class="page-shell">
+  <div class="page-header">
+    <h1 class="page-title">Writing Styles</h1>
+    <div class="page-header-actions">
+      <button class="btn btn-primary" onclick="openCreate()">+ New Style</button>
+    </div>
+  </div>
+
+  <p style="color:var(--text-muted);font-size:14px;margin-bottom:24px;max-width:640px;">
+    Style templates define how writers format and voice their articles. System styles are built-in and shared across all tenants. Fork any system style to customise it for your newsroom.
+  </p>
+
+  <div class="section-label">System Styles</div>
+  <div class="styles-grid" id="systemGrid">
+    <div class="text-muted">Loading…</div>
+  </div>
+
+  <div class="section-label">Your Styles</div>
+  <div class="styles-grid" id="tenantGrid">
+    <div class="text-muted text-sm">No custom styles yet — create one or fork a system style.</div>
+  </div>
+</div>
+
+<!-- Create / Edit modal -->
+<div id="styleModal" class="modal" style="display:none;">
+  <div class="modal-overlay" onclick="closeModal()"></div>
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-header">
+      <h2 class="modal-title" id="modalTitle">New Writing Style</h2>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="fStyleId" />
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" id="fStyleName" class="form-control" placeholder="e.g. The Explainer" maxlength="100" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description <span class="text-muted">(shown in pickers)</span></label>
+        <input type="text" id="fStyleDesc" class="form-control" placeholder="One-line summary of the style" maxlength="200" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Style Prompt</label>
+        <textarea id="fStylePrompt" class="form-control" rows="8"
+          placeholder="Instructions for how the writer should format and voice their articles. Be specific about structure, sentence length, tone, and what to avoid."></textarea>
+      </div>
+
+      <!-- Live preview -->
+      <div style="margin-top:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <span class="form-label" style="margin:0;">Style Preview</span>
+          <button class="btn btn-sm" onclick="runPreview()">Generate preview</button>
+        </div>
+        <div id="previewBox" style="display:none;"></div>
+        <div id="previewLoading" class="preview-loading" style="display:none;">Generating preview…</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStyle()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/writing-styles-page.js"></script>
+</body>
+</html>
