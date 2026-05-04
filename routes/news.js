@@ -253,11 +253,11 @@ router.get('/', asyncHandler(async (req, res) => {
   });
 
   // Batch-fetch comment + reaction counts
-  const slugs = items.map(a => toSlug(a.title));
+  const slugs = items.map(a => a.slug || toSlug(a.title));
   const { countMap, reactionMap, shareMap } = await fetchEngagement(slugs, req.tenantId);
 
   const enriched = items.map(a => {
-    const slug     = toSlug(a.title);
+    const slug     = a.slug || toSlug(a.title);
     const comments = countMap[slug]    ?? 0;
     const reactions = reactionMap[slug] ?? 0;
     return {
@@ -351,13 +351,13 @@ router.get('/hot', asyncHandler(async (req, res) => {
     }
   });
 
-  const slugs = items.map(a => toSlug(a.title));
+  const slugs = items.map(a => a.slug || toSlug(a.title));
 
   const { countMap, reactionMap, shareMap } = await fetchEngagement(slugs, req.tenantId);
 
   const scored = items
     .map(a => {
-      const slug      = toSlug(a.title);
+      const slug      = a.slug || toSlug(a.title);
       const comments  = countMap[slug]    ?? 0;
       const reactions = reactionMap[slug] ?? 0;
       const score     = hotScore(comments, reactions, a.published_at);

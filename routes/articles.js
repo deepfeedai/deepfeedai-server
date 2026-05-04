@@ -1187,12 +1187,15 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   const result = await synthesizeCluster(cluster, writer, req.tenantId);
   if (!result) return res.status(500).json({ error: 'Synthesis returned no result' });
 
-  // Update the existing article row (preserve ID, slug, URL — no broken links)
+  // Update the existing article row (preserve ID, slug, URL — no broken links).
+  // Clear stale AI-generated fields so post-publish hooks regenerate them for the new content.
   await db.prepare(`
     UPDATE articles SET
       title = $1, summary = $2, full_content = $3,
       source_article_ids = $4, synthesis_meta = $5, followups = $6,
-      editorial_score = $7, updated_at = NOW()
+      editorial_score = $7,
+      generated_title = NULL, tldr_overview = NULL, tldr_context = NULL, final_thoughts = NULL,
+      updated_at = NOW()
     WHERE id = $8 AND tenant_id = $9
   `).run(
     result.title,
@@ -1209,6 +1212,13 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   // Delete the duplicate row that synthesizeCluster created
   if (result.id && result.id !== article.id) {
     await db.prepare('DELETE FROM articles WHERE id = $1 AND tenant_id = $2').run(result.id, req.tenantId);
+  }
+
+  // Re-run post-publish hooks for the original article so generated_title, final_thoughts,
+  // topic_tag etc are refreshed for the new content (synthesis fired them for the temp row).
+  if (article.is_published) {
+    const { onArticlePublished } = require('../lib/post-publish');
+    onArticlePublished(article.id, req.tenantId).catch(() => {});
   }
 
   logAudit(req, 'article.regenerate', 'article', parseInt(req.params.id), { title: result.title });
