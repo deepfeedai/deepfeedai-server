@@ -1839,7 +1839,9 @@ async function initDb() {
       await p.query(
         `INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, is_system, sort_order)
          VALUES (0, $1, $2, $3, $4, true, $5)
-         ON CONFLICT (tenant_id, slug) DO NOTHING`,
+         ON CONFLICT (tenant_id, slug) DO UPDATE SET
+           name = EXCLUDED.name, description = EXCLUDED.description,
+           prompt = EXCLUDED.prompt, sort_order = EXCLUDED.sort_order`,
         [s.name, s.slug, s.description, s.prompt, s.sort_order]
       );
     }

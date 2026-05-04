@@ -93,9 +93,9 @@ async function saveStyle() {
 
   try {
     if (id) {
-      await apiFetch('/admin/writing-styles/' + id, { method: 'PUT', body: { name, description: desc, prompt } });
+      await apiFetch('/admin/writing-styles/' + id, { method: 'PUT', body: JSON.stringify({ name, description: desc, prompt }) });
     } else {
-      await apiFetch('/admin/writing-styles', { method: 'POST', body: { name, description: desc, prompt } });
+      await apiFetch('/admin/writing-styles', { method: 'POST', body: JSON.stringify({ name, description: desc, prompt }) });
     }
     closeModal();
     await loadStyles();
@@ -140,7 +140,7 @@ async function previewStyle(id) {
   loading.style.display = '';
 
   try {
-    var data = await apiFetch('/admin/writing-styles/preview', { method: 'POST', body: { styleId: id } });
+    var data = await apiFetch('/admin/writing-styles/preview', { method: 'POST', body: JSON.stringify({ styleId: id }) });
     loading.style.display = 'none';
     box.className = 'preview-box';
     box.textContent = data.preview || '(no preview returned)';
@@ -166,7 +166,7 @@ async function runPreview() {
 
   try {
     var body = id ? { styleId: parseInt(id), prompt } : { prompt };
-    var data = await apiFetch('/admin/writing-styles/preview', { method: 'POST', body });
+    var data = await apiFetch('/admin/writing-styles/preview', { method: 'POST', body: JSON.stringify(body) });
     loading.style.display = 'none';
     box.className = 'preview-box';
     box.textContent = data.preview || '(no preview returned)';
