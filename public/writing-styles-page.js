@@ -62,24 +62,29 @@ function openCreate() {
   document.getElementById('fStylePrompt').value = '';
   document.getElementById('previewBox').style.display = 'none';
   document.getElementById('previewLoading').style.display = 'none';
-  document.getElementById('styleModal').style.display = 'flex';
+  document.getElementById('runPreviewBtn').textContent = 'Generate preview';
+  openModal('styleModal');
 }
 
 function openEdit(id) {
   var s = styles.find(function(x) { return x.id === id; });
   if (!s) return;
-  document.getElementById('modalTitle').textContent = 'Edit Writing Style';
+  document.getElementById('modalTitle').textContent = s.is_system ? 'View Writing Style' : 'Edit Writing Style';
   document.getElementById('fStyleId').value = s.id;
   document.getElementById('fStyleName').value = s.name || '';
   document.getElementById('fStyleDesc').value = s.description || '';
   document.getElementById('fStylePrompt').value = s.prompt || '';
-  document.getElementById('previewBox').style.display = 'none';
   document.getElementById('previewLoading').style.display = 'none';
-  document.getElementById('styleModal').style.display = 'flex';
-}
-
-function closeModal() {
-  document.getElementById('styleModal').style.display = 'none';
+  document.getElementById('runPreviewBtn').textContent = s.sample_output ? 'Regenerate preview' : 'Generate preview';
+  var box = document.getElementById('previewBox');
+  if (s.sample_output) {
+    box.className = 'preview-box';
+    box.textContent = s.sample_output;
+    box.style.display = '';
+  } else {
+    box.style.display = 'none';
+  }
+  openModal('styleModal');
 }
 
 // ── Save ──────────────────────────────────────────────────────────
@@ -91,13 +96,15 @@ async function saveStyle() {
 
   if (!name || !prompt) { showAlert('Name and prompt are required', 'error'); return; }
 
+  var body = { name, description: desc, prompt };
+
   try {
     if (id) {
-      await apiFetch('/admin/writing-styles/' + id, { method: 'PUT', body: JSON.stringify({ name, description: desc, prompt }) });
+      await apiFetch('/admin/writing-styles/' + id, { method: 'PUT', body: JSON.stringify(body) });
     } else {
-      await apiFetch('/admin/writing-styles', { method: 'POST', body: JSON.stringify({ name, description: desc, prompt }) });
+      await apiFetch('/admin/writing-styles', { method: 'POST', body: JSON.stringify(body) });
     }
-    closeModal();
+    closeModal('styleModal');
     await loadStyles();
     showAlert('Style saved', 'success');
   } catch (err) {
@@ -129,12 +136,29 @@ async function deleteStyle(id, name) {
 }
 
 // ── Preview ───────────────────────────────────────────────────────
+function cacheSampleOutput(id, text) {
+  var s = styles.find(function(x) { return x.id === id; });
+  if (!s || s.is_system) return;
+  s.sample_output = text;
+  document.getElementById('runPreviewBtn').textContent = 'Regenerate preview';
+  apiFetch('/admin/writing-styles/' + id, { method: 'PUT', body: JSON.stringify({ sample_output: text }) })
+    .catch(function() {});
+}
+
 async function previewStyle(id) {
+  var s       = styles.find(function(x) { return x.id === id; });
   var box     = document.getElementById('previewBox');
   var loading = document.getElementById('previewLoading');
 
-  // Open the edit modal pre-filled to show the preview there
   openEdit(id);
+
+  if (s && s.sample_output) {
+    loading.style.display = 'none';
+    box.className = 'preview-box';
+    box.textContent = s.sample_output;
+    box.style.display = '';
+    return;
+  }
 
   box.style.display = 'none';
   loading.style.display = '';
@@ -145,6 +169,7 @@ async function previewStyle(id) {
     box.className = 'preview-box';
     box.textContent = data.preview || '(no preview returned)';
     box.style.display = '';
+    if (data.preview) cacheSampleOutput(id, data.preview);
   } catch (err) {
     loading.style.display = 'none';
     box.className = 'preview-box';
@@ -171,6 +196,7 @@ async function runPreview() {
     box.className = 'preview-box';
     box.textContent = data.preview || '(no preview returned)';
     box.style.display = '';
+    if (data.preview && id) cacheSampleOutput(parseInt(id), data.preview);
   } catch (err) {
     loading.style.display = 'none';
     box.className = 'preview-box';
@@ -180,4 +206,6 @@ async function runPreview() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────
+renderSidebar();
+initModals();
 loadStyles();

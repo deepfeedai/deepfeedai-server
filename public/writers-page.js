@@ -93,10 +93,12 @@ function renderWriters() {
     var roleLabel = role.split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
     var systemBadge = w.is_system ? ' <span class="badge" style="font-size:9px;background:rgba(99,102,241,0.15);color:#818cf8;vertical-align:middle;">System</span>' : '';
     var roleBadge = '<span class="role-badge role-badge-' + role + '">' + roleLabel + '</span>' + systemBadge;
+    var styleObj = w.style_id ? writingStylesList.find(function(s) { return s.id === w.style_id; }) : null;
+    var styleBadge = styleObj ? ' <span class="badge" style="font-size:9px;background:rgba(99,102,241,0.10);color:#a5b4fc;vertical-align:middle;margin-left:2px;" title="Writing style: ' + esc(styleObj.name) + '">&#9998; ' + esc(styleObj.name) + '</span>' : '';
 
     return '<tr>'
       + '<td>' + avatarHtml + '</td>'
-      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a> ' + roleBadge + '</td>'
+      + '<td><a href="#" onclick="showWriterQuickView(' + w.id + ');return false;" style="color:var(--accent);text-decoration:none;font-weight:700;">' + esc(w.name) + '</a> ' + roleBadge + styleBadge + '</td>'
       + '<td>' + beatsHtml + '</td>'
       + '<td style="text-align:center;">' + autoBadge + '</td>'
       + '<td class="text-muted text-sm">' + (w.elevenlabs_voice_id ? '<span title="' + esc(w.elevenlabs_voice_id) + '">Configured</span>' : 'None') + '</td>'
@@ -141,6 +143,8 @@ function renderWriterCards() {
     var role = w.role || 'writer';
     var roleLabel = role.split('-').map(function(p) { return p.charAt(0).toUpperCase() + p.slice(1); }).join(' ');
     var roleBadge = '<span class="role-badge role-badge-' + role + '">' + roleLabel + '</span>';
+    var cardStyleObj = w.style_id ? writingStylesList.find(function(s) { return s.id === w.style_id; }) : null;
+    var cardStyleBadge = cardStyleObj ? '<span class="badge" style="font-size:10px;background:rgba(99,102,241,0.10);color:#a5b4fc;margin-top:4px;display:inline-block;">&#9998; ' + esc(cardStyleObj.name) + '</span>' : '';
 
     return '<div class="writer-card" onclick="showWriterQuickView(' + w.id + ')">'
       + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
@@ -150,6 +154,7 @@ function renderWriterCards() {
       + '<div style="flex:1;min-width:0;">'
       + '<div style="font-weight:700;font-size:15px;">' + esc(w.name) + '</div>'
       + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;">' + roleBadge + ' ' + beatsHtml + ' ' + autoBadge + '</div>'
+      + (cardStyleBadge ? '<div>' + cardStyleBadge + '</div>' : '')
       + '</div>'
       + '</div>'
       + (w.bio ? '<div class="text-muted text-sm" style="line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + esc(w.bio) + '</div>' : '')
@@ -1179,6 +1184,8 @@ window.showWriterQuickView = async function(id) {
   if (beats.length) {
     html += '<div style="margin-bottom:6px;">' + beats.map(function(b) { return '<span class="badge badge-muted" style="font-size:11px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
   }
+  var qvStyleObj = w.style_id ? writingStylesList.find(function(s) { return s.id === w.style_id; }) : null;
+  if (qvStyleObj) html += '<div style="margin-bottom:4px;"><span class="badge" style="font-size:11px;background:rgba(99,102,241,0.12);color:#a5b4fc;">&#9998; ' + esc(qvStyleObj.name) + ' style</span></div>';
   if (w.bio) html += '<p style="color:var(--muted);margin:0;font-size:0.9rem;line-height:1.5;">' + esc(w.bio) + '</p>';
   html += '</div></div>';
 

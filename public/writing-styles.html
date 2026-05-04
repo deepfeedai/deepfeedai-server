@@ -105,12 +105,11 @@
 </div>
 
 <!-- Create / Edit modal -->
-<div id="styleModal" class="modal" style="display:none;">
-  <div class="modal-overlay" onclick="closeModal()"></div>
-  <div class="modal-box" style="max-width:640px;">
+<div id="styleModal" class="modal-overlay">
+  <div class="modal modal-lg">
     <div class="modal-header">
-      <h2 class="modal-title" id="modalTitle">New Writing Style</h2>
-      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+      <div class="modal-title" id="modalTitle">New Writing Style</div>
+      <button class="modal-close" data-close-modal>&#x2715;</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="fStyleId" />
@@ -132,14 +131,14 @@
       <div style="margin-top:16px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <span class="form-label" style="margin:0;">Style Preview</span>
-          <button class="btn btn-sm" onclick="runPreview()">Generate preview</button>
+          <button class="btn btn-sm" id="runPreviewBtn" onclick="runPreview()">Generate preview</button>
         </div>
         <div id="previewBox" style="display:none;"></div>
         <div id="previewLoading" class="preview-loading" style="display:none;">Generating preview…</div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn" data-close-modal>Cancel</button>
       <button class="btn btn-primary" onclick="saveStyle()">Save</button>
     </div>
   </div>
