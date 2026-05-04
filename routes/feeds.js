@@ -50,8 +50,9 @@ router.get('/feed.xml', asyncHandler(async (req, res) => {
   const tenantId = req.tenantId || 1;
   const ctx = await getSiteContext(tenantId);
   const articles = await db.prepare(`
-    SELECT a.id, a.title, a.slug, a.summary, a.full_content, a.image_url, a.category,
-           a.published_at, w.name AS writer_name
+    SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
+           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
     WHERE a.tenant_id = $1 AND a.is_published = 1
@@ -71,8 +72,9 @@ router.get('/feed/category/:slug.xml', asyncHandler(async (req, res) => {
   ).get(tenantId, req.params.slug).catch(() => null);
   if (!category) return res.status(404).type('text/plain').send('Category not found');
   const articles = await db.prepare(`
-    SELECT a.id, a.title, a.slug, a.summary, a.full_content, a.image_url, a.category,
-           a.published_at, w.name AS writer_name
+    SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
+           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
     WHERE a.tenant_id = $1 AND a.is_published = 1
@@ -102,8 +104,9 @@ router.get('/feed/writers/:slug.xml', asyncHandler(async (req, res) => {
   ).get(tenantId, req.params.slug).catch(() => null);
   if (!writer) return res.status(404).type('text/plain').send('Writer not found');
   const articles = await db.prepare(`
-    SELECT a.id, a.title, a.slug, a.summary, a.full_content, a.image_url, a.category,
-           a.published_at, $3::text AS writer_name
+    SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
+           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           $3::text AS writer_name
     FROM articles a
     WHERE a.tenant_id = $1 AND a.writer_id = $2 AND a.is_published = 1
       AND COALESCE(a.is_archived, 0) = 0
@@ -179,8 +182,9 @@ router.get('/feed.json', asyncHandler(async (req, res) => {
   const tenantId = req.tenantId || 1;
   const ctx = await getSiteContext(tenantId);
   const articles = await db.prepare(`
-    SELECT a.id, a.title, a.slug, a.summary, a.full_content, a.image_url, a.category,
-           a.published_at, w.name AS writer_name
+    SELECT a.id, a.title, a.generated_title, a.slug, a.summary, a.tldr_overview,
+           a.full_content, a.image_url, a.category, a.importance, a.published_at,
+           w.name AS writer_name
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
     WHERE a.tenant_id = $1 AND a.is_published = 1
@@ -191,6 +195,21 @@ router.get('/feed.json', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'application/feed+json; charset=utf-8');
   res.setHeader('Cache-Control', `public, max-age=${CACHE_SECONDS}`);
   res.json(render.renderJsonFeed({ ...ctx, articles }));
+}));
+
+router.get('/feed/stories.xml', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId || 1;
+  const ctx = await getSiteContext(tenantId);
+  const stories = await db.prepare(`
+    SELECT st.id, st.name, st.slug, st.summary, st.status,
+           st.article_count, st.image_url, st.last_activity_at
+    FROM story_timelines st
+    WHERE st.tenant_id = $1
+      AND st.status IN ('active', 'dormant')
+    ORDER BY st.last_activity_at DESC LIMIT $2
+  `).all(tenantId, MAX_ITEMS).catch(() => []);
+  setRssHeaders(res);
+  res.send(render.renderStoriesRSS({ ...ctx, stories }));
 }));
 
 module.exports = router;
