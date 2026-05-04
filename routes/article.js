@@ -15,7 +15,7 @@ router.get('/', asyncHandler(async (req, res) => {
   // Direct slug lookup using indexed column (fast path)
   let match = await db.prepare(
     `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
-            w.avatar_url AS writer_avatar_url, w.color AS writer_color,
+            w.avatar_url AS writer_avatar_url, w.accent_color AS writer_color,
             (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
      FROM articles a
      LEFT JOIN writers w ON w.id = a.writer_id

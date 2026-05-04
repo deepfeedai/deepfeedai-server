@@ -117,7 +117,7 @@ router.get('/stories/catchup', asyncHandler(async (req, res) => {
            w.name       AS writer_name,
            w.slug       AS writer_slug,
            w.avatar_url AS writer_avatar_url,
-           w.color      AS writer_color
+           w.accent_color AS writer_color
     FROM story_timelines st
     LEFT JOIN articles a  ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
     LEFT JOIN writers w   ON w.id = a.writer_id         AND w.tenant_id = a.tenant_id
