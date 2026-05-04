@@ -28,7 +28,7 @@ Requirements:
   Do NOT write bare phrases like "[my prior coverage]" or "[Raj's earlier piece]" — those are not links.
 
 Respond in exactly this format — no extra commentary:
-TITLE: [a specific, compelling, publication-ready headline — not generic, not clickbait]
+TITLE: [Declarative fact with an active verb. Name the specific company, person, or technology — not "an AI company" but "Anthropic". Include a number, decision, or concrete outcome if one exists in the sources. 8–14 words. Banned patterns: "The Impact of X on Y", "How X Is Changing Y", "Why X Matters", "The Future of X", "The Rise of X", "Exploring X", "Understanding X". Good examples: "OpenAI Cuts API Prices 50% as Anthropic Launches Competing Tier", "FTC Blocks Adobe-Figma Deal Over Creative Software Monopoly Concerns", "Meta's Llama 3 Outperforms GPT-4 on Five of Seven Benchmarks".]
 EXCERPT: [1-2 sentence hook that captures the article's key insight — max 280 characters]
 PULL_QUOTE: [the single most striking or quotable sentence from your article — a concrete finding, a sharp contrast, or a memorable claim. Must appear verbatim in the article body. Max 160 characters.]
 TOPIC_TAG: [2–4 title-case words naming the specific event or ongoing story — e.g. "OpenAI Board Crisis", "Bitcoin Price Rally", "US China Tariffs". Use the same tag across articles about the same continuing story.]
