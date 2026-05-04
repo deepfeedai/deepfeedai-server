@@ -1800,6 +1800,7 @@ async function initDb() {
     await p.query(`ALTER TABLE writers  ADD COLUMN IF NOT EXISTS style_id INTEGER REFERENCES writing_styles(id) ON DELETE SET NULL`);
     await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyled_content   TEXT`);
     await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyle_style_id   INTEGER REFERENCES writing_styles(id) ON DELETE SET NULL`);
+    await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS final_thoughts      TEXT`);
 
     const SYSTEM_STYLES = [
       {
