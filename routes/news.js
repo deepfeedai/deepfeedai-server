@@ -408,8 +408,8 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       WHERE a.tenant_id = $1
         AND a.topic_tag IS NOT NULL
         AND (a.is_archived = 0 OR a.is_archived IS NULL)
-        AND a.created_at > NOW() - INTERVAL '48 hours'
-      ORDER BY a.created_at DESC
+        AND COALESCE(a.published_at, a.created_at) > NOW() - INTERVAL '48 hours'
+      ORDER BY COALESCE(a.published_at, a.created_at) DESC
       LIMIT 500
     `, [tenantId]),
 
@@ -423,7 +423,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
             FROM articles
             WHERE tenant_id = $1 AND topic_tag IS NOT NULL
               AND (is_archived = 0 OR is_archived IS NULL)
-              AND created_at > NOW() - INTERVAL '48 hours'
+              AND COALESCE(published_at, created_at) > NOW() - INTERVAL '48 hours'
             GROUP BY topic_tag
           ) t
           WHERE pub_count >= 1 OR src_count >= 2
