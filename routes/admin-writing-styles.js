@@ -16,7 +16,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
-const { callAI }       = require('../lib/ai-router');
+const { complete }     = require('../lib/ai-router');
 
 const SAMPLE_TEXT = `Researchers at MIT have developed a new technique that reduces the energy consumption of large language models by 40 percent without degrading output quality. The method, called selective activation pruning, identifies and disables redundant neural pathways during inference. The team tested the approach across five leading open-source models and published their findings in Nature. Industry observers say the technique could significantly lower the cost of running AI at scale.`;
 
@@ -109,18 +109,19 @@ router.post('/preview', asyncHandler(async (req, res) => {
 
   const sourceText = (text?.trim()) || SAMPLE_TEXT;
 
-  const result = await callAI({
-    tenantId: req.tenantId,
+  const result = await complete({
+    operation:   'writing-style-preview',
+    tenantId:    req.tenantId,
     messages: [
+      { role: 'system', content: stylePrompt },
       {
         role: 'user',
         content: `Rewrite the following news paragraph in your assigned writing style. Preserve all facts. Output only the rewritten text — no preamble, no labels.\n\n---\n${sourceText}`,
       },
     ],
-    system: stylePrompt,
-    maxTokens: 600,
+    maxTokens:   600,
     temperature: 0.7,
-    tag: 'writing-style-preview',
+    trigger:     'admin',
   });
 
   res.json({ preview: result?.content || result?.text || '' });
@@ -167,18 +168,19 @@ router.post('/restyle/:articleId', asyncHandler(async (req, res) => {
   const content = article.full_content || article.summary || '';
   if (!content) return res.status(400).json({ error: 'Article has no content to restyle' });
 
-  const result = await callAI({
-    tenantId: req.tenantId,
+  const result = await complete({
+    operation:   'writing-style-restyle',
+    tenantId:    req.tenantId,
     messages: [
+      { role: 'system', content: style.prompt },
       {
         role: 'user',
         content: `Rewrite this article in your assigned writing style. Preserve all facts and information exactly — only the voice, structure, and presentation should change. Output only the rewritten article body — no title, no preamble, no labels.\n\nTitle: ${title}\n\n---\n${content}`,
       },
     ],
-    system: style.prompt,
-    maxTokens: 2000,
+    maxTokens:   2000,
     temperature: 0.7,
-    tag: 'writing-style-restyle',
+    trigger:     'admin',
   });
 
   const restyled = result?.content || result?.text || '';
