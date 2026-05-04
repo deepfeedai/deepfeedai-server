@@ -674,6 +674,7 @@
         const isSource = a.content_type === 'curated';
         const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
         return `<div class="art-result" data-id="${a.id}" onclick="_addToNewStory(${a.id})">
+
           <div style="flex:1;min-width:0;">
             <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>
@@ -768,6 +769,7 @@
         const isSource = a.content_type === 'curated';
         const badge   = isSource ? ' <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-card);color:var(--text-muted);border:1px solid var(--border)">Source</span>' : '';
         return `<div class="art-result" data-id="${a.id}" onclick="_attachArticleToStory(${a.id})">
+
           <div style="flex:1;min-width:0;">
             <div class="art-result-title">${esc(a.title)}${badge}</div>
             <div class="art-result-meta">${esc(a.source || '')}${date ? ' · ' + date : ''}</div>

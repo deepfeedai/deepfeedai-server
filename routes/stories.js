@@ -105,6 +105,59 @@ router.get('/stories', asyncHandler(async (req, res) => {
   res.json({ status: 'ok', ...result });
 }));
 
+// GET /stories/catchup — top active stories enriched for the briefing experience
+router.get('/stories/catchup', asyncHandler(async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 10, 20);
+
+  const rows = await db.prepare(`
+    SELECT st.id, st.name, st.slug, st.summary, st.status,
+           st.article_count, st.image_url, st.last_activity_at,
+           a.image_url  AS cover_image_url,
+           a.category   AS cover_category,
+           w.name       AS writer_name,
+           w.slug       AS writer_slug,
+           w.avatar_url AS writer_avatar_url,
+           w.color      AS writer_color
+    FROM story_timelines st
+    LEFT JOIN articles a  ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
+    LEFT JOIN writers w   ON w.id = a.writer_id         AND w.tenant_id = a.tenant_id
+    WHERE st.tenant_id = $1
+      AND st.status    = 'active'
+    ORDER BY st.last_activity_at DESC
+    LIMIT $2
+  `).all(req.tenantId, limit).catch(() => []);
+
+  const now = Date.now();
+  const stories = rows.map(r => {
+    const hoursSince = (now - new Date(r.last_activity_at).getTime()) / 3600000;
+    const count = r.article_count || 0;
+
+    let tier = 'trending';
+    if (hoursSince <= 2  && count >= 6) tier = 'breaking';
+    else if (hoursSince <= 12 && count >= 3) tier = 'major';
+
+    return {
+      id:             r.id,
+      name:           r.name,
+      slug:           r.slug,
+      summary:        r.summary,
+      articleCount:   count,
+      imageUrl:       r.image_url || r.cover_image_url || null,
+      lastActivityAt: r.last_activity_at,
+      category:       r.cover_category   || null,
+      tier,
+      writer: r.writer_name ? {
+        name:      r.writer_name,
+        slug:      r.writer_slug,
+        avatarUrl: r.writer_avatar_url || null,
+        color:     r.writer_color      || null,
+      } : null,
+    };
+  });
+
+  res.json({ status: 'ok', stories, count: stories.length });
+}));
+
 // GET /stories/:slug
 router.get('/stories/:slug', asyncHandler(async (req, res) => {
   const story = await getStory(req.tenantId, req.params.slug);
