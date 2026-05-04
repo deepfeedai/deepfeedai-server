@@ -1801,48 +1801,56 @@ async function initDb() {
     await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyled_content   TEXT`);
     await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS restyle_style_id   INTEGER REFERENCES writing_styles(id) ON DELETE SET NULL`);
     await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS final_thoughts      TEXT`);
+    await p.query(`ALTER TABLE writing_styles ADD COLUMN IF NOT EXISTS sample_output TEXT`);
 
     const SYSTEM_STYLES = [
       {
         slug: 'the-wire', name: 'The Wire', sort_order: 1,
         description: 'Reuters/AP style — inverted pyramid, just the facts, tight sentences.',
         prompt: `Write in wire-service style (Reuters, AP). Lead sentence contains the single most important fact. Inverted pyramid: most newsworthy first, supporting detail second, background last. Sentences are short and declarative. No opinion, no colour, no adjectives beyond what the facts support. Every claim is attributable. Use past tense for events, present tense for ongoing situations. Spell out jargon immediately on first use. Numbers are precise. Paragraphs are one to two sentences.`,
+        sample_output: `MIT researchers developed a technique that reduces large language model energy consumption by 40 percent without degrading output quality, according to a paper published in Nature.\n\nThe method, called selective activation pruning, identifies and disables redundant neural pathways during inference. The researchers tested it on five leading open-source models.\n\nIndustry observers said the technique could significantly lower the cost of running artificial intelligence at scale.`,
       },
       {
         slug: 'the-explainer', name: 'The Explainer', sort_order: 2,
         description: 'Vox-style — "here\'s why this matters", analogies, reader-first.',
         prompt: `Write in modern explainer style (Vox, The Atlantic). Open by answering "why does this matter to the reader?" before explaining what happened. Define every technical term immediately after first use. Use concrete analogies to make abstract ideas tangible. Subheadings guide readers through sections. End each section with a clear takeaway. Assume the reader is intelligent but not an expert — never condescending, never lost.`,
+        sample_output: `Running AI is expensive — and not just in dollars. The massive neural networks powering today's AI systems consume enormous amounts of electricity every time they answer a question. That may be about to change.\n\nResearchers at MIT say they've cut that energy cost by 40 percent using a technique called selective activation pruning. Think of it like turning off the lights in rooms nobody is using: the method identifies neural pathways inside a model that aren't contributing meaningfully to its answers, then deactivates them during each response.\n\nCritically, the quality of the AI's output doesn't suffer. The team verified this across five major open-source models and published their findings in Nature.\n\nThe takeaway: cheaper, greener AI is closer than it looked.`,
       },
       {
         slug: 'the-columnist', name: 'The Columnist', sort_order: 3,
         description: 'Strong POV, thesis-first, confident opinion journalism.',
         prompt: `Write with a strong, clear point of view. Open with your thesis — don't bury it. Hook the reader in the first three sentences and declare your argument. Support it with evidence but own your opinion; don't hide behind the data. Use vivid, specific language. Short paragraphs. End with a memorable close that reinforces your thesis. The voice should feel like a confident, informed friend who has a clear take and isn't afraid to say so.`,
+        sample_output: `The AI industry has spent years telling us that power-hungry models are simply the price of progress. MIT just called that bluff.\n\nResearchers there have slashed large language model energy consumption by 40 percent — without touching output quality. Their method, selective activation pruning, doesn't require new hardware or a ground-up redesign. It just stops AI systems from doing redundant work they were already doing for no good reason.\n\nFive models tested. Published in Nature. The results held.\n\nThis isn't a marginal tweak. It's proof that the industry's energy crisis is, at least in part, a complacency problem. If MIT can find 40 percent headroom, the question isn't whether more efficiency is possible — it's why it took this long to look.`,
       },
       {
         slug: 'the-longread', name: 'The Longread', sort_order: 4,
         description: 'Magazine depth — narrative arc, scene-setting, immersive prose.',
         prompt: `Write in longform magazine style (The New Yorker, WIRED). Open with a scene, anecdote, or vivid detail that draws the reader in before introducing the news hook. Build a narrative arc with a clear beginning, middle, and end. Characters and direct quotes bring the story to life. Weave data and context into the narrative rather than bolting them on as bullet points. Every paragraph earns its place. The prose should reward careful, unhurried reading.`,
+        sample_output: `The model was doing too much. That was the intuition — not yet a proof, not yet a paper, just a nagging suspicion shared among a small team at MIT who had spent months staring at the internals of large language models and noticing something strange: vast stretches of the network seemed to fire on every query, regardless of whether those pathways contributed anything useful to the answer.\n\nWhat followed was a methodical hunt for waste. The result, now published in Nature, is a technique called selective activation pruning — a way of identifying and silencing redundant neural pathways during inference, the moment when a model is actually generating a response. The energy savings: 40 percent. The quality loss: none detectable across five leading open-source models.\n\nFor an industry that has grown accustomed to trading kilowatts for capability, it's an uncomfortable finding. The implication isn't just that AI can be made cheaper to run. It's that a meaningful portion of what these systems currently do, at enormous energetic cost, is work they didn't need to do in the first place.`,
       },
       {
         slug: 'the-brief', name: 'The Brief', sort_order: 5,
         description: 'Ultra-compact — 3–5 bullets plus one closing line, under 120 words.',
         prompt: `Write in ultra-compact briefing format. Structure: three to five bullet points, each a single complete idea with no filler, followed by one closing sentence that gives the "so what." The lead bullet is the most important fact. Total word count must not exceed 120 words. No preamble, no padding, no attribution sentences — every word earns its place. Optimised for reading in under 30 seconds on a mobile device.`,
+        sample_output: `• MIT cut large language model energy use by 40% with no quality loss.\n• Method: selective activation pruning — disables redundant neural pathways during inference.\n• Validated across five open-source models; published in Nature.\n• Industry observers say it could sharply reduce the cost of running AI at scale.\n\nIf it scales, this reframes the AI energy debate entirely.`,
       },
       {
         slug: 'the-enthusiast', name: 'The Enthusiast', sort_order: 6,
         description: 'High energy, accessible, knowledgeable — like a passionate expert.',
         prompt: `Write with high energy and genuine enthusiasm for the subject. Tone is knowledgeable but accessible — a passionate expert explaining something they love to a smart friend. Use vivid, concrete language. Short sentences mixed with slightly longer ones for rhythm. Avoid dry academic phrasing. Don't talk down to the reader, but don't assume expertise either. Express genuine excitement about breakthroughs and discoveries where warranted. Close with a forward-looking line about what comes next.`,
+        sample_output: `Here's something that should genuinely excite you: MIT researchers just found a way to make large language models 40 percent more energy-efficient — without sacrificing a single percentage point of quality.\n\nThe technique is called selective activation pruning. Here's the core idea: modern AI models are enormous, and during inference — when the model is actually generating output — huge portions of the neural network fire even when they're not contributing anything useful. Pruning identifies those redundant pathways and switches them off. It's elegant, and it works.\n\nThey tested it on five leading open-source models. Published in Nature. The results held across the board.\n\nThis is the kind of paper that makes you optimistic about where AI efficiency research is heading — and it suggests there's a lot more headroom left to find.`,
       },
     ];
 
     for (const s of SYSTEM_STYLES) {
       await p.query(
-        `INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, is_system, sort_order)
-         VALUES (0, $1, $2, $3, $4, true, $5)
+        `INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, sample_output, is_system, sort_order)
+         VALUES (0, $1, $2, $3, $4, $5, true, $6)
          ON CONFLICT (tenant_id, slug) DO UPDATE SET
            name = EXCLUDED.name, description = EXCLUDED.description,
-           prompt = EXCLUDED.prompt, sort_order = EXCLUDED.sort_order`,
-        [s.name, s.slug, s.description, s.prompt, s.sort_order]
+           prompt = EXCLUDED.prompt, sample_output = EXCLUDED.sample_output,
+           sort_order = EXCLUDED.sort_order`,
+        [s.name, s.slug, s.description, s.prompt, s.sample_output, s.sort_order]
       );
     }
   } catch (err) {

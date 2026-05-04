@@ -27,7 +27,7 @@ function slugify(name) {
 // ── List ─────────────────────────────────────────────────────────
 router.get('/', asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
-    SELECT id, tenant_id, name, slug, description, category, is_system, sort_order, created_at, updated_at
+    SELECT id, tenant_id, name, slug, description, prompt, sample_output, category, is_system, sort_order, created_at, updated_at
     FROM writing_styles
     WHERE tenant_id = 0 OR tenant_id = $1
     ORDER BY is_system DESC, sort_order ASC, name ASC
@@ -48,13 +48,13 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 // ── Create ───────────────────────────────────────────────────────
 router.post('/', asyncHandler(async (req, res) => {
-  const { name, description, prompt, category = 'general' } = req.body;
+  const { name, description, prompt, sample_output, category = 'general' } = req.body;
   if (!name?.trim() || !prompt?.trim()) return res.status(400).json({ error: 'name and prompt required' });
   const slug = slugify(name.trim());
   const row = await db.prepare(`
-    INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, category, is_system, sort_order)
-    VALUES ($1, $2, $3, $4, $5, $6, false, 100) RETURNING *
-  `).get(req.tenantId, name.trim().slice(0, 100), slug, description || null, prompt.trim(), category);
+    INSERT INTO writing_styles (tenant_id, name, slug, description, prompt, sample_output, category, is_system, sort_order)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, false, 100) RETURNING *
+  `).get(req.tenantId, name.trim().slice(0, 100), slug, description || null, prompt.trim(), sample_output || null, category);
   res.status(201).json(row);
 }));
 
@@ -65,14 +65,15 @@ router.put('/:id', asyncHandler(async (req, res) => {
   if (!style) return res.status(404).json({ error: 'Not found' });
   if (style.tenant_id !== req.tenantId) return res.status(403).json({ error: 'Cannot modify system or other-tenant styles — fork it first' });
 
-  const { name, description, prompt, category } = req.body;
+  const { name, description, prompt, sample_output, category } = req.body;
   const sets = ['updated_at = NOW()'];
   const params = [id, req.tenantId];
 
-  if (name?.trim())    { params.push(name.trim().slice(0, 100)); sets.push(`name = $${params.length}`); }
-  if (description !== undefined) { params.push(description || null); sets.push(`description = $${params.length}`); }
-  if (prompt?.trim()) { params.push(prompt.trim()); sets.push(`prompt = $${params.length}`); }
-  if (category)       { params.push(category); sets.push(`category = $${params.length}`); }
+  if (name?.trim())              { params.push(name.trim().slice(0, 100)); sets.push(`name = $${params.length}`); }
+  if (description !== undefined) { params.push(description || null);       sets.push(`description = $${params.length}`); }
+  if (prompt?.trim())            { params.push(prompt.trim());             sets.push(`prompt = $${params.length}`); }
+  if (sample_output !== undefined) { params.push(sample_output || null);  sets.push(`sample_output = $${params.length}`); }
+  if (category)                  { params.push(category);                 sets.push(`category = $${params.length}`); }
 
   const row = await db.prepare(
     `UPDATE writing_styles SET ${sets.join(', ')} WHERE id = $1 AND tenant_id = $2 RETURNING *`
@@ -119,12 +120,13 @@ router.post('/preview', asyncHandler(async (req, res) => {
         content: `Rewrite the following news paragraph in your assigned writing style. Preserve all facts. Output only the rewritten text — no preamble, no labels.\n\n---\n${sourceText}`,
       },
     ],
-    maxTokens:   600,
+    maxTokens:   2000,
     temperature: 0.7,
     trigger:     'admin',
   });
 
-  res.json({ preview: result?.content || result?.text || '' });
+  if (!result) return res.status(402).json({ error: 'AI budget exceeded — upgrade or use BYOK' });
+  res.json({ preview: result.text || '' });
 }));
 
 // ── Fork ─────────────────────────────────────────────────────────
@@ -183,13 +185,13 @@ router.post('/restyle/:articleId', asyncHandler(async (req, res) => {
     trigger:     'admin',
   });
 
-  const restyled = result?.content || result?.text || '';
+  if (!result) return res.status(402).json({ error: 'AI budget exceeded — upgrade or use BYOK' });
 
   await db.prepare(
     'UPDATE articles SET restyled_content = $1, restyle_style_id = $2 WHERE id = $3 AND tenant_id = $4'
-  ).run(restyled, style.id, articleId, req.tenantId);
+  ).run(result.text, style.id, articleId, req.tenantId);
 
-  res.json({ ok: true, restyled, styleId: style.id, styleName: style.name });
+  res.json({ ok: true, restyled: result.text, styleId: style.id, styleName: style.name });
 }));
 
 module.exports = router;

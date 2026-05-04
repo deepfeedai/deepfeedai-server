@@ -8,6 +8,7 @@
   var writerArticles = [];
   var perfData = null;
   var categoriesList = [];
+  var writingStylesList = [];
   var isEditMode = false;
   var isNewWriter = false;
 
@@ -21,16 +22,20 @@
     try { categoriesList = await apiFetch('/categories'); } catch { categoriesList = []; }
   }
 
+  async function loadWritingStyles() {
+    try { writingStylesList = await apiFetch('/admin/writing-styles'); } catch { writingStylesList = []; }
+  }
+
   async function loadWriterDetail() {
     var params = new URLSearchParams(window.location.search);
     isNewWriter = params.get('new') === '1';
     var startEdit = params.get('edit') === '1' || isNewWriter;
     var writerId = parseInt(params.get('id'));
 
-    await loadCategories();
+    await Promise.all([loadCategories(), loadWritingStyles()]);
 
     if (isNewWriter) {
-      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 2, elevenlabs_voice_id: '' };
+      writerData = { name: '', slug: '', bio: '', beats: [], keywords: [], system_prompt: '', chat_prompt: '', role: 'writer', tone: '', expertise_level: '', style_guide: '', few_shot_examples: [], gender: '', ethnicity: '', beat_angle: '', signature_phrases: [], contrarian_level: 0.5, is_auto: false, synthesis_schedule: 'daily', synthesis_lookback_hours: 168, min_cluster_size: 2, elevenlabs_voice_id: '', style_id: null };
       document.querySelector('.topbar-title').textContent = 'New Agent';
       setEditMode(true);
       renderEditMode();
@@ -121,6 +126,10 @@
     var systemTag = w.is_system ? ' <span class="badge" style="font-size:10px;background:rgba(99,102,241,0.15);color:#818cf8;vertical-align:middle;margin-left:4px;">System</span>' : '';
     html += '<h1 class="wd-name">' + esc(w.name) + ' <span class="role-badge role-badge-' + role + '" style="font-size:12px;vertical-align:middle;">' + roleLabel + '</span>' + systemTag + '</h1>';
     if (beats.length) html += '<div>' + beats.map(function (b) { return '<span class="badge badge-muted" style="font-size:12px;margin:2px 3px;">' + esc(b) + '</span>'; }).join('') + '</div>';
+    if (w.style_id) {
+      var assignedStyle = writingStylesList.find(function (s) { return s.id === w.style_id; });
+      if (assignedStyle) html += '<div style="margin-top:4px;"><span class="badge" style="font-size:11px;background:rgba(99,102,241,0.12);color:#818cf8;border-radius:4px;padding:2px 8px;">&#9998; ' + esc(assignedStyle.name) + ' style</span></div>';
+    }
     if (w.bio) html += '<p class="wd-bio">' + esc(w.bio) + '</p>';
     html += '</div></div>';
 
@@ -296,6 +305,19 @@
     html += field('Keywords', '<input type="text" class="form-control" id="fKeywords" value="' + esc((w.keywords || []).join(', ')) + '" placeholder="Comma-separated" />');
     html += '</div>';
 
+    // Writing Style Template
+    html += '<div class="wd-card" style="margin-bottom:20px;">';
+    html += '<div class="wd-section-title">Writing Style Template</div>';
+    html += '<div class="text-muted text-sm" style="margin-bottom:10px;">A structural overlay applied on top of the agent prompt — defines formatting, pacing, and voice conventions.</div>';
+    var styleOpts = '<option value="">— No template —</option>'
+      + writingStylesList.map(function (s) {
+          var sel = w.style_id === s.id ? ' selected' : '';
+          return '<option value="' + s.id + '"' + sel + '>' + esc(s.name) + (s.is_system ? ' (System)' : '') + '</option>';
+        }).join('');
+    html += field('Template', '<select class="form-control" id="fStyleTemplate">' + styleOpts + '</select>');
+    html += '<p class="text-muted text-sm" style="margin-top:4px;">System templates are read-only. <a href="/writing-styles.html" target="_blank" style="color:var(--accent);">Fork or create custom styles ↗</a></p>';
+    html += '</div>';
+
     // Agent Prompt
     html += '<div class="wd-card" style="margin-bottom:20px;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
@@ -429,6 +451,7 @@
       elevenlabs_voice_id: document.getElementById('fVoiceId').value.trim() || null,
       gender: document.getElementById('fGender').value || null,
       ethnicity: document.getElementById('fEthnicity').value || null,
+      style_id: (function () { var el = document.getElementById('fStyleTemplate'); return el && el.value ? parseInt(el.value) : null; })(),
     };
 
     // Avatar style overrides (only present for existing writers)
