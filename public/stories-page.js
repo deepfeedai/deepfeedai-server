@@ -26,9 +26,11 @@
     if (!requireAuth()) return;
     renderSidebar();
 
+    let _searchTimer = null;
     document.getElementById('sSearch').addEventListener('input', e => {
-      searchQuery = e.target.value.trim().toLowerCase();
-      renderList();
+      searchQuery = e.target.value.trim();
+      clearTimeout(_searchTimer);
+      _searchTimer = setTimeout(() => loadStories(), 350);
     });
     document.getElementById('sSort').addEventListener('change', e => {
       sortBy = e.target.value;
@@ -40,7 +42,8 @@
   // ── Data ───────────────────────────────────────────────────────────────────
   async function loadStories() {
     try {
-      const data = await apiFetch('/story-timelines?status=active,dormant,archived&limit=100');
+      const q = searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : '';
+      const data = await apiFetch(`/story-timelines?status=active,dormant,archived&limit=100${q}`);
       stories = data.stories || [];
       renderAll();
     } catch (err) {
@@ -98,14 +101,8 @@
 
   // ── Render: list ───────────────────────────────────────────────────────────
   function filteredStories() {
-    return stories.filter(s => {
-      if (activeStatus !== 'all' && s.status !== activeStatus) return false;
-      if (searchQuery) {
-        const hay = (s.name || '').toLowerCase() + ' ' + (s.summary || '').toLowerCase();
-        if (!hay.includes(searchQuery)) return false;
-      }
-      return true;
-    });
+    if (activeStatus === 'all') return stories;
+    return stories.filter(s => s.status === activeStatus);
   }
 
   function sortedStories(list) {

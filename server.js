@@ -1340,6 +1340,30 @@ registerJob({
   },
 });
 
+registerJob({
+  name: 'story-retrospective-backfill',
+  description: 'Story timelines — assign recent untagged articles to stories they missed',
+  category: 'Editorial',
+  defaultSchedule: '0 5 * * *',        // 5am daily (after lifecycle at 4am)
+  handler: async () => {
+    const { retroBackfillUnassigned } = require('./lib/story-timelines');
+    const tenants = await db.prepare(
+      "SELECT DISTINCT tenant_id FROM articles WHERE is_published = 1 AND published_at >= NOW() - INTERVAL '48 hours'"
+    ).all().catch(() => []);
+    let total = { processed: 0, assigned: 0, errors: 0 };
+    for (const { tenant_id } of tenants) {
+      const r = await retroBackfillUnassigned(tenant_id).catch(() => ({ processed: 0, assigned: 0, errors: 0 }));
+      total.processed += r.processed;
+      total.assigned  += r.assigned;
+      total.errors    += r.errors;
+    }
+    if (total.processed > 0) {
+      console.log(`[Cron] story-retrospective-backfill: ${total.assigned}/${total.processed} articles assigned`);
+    }
+    return total;
+  },
+});
+
 // ── Start ───────────────────────────────────────────────────────────
 db.init().then(async () => {
   // ── Load saved deployment mode from DB if env var not set ────

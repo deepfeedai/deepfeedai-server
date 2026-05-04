@@ -12,7 +12,8 @@ Rules:
 - Choose a color palette and mood that matches the article's tone (urgent news = bold/warm, analysis = cool/muted, product launch = bright/clean, controversy = high contrast)
 - 2-3 sentences, max 80 words total
 - No text, words, letters, or logos in the image
-- No human faces or hands (silhouettes and crowds from a distance are OK)
+- Avoid depicting people; focus on objects, environments, symbols, and abstract elements
+- If people must appear (crowds, silhouettes), describe them as racially, gender, and age diverse
 
 Respond in exactly this format:
 CONCEPT: [your visual scene description]
