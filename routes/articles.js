@@ -1248,14 +1248,14 @@ router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), a
 }));
 
 // POST /api/articles/:id/regen-final-thoughts — same action via public user JWT
-// Requires the user to be a tenant admin (row in tenant_admins for the article's tenant).
+// Requires the caller's email to match an active admin user for the article's tenant.
 router.post('/:id/regen-final-thoughts', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT id, tenant_id FROM articles WHERE id = $1').get(req.params.id);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const adminRow = await db.prepare(
-    'SELECT id FROM tenant_admins WHERE tenant_id = $1 AND user_id = $2'
-  ).get(article.tenant_id, req.user.sub);
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
   if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
 
   const { regenerateFinalThoughts } = require('../lib/final-thoughts');
