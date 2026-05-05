@@ -418,6 +418,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       SELECT a.id, a.title, a.slug, a.topic_tag, a.content_type, a.is_published,
         a.published_at, a.created_at, a.source, a.category, a.summary,
         a.importance, a.importance_updated_at, a.importance_locked, a.editorial_score,
+        a.source_article_ids,
         w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
       FROM articles a
       LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
@@ -510,6 +511,23 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     if (forming && sources.length < 2) continue;
     if (!forming && published.length < 1) continue;
 
+    // Source count: for published clusters use source_article_ids from the articles
+    // (curated source items are typically older than the 48h query window);
+    // for forming topics (no published articles yet) fall back to live curated count.
+    let sourceCount;
+    if (!forming) {
+      const sourceIdSet = new Set();
+      for (const a of published) {
+        const ids = Array.isArray(a.source_article_ids) ? a.source_article_ids
+          : (typeof a.source_article_ids === 'string' && a.source_article_ids
+              ? JSON.parse(a.source_article_ids) : []);
+        ids.forEach(id => sourceIdSet.add(id));
+      }
+      sourceCount = sourceIdSet.size || sources.length;
+    } else {
+      sourceCount = sources.length;
+    }
+
     // Momentum: curated sources arriving in the last 2h (scaled 0–5)
     const hotSources = sources.filter(a => now - new Date(a.created_at).getTime() < TWO_HOURS).length;
     const momentum   = Math.min(5, hotSources * 2 + Math.min(published.length, 2));
@@ -549,7 +567,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       following:          followedSet.has(tag),
       tier,
       momentum,
-      source_count:       sources.length,
+      source_count:       sourceCount,
       article_count:      published.length,
       forming,
       first_seen_at:      articles[articles.length - 1]?.created_at,
