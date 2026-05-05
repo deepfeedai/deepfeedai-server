@@ -609,6 +609,7 @@ registerJob({
 
     let totalPitches = 0;
     let totalIngested = 0;
+    const reasonLog = []; // Fix 5: surface failure reasons per writer
 
     for (const w of writers) {
       try {
@@ -618,16 +619,23 @@ registerJob({
         const searchResult = await proactiveBeatSearch(w.id, tenantId);
         totalIngested += searchResult.ingested;
 
-        // Step 2: evaluate the (now-enriched) pool and generate pitches
-        const pitches = await evaluateIncomingArticles(w.id, tenantId);
-        totalPitches += pitches.length;
+        // Step 2: evaluate the (now-enriched) pool and generate pitches.
+        // Returns { pitches: Array, reason: string|null }
+        const evalResult = await evaluateIncomingArticles(w.id, tenantId);
+        const writerPitches = evalResult.pitches || [];
+        totalPitches += writerPitches.length;
+
+        // Fix 5: log skip reasons for observability
+        if (evalResult.reason) {
+          reasonLog.push({ writerId: w.id, reason: evalResult.reason });
+        }
 
         // Enqueue pitch notifications + 4h follow-up reminders
-        if (pitches.length) {
+        if (writerPitches.length) {
           const { enqueueJob } = require('./lib/jobs/queue');
           const { JOB_TYPE } = require('./lib/jobs/constants');
           const fourHoursOut = new Date(Date.now() + 4 * 3600_000);
-          for (const p of pitches) {
+          for (const p of writerPitches) {
             enqueueJob({ tenantId, type: JOB_TYPE.PITCH_WRITER, payload: { pitchId: p.id, writerId: w.id }, idempotencyKey: `pitch:${tenantId}:${p.id}` }).catch(() => {});
             enqueueJob({ tenantId, type: JOB_TYPE.WRITER_FOLLOWUP, payload: { pitchId: p.id, writerId: w.id, followupNumber: 1 }, scheduledAt: fourHoursOut, idempotencyKey: `followup:${tenantId}:${p.id}:1` }).catch(() => {});
           }
@@ -644,7 +652,7 @@ registerJob({
       }
     }
 
-    return { writers: writers.length, pitches: totalPitches, ingested: totalIngested };
+    return { writers: writers.length, pitches: totalPitches, ingested: totalIngested, reasons: reasonLog };
   },
 });
 
