@@ -30,6 +30,20 @@ function buildWebContextKey(userId, writerId) {
   return ctx.buildContextKey('web', String(userId || 'anon'), String(writerId));
 }
 
+// GET /api/newsroom-chat/maxwell — lightweight Maxwell discovery (single editor agent)
+router.get('/maxwell', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
+  const row = await db.prepare(`
+    SELECT id, name, role, is_system, accent_color, avatar_url
+    FROM writers
+    WHERE tenant_id = $1 AND is_system = true AND role = 'editor'
+    LIMIT 1
+  `).get(req.tenantId);
+  if (!row) return res.status(404).json({ error: 'Maxwell not configured for this tenant' });
+  const { resolveAccent } = require('../lib/writer-colors');
+  row.accent = resolveAccent(row);
+  res.json({ id: row.id, name: row.name, accent: row.accent, avatar_url: row.avatar_url });
+}));
+
 // GET /api/newsroom-chat/writers — roster for the chat sidebar
 router.get('/writers', auth, requirePermission('articles.read'), requireWorkspaceEnabled, asyncHandler(async (req, res) => {
   const rows = await db.prepare(`

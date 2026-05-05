@@ -66,6 +66,10 @@
     workspaces.floor.initialized = true;
     if (window.NRFloor) NRFloor.init();
 
+    // Pre-load Wire data in the background so it's ready when the user switches
+    workspaces.wire.initialized = true;
+    if (window.NRWire) NRWire.init();
+
     // Init Maxwell chat panel
     if (window.NRChat) NRChat.init();
 

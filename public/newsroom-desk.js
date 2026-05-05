@@ -187,6 +187,17 @@
     html += '<button class="nr-add-btn" onclick="window.location.href=\'/writer-create.html\'">+ Add Writer</button>';
 
     panel.innerHTML = html;
+
+    // Delegated handler for Chat → buttons
+    panel.addEventListener('click', function (e) {
+      var chatBtn = e.target.closest('[data-chat-writer-id]');
+      if (chatBtn && window.NRChat && window.NRChat.openForWriter) {
+        NRChat.openForWriter(
+          parseInt(chatBtn.dataset.chatWriterId, 10),
+          chatBtn.dataset.chatWriterName || 'Writer'
+        );
+      }
+    });
   }
 
   function writerRowHtml(w, perf, isSystem) {
@@ -247,6 +258,7 @@
     // Actions
     html += '<td>';
     html += '<a class="nr-row-btn" href="/writer-detail.html?id=' + esc(String(w.id)) + '">View →</a>';
+    html += ' <button class="nr-row-btn" data-chat-writer-id="' + esc(String(w.id)) + '" data-chat-writer-name="' + esc(w.name || '') + '">Chat →</button>';
     html += '</td>';
 
     html += '</tr>';
