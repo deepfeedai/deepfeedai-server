@@ -1548,6 +1548,49 @@ async function initDb() {
 
     // Persist skip_synthesis intent so it survives the approve → assign two-step flow
     `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS skip_synthesis BOOLEAN NOT NULL DEFAULT FALSE`,
+
+    // Daily news budget — Maxwell's forward-looking editorial plan (generated at 7 AM)
+    `CREATE TABLE IF NOT EXISTS news_budgets (
+      id                    SERIAL PRIMARY KEY,
+      tenant_id             INTEGER NOT NULL,
+      budget_date           DATE NOT NULL,
+      status                TEXT NOT NULL DEFAULT 'draft',
+      editorial_note        TEXT,
+      coverage_gaps         JSONB DEFAULT '[]',
+      beat_alerts           JSONB DEFAULT '[]',
+      auto_promote_at       TIMESTAMPTZ,
+      created_by_writer_id  INTEGER,
+      created_at            TIMESTAMPTZ DEFAULT NOW(),
+      updated_at            TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, budget_date)
+    )`,
+    `CREATE TABLE IF NOT EXISTS news_budget_slots (
+      id                     SERIAL PRIMARY KEY,
+      budget_id              INTEGER NOT NULL REFERENCES news_budgets(id) ON DELETE CASCADE,
+      tenant_id              INTEGER NOT NULL,
+      priority               TEXT NOT NULL DEFAULT 'standard',
+      pitch_type             TEXT NOT NULL DEFAULT 'original',
+      topic_tag              TEXT,
+      headline_suggestion    TEXT NOT NULL,
+      rationale              TEXT,
+      recommended_writer_id  INTEGER,
+      assigned_writer_id     INTEGER,
+      target_publish_at      TIMESTAMPTZ,
+      source_article_ids     JSONB DEFAULT '[]',
+      status                 TEXT NOT NULL DEFAULT 'pending',
+      spawned_pitch_id       INTEGER,
+      spawned_article_id     INTEGER,
+      editorial_note         TEXT,
+      sort_order             INTEGER DEFAULT 0,
+      created_at             TIMESTAMPTZ DEFAULT NOW(),
+      updated_at             TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_news_budgets_tenant_date
+       ON news_budgets(tenant_id, budget_date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_budget_slots_budget
+       ON news_budget_slots(budget_id, sort_order)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_budget_slots_tenant_status
+       ON news_budget_slots(tenant_id, status)`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

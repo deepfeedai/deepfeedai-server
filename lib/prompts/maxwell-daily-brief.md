@@ -21,6 +21,7 @@ Return ONLY valid JSON with this exact shape — no code fences, no commentary:
   ],
   "gaps": [{ "beat": "Markets", "days": 3 }],
   "action_items": [{ "label": "...", "link": "/..." }],
+  "budget_performance": { "total": 12, "approved": 8, "rejected": 2, "pending": 2 } | null,
   "prose": "3-4 paragraph first-person editorial memo. Be direct and specific. No bullet points. No headers. No fluff. This is the long-form context for editors who want depth."
 }
 
@@ -30,6 +31,7 @@ Rules:
 - top_priority: pick ONE thing. If nothing urgent, return null.
 - highlights: 3–6 items max, mixing wins and things to watch.
 - prose: 3–4 paragraphs, first person plural ("We published…"). End with a one-sentence outlook for tomorrow.
+- budget_performance: reflect the budget slot data if present; omit from prose if no budget was generated today.
 
 ## user
 Write today's structured end-of-day brief.
@@ -57,5 +59,8 @@ Write today's structured end-of-day brief.
 
 **Orphaned commissioned pitches (no writer assigned):**
 {{orphanCount}}
+
+**Daily news budget performance:**
+{{budgetPerformance}}
 
 Return JSON only.

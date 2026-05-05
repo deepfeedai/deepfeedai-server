@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepFeedAI Admin — Daily Budget</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <style>
+    /* ── Budget Board Page ─────────────────────────── */
+
+    /* Page-level layout with optional sidebar */
+    .budget-layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: var(--space-4);
+    }
+    @media (min-width: 1100px) {
+      .budget-layout {
+        grid-template-columns: 1fr 260px;
+        align-items: start;
+      }
+    }
+
+    /* ── Page header controls ────────────────────── */
+    .budget-header {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+
+    .budget-date-picker {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px var(--space-3);
+      font-size: var(--text-base);
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .budget-date-picker:focus { border-color: var(--accent); }
+
+    .budget-view-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .budget-view-toggle button {
+      background: none;
+      border: none;
+      color: var(--muted);
+      padding: 7px 14px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .budget-view-toggle button + button {
+      border-left: 1px solid var(--border);
+    }
+    .budget-view-toggle button.active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .budget-view-toggle button:hover:not(.active) {
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+    }
+
+    .budget-stats {
+      display: flex;
+      gap: var(--space-3);
+      align-items: center;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }
+    .budget-stat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .bsp-approved { background: var(--success-dim); color: var(--success); }
+    .bsp-pending  { background: rgba(136,136,136,0.12); color: var(--muted); }
+    .bsp-rejected { background: var(--danger-dim); color: var(--danger); }
+
+    /* ── Editorial note ──────────────────────────── */
+    .editorial-note-wrap {
+      margin-bottom: var(--space-4);
+    }
+    .editorial-note-label {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .editorial-note-textarea {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      padding: 10px var(--space-3);
+      resize: vertical;
+      min-height: 56px;
+      transition: border-color 0.15s;
+      outline: none;
+      line-height: 1.5;
+    }
+    .editorial-note-textarea:focus { border-color: var(--accent); }
+    .editorial-note-saving {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+      min-height: 14px;
+    }
+
+    /* ── Swimlane ────────────────────────────────── */
+    .swimlane {
+      margin-bottom: var(--space-5);
+    }
+
+    .swimlane-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+      padding: 0 2px;
+    }
+
+    .swimlane-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .sl-lead     { color: #f59e0b; }
+    .sl-standard { color: var(--accent); }
+    .sl-brief    { color: #a78bfa; }
+    .sl-hold     { color: var(--muted); }
+
+    .swimlane-count {
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.06);
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+
+    .swimlane-track {
+      display: flex;
+      gap: var(--space-3);
+      overflow-x: auto;
+      padding-bottom: var(--space-2);
+      /* Nice momentum scrolling on iOS */
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .swimlane-track::-webkit-scrollbar { height: 4px; }
+    .swimlane-track::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .swimlane-track::-webkit-scrollbar-track { background: transparent; }
+
+    @media (max-width: 640px) {
+      .swimlane-track {
+        flex-direction: column;
+        overflow-x: visible;
+      }
+    }
+
+    /* ── Budget card ─────────────────────────────── */
+    .budget-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      min-width: 260px;
+      max-width: 300px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+      transition: border-color 0.15s, opacity 0.15s;
+    }
+    @media (max-width: 640px) {
+      .budget-card {
+        min-width: unset;
+        max-width: unset;
+        flex-shrink: 1;
+      }
+    }
+
+    /* Status color tints */
+    .budget-card.bc-approved {
+      border-color: rgba(74,222,128,0.35);
+      background: rgba(74,222,128,0.04);
+    }
+    .budget-card.bc-rejected {
+      border-color: rgba(248,113,113,0.25);
+      background: rgba(248,113,113,0.03);
+      opacity: 0.7;
+    }
+    .budget-card.bc-auto_promoted {
+      border-color: rgba(0,217,255,0.35);
+      background: rgba(0,217,255,0.04);
+    }
+    .budget-card.bc-pending {
+      border-color: var(--border);
+    }
+
+    .bc-rejected .card-headline {
+      text-decoration: line-through;
+      opacity: 0.7;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+
+    .card-headline {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Inline edit headline */
+    .card-headline-input {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.35;
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 4px 8px;
+      width: 100%;
+      font-family: inherit;
+      outline: none;
+      resize: none;
+    }
+
+    .card-status-badge {
+      flex-shrink: 0;
+    }
+
+    .card-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .card-writer {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .card-writer-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--surface2);
+      flex-shrink: 0;
+    }
+    .card-writer-placeholder {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .card-publish-time {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: auto;
+      white-space: nowrap;
+    }
+
+    .pitch-type-tag {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 2px 7px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+    .pt-original  { background: rgba(99,102,241,0.15); color: #818cf8; }
+    .pt-brief     { background: rgba(168,85,247,0.15); color: #c084fc; }
+    .pt-analysis  { background: rgba(124,58,237,0.15); color: #a78bfa; }
+
+    .topic-tag {
+      font-size: 10px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.05);
+      padding: 2px 7px;
+      border-radius: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 120px;
+    }
+
+    /* ── Card actions ────────────────────────────── */
+    .card-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+
+    .card-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 9px;
+      transition: opacity 0.15s, background 0.15s;
+      white-space: nowrap;
+    }
+    .card-btn:hover { opacity: 0.8; }
+    .card-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .cb-approve  { background: var(--success-dim); color: var(--success); }
+    .cb-reject   { background: var(--danger-dim);  color: var(--danger); }
+    .cb-reassign { background: rgba(99,102,241,0.15); color: #818cf8; }
+    .cb-edit     { background: rgba(136,136,136,0.12); color: var(--muted); }
+    .cb-save     { background: var(--accent-dim); color: var(--accent); }
+    .cb-cancel   { background: rgba(136,136,136,0.1); color: var(--muted); }
+
+    /* Hide label on tiny screens, show via title tooltip */
+    @media (max-width: 380px) {
+      .card-btn .cb-label { display: none; }
+    }
+
+    /* ── Reassign inline dropdown ────────────────── */
+    .card-reassign-wrap {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .card-reassign-select {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      padding: 4px 8px;
+      outline: none;
+    }
+    .card-reassign-select:focus { border-color: var(--accent); }
+    .card-reassign-select option { color: #000; background: #fff; }
+
+    /* ── Auto-promote countdown ──────────────────── */
+    .card-countdown {
+      font-size: 11px;
+      color: #f59e0b;
+      background: rgba(245,158,11,0.1);
+      border-radius: 4px;
+      padding: 3px 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ── Empty swimlane ──────────────────────────── */
+    .swimlane-empty {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 14px var(--space-4);
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      width: 240px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    @media (max-width: 640px) {
+      .swimlane-empty { width: 100%; }
+    }
+
+    /* ── Skeleton cards ──────────────────────────── */
+    .sk-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      min-width: 260px;
+      max-width: 300px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    @media (max-width: 640px) {
+      .sk-card { min-width: unset; max-width: unset; }
+    }
+
+    /* ── Empty state (no budget) ─────────────────── */
+    .budget-empty {
+      text-align: center;
+      padding: var(--space-12) var(--space-6);
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .budget-empty-icon { font-size: 48px; opacity: 0.4; }
+    .budget-empty h2 { font-size: var(--text-xl); font-weight: 600; color: var(--text); }
+    .budget-empty p  { font-size: 14px; max-width: 320px; line-height: 1.6; }
+
+    /* ── Sidebar panel ───────────────────────────── */
+    .budget-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    @media (max-width: 1099px) {
+      .budget-sidebar { display: none; }
+      .budget-sidebar.sidebar-open { display: flex; }
+    }
+
+    .sidebar-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .sidebar-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px var(--space-4);
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .sidebar-panel-count {
+      font-size: 11px;
+      background: var(--border);
+      color: var(--muted);
+      padding: 2px 7px;
+      border-radius: 10px;
+    }
+
+    .sidebar-panel-body {
+      padding: var(--space-3) var(--space-4);
+    }
+
+    .sidebar-item {
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+    .sidebar-item:last-child { border-bottom: none; }
+    .sidebar-item strong { color: var(--text); display: block; margin-bottom: 2px; }
+
+    .sidebar-empty {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      padding: var(--space-4) 0;
+    }
+
+    /* ── Sidebar toggle (mobile) ─────────────────── */
+    .sidebar-toggle-btn {
+      display: none;
+    }
+    @media (max-width: 1099px) {
+      .sidebar-toggle-btn {
+        display: inline-flex;
+      }
+    }
+
+    /* ── Timeline section headers ────────────────── */
+    .timeline-section {
+      margin-bottom: var(--space-5);
+    }
+    .timeline-section-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .timeline-section-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .timeline-section-time {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .timeline-card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: var(--space-3);
+    }
+    /* In timeline view cards fill the grid cell, no fixed min-width */
+    .timeline-card-grid .budget-card {
+      min-width: unset;
+      max-width: unset;
+    }
+
+    /* ── Misc helpers ────────────────────────────── */
+    .text-muted { color: var(--muted); }
+    .mt-4 { margin-top: var(--space-4); }
+    .mb-4 { margin-bottom: var(--space-4); }
+  </style>
+</head>
+<body>
+<div class="admin-layout">
+  <div class="main-content">
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
+      <div class="topbar-title">Daily Budget</div>
+    </header>
+
+    <div class="page-body page-body-wide" style="padding: var(--space-4) var(--space-6);">
+
+      <!-- Page header: date, generate, views, stats -->
+      <div class="budget-header">
+        <input type="date" id="budgetDatePicker" class="budget-date-picker" title="Select date" />
+
+        <button class="btn btn-primary btn-sm" id="generateBudgetBtn" title="Generate budget for selected date">
+          <svg style="width:14px;height:14px;flex-shrink:0;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+          Generate Budget
+        </button>
+
+        <div class="budget-view-toggle">
+          <button id="viewSwimlanes" class="active" title="Priority swimlanes">Swimlanes</button>
+          <button id="viewTimeline" title="Timeline by publish window">Timeline</button>
+        </div>
+
+        <button class="btn btn-outline btn-sm sidebar-toggle-btn" id="sidebarToggleBtn" title="Show coverage gaps &amp; alerts">
+          <svg style="width:14px;height:14px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" /></svg>
+          Sidebar
+        </button>
+
+        <div class="budget-stats" id="budgetStats" style="display:none;">
+          <span class="budget-stat-pill bsp-approved" id="statApproved">0 approved</span>
+          <span class="budget-stat-pill bsp-pending" id="statPending">0 pending</span>
+          <span class="budget-stat-pill bsp-rejected" id="statRejected">0 rejected</span>
+        </div>
+      </div>
+
+      <!-- Editorial note -->
+      <div class="editorial-note-wrap" id="editorialNoteWrap" style="display:none;">
+        <div class="editorial-note-label">Editorial note</div>
+        <textarea class="editorial-note-textarea" id="editorialNote" rows="2" placeholder="Maxwell's editorial note for the day…"></textarea>
+        <div class="editorial-note-saving" id="editorialNoteSaving"></div>
+      </div>
+
+      <!-- Main + sidebar layout -->
+      <div class="budget-layout">
+        <!-- Main board -->
+        <div id="boardMain">
+          <!-- Loading state -->
+          <div id="boardLoading">
+            <div class="swimlane" id="skLead">
+              <div class="swimlane-header">
+                <span class="swimlane-label sl-lead">Lead</span>
+                <span class="swimlane-count"><span class="skeleton sk-w-sm" style="height:10px;display:inline-block;width:30px;"></span></span>
+              </div>
+              <div class="swimlane-track" id="skLeadTrack"></div>
+            </div>
+            <div class="swimlane" id="skStandard">
+              <div class="swimlane-header">
+                <span class="swimlane-label sl-standard">Standard</span>
+              </div>
+              <div class="swimlane-track" id="skStandardTrack"></div>
+            </div>
+          </div>
+
+          <!-- Empty state (no budget for date) -->
+          <div id="boardEmpty" style="display:none;">
+            <div class="budget-empty">
+              <div class="budget-empty-icon">📋</div>
+              <h2>No budget for this date</h2>
+              <p>Maxwell hasn't generated an editorial plan yet. Generate one to see today's story priorities.</p>
+              <button class="btn btn-primary" id="generateBudgetEmptyBtn">
+                <svg style="width:16px;height:16px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+                Generate Budget
+              </button>
+            </div>
+          </div>
+
+          <!-- Swimlanes view -->
+          <div id="boardSwimlanes" style="display:none;"></div>
+
+          <!-- Timeline view -->
+          <div id="boardTimeline" style="display:none;"></div>
+        </div>
+
+        <!-- Right sidebar: coverage gaps + beat alerts -->
+        <aside class="budget-sidebar" id="budgetSidebar">
+          <!-- Coverage gaps -->
+          <div class="sidebar-panel">
+            <div class="sidebar-panel-header">
+              <span class="sidebar-panel-title">Coverage Gaps</span>
+              <span class="sidebar-panel-count" id="gapsCount">0</span>
+            </div>
+            <div class="sidebar-panel-body" id="gapsList">
+              <div class="sidebar-empty">No gaps identified</div>
+            </div>
+          </div>
+
+          <!-- Beat alerts -->
+          <div class="sidebar-panel">
+            <div class="sidebar-panel-header">
+              <span class="sidebar-panel-title">Beat Alerts</span>
+              <span class="sidebar-panel-count" id="alertsCount">0</span>
+            </div>
+            <div class="sidebar-panel-body" id="alertsList">
+              <div class="sidebar-empty">No alerts</div>
+            </div>
+          </div>
+
+          <!-- Add custom slot -->
+          <div class="sidebar-panel">
+            <div class="sidebar-panel-header">
+              <span class="sidebar-panel-title">Add Slot</span>
+            </div>
+            <div class="sidebar-panel-body" id="addSlotPanel">
+              <div class="sidebar-empty text-muted" style="font-size:11px;">Select a date and generate a budget first.</div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Reassign writer modal (global, reused per slot) -->
+<div class="modal-overlay" id="reassignModal">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">Reassign writer</div>
+      <button class="modal-close" data-close-modal>&#10005;</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;font-size:13px;">Pick a writer:
+        <select id="reassignWriterSelect" class="form-control" style="margin-top:6px;">
+          <option value="">Loading writers…</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="confirmReassignBtn">Reassign</button>
+    </div>
+  </div>
+</div>
+
+<script src="/admin.js"></script>
+<script src="/admin-mobile-nav.js"></script>
+<script src="/notifications-bell.js"></script>
+<script src="/budget-page.js"></script>
+</body>
+</html>

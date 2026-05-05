@@ -376,6 +376,7 @@ app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers',        auth, require('./routes/admin-writers'));
 app.use('/api/admin/writing-styles', auth, require('./routes/admin-writing-styles'));
 app.use('/api/admin/pitches', require('./routes/admin-pitches'));
+app.use('/api/admin/budget', require('./routes/admin-budget'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/admin/features', require('./routes/admin-features'));
@@ -701,6 +702,40 @@ registerJob({
     }
 
     return { writers: writers.length, posted };
+  },
+});
+
+registerJob({
+  name: 'daily-budget',
+  description: 'Daily news budget — Maxwell generates the editorial plan for the day',
+  category: 'Editorial',
+  defaultSchedule: '0 7 * * *',  // 7 AM UTC — after agent-scan (6:30) and before standup (7:30)
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'daily_budget').catch(() => false);
+    if (!enabled) return { skipped: 'daily_budget feature not enabled' };
+
+    const { generateDailyBudget } = require('./lib/news-budget');
+    const result = await generateDailyBudget(tenantId);
+
+    if (result.ok) {
+      try {
+        const { notify } = require('./lib/notifications');
+        const editors = await db.prepare(
+          "SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor')"
+        ).all(tenantId);
+        for (const ed of editors) {
+          notify({
+            tenantId, userId: ed.id, kind: 'budget_ready',
+            title: "Today's news budget is ready",
+            body: `Maxwell has prepared ${result.slot_count} story slots for today.`,
+            payload: { budget_id: result.budget_id },
+          }).catch(() => {});
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    return result;
   },
 });
 
