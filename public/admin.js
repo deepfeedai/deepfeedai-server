@@ -82,7 +82,7 @@ function requireAuth() {
 
 function requireGuest() {
   if (isLoggedIn()) {
-    window.location.href = '/index.html';
+    window.location.href = '/newsroom.html';
   }
 }
 

@@ -8,7 +8,7 @@
 
 onReady(async () => {
   if (isLoggedIn()) {
-    window.location.replace('/index.html');
+    window.location.replace('/newsroom.html');
     return;
   }
 
@@ -152,7 +152,7 @@ onReady(async () => {
       if (!loginRes.ok) throw new Error(loginData.error || 'No site found for this account');
 
       localStorage.setItem('deepfeedai_token', loginData.token);
-      window.location.replace('/index.html');
+      window.location.replace('/newsroom.html');
     } catch (err) {
       showEmailError(err.message);
       emailLoginBtn.disabled = false;
@@ -190,7 +190,7 @@ onReady(async () => {
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       localStorage.setItem('deepfeedai_token', data.token);
-      window.location.href = '/index.html';
+      window.location.href = '/newsroom.html';
     } catch (err) {
       showLocalError(err.message);
       localLoginBtn.disabled = false;
@@ -246,7 +246,7 @@ onReady(async () => {
       if (!loginRes.ok) throw new Error(loginData.error || 'Tenant login failed');
 
       localStorage.setItem('deepfeedai_token', loginData.token);
-      window.location.replace('/index.html');
+      window.location.replace('/newsroom.html');
     } catch (err) {
       showLoginError(err.message);
       googleBtn.disabled = false;

@@ -69,6 +69,48 @@
     // Init Maxwell chat panel
     if (window.NRChat) NRChat.init();
 
+    // ── User menu ─────────────────────────────────────────
+    (function initUserMenu() {
+      var btn      = document.getElementById('nr-user-btn');
+      var dropdown = document.getElementById('nr-user-dropdown');
+      var avEl     = document.getElementById('nr-user-av');
+      var identEl  = document.getElementById('nr-user-identity');
+      if (!btn || !dropdown) return;
+
+      // Populate from JWT payload
+      try {
+        var token   = localStorage.getItem('deepfeedai_token');
+        var payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+        if (payload) {
+          var name = payload.displayName || payload.username || payload.email || '';
+          var role = payload.role || '';
+          var initials = name ? name.trim().split(/\s+/).map(function(w) { return w[0]; }).join('').slice(0,2).toUpperCase() : '?';
+          if (avEl) avEl.textContent = initials;
+          if (identEl && name) {
+            identEl.innerHTML = '<strong>' + name.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</strong>'
+              + (role ? '<span>' + role + '</span>' : '');
+          }
+          btn.title = name || 'Account';
+        }
+      } catch (_) {}
+
+      // Toggle dropdown
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var open = dropdown.classList.toggle('open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+
+      // Close on outside click
+      document.addEventListener('click', function() {
+        dropdown.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      });
+
+      // Wire logout (admin.js initLogout() looks for [data-logout])
+      if (typeof initLogout === 'function') initLogout();
+    })();
+
     // Load publication name from site config
     apiFetch('/site-config').then(function (cfg) {
       var el = document.getElementById('nr-pub-name');
