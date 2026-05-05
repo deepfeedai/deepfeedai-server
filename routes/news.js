@@ -569,7 +569,35 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     });
   }
 
-  // Sort: tier DESC → momentum DESC → latest_at DESC
+  // Batch-look up story slugs for all topic_tags in one query
+  const storyByTag = {};
+  if (clusters.length) {
+    try {
+      const tagList = clusters.map(c => c.topic_tag);
+      const storyRows = await getPool().query(`
+        SELECT DISTINCT a.topic_tag, st.slug AS story_slug, st.name AS story_name, st.last_activity_at
+        FROM story_timeline_articles sta
+        JOIN articles a  ON a.id  = sta.article_id AND a.tenant_id  = sta.tenant_id
+        JOIN story_timelines st ON st.id = sta.story_id AND st.tenant_id = sta.tenant_id
+        WHERE sta.tenant_id = $1
+          AND a.topic_tag   = ANY($2::text[])
+          AND st.status    != 'archived'
+        ORDER BY a.topic_tag, st.last_activity_at DESC
+      `, [tenantId, tagList]);
+
+      for (const r of storyRows.rows) {
+        if (!storyByTag[r.topic_tag]) {
+          storyByTag[r.topic_tag] = { slug: r.story_slug, name: r.story_name };
+        }
+      }
+    } catch (err) {
+      console.error('[news] pulse story-link lookup failed:', err.message);
+    }
+  }
+
+  // Attach story to each cluster and sort: tier DESC → momentum DESC → latest_at DESC
+  for (const c of clusters) c.story = storyByTag[c.topic_tag] || null;
+
   clusters.sort((a, b) => {
     const tr = (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0);
     if (tr !== 0) return tr;
