@@ -1,5 +1,6 @@
 const express                        = require('express');
 const router                         = express.Router();
+const rateLimit                      = require('express-rate-limit');
 const db                             = require('../db');
 const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
@@ -13,6 +14,20 @@ const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
 const { deleteImage, deleteAudio } = require('../lib/media-helpers');
 const { validateBlocks, blocksToMarkdown } = require('../lib/blocks');
+
+// Rate limiter for public user AI regen endpoints — applied after JWT so keyed by user ID
+const { rateLimitHandler } = require('../middleware/rate-limit-log');
+const userRegenLimiter = rateLimit({
+  windowMs:        60 * 60 * 1000, // 1 hour
+  max:             20,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator:    (req) => req.user?.sub ? `regen:${req.user.sub}` : `regen-ip:${req.ip}`,
+  message:         { error: 'Too many regeneration requests — limit is 20 per hour.' },
+  validate:        false,
+  skip:            (req) => req.method === 'OPTIONS',
+  handler:         rateLimitHandler('user.regen'),
+});
 
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
@@ -1249,7 +1264,7 @@ router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), a
 
 // POST /api/articles/regen-final-thoughts?slug=<slug> — via public user JWT, slug-based
 // Requires the caller's email to match an active admin user for the article's tenant.
-router.post('/regen-final-thoughts', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+router.post('/regen-final-thoughts', require('../middleware/user-jwt'), userRegenLimiter, asyncHandler(async (req, res) => {
   const slug = req.query.slug;
   if (!slug) return res.status(400).json({ error: 'slug required' });
 
