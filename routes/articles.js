@@ -1247,10 +1247,13 @@ router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), a
   res.json({ ok: true, final_thoughts: text });
 }));
 
-// POST /api/articles/:id/regen-final-thoughts — same action via public user JWT
+// POST /api/articles/regen-final-thoughts?slug=<slug> — via public user JWT, slug-based
 // Requires the caller's email to match an active admin user for the article's tenant.
-router.post('/:id/regen-final-thoughts', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT id, tenant_id FROM articles WHERE id = $1').get(req.params.id);
+router.post('/regen-final-thoughts', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare('SELECT id, tenant_id FROM articles WHERE slug = $1').get(slug);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
   const adminRow = await db.prepare(
