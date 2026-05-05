@@ -42,6 +42,7 @@ const userImageRegenLimiter = rateLimit({
   handler:         rateLimitHandler('user.img-regen'),
 });
 
+
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const isCurated = req.query.type === 'curated';
