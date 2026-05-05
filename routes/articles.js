@@ -1353,6 +1353,36 @@ router.post('/regen-inline-images', require('../middleware/user-jwt'), userImage
   res.json({ ok: true, queued: true });
 }));
 
+// POST /api/articles/regen-audio?slug=<slug> — regenerate TTS audio via public user JWT
+router.post('/regen-audio', require('../middleware/user-jwt'), userImageRegenLimiter, asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare('SELECT id, tenant_id, media_enabled, audio_url, is_archived FROM articles WHERE slug = $1').get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_archived) return res.status(400).json({ error: 'Cannot regenerate audio for archived article' });
+  if (!article.media_enabled) return res.status(400).json({ error: 'Audio is not enabled for this article' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const { generateAudioForArticle } = require('../lib/media-helpers');
+
+  // Clear existing audio so generateAudioForArticle doesn't skip
+  await deleteAudio(article.audio_url, article.tenant_id);
+  await db.prepare("UPDATE articles SET audio_url = NULL, audio_status = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2")
+    .run(article.id, article.tenant_id);
+
+  // Fire async — TTS + LLM text-clean can take ~10-20s
+  setImmediate(() => generateAudioForArticle(article.id, article.tenant_id).catch(err => {
+    console.error('[articles] regen-audio background error:', err.message);
+  }));
+
+  res.json({ ok: true, queued: true });
+}));
+
 // PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
 router.patch('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { text } = req.body;
