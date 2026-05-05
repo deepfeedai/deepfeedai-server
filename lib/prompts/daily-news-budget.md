@@ -1,7 +1,7 @@
 ---
 operation: daily-news-budget
 tier: balanced
-maxTokens: 2000
+maxTokens: 4000
 temperature: 0.4
 version: 1
 ---
