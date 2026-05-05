@@ -1383,6 +1383,7 @@ router.post('/regen-audio', require('../middleware/user-jwt'), userImageRegenLim
   res.json({ ok: true, queued: true });
 }));
 
+
 // PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
 router.patch('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { text } = req.body;
