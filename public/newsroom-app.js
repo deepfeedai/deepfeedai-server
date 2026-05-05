@@ -66,6 +66,9 @@
     workspaces.floor.initialized = true;
     if (window.NRFloor) NRFloor.init();
 
+    // Init Maxwell chat panel
+    if (window.NRChat) NRChat.init();
+
     // Load publication name from site config
     apiFetch('/site-config').then(function (cfg) {
       var el = document.getElementById('nr-pub-name');

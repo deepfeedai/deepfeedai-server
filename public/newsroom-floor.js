@@ -181,6 +181,9 @@
       + '<div class="nr-slot-headline" data-slot-id="' + s.id + '" title="Click to edit">' + esc(s.headline_suggestion || s.topic_tag || '—') + '</div>'
       + '<div class="nr-slot-meta">'
       + writerChipHtml(s)
+      + (s.spawned_article_id
+        ? '<span class="nr-slot-draft-tag">→ In Draft</span>'
+        : '')
       + (time !== 'Unscheduled' ? '<span class="nr-slot-time">' + esc(time) + '</span>' : '')
       + (srcCount ? '<span class="nr-slot-sources">' + srcCount + ' source' + (srcCount !== 1 ? 's' : '') + '</span>' : '')
       + '</div>'
@@ -439,10 +442,112 @@
         + '<span class="nr-article-status ' + statusCls + '">' + esc(statusLabel) + '</span>'
         + '<span class="nr-pitch-headline" title="' + esc(title) + '">' + esc(truncated) + '</span>'
         + (writerChip ? writerChip : '')
-        + '<a class="nr-assign-btn" href="/article-editor.html?id=' + esc(String(a.id)) + '">Review →</a>'
+        + '<button class="nr-assign-btn" data-review-id="' + esc(String(a.id)) + '" data-review-title="' + esc(title) + '">Review →</button>'
         + '</div>';
     });
     listEl.innerHTML = html;
+
+    listEl.querySelectorAll('[data-review-id]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        openReviewModal(parseInt(btn.dataset.reviewId, 10), btn.dataset.reviewTitle || '');
+      });
+    });
+  }
+
+  // ── Inline article review modal ───────────────────────────────────────────
+  function openReviewModal(articleId, titleHint) {
+    var overlay = document.getElementById('nr-review-modal');
+    if (!overlay) return;
+
+    var titleEl   = document.getElementById('nr-review-modal-title');
+    var metaEl    = document.getElementById('nr-review-meta');
+    var excerptEl = document.getElementById('nr-review-excerpt');
+    var fullLink  = document.getElementById('nr-review-fulllink');
+    var approveBtn = document.getElementById('nr-review-approve');
+    var rejectBtn  = document.getElementById('nr-review-reject');
+
+    if (titleEl)   titleEl.textContent = titleHint || 'Review Article';
+    if (fullLink)  fullLink.href = '/article-editor.html?id=' + articleId;
+    if (metaEl)    metaEl.innerHTML = '';
+    if (excerptEl) excerptEl.innerHTML = '<div class="nr-loading">Loading…</div>';
+    if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+    if (rejectBtn)  { rejectBtn.disabled = false;  rejectBtn.textContent = 'Send Back to Draft'; }
+
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Load full article
+    apiFetch('/articles/' + articleId).then(function(a) {
+      if (titleEl) titleEl.textContent = a.title || a.generated_title || titleHint || 'Review Article';
+      if (fullLink) fullLink.href = '/article-editor.html?id=' + a.id;
+
+      // Meta row: writer chip + score badge
+      var meta = '';
+      if (a.writer_id) meta += writerChipFromId(a.writer_id);
+      if (a.editorial_score != null) {
+        var score = parseFloat(a.editorial_score);
+        var scoreCls = score >= 7 ? 'nr-score-high' : score >= 5 ? 'nr-score-mid' : 'nr-score-low';
+        meta += '<span class="nr-score-badge ' + scoreCls + '">Score ' + score.toFixed(1) + '</span>';
+      }
+      if (a.category) meta += '<span style="font-size:11px;color:var(--muted);margin-left:4px;">' + esc(a.category) + '</span>';
+      if (metaEl) metaEl.innerHTML = meta;
+
+      // Excerpt: use body_markdown or content, truncate to ~1200 chars
+      var body = a.body_markdown || a.content || a.summary || '';
+      if (body.length > 1200) body = body.slice(0, 1200) + '\n\n…';
+      if (excerptEl) excerptEl.textContent = body || '(No content preview available)';
+
+      // Wire up buttons with article id
+      if (approveBtn) {
+        approveBtn.onclick = function() { approveArticle(a.id, approveBtn, rejectBtn); };
+      }
+      if (rejectBtn) {
+        rejectBtn.onclick = function() { rejectArticle(a.id, approveBtn, rejectBtn); };
+      }
+    }).catch(function(err) {
+      if (excerptEl) excerptEl.innerHTML = '<div style="color:var(--danger);">Failed to load article: ' + esc(err.message) + '</div>';
+    });
+
+    // Close on overlay click
+    overlay.onclick = function(e) { if (e.target === overlay) closeReviewModal(); };
+  }
+
+  function closeReviewModal() {
+    var overlay = document.getElementById('nr-review-modal');
+    if (overlay) overlay.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  async function approveArticle(articleId, approveBtn, rejectBtn) {
+    if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Approving…'; }
+    if (rejectBtn)  rejectBtn.disabled = true;
+    try {
+      await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      showAlert('Article approved and published.', 'success');
+      closeReviewModal();
+      loadEditorialQueue();
+      loadActivity();
+    } catch(err) {
+      showAlert('Failed to approve: ' + err.message, 'error');
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+      if (rejectBtn)  rejectBtn.disabled = false;
+    }
+  }
+
+  async function rejectArticle(articleId, approveBtn, rejectBtn) {
+    if (rejectBtn)  { rejectBtn.disabled = true; rejectBtn.textContent = 'Sending back…'; }
+    if (approveBtn) approveBtn.disabled = true;
+    try {
+      await apiFetch('/articles/' + articleId + '/reject', { method: 'PUT' });
+      showAlert('Article sent back to draft.', 'info');
+      closeReviewModal();
+      loadEditorialQueue();
+      loadActivity();
+    } catch(err) {
+      showAlert('Failed to reject: ' + err.message, 'error');
+      if (rejectBtn)  { rejectBtn.disabled = false; rejectBtn.textContent = 'Send Back to Draft'; }
+      if (approveBtn) approveBtn.disabled = false;
+    }
   }
 
   // ── API actions ───────────────────────────────────────────────────────────
@@ -661,6 +766,13 @@
       });
     }
 
+    // Review modal close
+    var reviewClose = document.getElementById('nr-review-close');
+    if (reviewClose) reviewClose.addEventListener('click', closeReviewModal);
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeReviewModal();
+    });
+
     // Load writers first so writersMap is populated before editorial queue renders
     loadWriters().then(function() {
       loadEditorialQueue();
@@ -671,12 +783,18 @@
     loadActivity();
     loadPitches();
 
-    // Poll activity every 90 seconds while Floor is active
+    // Poll while Floor is active: activity 60s, pitches + editorial 120s
+    var pollTick = 0;
     var pollTimer = setInterval(function() {
-      if (document.getElementById('ws-floor').classList.contains('active')) {
-        loadActivity();
+      var floor = document.getElementById('ws-floor');
+      if (!floor || !floor.classList.contains('active')) return;
+      pollTick++;
+      loadActivity();
+      if (pollTick % 2 === 0) {   // every 2nd tick = 120s
+        loadPitches();
+        loadEditorialQueue();
       }
-    }, 90000);
+    }, 60000);
 
     // Clean up on page hide
     window.addEventListener('pagehide', function() { clearInterval(pollTimer); }, { once: true });

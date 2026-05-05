@@ -263,7 +263,7 @@
   }
 
   function buildArtUrl(status, search, offset) {
-    var url = '/articles?limit=40&offset=' + (offset || 0) + '&type=original,deep-dive';
+    var url = '/articles?limit=40&offset=' + (offset || 0) + '&type=editorial';
     if (status) url += '&status=' + encodeURIComponent(status);
     if (search)  url += '&search=' + encodeURIComponent(search);
     return url;
