@@ -1239,11 +1239,27 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
-// POST /api/articles/:id/final-thoughts — regenerate writer's final thoughts
+// POST /api/articles/:id/final-thoughts — regenerate writer's final thoughts (admin JWT)
 router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { regenerateFinalThoughts } = require('../lib/final-thoughts');
   const text = await regenerateFinalThoughts(req.params.id, req.tenantId);
   logAudit(req, 'article.final_thoughts', 'article', parseInt(req.params.id), {});
+  res.json({ ok: true, final_thoughts: text });
+}));
+
+// POST /api/articles/:id/regen-final-thoughts — same action via public user JWT
+// Requires the user to be a tenant admin (row in tenant_admins for the article's tenant).
+router.post('/:id/regen-final-thoughts', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT id, tenant_id FROM articles WHERE id = $1').get(req.params.id);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM tenant_admins WHERE tenant_id = $1 AND user_id = $2'
+  ).get(article.tenant_id, req.user.sub);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const { regenerateFinalThoughts } = require('../lib/final-thoughts');
+  const text = await regenerateFinalThoughts(article.id, article.tenant_id);
   res.json({ ok: true, final_thoughts: text });
 }));
 
