@@ -92,14 +92,19 @@ router.get('/today', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/generate — on-demand generation (idempotent)
+// ?force=true deletes today's existing budget and regenerates from scratch
 router.post('/generate', auth, asyncHandler(async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
+  const force = req.query.force === 'true';
 
-  // Return existing budget if one already exists for today
   const existing = await _getBudgetByDate(req.tenantId, today);
   if (existing) {
-    const full = await _getBudgetWithSlots(existing.id, req.tenantId);
-    return res.json({ budget: full, skipped: true, reason: 'already_exists' });
+    if (!force) {
+      const full = await _getBudgetWithSlots(existing.id, req.tenantId);
+      return res.json({ budget: full, skipped: true, reason: 'already_exists' });
+    }
+    // Force: delete budget (slots cascade) so generateDailyBudget can recreate
+    await db.prepare('DELETE FROM news_budgets WHERE id = $1 AND tenant_id = $2').run(existing.id, req.tenantId);
   }
 
   const result = await generateDailyBudget(req.tenantId);

@@ -166,7 +166,7 @@
     });
 
     var regenBtn = document.getElementById('nr-floor-regen');
-    if (regenBtn) regenBtn.addEventListener('click', generateBudget);
+    if (regenBtn) regenBtn.addEventListener('click', function() { generateBudget(true); });
   }
 
   function slotCardHtml(s) {
@@ -562,7 +562,7 @@
     }
   }
 
-  async function generateBudget() {
+  async function generateBudget(force) {
     if (state.generating) return;
     state.generating = true;
     var genBtn = document.getElementById('nr-budget-generate-btn');
@@ -570,7 +570,8 @@
     var bodyEl = document.getElementById('nr-budget-body');
     if (bodyEl) bodyEl.innerHTML = '<div class="nr-loading">Maxwell is writing today\'s budget…</div>';
     try {
-      var data = await apiFetch('/admin/budget/generate', { method: 'POST' });
+      var url = '/admin/budget/generate' + (force ? '?force=true' : '');
+      var data = await apiFetch(url, { method: 'POST' });
       if (data.budget && data.skipped) {
         showAlert('Budget already exists for today — reloading.', 'info');
         await loadBudget();
