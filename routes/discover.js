@@ -208,7 +208,7 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
   }
 
   const importPublished = status === 'published';
-  const results = { imported: 0, skipped: 0, errors: [] };
+  const results = { imported: 0, skipped: 0, unassigned: 0, errors: [] };
 
   for (const article of articles) {
     try {
@@ -284,7 +284,8 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
         RETURNING id
       `).get(title, slug, summary, article.url, sourceName, imageUrl, category, shouldPublish ? 1 : 0, importStatus, sourceType, embedUrl, embedType, contentType, mediaEnabled, req.tenantId);
 
-      // Auto-assign writer if requested
+      // Auto-assign writer if requested; track when no match is found so the
+      // caller knows which articles landed without an owner.
       if (autoAssignWriter !== false && row) {
         try {
           const writer = await findBestWriter(
@@ -294,8 +295,12 @@ router.post('/import', auth, requirePermission('articles.create'), asyncHandler(
           if (writer) {
             await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3')
               .run(writer.id, row.id, req.tenantId);
+          } else {
+            results.unassigned++;
           }
-        } catch { /* non-fatal */ }
+        } catch {
+          results.unassigned++;
+        }
       }
 
       // Score discovered articles

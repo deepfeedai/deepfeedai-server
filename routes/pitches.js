@@ -51,11 +51,28 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
   if (!pitched_by_writer_id && !requested_by_editor_id) {
     return res.status(400).json({ error: 'pitched_by_writer_id or requested_by_editor_id must be set' });
   }
+  // Verify writer belongs to this tenant (cross-tenant data leak prevention)
+  if (pitched_by_writer_id) {
+    const w = await db.prepare('SELECT id FROM writers WHERE id = $1 AND tenant_id = $2').get(pitched_by_writer_id, req.tenantId);
+    if (!w) return res.status(404).json({ error: 'Writer not found' });
+  }
+
   // Verify source exists and belongs to tenant
   const source = await db.prepare(
     'SELECT id, title, content_type, writer_id FROM articles WHERE id = $1 AND tenant_id = $2'
   ).get(source_article_id, req.tenantId);
   if (!source) return res.status(404).json({ error: 'Source article not found' });
+
+  // Pitching off an original/deep-dive creates circular synthesis — require curated sources
+  if (['original', 'deep-dive', 'video'].includes(source.content_type)) {
+    return res.status(400).json({ error: `Cannot pitch from a ${source.content_type} article — source must be a curated article` });
+  }
+
+  let writerName = null;
+  if (pitched_by_writer_id) {
+    const w = await db.prepare('SELECT name FROM writers WHERE id = $1 AND tenant_id = $2').get(pitched_by_writer_id, req.tenantId);
+    writerName = w?.name || null;
+  }
 
   const row = await db.prepare(`
     INSERT INTO article_pitches
@@ -107,7 +124,7 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
             source_article_id: source_article_id,
             source_title: sourceTitle,
             angle_summary: row.angle_summary,
-            pitched_by_writer_name: null,
+            pitched_by_writer_name: writerName,
           },
           actionable: [
             { label: 'Approve', actionKind: 'pitch.approve', targetId: row.id, targetType: 'pitch' },
@@ -336,8 +353,10 @@ router.patch('/:id/assign', auth, requirePermission('articles.update'), requireP
 
   // Orphan recovery: if the pitch was already approved without a writer and
   // no article has been spawned yet, kick off synthesis now that we have one.
+  // Guard: respect the persisted skip_synthesis flag so editors who explicitly
+  // opted out during approval don't get synthesis triggered by a later assign.
   let synthesisQueued = false;
-  if (pitch.status === 'approved' && !pitch.spawned_article_id) {
+  if (pitch.status === 'approved' && !pitch.spawned_article_id && !pitch.skip_synthesis) {
     synthesisQueued = true;
     const { synthesizeFromPitch } = require('../lib/synthesis');
     setImmediate(() => {
@@ -376,14 +395,17 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
     });
   }
 
+  // Persist skip_synthesis so the intent survives a later /assign call
+  const persistSkip = req.body?.skip_synthesis === true;
   await db.prepare(`
     UPDATE article_pitches
     SET status = 'approved',
         decided_by_user_id = $1,
         decided_at = NOW(),
-        decision_note = $2
-    WHERE id = $3 AND tenant_id = $4
-  `).run(req.user?.sub || null, note || null, pitch.id, req.tenantId);
+        decision_note = $2,
+        skip_synthesis = $3
+    WHERE id = $4 AND tenant_id = $5
+  `).run(req.user?.sub || null, note || null, persistSkip, pitch.id, req.tenantId);
 
   // Burn any outstanding action tokens for this pitch so the bell won't show
   // stale Approve/Reject buttons when the decision was made directly here.
@@ -433,11 +455,10 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
     payload: { override: !!override, note: note || null, auto_assigned_writer_id: autoAssigned ? assignedWriterId : null },
   });
 
-  // Kick off synthesis in the background unless the editor explicitly opted
-  // out OR we still don't have a writer (tenant has none). The auto-assign
-  // above means this no-writer path is now rare rather than the default for
-  // commissioned pitches.
-  const skipSynthesis = req.body?.skip_synthesis === true || !assignedWriterId;
+  // Kick off synthesis in the background unless the editor opted out (persisted
+  // to DB above) OR we still don't have a writer. Re-read skip_synthesis from
+  // the DB value we just wrote so the check is authoritative.
+  const skipSynthesis = persistSkip || !assignedWriterId;
   if (!skipSynthesis) {
     const { synthesizeFromPitch } = require('../lib/synthesis');
     setImmediate(() => {

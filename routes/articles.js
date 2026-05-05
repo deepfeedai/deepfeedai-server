@@ -1182,21 +1182,32 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
 
   const { synthesizeCluster } = require('../lib/synthesis');
 
-  // Re-synthesize
-  const cluster = { topic: article.category, articles: sources.rows };
+  // Re-synthesize — preserve article_subtype and parent link so followup articles
+  // don't revert to standalone originals after regeneration.
+  const cluster = {
+    topic: article.category,
+    articles: sources.rows,
+    article_subtype: article.article_subtype || null,
+    parent_article_id: article.parent_article_id || null,
+  };
   const result = await synthesizeCluster(cluster, writer, req.tenantId);
   if (!result) return res.status(500).json({ error: 'Synthesis returned no result' });
 
   // Update the existing article row (preserve ID, slug, URL — no broken links).
-  // Clear stale AI-generated fields so post-publish hooks regenerate them for the new content.
+  // Clear all stale AI-generated fields so post-publish hooks regenerate them for the new content.
+  // topic_tag is cleared here so the COALESCE in onArticlePublished hook #1 replaces it with the
+  // fresh tag from the new synthesis rather than keeping the old one.
+  // pull_quote and article_subtype/parent_article_id are copied from the fresh synthesis result.
   await db.prepare(`
     UPDATE articles SET
       title = $1, summary = $2, full_content = $3,
       source_article_ids = $4, synthesis_meta = $5, followups = $6,
-      editorial_score = $7,
-      generated_title = NULL, tldr_overview = NULL, tldr_context = NULL, final_thoughts = NULL,
+      editorial_score = $7, pull_quote = $8,
+      article_subtype = $9, parent_article_id = $10,
+      generated_title = NULL, tldr_overview = NULL, tldr_context = NULL,
+      final_thoughts = NULL, topic_tag = NULL,
       updated_at = NOW()
-    WHERE id = $8 AND tenant_id = $9
+    WHERE id = $11 AND tenant_id = $12
   `).run(
     result.title,
     result.summary,
@@ -1205,6 +1216,9 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
     typeof result.synthesis_meta === 'string' ? result.synthesis_meta : JSON.stringify(result.synthesis_meta),
     result.followups ? (typeof result.followups === 'string' ? result.followups : JSON.stringify(result.followups)) : null,
     result.editorial_score || null,
+    result.pull_quote || null,
+    result.article_subtype || article.article_subtype || null,
+    result.parent_article_id || article.parent_article_id || null,
     article.id,
     req.tenantId
   );

@@ -302,14 +302,18 @@ router.post('/actions/approve', auth, requirePermission('articles.update'), requ
     const { normalisePitchType } = require('../lib/pitch-types');
     const pitchType = normalisePitchType(payload.pitch_type || payload.type);
 
-    // Verify the primary source belongs to this tenant.
+    // Verify the primary source belongs to this tenant and is a curated article.
+    // Pitching from an original/deep-dive creates circular synthesis dependencies.
     const source = await db.prepare(
-      'SELECT id FROM articles WHERE id = $1 AND tenant_id = $2'
+      'SELECT id, content_type FROM articles WHERE id = $1 AND tenant_id = $2'
     ).get(parseInt(source_article_id, 10), req.tenantId);
     if (!source) return res.status(404).json({ error: 'Source article not found' });
+    if (['original', 'deep-dive', 'video'].includes(source.content_type)) {
+      return res.status(400).json({ error: `Cannot pitch from a ${source.content_type} article — source must be a curated article` });
+    }
 
     // Multi-source: accept attached_article_ids or source_article_ids[] from
-    // the payload; tenant-check each id and drop the primary/duplicates.
+    // the payload; tenant-check, content-type-check, drop the primary/duplicates.
     const rawIds = Array.isArray(payload.attached_article_ids)
       ? payload.attached_article_ids
       : (Array.isArray(payload.source_article_ids) ? payload.source_article_ids : []);
@@ -317,7 +321,14 @@ router.post('/actions/approve', auth, requirePermission('articles.update'), requ
     if (rawIds.length) {
       const ints = rawIds.map(n => parseInt(n, 10)).filter(Boolean);
       if (ints.length) {
-        const rows = await db.prepare('SELECT id FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2').all(ints, req.tenantId);
+        const rows = await db.prepare('SELECT id, content_type FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2').all(ints, req.tenantId);
+        const invalid = rows.filter(r => ['original', 'deep-dive', 'video'].includes(r.content_type));
+        if (invalid.length) {
+          return res.status(400).json({
+            error: 'All attached articles must be curated — cannot attach original/deep-dive/video articles',
+            invalid_ids: invalid.map(r => r.id),
+          });
+        }
         const valid = new Set(rows.map(r => r.id));
         attachedIds = [...new Set(ints.filter(n => n !== source.id && valid.has(n)))];
       }

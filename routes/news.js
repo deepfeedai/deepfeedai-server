@@ -19,9 +19,25 @@ const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 const { computeEffectiveImportance, RANK: IMPORTANCE_RANK } = require('../lib/story-levels');
 const { isFeatureEnabled } = require('../lib/feature-registry');
 
-// In-memory brief cache — keyed by `${tenantId}:${tag}`, TTL 2 hours
+// In-memory brief cache — keyed by `${tenantId}:${tag}`, TTL 2 hours.
+// Bounded to 500 entries; evict expired entries first, then oldest on overflow.
 const _briefCache = new Map();
-const BRIEF_TTL   = 2 * 3600 * 1000;
+const BRIEF_TTL      = 2 * 3600 * 1000;
+const BRIEF_CACHE_MAX = 500;
+function _briefCacheSet(key, value) {
+  if (_briefCache.size >= BRIEF_CACHE_MAX) {
+    const now = Date.now();
+    // Prefer evicting expired entries first
+    for (const [k, v] of _briefCache) {
+      if (now - v.generatedAt >= BRIEF_TTL) { _briefCache.delete(k); break; }
+    }
+    // If still at cap, evict the oldest entry
+    if (_briefCache.size >= BRIEF_CACHE_MAX) {
+      _briefCache.delete(_briefCache.keys().next().value);
+    }
+  }
+  _briefCache.set(key, value);
+}
 
 const { getSecrets } = require('../lib/secrets');
 
@@ -617,7 +633,7 @@ ${articleBlurbs}`,
   if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
 
   const generatedAt = Date.now();
-  _briefCache.set(cacheKey, { text, generatedAt });
+  _briefCacheSet(cacheKey, { text, generatedAt });
 
   res.json({ status: 'ok', brief: text, generatedAt, cached: false });
 }));

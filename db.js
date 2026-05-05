@@ -1518,6 +1518,36 @@ async function initDb() {
        ON story_timelines(tenant_id, status, last_activity_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_story_timeline_articles_article
        ON story_timeline_articles(article_id, tenant_id)`,
+
+    // Story threads — one metadata row per topic_tag, aggregating article/source counts,
+    // lead/last article, dominant writer, and lifecycle status.
+    // This table was referenced by lib/story-threads.js but was missing from migrations.
+    `CREATE TABLE IF NOT EXISTS story_threads (
+      id               SERIAL PRIMARY KEY,
+      tenant_id        INTEGER NOT NULL,
+      topic_tag        VARCHAR(200) NOT NULL,
+      name             VARCHAR(200),
+      summary          TEXT,
+      status           VARCHAR(20) NOT NULL DEFAULT 'active',
+      article_count    INTEGER NOT NULL DEFAULT 0,
+      source_count     INTEGER NOT NULL DEFAULT 0,
+      lead_article_id  INTEGER,
+      last_article_id  INTEGER,
+      owner_writer_id  INTEGER,
+      first_seen_at    TIMESTAMPTZ,
+      last_update_at   TIMESTAMPTZ,
+      closed_at        TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, topic_tag)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_story_threads_tenant_status
+       ON story_threads(tenant_id, status, last_update_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_story_threads_topic_tag
+       ON story_threads(tenant_id, topic_tag)`,
+
+    // Persist skip_synthesis intent so it survives the approve → assign two-step flow
+    `ALTER TABLE article_pitches ADD COLUMN IF NOT EXISTS skip_synthesis BOOLEAN NOT NULL DEFAULT FALSE`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
