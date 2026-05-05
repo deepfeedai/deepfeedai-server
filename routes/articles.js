@@ -15,7 +15,7 @@ const { learnFromCorrection } = require('../lib/categorize');
 const { deleteImage, deleteAudio } = require('../lib/media-helpers');
 const { validateBlocks, blocksToMarkdown } = require('../lib/blocks');
 
-// Rate limiter for public user AI regen endpoints — applied after JWT so keyed by user ID
+// Rate limiters for public user AI regen endpoints — applied after JWT so keyed by user ID
 const { rateLimitHandler } = require('../middleware/rate-limit-log');
 const userRegenLimiter = rateLimit({
   windowMs:        60 * 60 * 1000, // 1 hour
@@ -27,6 +27,19 @@ const userRegenLimiter = rateLimit({
   validate:        false,
   skip:            (req) => req.method === 'OPTIONS',
   handler:         rateLimitHandler('user.regen'),
+});
+
+// Image regen is expensive — tighter limit: 5 calls/hour per user
+const userImageRegenLimiter = rateLimit({
+  windowMs:        60 * 60 * 1000,
+  max:             5,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator:    (req) => req.user?.sub ? `img-regen:${req.user.sub}` : `img-regen-ip:${req.ip}`,
+  message:         { error: 'Too many image regeneration requests — limit is 5 per hour.' },
+  validate:        false,
+  skip:            (req) => req.method === 'OPTIONS',
+  handler:         rateLimitHandler('user.img-regen'),
 });
 
 // GET /api/articles
@@ -1279,6 +1292,64 @@ router.post('/regen-final-thoughts', require('../middleware/user-jwt'), userRege
   const { regenerateFinalThoughts } = require('../lib/final-thoughts');
   const text = await regenerateFinalThoughts(article.id, article.tenant_id);
   res.json({ ok: true, final_thoughts: text });
+}));
+
+// POST /api/articles/regen-hero-image?slug=<slug> — regenerate hero/thumbnail via public user JWT
+router.post('/regen-hero-image', require('../middleware/user-jwt'), userImageRegenLimiter, asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare('SELECT id, tenant_id, image_url, is_archived FROM articles WHERE slug = $1').get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_archived) return res.status(400).json({ error: 'Cannot regenerate image for archived article' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const { generateAndStoreImage } = require('../lib/media-helpers');
+
+  // Clear existing image so generateAndStoreImage proceeds
+  await deleteImage(article.image_url, article.tenant_id);
+  await db.prepare('UPDATE articles SET image_url = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2')
+    .run(article.id, article.tenant_id);
+
+  const imageUrl = await generateAndStoreImage(article.id, article.tenant_id);
+  if (!imageUrl) return res.status(500).json({ error: 'Image generation failed — check AI provider settings' });
+
+  res.json({ ok: true, image_url: imageUrl });
+}));
+
+// POST /api/articles/regen-inline-images?slug=<slug> — regenerate section images via public user JWT
+// Only works for original and deep-dive articles. Runs async; returns queued:true immediately.
+router.post('/regen-inline-images', require('../middleware/user-jwt'), userImageRegenLimiter, asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare('SELECT id, tenant_id, content_type, is_archived FROM articles WHERE slug = $1').get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_archived) return res.status(400).json({ error: 'Cannot regenerate images for archived article' });
+  if (article.content_type !== 'original' && article.content_type !== 'deep-dive') {
+    return res.status(400).json({ error: 'Inline images are only available for original and deep-dive articles' });
+  }
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  // Clear existing inline images so generateInlineImages bypasses the idempotency guard
+  await db.prepare('UPDATE articles SET inline_images = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
+    .run(JSON.stringify([]), article.id, article.tenant_id);
+
+  // Fire generation async — multiple Imagen calls can take 30-60s
+  const { generateInlineImages } = require('../lib/media-helpers');
+  setImmediate(() => generateInlineImages(article.id, article.tenant_id).catch(err => {
+    console.error('[articles] regen-inline-images background error:', err.message);
+  }));
+
+  res.json({ ok: true, queued: true });
 }));
 
 // PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
