@@ -113,12 +113,19 @@ router.get('/stories/catchup', asyncHandler(async (req, res) => {
   const rows = await db.prepare(`
     SELECT st.id, st.name, st.slug, st.summary, st.status,
            st.article_count, st.image_url, st.last_activity_at,
-           a.image_url  AS cover_image_url,
-           a.category   AS cover_category,
-           w.name       AS writer_name,
-           w.slug       AS writer_slug,
-           w.avatar_url AS writer_avatar_url,
-           w.accent_color AS writer_color
+           a.image_url    AS cover_image_url,
+           a.category     AS cover_category,
+           w.name         AS writer_name,
+           w.slug         AS writer_slug,
+           w.avatar_url   AS writer_avatar_url,
+           w.accent_color AS writer_color,
+           (
+             SELECT a2.image_url FROM story_timeline_articles sta2
+             JOIN articles a2 ON a2.id = sta2.article_id AND a2.tenant_id = sta2.tenant_id
+             WHERE sta2.story_id = st.id AND sta2.tenant_id = st.tenant_id
+               AND a2.image_url IS NOT NULL AND a2.image_url != ''
+             ORDER BY a2.published_at DESC LIMIT 1
+           ) AS fallback_image_url
     FROM story_timelines st
     LEFT JOIN articles a  ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
     LEFT JOIN writers w   ON w.id = a.writer_id         AND w.tenant_id = a.tenant_id
@@ -143,7 +150,7 @@ router.get('/stories/catchup', asyncHandler(async (req, res) => {
       slug:           r.slug,
       summary:        r.summary,
       articleCount:   count,
-      imageUrl:       r.image_url || r.cover_image_url || null,
+      imageUrl:       r.image_url || r.cover_image_url || r.fallback_image_url || null,
       lastActivityAt: r.last_activity_at,
       category:       r.cover_category   || null,
       tier,
