@@ -295,51 +295,111 @@
 
   // ── Action handlers ───────────────────────────────────────────────────────
 
-  async function handleSynthesize(btn) {
-    if (state.synthesizing) return;
+  function handleSynthesize(btn) {
     var tag = btn.dataset.wireSynthesize || '';
+    // Open Maxwell with cluster context — he'll propose the right pitch and writer assignment
+    if (window.NRChat && window.NRChat.openMaxwellWithContext) {
+      NRChat.openMaxwellWithContext(
+        'Synthesize the "' + tag + '" cluster for the newsroom. ' +
+        'Review the available sources and recommend the best writer and angle.'
+      );
+    } else {
+      showAlert('Maxwell unavailable — check feature flags.', 'error');
+    }
+  }
 
-    state.synthesizing = true;
-    btn.disabled = true;
-    var origText = btn.textContent;
-    btn.textContent = 'Queuing…';
+  // Used by both "Assign pitch →" (clusters) and "Queue →" (singles)
+  async function createPitchFromCluster(tag, btn, origText) {
+    var cluster = state.clusters.find(function (c) { return c.tag === tag; });
+    if (!cluster || !cluster.articles.length) {
+      showAlert('No articles found for this cluster.', 'error');
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
+
+    // Resolve editor ID from JWT
+    var editorId = null;
+    try {
+      var token = localStorage.getItem('deepfeedai_token');
+      var payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+      editorId = payload ? (payload.sub || payload.id || null) : null;
+    } catch (_) {}
+    if (!editorId) {
+      showAlert('Could not identify editor — please re-login.', 'error');
+      btn.disabled = false;
+      btn.textContent = origText;
+      return;
+    }
 
     try {
-      await apiFetch('/synthesis/run-all', {
+      await apiFetch('/pitches', {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          source_article_id:    cluster.articles[0].id,
+          angle_summary:        'Cover the "' + tag + '" story — synthesize the available sources into an original article.',
+          requested_by_editor_id: editorId,
+        }),
       });
-      showAlert('Synthesis queued for all writers.', 'success');
+      showAlert('Pitch created and added to the queue.', 'success');
+      // Refresh the Floor pitch queue if it's active
+      if (window.NRFloor && NRFloor.refreshPitches) NRFloor.refreshPitches();
     } catch (err) {
-      showAlert('Synthesis failed: ' + err.message, 'error');
+      showAlert('Failed to create pitch: ' + err.message, 'error');
     } finally {
-      // Re-enable after a short lockout to prevent double-tap
-      setTimeout(function () {
-        state.synthesizing = false;
-        if (btn && btn.parentNode) {
-          btn.disabled = false;
-          btn.textContent = origText;
-        }
-      }, 4000);
+      btn.disabled = false;
+      btn.textContent = origText;
     }
   }
 
   function handleQueue(btn) {
-    showAlert('Article is already in the Feed Inbox. <a href="/feed-inbox.html" style="color:var(--accent);">Open Inbox →</a>', 'info');
+    var tag = btn.dataset.wireQueue || '';
+    btn.disabled = true;
+    var origText = btn.textContent;
+    btn.textContent = 'Creating…';
+    createPitchFromCluster(tag, btn, origText);
   }
 
   function handleAssignPitch(btn) {
     var tag = btn.dataset.wirePitch || '';
-    // Redirect to pitches page with topic_tag pre-filled as query param
-    window.location.href = '/pitches.html' + (tag ? '?topic=' + encodeURIComponent(tag) : '');
+    btn.disabled = true;
+    var origText = btn.textContent;
+    btn.textContent = 'Creating…';
+    createPitchFromCluster(tag, btn, origText);
   }
 
-  function handleSpike(btn) {
+  async function handleSpike(btn) {
     var tag  = btn.dataset.wireSpike || '';
     var card = btn.closest('.nr-cluster-card');
     if (!card) return;
+
+    var cluster = state.clusters.find(function (c) { return c.tag === tag; });
+    var articleIds = cluster ? cluster.articles.map(function (a) { return a.id; }) : [];
+
+    // Immediately hide the card
     card.classList.add('spiked');
-    showAlert('Cluster spiked.', 'info');
+    btn.disabled = true;
+
+    if (!articleIds.length) {
+      state.clusters = state.clusters.filter(function (c) { return c.tag !== tag; });
+      showAlert('Cluster spiked.', 'info');
+      return;
+    }
+
+    try {
+      await Promise.all(articleIds.map(function (id) {
+        return apiFetch('/articles/' + id, { method: 'DELETE' });
+      }));
+      state.clusters = state.clusters.filter(function (c) { return c.tag !== tag; });
+      showAlert(
+        'Spiked — ' + articleIds.length + ' article' + (articleIds.length !== 1 ? 's' : '') + ' archived.',
+        'success'
+      );
+    } catch (err) {
+      card.classList.remove('spiked');
+      btn.disabled = false;
+      showAlert('Spike failed: ' + err.message, 'error');
+    }
   }
 
   // ── Filter chips ──────────────────────────────────────────────────────────

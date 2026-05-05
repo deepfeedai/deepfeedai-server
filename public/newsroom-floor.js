@@ -571,11 +571,12 @@
     if (bodyEl) bodyEl.innerHTML = '<div class="nr-loading">Maxwell is writing today\'s budget…</div>';
     try {
       var data = await apiFetch('/admin/budget/generate', { method: 'POST' });
-      if (data.skipped === 'already_exists') {
+      if (data.budget && data.skipped) {
         showAlert('Budget already exists for today — reloading.', 'info');
         await loadBudget();
-      } else if (data.ok) {
-        showAlert('Budget generated — ' + (data.slot_count || 0) + ' slots.', 'success');
+      } else if (data.budget) {
+        var slotCount = (data.budget.slots || []).length;
+        showAlert('Budget generated — ' + slotCount + ' slots.', 'success');
         await loadBudget();
       } else {
         throw new Error(data.error || 'Generation failed');
@@ -800,5 +801,5 @@
     window.addEventListener('pagehide', function() { clearInterval(pollTimer); }, { once: true });
   }
 
-  window.NRFloor = { init: init };
+  window.NRFloor = { init: init, refreshPitches: loadPitches };
 })();

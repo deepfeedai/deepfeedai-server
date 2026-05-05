@@ -517,6 +517,7 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
+  flex-shrink: 0;
   transition: border-color .15s, opacity .2s;
 }
 .nr-cluster-card:hover { border-color: #2e2e2e; }
@@ -567,7 +568,7 @@
   padding-top: 1px;
   min-width: 68px;
 }
-.nr-source-title { color: var(--text); line-height: 1.4; }
+.nr-source-title { color: var(--text); line-height: 1.4; flex: 1; min-width: 0; overflow-wrap: break-word; }
 .nr-source-more {
   font-size: 11px;
   color: var(--muted);
@@ -1322,6 +1323,17 @@
 }
 .nr-chat-send:hover { opacity: .85; }
 .nr-chat-send:disabled { opacity: .35; cursor: not-allowed; }
+.nr-chat-suggest-bar { padding: 0 14px 4px; flex-shrink: 0; }
+.nr-chat-suggest-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.nr-chat-suggest-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
 
 /* ── User menu ───────────────────────────────────── */
 .nr-user-menu { position: relative; }
@@ -1629,11 +1641,14 @@
 <!-- MAXWELL CHAT PANEL -->
 <aside id="nr-chat-panel" class="nr-chat-panel" role="complementary" aria-label="Chat with Maxwell">
   <div class="nr-chat-head">
-    <span class="nr-chat-head-title">📋 Maxwell <span class="nr-chat-head-sub">Editorial Director</span></span>
+    <span class="nr-chat-head-title" id="nr-chat-head-title">📋 Maxwell</span><span class="nr-chat-head-sub" id="nr-chat-head-sub">Editorial Director</span>
     <button class="nr-chat-reset" id="nr-chat-clear" title="Clear conversation">↻</button>
     <button class="nr-chat-close" id="nr-chat-close" aria-label="Close">✕</button>
   </div>
   <div class="nr-chat-thread" id="nr-chat-thread"></div>
+  <div class="nr-chat-suggest-bar">
+    <button type="button" class="nr-chat-suggest-btn" id="nr-chat-suggest">Suggest actions</button>
+  </div>
   <form class="nr-chat-form" id="nr-chat-form" autocomplete="off">
     <textarea class="nr-chat-input" id="nr-chat-input" rows="1" placeholder="Ask Maxwell…"></textarea>
     <button type="submit" class="nr-chat-send" id="nr-chat-send" aria-label="Send">↑</button>
