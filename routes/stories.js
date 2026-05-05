@@ -94,14 +94,15 @@ router.get('/stories', asyncHandler(async (req, res) => {
     return res.json({ status: 'ok', stories, totalCount: total?.cnt || 0, hasMore: offset + limit < (total?.cnt || 0) });
   }
 
-  const limit  = Math.min(parseInt(req.query.limit)  || 20, 50);
-  const offset = Math.max(parseInt(req.query.offset) || 0,  0);
-  const status = req.query.status
+  const limit    = Math.min(parseInt(req.query.limit)  || 20, 50);
+  const offset   = Math.max(parseInt(req.query.offset) || 0,  0);
+  const status   = req.query.status
     ? String(req.query.status).split(',').map(s => s.trim()).filter(Boolean)
     : ['active'];
-  const search = req.query.q ? String(req.query.q).slice(0, 200).trim() : null;
+  const search   = req.query.q        ? String(req.query.q).slice(0, 200).trim()        : null;
+  const category = req.query.category ? String(req.query.category).slice(0, 100).trim() : null;
 
-  const result = await listStories(req.tenantId, { status, limit, offset, search });
+  const result = await listStories(req.tenantId, { status, limit, offset, search, category });
   res.json({ status: 'ok', ...result });
 }));
 
