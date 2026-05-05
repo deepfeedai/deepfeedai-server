@@ -1381,6 +1381,40 @@
 .nr-user-item:hover { background: rgba(255,255,255,.05); text-decoration: none; }
 .nr-user-item-danger { color: var(--danger); }
 .nr-user-item-danger:hover { background: rgba(248,113,113,.08); }
+
+/* Writing style cards */
+.nr-style-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nr-style-head { display: flex; align-items: center; gap: 8px; }
+.nr-style-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.nr-style-cat {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  color: var(--muted); background: var(--bg); border: 1px solid var(--border);
+  padding: 1px 6px; border-radius: 4px;
+}
+.nr-style-system {
+  font-size: 10px; color: var(--accent); background: var(--accent-dim);
+  padding: 1px 5px; border-radius: 4px; margin-left: auto;
+}
+.nr-style-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.nr-style-foot { display: flex; justify-content: flex-end; }
+
+/* Article action buttons */
+.nr-article-actions { display: flex; gap: 4px; align-items: center; margin-left: auto; flex-shrink: 0; }
+.nr-art-act-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; padding: 2px 4px; border-radius: 4px;
+  opacity: 0.5; transition: opacity .12s;
+}
+.nr-art-act-btn:hover { opacity: 1; background: rgba(255,255,255,.06); }
+.nr-art-act-btn:disabled { cursor: not-allowed; opacity: 0.3; }
 </style>
 </head>
 <body>
@@ -1552,6 +1586,7 @@
       <button class="desk-inner-tab" data-tab="analytics">Analytics</button>
       <button class="desk-inner-tab" data-tab="engagement">Engagement</button>
       <button class="desk-inner-tab" data-tab="settings">Settings</button>
+      <button class="desk-tab desk-inner-tab" data-desk-tab="styles" data-tab="styles">Styles</button>
     </div>
     <div class="desk-panels">
       <div id="desk-writers"    class="desk-panel active"><div class="nr-loading">Loading writers…</div></div>
@@ -1559,6 +1594,7 @@
       <div id="desk-analytics"  class="desk-panel"><div class="nr-loading">Loading analytics…</div></div>
       <div id="desk-engagement" class="desk-panel"><div class="nr-loading">Loading…</div></div>
       <div id="desk-settings"   class="desk-panel"><div class="nr-loading">Loading settings…</div></div>
+      <div id="desk-styles"     class="desk-panel"><div class="nr-loading">Loading styles…</div></div>
     </div>
   </div>
 

@@ -31,6 +31,7 @@
     analytics:  false,
     engagement: false,
     settings:   false,
+    styles:     false,
   };
 
   var activeTab = 'writers';
@@ -353,6 +354,11 @@
         + '</a>'
         + '<span class="nr-article-meta">' + meta + '</span>'
         + '<span class="nr-article-status as-' + esc(statusKey) + '">' + esc(statusKey) + '</span>'
+        + '<div class="nr-article-actions">'
+        + '<button class="nr-art-act-btn" data-art-image="' + a.id + '" title="Generate image"' + (a.image_url ? ' style="color:var(--accent)"' : '') + '>🎨</button>'
+        + '<button class="nr-art-act-btn" data-art-audio="' + a.id + '" title="Generate audio"' + (a.audio_url ? ' style="color:var(--accent)"' : '') + '>🎙️</button>'
+        + '<button class="nr-art-act-btn nr-art-act-archive" data-art-archive="' + a.id + '" title="Archive">🗄</button>'
+        + '</div>'
         + '</div>';
     }).join('');
   }
@@ -418,11 +424,65 @@
     if (lmBtn) {
       lmBtn.addEventListener('click', onArtLoadMore);
     }
+
+    // Article inline action buttons (image, audio, archive)
+    panel.addEventListener('click', function(e) {
+      var imgBtn = e.target.closest('[data-art-image]');
+      if (imgBtn) { artGenImage(parseInt(imgBtn.dataset.artImage, 10), imgBtn); return; }
+      var audBtn = e.target.closest('[data-art-audio]');
+      if (audBtn) { artGenAudio(parseInt(audBtn.dataset.artAudio, 10), audBtn); return; }
+      var archBtn = e.target.closest('[data-art-archive]');
+      if (archBtn) { artArchive(parseInt(archBtn.dataset.artArchive, 10), archBtn); return; }
+    });
   }
 
   function onArtLoadMore() {
     artOffset += 40;
     loadArticles({ reset: false });
+  }
+
+  async function artGenImage(articleId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      await apiFetch('/media/generate-image', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: articleId }),
+      });
+      showAlert('Image generated.', 'success');
+      if (btn) { btn.style.color = 'var(--accent)'; btn.textContent = '🎨'; btn.disabled = false; }
+    } catch(err) {
+      showAlert('Image failed: ' + err.message, 'error');
+      if (btn) { btn.textContent = '🎨'; btn.disabled = false; }
+    }
+  }
+
+  async function artGenAudio(articleId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      await apiFetch('/media/generate-audio', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: articleId }),
+      });
+      showAlert('Audio generated.', 'success');
+      if (btn) { btn.style.color = 'var(--accent)'; btn.textContent = '🎙️'; btn.disabled = false; }
+    } catch(err) {
+      showAlert('Audio failed: ' + err.message, 'error');
+      if (btn) { btn.textContent = '🎙️'; btn.disabled = false; }
+    }
+  }
+
+  async function artArchive(articleId, btn) {
+    if (!confirm('Archive this article?')) return;
+    if (btn) { btn.disabled = true; }
+    try {
+      await apiFetch('/articles/' + articleId, { method: 'DELETE' });
+      showAlert('Article archived.', 'info');
+      var row = btn && btn.closest('.nr-article-row');
+      if (row) row.remove();
+    } catch(err) {
+      showAlert('Archive failed: ' + err.message, 'error');
+      if (btn) btn.disabled = false;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1067,6 +1127,69 @@
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  // STYLES TAB
+  // ══════════════════════════════════════════════════════════════════════════
+
+  async function loadStyles() {
+    var panel = document.getElementById('desk-styles');
+    if (!panel) return;
+    panel.innerHTML = '<div class="nr-loading">Loading styles…</div>';
+
+    try {
+      var styles = await apiFetch('/admin/writing-styles');
+      renderStyles(Array.isArray(styles) ? styles : []);
+    } catch (err) {
+      var panel2 = document.getElementById('desk-styles');
+      if (panel2) {
+        panel2.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load styles: ' + esc(err.message) + '</div>';
+      }
+      showAlert('Styles load failed: ' + err.message, 'error');
+    }
+  }
+
+  function renderStyles(styles) {
+    var panel = document.getElementById('desk-styles');
+    if (!panel) return;
+
+    var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">';
+    html += '<div class="nr-section-heading">Writing Styles</div>';
+    html += '<a href="/writing-styles.html" style="font-size:12px;color:var(--accent,#6366f1);">Manage all styles →</a>';
+    html += '</div>';
+
+    if (!styles.length) {
+      html += '<div class="nr-empty">No writing styles found.</div>';
+    } else {
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      styles.forEach(function (s) {
+        var isSystem = s.is_system === true || s.is_system === 1;
+        var desc = s.description ? truncate(String(s.description), 100) : '';
+        html += '<div class="nr-style-card">';
+        html += '<div class="nr-style-head">';
+        html += '<span class="nr-style-name">' + esc(s.name || '—') + '</span>';
+        if (s.category) {
+          html += '<span class="nr-style-cat">' + esc(s.category) + '</span>';
+        }
+        if (isSystem) {
+          html += '<span class="nr-style-system">system</span>';
+        }
+        html += '</div>';
+        if (desc) {
+          html += '<div class="nr-style-desc">' + esc(desc) + '</div>';
+        }
+        html += '<div class="nr-style-foot">';
+        html += '<a href="/writing-styles.html" class="nr-row-btn">Edit →</a>';
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<button class="nr-add-btn" style="margin-top:14px;" onclick="window.location.href=\'/writing-styles.html\'">+ New Style</button>';
+
+    panel.innerHTML = html;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   // TAB SWITCHING
   // ══════════════════════════════════════════════════════════════════════════
 
@@ -1076,6 +1199,7 @@
     analytics:  loadAnalytics,
     engagement: loadEngagement,
     settings:   loadSettings,
+    styles:     loadStyles,
   };
 
   function switchTab(tab) {
@@ -1087,7 +1211,7 @@
     });
 
     // Update panel visibility
-    var panels = ['writers', 'articles', 'analytics', 'engagement', 'settings'];
+    var panels = ['writers', 'articles', 'analytics', 'engagement', 'settings', 'styles'];
     panels.forEach(function (name) {
       var el = document.getElementById('desk-' + name);
       if (el) el.classList.toggle('active', name === tab);
