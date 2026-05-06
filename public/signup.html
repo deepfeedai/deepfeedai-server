@@ -141,6 +141,55 @@
     }
     .signup-footer a { color: var(--accent); }
 
+    /* Waitlist / coming-soon panel */
+    .waitlist-panel {
+      display: none;
+    }
+    .waitlist-badge {
+      display: inline-block;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+    }
+    .waitlist-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 10px;
+      text-align: center;
+    }
+    .waitlist-sub {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+      text-align: center;
+      margin: 0 0 24px;
+    }
+    .waitlist-success {
+      display: none;
+      text-align: center;
+      padding: 20px 0 4px;
+    }
+    .waitlist-success-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+    }
+    .waitlist-success-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .waitlist-success-msg {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
     .step-nav {
       display: flex;
       justify-content: space-between;
@@ -171,6 +220,36 @@
       <div class="signup-sub">Launch your AI-powered news site in minutes</div>
     </div>
 
+    <!-- Waitlist / coming-soon panel (shown when SIGNUPS_ENABLED != true) -->
+    <div class="signup-card waitlist-panel" id="waitlistPanel">
+      <div style="text-align:center;">
+        <div class="waitlist-badge">Private Beta</div>
+        <h2 class="waitlist-title">We're not quite ready<br>for the public yet</h2>
+        <p class="waitlist-sub">We're putting the finishing touches on DeepFeedAI. Drop your email and you'll be the first to know when we open the doors.</p>
+      </div>
+
+      <div id="waitlistFormWrap">
+        <div class="login-error" id="waitlistError" style="display:none;margin-bottom:14px;"></div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <input type="text" class="form-control" id="waitlistName" placeholder="Your name (optional)" maxlength="100" />
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <input type="email" class="form-control" id="waitlistEmail" placeholder="you@example.com" />
+        </div>
+        <button class="btn btn-primary" id="waitlistSubmitBtn" style="width:100%;justify-content:center;padding:11px;font-size:14px;">
+          Join the waitlist
+        </button>
+      </div>
+
+      <div class="waitlist-success" id="waitlistSuccess">
+        <div class="waitlist-success-icon">&#10003;</div>
+        <div class="waitlist-success-title">You're on the list!</div>
+        <div class="waitlist-success-msg">We'll send you an email as soon as signups open. In the meantime, check out the <a href="https://deepfeedai.com" style="color:var(--accent);">live news feed</a>.</div>
+      </div>
+    </div>
+
+    <!-- Main signup flow (shown when signups are open) -->
+    <div id="signupContent">
     <div class="signup-card">
       <!-- Step indicators -->
       <div class="signup-steps" id="stepIndicators">
@@ -306,6 +385,7 @@
       Already have a site? <a href="/login.html">Sign in</a>
       &middot; <a href="/forgot-password.html">Forgot password?</a>
     </div>
+    </div><!-- /signupContent -->
   </div>
 </div>
 

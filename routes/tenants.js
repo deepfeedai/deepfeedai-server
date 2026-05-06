@@ -128,6 +128,10 @@ router.post('/switch', requireAnyAuth, asyncHandler(async (req, res) => {
 
 // POST /api/tenants — create a new tenant (requires public user JWT)
 router.post('/', requireUser, asyncHandler(async (req, res) => {
+  if (process.env.SIGNUPS_ENABLED !== 'true') {
+    return res.status(503).json({ error: 'signups_disabled', message: 'Signups are not currently open.' });
+  }
+
   // Block unverified local users from creating tenants
   if (req.user.provider === 'local') {
     const pu = await db.prepare('SELECT email_verified FROM public_users WHERE id = $1').get(req.user.sub);
@@ -567,7 +571,13 @@ router.get('/onboarding-status', authMiddleware, asyncHandler(async (req, res) =
     db.prepare("SELECT COUNT(*)::int AS cnt FROM sources WHERE tenant_id = $1").get(tid),
     db.prepare("SELECT COUNT(*)::int AS cnt FROM writers WHERE tenant_id = $1").get(tid),
     db.prepare("SELECT COUNT(*)::int AS cnt FROM articles WHERE tenant_id = $1 AND is_published = 1").get(tid),
-    db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'openai_api_key'").get(tid),
+    db.prepare(`
+      SELECT value FROM settings
+      WHERE tenant_id = $1
+        AND key IN ('openai_api_key','anthropic_api_key','gemini_api_key','openrouter_api_key','ollama_base_url')
+        AND value IS NOT NULL AND value != ''
+      LIMIT 1
+    `).get(tid),
     db.prepare("SELECT custom_domain FROM tenants WHERE id = $1").get(tid),
   ]);
 
