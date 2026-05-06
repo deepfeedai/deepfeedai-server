@@ -690,7 +690,7 @@
   async function loadWriters() {
     try {
       var data = await apiFetch('/admin/writers');
-      writers = (data.writers || []).map(function (w) {
+      writers = (Array.isArray(data) ? data : (data.writers || [])).map(function (w) {
         return { id: w.id, name: w.name || w.persona_name || '', avatar_url: w.avatar_url || '' };
       });
       writersLoaded = true;

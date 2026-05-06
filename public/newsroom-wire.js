@@ -169,10 +169,10 @@
     var actionsHtml = '';
     if (cluster.isCluster) {
       actionsHtml = '<button class="nr-action-primary" data-wire-synthesize="' + esc(tag) + '">Synthesize ↗</button>'
-        + '<button class="nr-action-secondary" data-wire-pitch="' + esc(tag) + '">Assign pitch</button>'
+        + '<button class="nr-action-secondary" data-wire-pitch="' + esc(tag) + '">Pitch →</button>'
         + '<button class="nr-action-danger" data-wire-spike="' + esc(tag) + '">Spike</button>';
     } else {
-      actionsHtml = '<button class="nr-action-secondary" data-wire-queue="' + esc(tag) + '">Queue →</button>'
+      actionsHtml = '<button class="nr-action-secondary" data-wire-queue="' + esc(tag) + '">Pitch →</button>'
         + '<button class="nr-action-danger" data-wire-spike="' + esc(tag) + '">Spike</button>';
     }
 
@@ -638,8 +638,9 @@
     });
 
     // Lazy-load each tab on first activation
-    if (name === 'stories' && !state.loaded.stories) {
-      loadAndRenderStories();
+    if (name === 'stories') {
+      initStoriesHandlers(); // idempotent — internal guard prevents double-bind
+      if (!state.loaded.stories) loadAndRenderStories();
     } else if (name === 'discover' && !state.loaded.discover) {
       state.loaded.discover = true; // mark now; search is on-demand
       initDiscoverHandlers();
@@ -652,49 +653,300 @@
   // Feature 2 — Stories tab
   // ═══════════════════════════════════════════════════════════════════════════
 
+  var storiesFilter = 'active'; // 'active' | 'dormant' | 'all'
+  var writerMap     = {};       // id → name, populated once
+
   async function loadAndRenderStories() {
     var container = document.getElementById('nr-stories-list');
     if (!container) return;
     container.innerHTML = '<div class="nr-loading">Loading stories…</div>';
 
     try {
-      var data = await apiFetch('/story-threads?status=active,dormant&limit=40');
-      var threads = (data && data.threads) || [];
+      var statusParam = storiesFilter === 'all' ? 'active,dormant,closed' : storiesFilter;
+      var results = await Promise.all([
+        apiFetch('/story-threads?status=' + statusParam + '&limit=60'),
+        Object.keys(writerMap).length ? Promise.resolve(null)
+          : apiFetch('/admin/writers').catch(function () { return null; }),
+      ]);
+
+      var threads = (results[0] && results[0].threads) || [];
+
+      // Populate writerMap once
+      if (results[1] && results[1].writers) {
+        results[1].writers.forEach(function (w) { writerMap[w.id] = w.name || w.persona_name || w.display_name || ''; });
+      }
+
       state.loaded.stories = true;
 
       if (!threads.length) {
-        container.innerHTML = '<div class="nr-empty"><span>No active or dormant stories found.</span></div>';
+        container.innerHTML = '<div class="nr-empty"><span>No ' + esc(storiesFilter) + ' stories found.</span></div>';
         return;
       }
 
       var html = '';
       threads.forEach(function (t) {
-        var displayName = esc(t.name || t.topic_tag || '—');
-        var statusCls   = 'ss-' + esc(t.status || 'unknown');
-        var statusLabel = esc(t.status || '');
-        var count       = t.article_count != null ? esc(t.article_count) : '0';
-        var age         = t.last_activity_at ? esc(relTime(t.last_activity_at)) : '';
-        var cat         = t.category ? esc(t.category) : '';
-        var tag         = esc(t.topic_tag || '');
-
-        html += '<div class="nr-story-card">'
-          + '<div class="nr-story-left">'
-          +   '<div class="nr-story-name">' + displayName + '</div>'
-          +   '<div class="nr-story-meta">'
-          +     '<span>' + count + ' articles</span>'
-          +     (age ? '<span>' + age + '</span>' : '')
-          +     (cat ? '<span>' + cat + '</span>' : '')
-          +   '</div>'
-          + '</div>'
-          + '<span class="nr-story-status ' + statusCls + '">' + statusLabel + '</span>'
-          + '<a href="/story-board.html?tag=' + tag + '" class="nr-row-btn">Board &rarr;</a>'
-          + '</div>';
+        html += storyCardHtml(t);
       });
-
       container.innerHTML = html;
     } catch (err) {
       state.loaded.stories = false;
       container.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load stories: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  function storyCardHtml(t) {
+    var tag         = t.topic_tag || '';
+    var displayName = esc(t.name || tag || '—');
+    var summary     = t.summary ? esc(t.summary) : '';
+    var statusCls   = 'ss-' + esc(t.status || 'unknown');
+    var statusLabel = esc(t.status || '');
+    var artCount    = t.article_count != null ? parseInt(t.article_count, 10) : 0;
+    var srcCount    = t.source_count  != null ? parseInt(t.source_count,  10) : 0;
+    var age         = t.last_update_at ? relTime(t.last_update_at) : '';
+    var ownerName   = t.owner_writer_id ? (writerMap[t.owner_writer_id] || '') : '';
+    // Status-driven actions
+    var statusActions = '';
+    if (t.status === 'active') {
+      statusActions = '<button class="nr-action-secondary" style="font-size:11px;padding:3px 8px;" data-story-dormant="' + esc(tag) + '">Mark dormant</button>';
+    } else if (t.status === 'dormant') {
+      statusActions = '<button class="nr-action-secondary" style="font-size:11px;padding:3px 8px;" data-story-reactivate="' + esc(tag) + '">Reactivate</button>';
+    }
+
+    return '<div class="nr-story-card" data-story-tag="' + esc(tag) + '">'
+      + '<div class="nr-story-card-top">'
+      +   '<div class="nr-story-left">'
+      +     '<div class="nr-story-name">' + displayName + '</div>'
+      +     (summary ? '<div class="nr-story-summary">' + summary + '</div>' : '')
+      +     '<div class="nr-story-meta">'
+      +       '<span>' + artCount + ' article' + (artCount !== 1 ? 's' : '') + '</span>'
+      +       (srcCount ? '<span>' + srcCount + ' source' + (srcCount !== 1 ? 's' : '') + '</span>' : '')
+      +       (age ? '<span>' + esc(age) + '</span>' : '')
+      +       (ownerName ? '<span>→ ' + esc(ownerName) + '</span>' : '')
+      +     '</div>'
+      +   '</div>'
+      +   '<span class="nr-story-status ' + statusCls + '">' + statusLabel + '</span>'
+      + '</div>'
+      + '<div class="nr-story-actions">'
+      +   '<button class="nr-action-secondary" style="font-size:11px;padding:3px 8px;" data-story-pitch="' + esc(tag) + '">Pitch →</button>'
+      +   statusActions
+      +   '<button class="nr-story-expand-btn" data-story-expand="' + esc(tag) + '">' + (artCount ? '▾ Articles (' + artCount + ')' : '▾ Articles') + '</button>'
+      +   '<div class="nr-col-spacer" style="flex:1;"></div>'
+      +   '<a href="/story-board.html?tag=' + esc(tag) + '" class="nr-row-btn">Board →</a>'
+      + '</div>'
+      + '<div class="nr-story-articles" id="nr-story-arts-' + esc(tag) + '">'
+      +   '<div class="nr-loading" style="font-size:12px;">Loading…</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // Expand/collapse inline article list
+  async function toggleStoryArticles(tag) {
+    var card = document.querySelector('[data-story-tag="' + tag + '"]');
+    if (!card) return;
+
+    var expanded = card.classList.toggle('expanded');
+    var btn = card.querySelector('[data-story-expand]');
+    var artCount = card.querySelector('.nr-story-article-row') ? null : '?';
+
+    if (!expanded) {
+      if (btn) btn.textContent = btn.textContent.replace('▴', '▾');
+      return;
+    }
+    if (btn) btn.textContent = btn.textContent.replace('▾', '▴');
+
+    var container = document.getElementById('nr-story-arts-' + tag);
+    if (!container || container.querySelector('.nr-story-article-row')) return; // already loaded
+
+    try {
+      var data = await apiFetch('/story-threads/' + encodeURIComponent(tag));
+      var articles = (data && data.articles) || [];
+
+      if (!articles.length) {
+        container.innerHTML = '<div style="font-size:12px;color:var(--muted);">No published articles yet.</div>';
+        return;
+      }
+
+      var siteBase = typeof getSiteBase === 'function' ? getSiteBase() : '';
+      var html = '';
+      articles.slice(0, 6).forEach(function (a) {
+        var title    = a.generated_title || a.title || 'Untitled';
+        var when     = a.published_at ? relTime(a.published_at) : '';
+        var writer   = a.writer_id ? (writerMap[a.writer_id] || '') : '';
+        var href     = a.slug ? '/article/' + esc(a.slug) : '#';
+        var preview  = a.slug ? siteBase + '/article/' + esc(a.slug) : '';
+        var artId    = String(a.id || '');
+        html += '<div class="nr-story-article-row" data-art-id="' + esc(artId) + '">'
+          + '<a href="' + href + '" target="_blank" title="' + esc(title) + '">' + esc(title) + '</a>'
+          + '<span class="nr-story-art-meta">'
+          + (writer ? esc(writer) + ' · ' : '')
+          + esc(when)
+          + '</span>'
+          + '<div class="nr-story-art-actions">'
+          + (preview ? '<a href="' + preview + '" target="_blank" class="nr-art-preview-link">↗ Preview</a>' : '')
+          + (artId   ? '<button class="nr-art-unpublish-btn" data-story-unpublish="' + esc(artId) + '">Unpublish</button>' : '')
+          + '</div>'
+          + '</div>';
+      });
+      if (articles.length > 6) {
+        html += '<div style="font-size:11px;color:var(--muted);margin-top:2px;">+'
+          + esc(String(articles.length - 6)) + ' more — <a href="/story-board.html?tag=' + esc(tag) + '" style="color:var(--accent);">view all</a></div>';
+      }
+      container.innerHTML = html;
+    } catch (err) {
+      container.innerHTML = '<div style="font-size:12px;color:var(--danger);">Failed to load: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  // Pitch from story thread — resolves source from wire clusters (curated articles)
+  async function createPitchFromThread(tag, btn) {
+    // Resolve a curated source article from the wire feed state
+    var cluster = state.clusters.find(function (c) { return c.tag === tag; });
+    var sourceArticle = cluster && cluster.articles && cluster.articles[0];
+    if (!sourceArticle) {
+      showAlert('No wire sources found for "' + tag + '" — import sources to the feed first.', 'error');
+      return;
+    }
+
+    var editorId = null;
+    try {
+      var token   = localStorage.getItem('deepfeedai_token');
+      var payload = token ? JSON.parse(atob(token.split('.')[1])) : null;
+      editorId    = payload ? (payload.sub || payload.id || null) : null;
+    } catch (_) {}
+    if (!editorId) { showAlert('Could not identify editor — please re-login.', 'error'); return; }
+
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Creating…';
+    try {
+      await apiFetch('/pitches', {
+        method: 'POST',
+        body: JSON.stringify({
+          source_article_id:      sourceArticle.id,
+          angle_summary:          'Cover the "' + tag + '" story — synthesize the available sources into an original article.',
+          requested_by_editor_id: editorId,
+        }),
+      });
+      showAlert('Pitch created for "' + tag + '".', 'success');
+      if (window.NRFloor && NRFloor.refreshPitches) NRFloor.refreshPitches();
+    } catch (err) {
+      showAlert('Failed to create pitch: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  // Change story status inline
+  async function updateStoryStatus(tag, newStatus, btn) {
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await apiFetch('/story-threads/' + encodeURIComponent(tag), {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      // Re-render just this card with updated status
+      var card = document.querySelector('[data-story-tag="' + tag + '"]');
+      if (card) {
+        var statusEl = card.querySelector('.nr-story-status');
+        if (statusEl) {
+          statusEl.className = 'nr-story-status ss-' + newStatus;
+          statusEl.textContent = newStatus;
+        }
+        // Swap action button
+        var actBtn = card.querySelector('[data-story-dormant],[data-story-reactivate]');
+        if (actBtn) {
+          if (newStatus === 'dormant') {
+            actBtn.dataset.storyReactivate = tag;
+            delete actBtn.dataset.storyDormant;
+            actBtn.textContent = 'Reactivate';
+          } else if (newStatus === 'active') {
+            actBtn.dataset.storyDormant = tag;
+            delete actBtn.dataset.storyReactivate;
+            actBtn.textContent = 'Mark dormant';
+          }
+        }
+      }
+      // If filtering by a specific status, remove the card since it no longer matches
+      if (storiesFilter !== 'all' && card) {
+        card.style.transition = 'opacity .2s';
+        card.style.opacity = '0';
+        setTimeout(function () { card.remove(); }, 200);
+      }
+    } catch (err) {
+      showAlert('Status update failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  // Unpublish an inline article row
+  async function unpublishStoryArticle(id, btn) {
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await apiFetch('/articles/' + encodeURIComponent(id) + '/publish', { method: 'PUT' });
+      var row = btn.closest('.nr-story-article-row');
+      if (row) {
+        row.style.transition = 'opacity .2s';
+        row.style.opacity = '0.35';
+        var titleLink = row.querySelector('a');
+        if (titleLink) titleLink.style.textDecoration = 'line-through';
+        btn.textContent = 'Unpublished';
+      }
+    } catch (err) {
+      showAlert('Unpublish failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  // Filter tab switching + refresh (called once)
+  var storiesHandlersInit = false;
+  function initStoriesHandlers() {
+    if (storiesHandlersInit) return;
+    storiesHandlersInit = true;
+    var toolbar = document.getElementById('nr-stories-toolbar');
+    if (toolbar) {
+      toolbar.addEventListener('click', function (e) {
+        var chip = e.target.closest('[data-story-filter]');
+        if (chip) {
+          storiesFilter = chip.dataset.storyFilter;
+          toolbar.querySelectorAll('[data-story-filter]').forEach(function (c) {
+            c.classList.toggle('active', c.dataset.storyFilter === storiesFilter);
+          });
+          state.loaded.stories = false;
+          loadAndRenderStories();
+          return;
+        }
+        if (e.target.closest('#nr-stories-refresh')) {
+          state.loaded.stories = false;
+          loadAndRenderStories();
+        }
+      });
+    }
+
+    var listEl = document.getElementById('nr-stories-list');
+    if (listEl) {
+      listEl.addEventListener('click', function (e) {
+        var expandBtn = e.target.closest('[data-story-expand]');
+        if (expandBtn) { toggleStoryArticles(expandBtn.dataset.storyExpand); return; }
+
+        var pitchBtn = e.target.closest('[data-story-pitch]');
+        if (pitchBtn) { createPitchFromThread(pitchBtn.dataset.storyPitch, pitchBtn); return; }
+
+        var dormantBtn = e.target.closest('[data-story-dormant]');
+        if (dormantBtn) { updateStoryStatus(dormantBtn.dataset.storyDormant, 'dormant', dormantBtn); return; }
+
+        var reactBtn = e.target.closest('[data-story-reactivate]');
+        if (reactBtn) { updateStoryStatus(reactBtn.dataset.storyReactivate, 'active', reactBtn); return; }
+
+        var unpubBtn = e.target.closest('[data-story-unpublish]');
+        if (unpubBtn) { unpublishStoryArticle(unpubBtn.dataset.storyUnpublish, unpubBtn); return; }
+      });
     }
   }
 

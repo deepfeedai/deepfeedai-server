@@ -1,13 +1,11 @@
 /**
  * Newsroom — The Desk workspace
- * Five inner tabs: Writers, Articles, Analytics, Engagement, Settings.
+ * Inner tabs: Writers, Articles, Engagement, Settings, Styles.
  *
  * APIs consumed:
  *   GET  /api/admin/writers
  *   GET  /api/admin/writers/performance?range=30d
  *   GET  /api/articles?limit=40&offset=0
- *   GET  /api/analytics/summary?range=30d
- *   GET  /api/ai-usage/summary?range=30d
  *   GET  /api/comments/admin/queue
  *   POST /api/comments/admin/:id/approve
  *   POST /api/comments/admin/:id/reject
@@ -28,7 +26,6 @@
   var loaded = {
     writers:    false,
     articles:   false,
-    analytics:  false,
     engagement: false,
     settings:   false,
     styles:     false,
@@ -331,6 +328,7 @@
     html += chipHtml('draft', 'Draft', artStatus);
     html += chipHtml('review', 'Review', artStatus);
     html += '</div>';
+    html += '<a href="/article-editor.html?return=/newsroom.html%23desk/articles" class="nr-row-btn">+ New Article</a>';
     html += '<a href="/articles.html" class="nr-row-btn" style="margin-left:auto;">Full list →</a>';
     html += '</div>';
 
@@ -355,13 +353,15 @@
     if (!articles.length) {
       return '<div class="nr-empty" style="padding:16px 0;">No articles found.</div>';
     }
+    var siteBase = typeof getSiteBase === 'function' ? getSiteBase() : '';
     return articles.map(function (a) {
       var displayTitle = a.generated_title || a.title || '(Untitled)';
       var statusKey    = artStatusFromRow(a);
       var dateSrc      = a.published_at || a.created_at;
       var meta         = (a.category ? esc(a.category) + ' · ' : '') + esc(relTime(dateSrc));
+      var previewHref  = (a.slug && siteBase) ? siteBase + '/article/' + esc(a.slug) : '';
       return '<div class="nr-article-row">'
-        + '<a class="nr-article-title" href="/article-editor.html?id=' + esc(String(a.id)) + '" title="' + esc(displayTitle) + '">'
+        + '<a class="nr-article-title" href="/article-editor.html?id=' + esc(String(a.id)) + '&return=/newsroom.html%23desk/articles" title="' + esc(displayTitle) + '">'
         + esc(truncate(displayTitle, 90))
         + '</a>'
         + '<span class="nr-article-meta">' + meta + '</span>'
@@ -370,6 +370,8 @@
         + '<button class="nr-art-act-btn" data-art-image="' + a.id + '" title="Generate image"' + (a.image_url ? ' style="color:var(--accent)"' : '') + '>🎨</button>'
         + '<button class="nr-art-act-btn" data-art-audio="' + a.id + '" title="Generate audio"' + (a.audio_url ? ' style="color:var(--accent)"' : '') + '>🎙️</button>'
         + '<button class="nr-art-act-btn nr-art-act-archive" data-art-archive="' + a.id + '" title="Archive">🗄</button>'
+        + (previewHref ? '<a href="' + previewHref + '" target="_blank" class="nr-art-preview-link" title="Preview on site">↗ Preview</a>' : '')
+        + (statusKey === 'published' ? '<button class="nr-art-unpublish-btn" data-art-unpublish="' + esc(String(a.id)) + '">Unpublish</button>' : '')
         + '</div>'
         + '</div>';
     }).join('');
@@ -437,7 +439,7 @@
       lmBtn.addEventListener('click', onArtLoadMore);
     }
 
-    // Article inline action buttons (image, audio, archive)
+    // Article inline action buttons (image, audio, archive, unpublish)
     panel.addEventListener('click', function(e) {
       var imgBtn = e.target.closest('[data-art-image]');
       if (imgBtn) { artGenImage(parseInt(imgBtn.dataset.artImage, 10), imgBtn); return; }
@@ -445,6 +447,8 @@
       if (audBtn) { artGenAudio(parseInt(audBtn.dataset.artAudio, 10), audBtn); return; }
       var archBtn = e.target.closest('[data-art-archive]');
       if (archBtn) { artArchive(parseInt(archBtn.dataset.artArchive, 10), archBtn); return; }
+      var unpubBtn = e.target.closest('[data-art-unpublish]');
+      if (unpubBtn) { artUnpublish(parseInt(unpubBtn.dataset.artUnpublish, 10), unpubBtn); return; }
     });
   }
 
@@ -497,192 +501,28 @@
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // ANALYTICS TAB
-  // ══════════════════════════════════════════════════════════════════════════
-
-  async function loadAnalytics() {
-    var panel = document.getElementById('desk-analytics');
-    if (!panel) return;
-    panel.innerHTML = '<div class="nr-loading">Loading analytics…</div>';
-
+  async function artUnpublish(articleId, btn) {
+    if (!confirm('Unpublish this article? It will revert to draft.')) return;
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
     try {
-      var results = await Promise.all([
-        apiFetch('/analytics/summary?range=30d'),
-        apiFetch('/ai-usage/summary?range=30d').catch(function () { return null; }),
-      ]);
-      renderAnalytics(results[0], results[1]);
-    } catch (err) {
-      var panel2 = document.getElementById('desk-analytics');
-      if (panel2) {
-        panel2.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load analytics: ' + esc(err.message) + '</div>';
-      }
-      showAlert('Analytics load failed: ' + err.message, 'error');
-    }
-  }
-
-  function renderAnalytics(data, aiData) {
-    var panel = document.getElementById('desk-analytics');
-    if (!panel) return;
-
-    var totals      = data.totals      || {};
-    var byDay       = Array.isArray(data.by_day)       ? data.by_day       : [];
-    var topArticles = Array.isArray(data.top_articles) ? data.top_articles : [];
-
-    // Compute trend: last 7d vs prior 7d
-    var trendHtml = '';
-    if (byDay.length >= 7) {
-      var last7  = byDay.slice(-7).reduce(function (s, d) { return s + (d.views || 0); }, 0);
-      var prior7 = byDay.length >= 14
-        ? byDay.slice(-14, -7).reduce(function (s, d) { return s + (d.views || 0); }, 0)
-        : 0;
-      if (prior7 > 0) {
-        var delta   = last7 - prior7;
-        var pct     = Math.round(Math.abs(delta / prior7) * 100);
-        var trendUp = delta >= 0;
-        trendHtml = '<span class="nr-stat-delta ' + (trendUp ? 'up' : 'down') + '">'
-          + (trendUp ? '↑' : '↓') + ' ' + pct + '% vs prior 7d'
-          + '</span>';
-      } else if (last7 > 0) {
-        trendHtml = '<span class="nr-stat-delta up">↑ trend</span>';
-      }
-    } else if (byDay.length > 0) {
-      // Not enough data for comparison — show direction within available window
-      var firstHalf = Math.floor(byDay.length / 2);
-      var sumFirst  = byDay.slice(0, firstHalf).reduce(function (s, d) { return s + (d.views || 0); }, 0);
-      var sumSecond = byDay.slice(firstHalf).reduce(function (s, d) { return s + (d.views || 0); }, 0);
-      if (sumFirst + sumSecond > 0) {
-        var goingUp = sumSecond >= sumFirst;
-        trendHtml = '<span class="nr-stat-delta ' + (goingUp ? 'up' : 'down') + '">'
-          + (goingUp ? '↑ trend' : '↓ trend')
-          + '</span>';
-      }
-    }
-
-    // Stat cards
-    var html = '<div class="nr-analytics-grid">';
-
-    html += statCardHtml('Total Views', fmtNum(totals.views), trendHtml);
-    html += statCardHtml('Audio Plays', fmtNum(totals.audio_plays), '');
-    html += statCardHtml('Shares', fmtNum(totals.shares), '');
-
-    html += '</div>';
-
-    // Top articles section
-    html += '<div style="margin-top:24px;">';
-    html += '<div class="nr-section-heading">Top Articles — Last 30 Days</div>';
-
-    if (topArticles.length) {
-      html += '<table class="nr-writers-table" style="margin-top:8px;">';
-      html += '<thead><tr><th style="width:60%;">Article</th><th style="text-align:right;">Views</th></tr></thead>';
-      html += '<tbody>';
-      topArticles.slice(0, 5).forEach(function (a, i) {
-        html += '<tr>';
-        html += '<td style="display:flex;align-items:center;gap:8px;">';
-        html += '<span style="color:var(--muted,#9ca3af);font-size:11px;min-width:16px;">' + esc(String(i + 1)) + '</span>';
-        if (a.slug) {
-          html += '<a href="/article/' + esc(a.slug) + '" target="_blank" style="color:inherit;text-decoration:none;font-size:13px;" title="' + esc(a.title) + '">';
-          html += esc(truncate(a.title, 72));
-          html += '</a>';
-        } else {
-          html += '<span style="font-size:13px;" title="' + esc(a.title) + '">' + esc(truncate(a.title, 72)) + '</span>';
+      await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT' });
+      showAlert('Article unpublished — reverted to draft.', 'info');
+      var row = btn.closest('.nr-article-row');
+      if (row) {
+        var statusBadge = row.querySelector('.nr-article-status');
+        if (statusBadge) {
+          statusBadge.className = 'nr-article-status as-draft';
+          statusBadge.textContent = 'draft';
         }
-        html += '</td>';
-        html += '<td style="text-align:right;font-size:13px;font-variant-numeric:tabular-nums;">' + esc(fmtNum(a.views)) + '</td>';
-        html += '</tr>';
-      });
-      html += '</tbody></table>';
-    } else {
-      html += '<div class="nr-empty" style="padding:20px 0;">No article data available yet.</div>';
+        btn.remove();
+      }
+    } catch(err) {
+      showAlert('Unpublish failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = origText;
     }
-
-    html += '</div>';
-
-    // AI Usage section
-    html += renderAiUsageSection(aiData);
-
-    // Footer link
-    html += '<div style="margin-top:20px;text-align:right;">';
-    html += '<a href="/analytics.html" style="font-size:12px;color:var(--accent,#6366f1);">Open full Analytics →</a>';
-    html += '</div>';
-
-    panel.innerHTML = html;
-  }
-
-  function renderAiUsageSection(aiData) {
-    var html = '<div style="margin-top:28px;">';
-    html += '<div class="nr-section-heading" style="margin-bottom:12px;">AI Usage (30d)</div>';
-
-    if (!aiData) {
-      html += '<div class="nr-empty" style="padding:12px 0;">AI usage data unavailable.</div>';
-      html += '</div>';
-      return html;
-    }
-
-    var tot    = aiData.totals  || {};
-    var budget = aiData.budget  || {};
-    var models = Array.isArray(aiData.by_model) ? aiData.by_model : [];
-
-    // Summary row
-    var cost        = parseFloat(tot.estimated_cost) || 0;
-    var calls       = parseInt(tot.api_calls, 10)    || 0;
-    var successRate = parseFloat(tot.success_rate)   || 0;
-
-    html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;">';
-    html += '<span style="font-size:13px;">Cost: <strong>$' + esc(cost.toFixed(4)) + '</strong></span>';
-    html += '<span style="font-size:13px;">Calls: <strong>' + esc(fmtNum(calls)) + '</strong></span>';
-    html += '<span style="font-size:13px;">Success: <strong>' + esc(successRate.toFixed(1)) + '%</strong></span>';
-    html += '</div>';
-
-    // Budget progress bar
-    var monthlyLimit = parseFloat(budget.monthly_limit) || 0;
-    var monthlySpend = parseFloat(budget.current_spend)  || 0;
-    if (monthlyLimit > 0) {
-      var pct = Math.min(100, Math.round((monthlySpend / monthlyLimit) * 100));
-      var barColor = pct >= 90 ? 'var(--danger,#ef4444)' : pct >= 70 ? '#f59e0b' : 'var(--accent,#6366f1)';
-      html += '<div style="margin-bottom:12px;">';
-      html += '<div style="font-size:12px;color:var(--muted,#9ca3af);margin-bottom:4px;">Budget: $'
-        + esc(monthlySpend.toFixed(2)) + ' / $' + esc(monthlyLimit.toFixed(2)) + ' monthly</div>';
-      html += '<div style="height:4px;border-radius:2px;background:var(--border,#e5e7eb);">'
-        + '<div style="height:100%;border-radius:2px;background:' + barColor + ';width:' + pct + '%;"></div>'
-        + '</div>';
-      html += '</div>';
-    }
-
-    // By-model table
-    if (models.length) {
-      html += '<div style="overflow-x:auto;">';
-      html += '<table class="nr-writers-table" style="margin-top:4px;">';
-      html += '<thead><tr>';
-      html += '<th>Model</th><th>Provider</th>';
-      html += '<th style="text-align:right;">Input tokens</th>';
-      html += '<th style="text-align:right;">Output tokens</th>';
-      html += '<th style="text-align:right;">Cost</th>';
-      html += '</tr></thead><tbody>';
-      models.forEach(function (m) {
-        html += '<tr>';
-        html += '<td style="font-size:12px;">' + esc(m.model || '—') + '</td>';
-        html += '<td style="font-size:12px;">' + esc(m.provider || '—') + '</td>';
-        html += '<td style="text-align:right;font-size:12px;font-variant-numeric:tabular-nums;">' + esc(fmtNum(m.input_tokens)) + '</td>';
-        html += '<td style="text-align:right;font-size:12px;font-variant-numeric:tabular-nums;">' + esc(fmtNum(m.output_tokens)) + '</td>';
-        html += '<td style="text-align:right;font-size:12px;font-variant-numeric:tabular-nums;">$' + esc(parseFloat(m.cost || 0).toFixed(4)) + '</td>';
-        html += '</tr>';
-      });
-      html += '</tbody></table></div>';
-    } else {
-      html += '<div class="nr-empty" style="padding:8px 0;">No model-level data yet.</div>';
-    }
-
-    html += '</div>';
-    return html;
-  }
-
-  function statCardHtml(label, value, extra) {
-    return '<div class="nr-stat-card">'
-      + '<div class="nr-stat-label">' + esc(label) + '</div>'
-      + '<div class="nr-stat-value">' + esc(value) + '</div>'
-      + (extra || '')
-      + '</div>';
   }
 
   function truncate(s, max) {
@@ -703,10 +543,12 @@
       var results = await Promise.all([
         apiFetch('/comments/admin/queue').catch(function () { return { queue: [] }; }),
         apiFetch('/banners/active').catch(function () { return []; }),
+        apiFetch('/newsletter/history').catch(function () { return []; }),
       ]);
-      var queue   = Array.isArray(results[0].queue) ? results[0].queue : [];
-      var banners = Array.isArray(results[1]) ? results[1] : [];
-      renderEngagement(queue, banners);
+      var queue      = Array.isArray(results[0].queue) ? results[0].queue : [];
+      var banners    = Array.isArray(results[1]) ? results[1] : [];
+      var nlHistory  = Array.isArray(results[2]) ? results[2] : [];
+      renderEngagement(queue, banners, nlHistory);
     } catch (err) {
       var panel2 = document.getElementById('desk-engagement');
       if (panel2) {
@@ -716,7 +558,7 @@
     }
   }
 
-  function renderEngagement(queue, banners) {
+  function renderEngagement(queue, banners, nlHistory) {
     var panel = document.getElementById('desk-engagement');
     if (!panel) return;
 
@@ -742,10 +584,33 @@
 
     // ── Newsletter section ──
     html += '<hr style="margin:20px 0;border:none;border-top:1px solid var(--border,#e5e7eb);">';
-    html += '<div class="nr-section-heading" style="margin-bottom:10px;">Newsletter</div>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+    html += '<div class="nr-section-heading">Newsletter</div>';
+    html += '<a href="/newsletter.html" style="font-size:12px;color:var(--accent,#6366f1);">Manage →</a>';
+    html += '</div>';
+
+    // Send history (last 3)
+    nlHistory = nlHistory || [];
+    if (nlHistory.length) {
+      html += '<div style="display:flex;flex-direction:column;gap:0;margin-bottom:10px;">';
+      nlHistory.slice(0, 3).forEach(function (send) {
+        var when = send.sent_at ? relTime(send.sent_at) : '—';
+        var subject = send.subject || '(no subject)';
+        var arts    = send.article_count != null ? send.article_count + ' articles' : '';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border,#e5e7eb);">';
+        html += '<span style="font-size:11px;color:var(--muted,#9ca3af);white-space:nowrap;min-width:60px;">' + esc(when) + '</span>';
+        html += '<span style="font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(truncate(subject, 60)) + '</span>';
+        if (arts) html += '<span style="font-size:11px;color:var(--muted,#9ca3af);white-space:nowrap;">' + esc(arts) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--muted,#9ca3af);margin-bottom:10px;">No sends yet.</div>';
+    }
+
     html += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
     html += '<button id="nr-nl-preview-btn" class="nr-row-btn">Preview</button>';
-    html += '<button id="nr-nl-send-btn" class="nr-row-btn" style="color:var(--accent,#6366f1);">Send to subscribers</button>';
+    html += '<button id="nr-nl-send-btn" class="nr-row-btn" style="color:var(--accent,#6366f1);">Send digest</button>';
     html += '</div>';
     html += '<div id="nr-nl-preview-box" style="display:none;margin-top:10px;font-size:12px;overflow:auto;max-height:300px;border:1px solid var(--border,#e5e7eb);border-radius:6px;padding:12px;"></div>';
 
@@ -1021,36 +886,48 @@
     var panel = document.getElementById('desk-settings');
     if (!panel) return;
 
-    var html = '<div class="nr-section-heading" style="margin-bottom:12px;">Publication Settings</div>';
-    html += '<table class="nr-writers-table">';
-    html += '<tbody>';
+    var html = '<div class="nr-section-heading" style="margin-bottom:16px;">Publication Settings</div>';
+    html += '<div class="nr-settings-form" id="nr-settings-form">';
 
     SETTINGS_DISPLAY.forEach(function (def) {
       var raw = data[def.key];
-      // Skip keys not present in response
       if (raw === undefined || raw === null) return;
-      // Skip anything that looks like an encrypted blob (long base64/hex strings)
       var strVal = String(raw);
       if (strVal.length > 200 || /^[A-Za-z0-9+/]{40,}={0,2}$/.test(strVal)) return;
 
-      var displayVal = formatSettingValue(def.key, raw);
+      html += '<div class="nr-settings-row">';
+      html += '<label class="nr-settings-label" for="nr-setting-' + esc(def.key) + '">' + esc(def.label) + '</label>';
+      html += '<div class="nr-settings-control">';
 
-      html += '<tr>';
-      html += '<td style="color:var(--muted,#6b7280);font-size:12px;white-space:nowrap;width:200px;">' + esc(def.label) + '</td>';
-      html += '<td style="font-size:13px;">' + displayVal + '</td>';
-      html += '</tr>';
+      if (def.key === 'mod_queue_enabled') {
+        var on = raw === true || raw === 'true' || raw === '1' || raw === 1;
+        html += '<button type="button" class="nr-toggle-btn' + (on ? ' on' : '') + '" '
+          + 'data-setting-key="mod_queue_enabled" id="nr-setting-mod_queue_enabled">'
+          + '<span class="nr-toggle-track"><span class="nr-toggle-thumb"></span></span>'
+          + '<span class="nr-toggle-label">' + (on ? 'Enabled' : 'Disabled') + '</span>'
+          + '</button>';
+      } else {
+        var inputType = 'text';
+        if (def.key === 'site_url') inputType = 'url';
+        if (def.key === 'ai_daily_budget' || def.key === 'ai_monthly_budget') inputType = 'number';
+        var extra = inputType === 'number' ? ' step="0.01" min="0"' : '';
+        html += '<input type="' + inputType + '" '
+          + 'id="nr-setting-' + esc(def.key) + '" '
+          + 'class="nr-setting-input" '
+          + 'data-setting-key="' + esc(def.key) + '" '
+          + 'value="' + esc(strVal) + '"'
+          + extra + ' />';
+      }
+
+      html += '<span class="nr-setting-status" id="nr-setting-status-' + esc(def.key) + '"></span>';
+      html += '</div>';
+      html += '</div>';
     });
 
-    html += '</tbody></table>';
-
-    // Footer link
-    html += '<div style="margin-top:24px;display:flex;align-items:center;justify-content:space-between;">';
-    html += '<span style="font-size:12px;color:var(--muted,#9ca3af);">Read-only snapshot — edit in full Settings.</span>';
-    html += '<a href="/settings.html" style="font-size:13px;font-weight:500;color:var(--accent,#6366f1);">Open full Settings →</a>';
     html += '</div>';
 
     // ── RSS Sources section ──
-    html += '<hr style="margin:20px 0;border:none;border-top:1px solid var(--border,#e5e7eb);">';
+    html += '<hr style="margin:24px 0;border:none;border-top:1px solid var(--border,#e5e7eb);">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
     html += '<div class="nr-section-heading">RSS Sources</div>';
     html += '<a href="/sources.html" style="font-size:12px;color:var(--accent,#6366f1);">Manage sources →</a>';
@@ -1081,6 +958,29 @@
 
     panel.innerHTML = html;
 
+    // Wire save-on-blur / Enter for text & number inputs
+    var form = document.getElementById('nr-settings-form');
+    if (form) {
+      form.addEventListener('blur', function (e) {
+        if (e.target.matches('.nr-setting-input')) {
+          saveSetting(e.target.dataset.settingKey, e.target.value);
+        }
+      }, true);
+      form.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && e.target.matches('.nr-setting-input')) {
+          e.target.blur();
+        }
+      });
+      form.addEventListener('click', function (e) {
+        var btn = e.target.closest('.nr-toggle-btn');
+        if (!btn) return;
+        var nowOn = btn.classList.contains('on');
+        btn.classList.toggle('on', !nowOn);
+        btn.querySelector('.nr-toggle-label').textContent = !nowOn ? 'Enabled' : 'Disabled';
+        saveSetting('mod_queue_enabled', !nowOn ? '1' : '0');
+      });
+    }
+
     // Wire source toggle buttons
     var sourcesList = document.getElementById('nr-sources-list');
     if (sourcesList) {
@@ -1088,6 +988,27 @@
         var toggleBtn = e.target.closest('[data-toggle-source]');
         if (toggleBtn) toggleSource(parseInt(toggleBtn.dataset.toggleSource, 10), toggleBtn);
       });
+    }
+  }
+
+  async function saveSetting(key, value) {
+    var statusEl = document.getElementById('nr-setting-status-' + key);
+    if (statusEl) { statusEl.textContent = '…'; statusEl.style.color = 'var(--muted,#6b7280)'; }
+    try {
+      var body = {};
+      body[key] = value;
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(body) });
+      if (statusEl) {
+        statusEl.textContent = '✓ Saved';
+        statusEl.style.color = 'var(--success,#10b981)';
+        setTimeout(function () { if (statusEl) statusEl.textContent = ''; }, 2000);
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.textContent = '✗ Failed';
+        statusEl.style.color = 'var(--danger,#ef4444)';
+      }
+      showAlert('Failed to save setting: ' + err.message, 'error');
     }
   }
 
@@ -1108,34 +1029,6 @@
       showAlert('Failed to toggle source: ' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = btn.dataset.sourceActive === '1' ? 'Disable' : 'Enable'; }
     }
-  }
-
-  function formatSettingValue(key, raw) {
-    // Boolean toggle keys
-    if (key === 'mod_queue_enabled') {
-      var on = raw === true || raw === 'true' || raw === '1' || raw === 1;
-      return on
-        ? '<span style="color:var(--success,#10b981);font-size:12px;font-weight:600;">Enabled</span>'
-        : '<span style="color:var(--muted,#9ca3af);font-size:12px;">Disabled</span>';
-    }
-
-    // URL keys — make them clickable
-    if (key === 'site_url') {
-      var url = String(raw || '');
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-        return '<a href="' + esc(url) + '" target="_blank" rel="noopener" style="color:var(--accent,#6366f1);font-size:13px;">' + esc(url) + '</a>';
-      }
-    }
-
-    // Budget keys — format as currency
-    if (key === 'ai_daily_budget' || key === 'ai_monthly_budget') {
-      var num = parseFloat(raw);
-      if (!isNaN(num)) {
-        return '<span style="font-variant-numeric:tabular-nums;">$' + esc(num.toFixed(2)) + '</span>';
-      }
-    }
-
-    return esc(String(raw || ''));
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1208,7 +1101,6 @@
   var TAB_LOADERS = {
     writers:    loadWriters,
     articles:   loadArticles,
-    analytics:  loadAnalytics,
     engagement: loadEngagement,
     settings:   loadSettings,
     styles:     loadStyles,
@@ -1223,7 +1115,7 @@
     });
 
     // Update panel visibility
-    var panels = ['writers', 'articles', 'analytics', 'engagement', 'settings', 'styles'];
+    var panels = ['writers', 'articles', 'engagement', 'settings', 'styles'];
     panels.forEach(function (name) {
       var el = document.getElementById('desk-' + name);
       if (el) el.classList.toggle('active', name === tab);

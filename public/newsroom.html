@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Newsroom — DeepFeed AI</title>
 <link rel="stylesheet" href="/admin.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;500;600&family=Playfair+Display:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<script>
+/* Apply saved skin/font before render to prevent flash */
+(function(){
+  try {
+    var s = localStorage.getItem('nr_skin'), f = localStorage.getItem('nr_font');
+    if (s) document.documentElement.setAttribute('data-skin', s);
+    if (f) document.documentElement.setAttribute('data-font', f);
+  } catch(_) {}
+})();
+</script>
 <style>
 /* ── Newsroom layout variables ─────────────────────── */
 :root {
@@ -118,7 +131,14 @@
   height: 100%;
   overflow: hidden;
 }
-.nr-workspace.active { display: flex; }
+.nr-workspace.active {
+  display: flex;
+  animation: ws-appear .18s ease;
+}
+@keyframes ws-appear {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 /* ── Loading / empty states ────────────────────────── */
 .nr-loading {
@@ -663,6 +683,54 @@
 .desk-panel::-webkit-scrollbar { width: 4px; }
 .desk-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
+/* ── Reports workspace ─────────────────────────────── */
+.reports-inner-tabs {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px;
+  flex-shrink: 0;
+  gap: 0;
+}
+.reports-inner-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 11px 15px;
+  cursor: pointer;
+  transition: color .12s, border-color .12s;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.reports-inner-tab:hover { color: var(--text); }
+.reports-inner-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.reports-panels { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.reports-panel {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 18px;
+}
+.reports-panel.active { display: block; }
+.reports-panel::-webkit-scrollbar { width: 4px; }
+.reports-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.nr-range-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  margin-left: 6px;
+}
+#ws-reports { flex-direction: column; }
+
 .nr-section-heading {
   font-size: 11px;
   font-weight: 700;
@@ -927,14 +995,16 @@
   border-radius: 8px;
   padding: 12px 14px;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 0;
   transition: border-color .12s;
 }
-.nr-story-card:hover { border-color: #2e2e2e; }
+.nr-story-card:hover { border-color: var(--accent); }
+.nr-story-card-top { display: flex; align-items: flex-start; gap: 10px; }
 .nr-story-left { flex: 1; min-width: 0; }
 .nr-story-name { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
-.nr-story-meta { font-size: 11px; color: var(--muted); display: flex; gap: 10px; }
+.nr-story-summary { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 5px; }
+.nr-story-meta { font-size: 11px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
 .nr-story-status {
   font-size: 10px;
   font-weight: 700;
@@ -942,9 +1012,56 @@
   letter-spacing: .05em;
   padding: 2px 6px;
   border-radius: 4px;
+  flex-shrink: 0;
+  align-self: flex-start;
 }
 .ss-active   { background: var(--success-dim); color: var(--success); }
 .ss-dormant  { background: rgba(255,255,255,.06); color: var(--muted); }
+.ss-closed   { background: rgba(255,255,255,.04); color: #555; }
+.nr-story-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.nr-story-expand-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: color .12s, background .12s;
+}
+.nr-story-expand-btn:hover { color: var(--text); background: var(--surface2); }
+.nr-story-articles {
+  display: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  flex-direction: column;
+  gap: 6px;
+}
+.nr-story-card.expanded .nr-story-articles { display: flex; }
+.nr-story-article-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.nr-story-article-row a { color: var(--text); text-decoration: none; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nr-story-article-row a:hover { color: var(--accent); }
+.nr-story-article-row .nr-story-art-meta { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.nr-story-art-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+.nr-art-preview-link { font-size: 10px; color: var(--muted); text-decoration: none; padding: 2px 5px; border-radius: 3px; white-space: nowrap; }
+.nr-art-preview-link:hover { color: var(--accent); background: var(--accent-dim); }
+.nr-art-unpublish-btn { font-size: 10px; color: var(--danger); background: none; border: 1px solid var(--danger); border-radius: 3px; padding: 2px 6px; cursor: pointer; white-space: nowrap; opacity: .7; }
+.nr-art-unpublish-btn:hover { opacity: 1; background: rgba(255,50,50,.08); }
+.nr-art-unpublish-btn:disabled { opacity: .35; cursor: default; }
 
 /* ── Floor pitch status filter ─────────────────────── */
 .nr-pitch-filter-bar {
@@ -1427,6 +1544,537 @@
 }
 .nr-art-act-btn:hover { opacity: 1; background: rgba(255,255,255,.06); }
 .nr-art-act-btn:disabled { cursor: not-allowed; opacity: 0.3; }
+
+/* ══════════════════════════════════════════════════
+   FONT PAIRING SYSTEM
+══════════════════════════════════════════════════ */
+html[data-font="system"]    { --font-head: 'Inter', sans-serif;          --font-body: 'Inter', sans-serif; }
+html[data-font="newsprint"] { --font-head: 'Playfair Display', serif;    --font-body: 'Source Serif 4', serif; }
+html[data-font="modern"]    { --font-head: 'DM Sans', sans-serif;        --font-body: 'DM Sans', sans-serif; }
+html[data-font="terminal"]  { --font-head: 'JetBrains Mono', monospace;  --font-body: 'JetBrains Mono', monospace; }
+html[data-font="classic"]   { --font-head: 'Merriweather', serif;        --font-body: 'Open Sans', sans-serif; }
+
+body { font-family: var(--font-body, 'Inter', -apple-system, sans-serif) !important; }
+.nr-pub-name, .nr-col-label, .nr-priority-label, .nr-section-heading,
+.nr-modal-title, .nr-chat-head-title, .desk-inner-tab, .wire-inner-tab,
+.nr-ws-tab, h1, h2, h3 { font-family: var(--font-head, 'Inter', sans-serif); }
+
+/* ══════════════════════════════════════════════════
+   SKIN OVERRIDES
+══════════════════════════════════════════════════ */
+/* Daylight — clean light */
+html[data-skin="daylight"] {
+  --bg: #f8f9fa; --bg-card: #fff; --bg-sidebar: #f1f3f5;
+  --border: #dee2e6; --text: #1a1a1a; --muted: #6c757d;
+  --accent: #0077cc; --accent-dim: rgba(0,119,204,.1);
+  --danger: #dc3545; --danger-dim: rgba(220,53,69,.1);
+  --success: #198754; --success-dim: rgba(25,135,84,.1);
+}
+html[data-skin="daylight"] .nr-slot-card:hover { border-color: #c6cdd4; }
+html[data-skin="daylight"] .nr-activity-item { border-bottom-color: rgba(0,0,0,.06); }
+html[data-skin="daylight"] .nr-cluster-card:hover { border-color: #c6cdd4; }
+
+/* Wire — terminal green */
+html[data-skin="wire"] {
+  --bg: #000; --bg-card: #080808; --bg-sidebar: #040404;
+  --border: #1a1a1a; --text: #33ff57; --muted: #1a7a28;
+  --accent: #33ff57; --accent-dim: rgba(51,255,87,.07);
+  --danger: #ff3333; --danger-dim: rgba(255,51,51,.1);
+  --success: #33ff57; --success-dim: rgba(51,255,87,.1);
+}
+html[data-skin="wire"] .nr-ws-tab.active { color: #33ff57; }
+html[data-skin="wire"] .nr-maxwell-pill { color: #33ff57; border-color: rgba(51,255,87,.2); }
+
+/* Broadsheet — newspaper */
+html[data-skin="broadsheet"] {
+  --bg: #f4efe6; --bg-card: #faf8f3; --bg-sidebar: #ece7dc;
+  --border: #d4cab8; --text: #1e1810; --muted: #7a6e5c;
+  --accent: #8b1a1a; --accent-dim: rgba(139,26,26,.1);
+  --danger: #c0392b; --danger-dim: rgba(192,57,43,.1);
+  --success: #27ae60; --success-dim: rgba(39,174,96,.1);
+}
+html[data-skin="broadsheet"] .nr-slot-card:hover { border-color: #c4b8a6; }
+html[data-skin="broadsheet"] .nr-cluster-card:hover { border-color: #c4b8a6; }
+
+/* Tabloid — bold red */
+html[data-skin="tabloid"] {
+  --bg: #09090f; --bg-card: #111118; --bg-sidebar: #0c0c14;
+  --border: #1c1c2e; --text: #f0f0ff; --muted: #6060aa;
+  --accent: #ff2244; --accent-dim: rgba(255,34,68,.12);
+  --danger: #ff4466; --danger-dim: rgba(255,68,102,.12);
+  --success: #22dd88; --success-dim: rgba(34,221,136,.1);
+}
+html[data-skin="tabloid"] .nr-maxwell-pill { color: #ff2244; border-color: rgba(255,34,68,.2); background: rgba(255,34,68,.08); }
+
+/* Ink — default dark (explicit reset) */
+html[data-skin="ink"] {
+  --bg: #0d0d0d; --bg-card: #161616; --bg-sidebar: #111;
+  --border: #222; --text: #f0f0f0; --muted: #888;
+  --accent: #00d9ff; --accent-dim: rgba(0,217,255,.12);
+  --danger: #f87171; --danger-dim: rgba(248,113,113,.12);
+  --success: #4ade80; --success-dim: rgba(74,222,128,.12);
+}
+
+/* ══════════════════════════════════════════════════
+   APPEARANCE PANEL
+══════════════════════════════════════════════════ */
+.nr-appear-panel {
+  position: fixed;
+  top: calc(var(--nr-topbar-h) + 6px);
+  right: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: 0 10px 32px rgba(0,0,0,.5);
+  padding: 14px 16px;
+  min-width: 230px;
+  z-index: 700;
+}
+.nr-appear-sep { height: 1px; background: var(--border); margin: 12px 0; }
+.nr-appear-section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 9px;
+}
+/* Skin swatches */
+.nr-skin-swatches { display: flex; gap: 7px; flex-wrap: wrap; }
+.nr-skin-swatch {
+  width: 30px; height: 30px; border-radius: 50%;
+  cursor: pointer; border: 2px solid transparent;
+  transition: border-color .15s, transform .12s;
+  flex-shrink: 0;
+}
+.nr-skin-swatch:hover { transform: scale(1.12); }
+.nr-skin-swatch.active { border-color: var(--text) !important; }
+.nr-skin-swatch[data-skin="ink"]        { background: radial-gradient(circle at 35% 35%, #2a2a2a, #0d0d0d); border-color: #444; }
+.nr-skin-swatch[data-skin="daylight"]   { background: radial-gradient(circle at 35% 35%, #fff, #c8d6e0); border-color: #ccc; }
+.nr-skin-swatch[data-skin="wire"]       { background: radial-gradient(circle at 35% 35%, #0f3318, #000); border-color: #1a3320; }
+.nr-skin-swatch[data-skin="broadsheet"] { background: radial-gradient(circle at 35% 35%, #faf0dc, #b89870); border-color: #c4a882; }
+.nr-skin-swatch[data-skin="tabloid"]    { background: radial-gradient(circle at 35% 35%, #ff2244, #09090f); border-color: #3a0010; }
+/* Skin name tooltip on hover */
+.nr-skin-swatch[title]:hover::after {
+  content: attr(title); position: absolute; bottom: -22px; left: 50%;
+  transform: translateX(-50%); font-size: 10px; color: var(--muted);
+  white-space: nowrap; pointer-events: none;
+}
+/* Font options */
+.nr-font-grid { display: flex; flex-direction: column; gap: 5px; }
+.nr-font-opt {
+  background: none; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--muted); padding: 6px 11px; font-size: 13px; cursor: pointer;
+  text-align: left; transition: color .12s, border-color .12s, background .12s;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nr-font-opt:hover { color: var(--text); border-color: #444; }
+.nr-font-opt.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+.nr-font-opt-meta { font-size: 10px; opacity: .55; font-family: 'Inter', sans-serif !important; }
+
+/* ══════════════════════════════════════════════════
+   SECTION EXPAND / FULLSCREEN
+══════════════════════════════════════════════════ */
+.nr-expand-btn {
+  background: none; border: none; color: var(--muted);
+  font-size: 14px; cursor: pointer; padding: 0 4px;
+  border-radius: 4px; line-height: 1; transition: color .12s;
+  flex-shrink: 0;
+}
+.nr-expand-btn:hover { color: var(--text); }
+section.nr-expanded .nr-expand-btn { color: var(--accent); }
+
+section.nr-expanded {
+  position: fixed !important;
+  top: var(--nr-topbar-h) !important;
+  left: 0 !important; right: 0 !important; bottom: 0 !important;
+  z-index: 350 !important;
+  background: var(--bg) !important;
+  width: auto !important; height: auto !important;
+  max-height: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border-right: none !important;
+  border-bottom: none !important;
+}
+@media (max-width: 760px) {
+  section.nr-expanded { bottom: var(--nr-mob-nav-h) !important; }
+}
+
+/* ══════════════════════════════════════════════════
+   CUSTOM WORKSPACE
+══════════════════════════════════════════════════ */
+#ws-custom { flex-direction: column; }
+
+.custom-ws-body {
+  flex: 1; overflow-y: auto;
+  padding: 20px 24px;
+  display: flex; flex-direction: column; gap: 28px;
+}
+.custom-ws-body::-webkit-scrollbar { width: 4px; }
+.custom-ws-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.custom-ws-section-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+.custom-ws-section-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.custom-ws-section-head::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+
+.custom-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 8px;
+}
+
+.custom-tile {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 12px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  cursor: pointer; position: relative;
+  transition: border-color .15s, background .12s;
+  text-decoration: none;
+}
+.custom-tile:hover { border-color: #333; background: rgba(255,255,255,.02); text-decoration: none; }
+.custom-tile.pinned { border-color: var(--accent); }
+.custom-tile-icon { font-size: 22px; line-height: 1; margin-bottom: 2px; }
+.custom-tile-name { font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.3; }
+.custom-tile-desc { font-size: 11px; color: var(--muted); line-height: 1.35; }
+
+.custom-pin-btn {
+  position: absolute; top: 8px; right: 8px;
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 14px; padding: 2px 3px;
+  line-height: 1; border-radius: 4px;
+  opacity: 0; transition: opacity .12s, color .12s;
+}
+.custom-tile:hover .custom-pin-btn,
+.custom-tile.pinned .custom-pin-btn { opacity: 1; }
+.custom-tile.pinned .custom-pin-btn { color: var(--accent); }
+.custom-tile.pinned .custom-pin-btn:hover { color: var(--danger); }
+
+.custom-empty-state {
+  grid-column: 1 / -1;
+  padding: 20px; text-align: center;
+  color: var(--muted); font-size: 13px;
+  border: 1px dashed var(--border); border-radius: 10px;
+}
+
+@media (max-width: 760px) {
+  .custom-tiles { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .custom-ws-body { padding: 14px 16px; gap: 20px; }
+}
+
+/* ══════════════════════════════════════════════════
+   PHASE 2 — MOBILE ACTION LAYER
+══════════════════════════════════════════════════ */
+
+/* ── Bottom sheet ─────────────────────────────────── */
+.nr-sheet-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 600;
+  background: rgba(0,0,0,.55);
+}
+.nr-sheet-overlay.open { display: block; }
+
+.nr-bottom-sheet {
+  position: fixed;
+  bottom: -100%; left: 0; right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  z-index: 601;
+  display: flex; flex-direction: column;
+  max-height: 88vh;
+  transition: bottom .28s cubic-bezier(.4,0,.2,1);
+  will-change: transform;
+}
+.nr-bottom-sheet.open { bottom: 0; }
+@media (max-width: 760px) {
+  .nr-bottom-sheet.open { bottom: var(--nr-mob-nav-h); }
+}
+
+.nr-sheet-handle {
+  width: 38px; height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 10px auto 6px;
+  flex-shrink: 0;
+}
+.nr-sheet-head {
+  padding: 4px 18px 13px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.nr-sheet-title {
+  font-size: 16px; font-weight: 700; line-height: 1.4;
+  font-family: var(--font-head, 'Inter', sans-serif);
+}
+.nr-sheet-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.nr-sheet-body {
+  flex: 1; overflow-y: auto; padding: 14px 18px;
+  min-height: 0;
+}
+.nr-sheet-body::-webkit-scrollbar { width: 3px; }
+.nr-sheet-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.nr-sheet-foot {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 10px; flex-shrink: 0;
+}
+.nr-sheet-btn-primary {
+  flex: 1; padding: 14px;
+  background: var(--success); color: #000;
+  border: none; border-radius: 11px;
+  font-size: 15px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: opacity .12s;
+}
+.nr-sheet-btn-primary:hover  { opacity: .85; }
+.nr-sheet-btn-primary:disabled { opacity: .35; cursor: not-allowed; }
+.nr-sheet-btn-secondary {
+  flex: 1; padding: 14px;
+  background: none; color: var(--danger);
+  border: 2px solid var(--danger); border-radius: 11px;
+  font-size: 15px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: background .12s;
+}
+.nr-sheet-btn-secondary:hover  { background: var(--danger-dim); }
+.nr-sheet-btn-secondary:disabled { opacity: .35; cursor: not-allowed; }
+.nr-sheet-btn-neutral {
+  flex: 1; padding: 14px;
+  background: var(--accent-dim); color: var(--accent);
+  border: none; border-radius: 11px;
+  font-size: 15px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+  transition: background .12s;
+}
+.nr-sheet-btn-neutral:hover { background: rgba(0,217,255,.18); }
+.nr-sheet-btn-neutral:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Detail rows inside sheet body */
+.nr-sheet-detail-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.04);
+  font-size: 13px;
+}
+.nr-sheet-detail-row:last-child { border-bottom: none; }
+.nr-sheet-detail-label { font-size: 11px; color: var(--muted); width: 72px; flex-shrink: 0; padding-top: 1px; }
+.nr-sheet-detail-value { flex: 1; line-height: 1.45; }
+
+/* ── Create pitch form inside sheet ───────────────── */
+.nr-create-form { display: flex; flex-direction: column; gap: 14px; }
+.nr-form-field label {
+  display: block; font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 5px;
+}
+.nr-form-field input,
+.nr-form-field select,
+.nr-form-field textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: inherit; font-size: 14px;
+  padding: 11px 13px;
+  outline: none;
+  transition: border-color .12s;
+  -webkit-appearance: none;
+}
+.nr-form-field input:focus,
+.nr-form-field select:focus { border-color: var(--accent); }
+.nr-form-field select option { background: var(--bg-card); }
+
+/* ── Swipe feedback ───────────────────────────────── */
+.nr-pitch-row {
+  position: relative;
+  will-change: transform;
+  overflow: hidden;
+}
+.nr-pitch-row.swiping-approve { background: rgba(74,222,128,.09); }
+.nr-pitch-row.swiping-dismiss { background: rgba(248,113,113,.09); }
+.nr-slot-card.swiping-approve { border-color: var(--success) !important; background: rgba(74,222,128,.06) !important; }
+.nr-slot-card.swiping-reject  { border-color: var(--danger) !important;  background: rgba(248,113,113,.06) !important; }
+
+/* Swipe hint label (shown during drag) */
+.nr-swipe-hint {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font-size: 11px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; opacity: 0; transition: opacity .12s;
+  pointer-events: none;
+}
+.nr-swipe-hint-approve { left: 12px; color: var(--success); }
+.nr-swipe-hint-dismiss { right: 12px; color: var(--danger); }
+.nr-pitch-row.swiping-approve .nr-swipe-hint-approve,
+.nr-pitch-row.swiping-dismiss .nr-swipe-hint-dismiss { opacity: 1; }
+
+/* ── FAB ──────────────────────────────────────────── */
+.nr-fab {
+  position: fixed;
+  bottom: 22px; right: 20px;
+  z-index: 500;
+  width: 54px; height: 54px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  border: none; font-size: 26px; font-weight: 300;
+  cursor: pointer; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 18px rgba(0,0,0,.45);
+  transition: transform .15s, box-shadow .15s, opacity .2s;
+}
+.nr-fab:hover  { transform: scale(1.07); box-shadow: 0 6px 22px rgba(0,0,0,.55); }
+.nr-fab:active { transform: scale(.94); }
+.nr-fab.hidden { opacity: 0; pointer-events: none; }
+@media (max-width: 760px) {
+  .nr-fab { bottom: calc(var(--nr-mob-nav-h) + 14px); }
+}
+
+/* ── Mobile tap target improvements ──────────────── */
+@media (max-width: 760px) {
+  .nr-btn-approve, .nr-btn-reject {
+    width: 34px !important; height: 34px !important; font-size: 13px !important;
+  }
+  .nr-dismiss-btn {
+    width: 30px; height: 30px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--border); border-radius: 5px;
+    color: var(--danger); cursor: pointer; font-size: 12px;
+    transition: background .12s;
+  }
+  .nr-dismiss-btn:hover { background: var(--danger-dim); border-color: var(--danger); }
+  .nr-assign-btn { padding: 7px 12px !important; font-size: 12px !important; }
+  .nr-pitch-row { padding: 10px 14px; min-height: 52px; }
+  .floor-budget { height: 52% !important; }
+  .floor-right  { height: 48% !important; }
+}
+
+/* ── Notifications bell sizing in newsroom topbar ─────────────────────────── */
+#dfaBellWrap { position: relative; display: inline-flex; }
+#dfaBell.dfa-bell {
+  width: 32px; height: 32px; border-radius: 7px;
+  color: var(--muted); background: none; border: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color .12s, background .12s;
+}
+#dfaBell.dfa-bell:hover { color: var(--text); background: rgba(255,255,255,.06); }
+#dfaBellDropdown.dfa-bell-dropdown {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  z-index: 500;
+}
+/* ── Keyboard shortcut cheatsheet ─────────────────────────────────────────── */
+.nr-shortcuts-backdrop {
+  position: fixed; inset: 0; z-index: 800;
+  background: rgba(0,0,0,.6); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  animation: nr-bd-in .15s ease;
+}
+@keyframes nr-bd-in { from { opacity: 0; } to { opacity: 1; } }
+.nr-shortcuts-modal {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; width: 340px; max-width: calc(100vw - 40px);
+  box-shadow: 0 24px 64px rgba(0,0,0,.55);
+  overflow: hidden;
+  animation: nr-modal-in .18s cubic-bezier(.4,0,.2,1);
+}
+@keyframes nr-modal-in {
+  from { opacity: 0; transform: scale(.94) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.nr-shortcuts-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 15px 20px; border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 600; color: var(--text);
+}
+.nr-shortcuts-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 4px;
+  border-radius: 4px; transition: color .12s, background .12s;
+}
+.nr-shortcuts-close:hover { color: var(--text); background: var(--bg); }
+.nr-shortcuts-body {
+  padding: 12px 20px 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.nr-shortcuts-group-title {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted); margin-bottom: 6px;
+}
+.nr-shortcut-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 3px 0; font-size: 13px; color: var(--text);
+}
+.nr-shortcut-row span { color: var(--muted); }
+.nr-shortcut-row kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 22px; padding: 0 6px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
+  color: var(--text); white-space: nowrap; flex-shrink: 0;
+}
+/* Mobile: toast container above bottom tab bar */
+@media (max-width: 600px) {
+  #toast-container { bottom: calc(var(--nr-mob-nav-h, 56px) + 12px) !important; }
+}
+/* ── Settings form (inline editing) ───────────────────────────────────────── */
+.nr-settings-form { display: flex; flex-direction: column; gap: 0; }
+.nr-settings-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.nr-settings-row:last-child { border-bottom: none; }
+.nr-settings-label {
+  flex: 0 0 200px; font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nr-settings-control {
+  flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.nr-setting-input {
+  flex: 1; min-width: 0; padding: 5px 8px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px;
+  font-family: inherit; outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.nr-setting-input:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.nr-setting-status {
+  flex-shrink: 0; font-size: 11px; font-weight: 500;
+  white-space: nowrap; min-width: 52px; text-align: right;
+  transition: opacity .2s;
+}
+/* Toggle switch */
+.nr-toggle-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer; padding: 0;
+}
+.nr-toggle-track {
+  width: 36px; height: 20px; border-radius: 10px;
+  background: var(--border); position: relative;
+  transition: background .2s; flex-shrink: 0;
+}
+.nr-toggle-thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bg-card); box-shadow: 0 1px 2px rgba(0,0,0,.3);
+  transition: left .2s;
+}
+.nr-toggle-btn.on .nr-toggle-track { background: var(--accent); }
+.nr-toggle-btn.on .nr-toggle-thumb { left: 19px; }
+.nr-toggle-label { font-size: 13px; color: var(--text); }
+@media (max-width: 600px) {
+  .nr-settings-label { flex-basis: 130px; }
+}
 </style>
 </head>
 <body>
@@ -1439,10 +2087,14 @@
     <button class="nr-ws-tab active" data-ws="floor">The Floor</button>
     <button class="nr-ws-tab" data-ws="wire">The Wire</button>
     <button class="nr-ws-tab" data-ws="desk">The Desk</button>
+    <button class="nr-ws-tab" data-ws="reports">Reports</button>
+    <button class="nr-ws-tab" data-ws="custom">Custom</button>
   </nav>
 
-  <div class="nr-topbar-right">
+  <div class="nr-topbar-right topbar">
     <button class="nr-maxwell-pill" id="nr-maxwell-pill" title="Chat with Maxwell (M)" type="button">Maxwell</button>
+    <button class="nr-icon-btn" id="nr-shortcuts-btn" title="Keyboard shortcuts (?)" type="button" aria-label="Keyboard shortcuts">?</button>
+    <button class="nr-icon-btn" id="nr-appear-btn" title="Appearance — skin &amp; font" aria-haspopup="true" aria-expanded="false" type="button">◑</button>
     <a class="nr-icon-btn" href="/settings.html" title="Settings">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
     </a>
@@ -1453,13 +2105,34 @@
       <div class="nr-user-dropdown" id="nr-user-dropdown">
         <div class="nr-user-identity" id="nr-user-identity"></div>
         <div class="nr-user-sep"></div>
-        <a class="nr-user-item" href="/index.html">Classic Admin →</a>
+        <a class="nr-user-item" href="/classic.html">Classic Admin →</a>
         <div class="nr-user-sep"></div>
         <button class="nr-user-item nr-user-item-danger" data-logout type="button">Logout</button>
       </div>
     </div>
   </div>
 </header>
+
+<!-- APPEARANCE PANEL -->
+<div class="nr-appear-panel" id="nr-appear-panel" style="display:none;" role="menu" aria-label="Appearance settings">
+  <div class="nr-appear-section-label">Skin</div>
+  <div class="nr-skin-swatches" style="position:relative;">
+    <button class="nr-skin-swatch" data-skin="ink"        title="Ink"></button>
+    <button class="nr-skin-swatch" data-skin="daylight"   title="Daylight"></button>
+    <button class="nr-skin-swatch" data-skin="wire"       title="Wire"></button>
+    <button class="nr-skin-swatch" data-skin="broadsheet" title="Broadsheet"></button>
+    <button class="nr-skin-swatch" data-skin="tabloid"    title="Tabloid"></button>
+  </div>
+  <div class="nr-appear-sep"></div>
+  <div class="nr-appear-section-label">Font</div>
+  <div class="nr-font-grid">
+    <button class="nr-font-opt" data-font="system"    style="font-family:'Inter',sans-serif;">System <span class="nr-font-opt-meta">Inter</span></button>
+    <button class="nr-font-opt" data-font="newsprint" style="font-family:'Playfair Display',serif;">Newsprint <span class="nr-font-opt-meta">Playfair</span></button>
+    <button class="nr-font-opt" data-font="modern"    style="font-family:'DM Sans',sans-serif;">Modern <span class="nr-font-opt-meta">DM Sans</span></button>
+    <button class="nr-font-opt" data-font="terminal"  style="font-family:'JetBrains Mono',monospace;">Terminal <span class="nr-font-opt-meta">Mono</span></button>
+    <button class="nr-font-opt" data-font="classic"   style="font-family:'Merriweather',serif;">Classic <span class="nr-font-opt-meta">Merriweather</span></button>
+  </div>
+</div>
 
 <!-- MAIN CONTENT -->
 <main class="nr-main">
@@ -1560,6 +2233,17 @@
 
     <!-- Stories panel -->
     <div id="wire-tab-stories" class="wire-tab-panel">
+      <div class="wire-toolbar" id="nr-stories-toolbar">
+        <div class="nr-filter-chips" id="nr-stories-filter-chips">
+          <button class="nr-filter-chip active" data-story-filter="active">Active</button>
+          <button class="nr-filter-chip" data-story-filter="dormant">Dormant</button>
+          <button class="nr-filter-chip" data-story-filter="closed">Closed</button>
+          <button class="nr-filter-chip" data-story-filter="all">All</button>
+        </div>
+        <button class="nr-icon-btn" id="nr-stories-refresh" title="Refresh stories">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+        </button>
+      </div>
       <div class="wire-feed-body" id="nr-stories-list">
         <div class="nr-loading">Loading story threads…</div>
       </div>
@@ -1595,7 +2279,6 @@
     <div class="desk-inner-tabs" id="nr-desk-tabs">
       <button class="desk-inner-tab active" data-tab="writers">Writers</button>
       <button class="desk-inner-tab" data-tab="articles">Articles</button>
-      <button class="desk-inner-tab" data-tab="analytics">Analytics</button>
       <button class="desk-inner-tab" data-tab="engagement">Engagement</button>
       <button class="desk-inner-tab" data-tab="settings">Settings</button>
       <button class="desk-tab desk-inner-tab" data-desk-tab="styles" data-tab="styles">Styles</button>
@@ -1603,10 +2286,65 @@
     <div class="desk-panels">
       <div id="desk-writers"    class="desk-panel active"><div class="nr-loading">Loading writers…</div></div>
       <div id="desk-articles"   class="desk-panel"><div class="nr-loading">Loading articles…</div></div>
-      <div id="desk-analytics"  class="desk-panel"><div class="nr-loading">Loading analytics…</div></div>
       <div id="desk-engagement" class="desk-panel"><div class="nr-loading">Loading…</div></div>
       <div id="desk-settings"   class="desk-panel"><div class="nr-loading">Loading settings…</div></div>
       <div id="desk-styles"     class="desk-panel"><div class="nr-loading">Loading styles…</div></div>
+    </div>
+  </div>
+
+  <!-- ════════════ REPORTS ════════════ -->
+  <div id="ws-reports" class="nr-workspace">
+    <div class="reports-inner-tabs" id="nr-reports-tabs">
+      <button class="reports-inner-tab active" data-reports-tab="overview">Overview</button>
+      <button class="reports-inner-tab" data-reports-tab="production">Production</button>
+      <button class="reports-inner-tab" data-reports-tab="content">Content</button>
+      <button class="reports-inner-tab" data-reports-tab="ai-spend">AI Spend</button>
+      <button class="reports-inner-tab" data-reports-tab="writers">Writers</button>
+      <button class="reports-inner-tab" data-reports-tab="audit">Audit</button>
+      <div class="nr-col-spacer"></div>
+      <select class="nr-range-select" id="nr-reports-range" aria-label="Date range">
+        <option value="7d">7 days</option>
+        <option value="30d" selected>30 days</option>
+        <option value="90d">90 days</option>
+      </select>
+    </div>
+    <div class="reports-panels">
+      <div id="reports-overview"    class="reports-panel active"><div class="nr-loading">Loading…</div></div>
+      <div id="reports-production"  class="reports-panel"><div class="nr-loading">Loading…</div></div>
+      <div id="reports-content"     class="reports-panel"><div class="nr-loading">Loading…</div></div>
+      <div id="reports-ai-spend"  class="reports-panel"><div class="nr-loading">Loading…</div></div>
+      <div id="reports-writers"   class="reports-panel"><div class="nr-loading">Loading…</div></div>
+      <div id="reports-audit"     class="reports-panel"><div class="nr-loading">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- ════════════ CUSTOM ════════════ -->
+  <div id="ws-custom" class="nr-workspace">
+    <div class="nr-col-header">
+      <span class="nr-col-label">Your Workspace</span>
+      <span class="nr-col-meta">Pin pages &amp; tools for quick access</span>
+      <div class="nr-col-spacer"></div>
+      <div class="nr-col-actions"></div>
+    </div>
+    <div class="custom-ws-body">
+      <!-- Pinned section -->
+      <div>
+        <div class="custom-ws-section-head">
+          <span class="custom-ws-section-title">Pinned</span>
+        </div>
+        <div class="custom-tiles" id="nr-pinned-tiles">
+          <div class="custom-empty-state">Pin pages below to create quick-launch shortcuts here.</div>
+        </div>
+      </div>
+      <!-- All pages -->
+      <div>
+        <div class="custom-ws-section-head">
+          <span class="custom-ws-section-title">All Pages</span>
+        </div>
+        <div class="custom-tiles" id="nr-all-tiles">
+          <div class="nr-loading">Loading…</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1618,6 +2356,8 @@
     <button class="nr-mob-item active" data-ws="floor"><span class="nr-mob-icon">📋</span>Floor</button>
     <button class="nr-mob-item" data-ws="wire"><span class="nr-mob-icon">📡</span>Wire</button>
     <button class="nr-mob-item" data-ws="desk"><span class="nr-mob-icon">🗂</span>Desk</button>
+    <button class="nr-mob-item" data-ws="reports"><span class="nr-mob-icon">📊</span>Reports</button>
+    <button class="nr-mob-item" data-ws="custom"><span class="nr-mob-icon">⭐</span>Custom</button>
   </div>
 </nav>
 
@@ -1656,10 +2396,73 @@
 </aside>
 <div id="nr-chat-backdrop" class="nr-chat-backdrop" style="display:none;"></div>
 
+<!-- BOTTOM SHEET -->
+<div id="nr-sheet-overlay" class="nr-sheet-overlay" aria-hidden="true"></div>
+<div id="nr-bottom-sheet" class="nr-bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="nr-sheet-title">
+  <div class="nr-sheet-handle" id="nr-sheet-drag-handle"></div>
+  <div class="nr-sheet-head">
+    <div class="nr-sheet-title" id="nr-sheet-title"></div>
+    <div class="nr-sheet-subtitle" id="nr-sheet-subtitle"></div>
+  </div>
+  <div class="nr-sheet-body" id="nr-sheet-body"></div>
+  <div class="nr-sheet-foot" id="nr-sheet-foot"></div>
+</div>
+
+<!-- FAB — quick pitch creation -->
+<button class="nr-fab hidden" id="nr-fab" type="button" title="New pitch" aria-label="Create new pitch">+</button>
+
+<!-- Keyboard shortcut cheatsheet -->
+<div id="nr-shortcuts-backdrop" class="nr-shortcuts-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+  <div class="nr-shortcuts-modal">
+    <div class="nr-shortcuts-header">
+      <span>⌨ Keyboard Shortcuts</span>
+      <button class="nr-shortcuts-close" id="nr-shortcuts-close" aria-label="Close">✕</button>
+    </div>
+    <div class="nr-shortcuts-body">
+      <div class="nr-shortcuts-group">
+        <div class="nr-shortcuts-group-title">Workspaces</div>
+        <div class="nr-shortcut-row"><kbd>1</kbd><span>The Floor — budget &amp; pitches</span></div>
+        <div class="nr-shortcut-row"><kbd>2</kbd><span>The Wire — feed &amp; discovery</span></div>
+        <div class="nr-shortcut-row"><kbd>3</kbd><span>The Desk — writers &amp; settings</span></div>
+        <div class="nr-shortcut-row"><kbd>4</kbd><span>Reports — analytics &amp; audit</span></div>
+        <div class="nr-shortcut-row"><kbd>5</kbd><span>Custom — pinned shortcuts</span></div>
+      </div>
+      <div class="nr-shortcuts-group">
+        <div class="nr-shortcuts-group-title">Sections</div>
+        <div class="nr-shortcut-row"><kbd>⊞</kbd><span>Expand section to full screen</span></div>
+        <div class="nr-shortcut-row"><kbd>Esc</kbd><span>Collapse expanded / close modal</span></div>
+      </div>
+      <div class="nr-shortcuts-group">
+        <div class="nr-shortcuts-group-title">Floor actions (swipe on mobile)</div>
+        <div class="nr-shortcut-row"><kbd>→</kbd><span>Approve budget slot or pitch</span></div>
+        <div class="nr-shortcut-row"><kbd>←</kbd><span>Dismiss / reject</span></div>
+      </div>
+      <div class="nr-shortcuts-group">
+        <div class="nr-shortcuts-group-title">Help</div>
+        <div class="nr-shortcut-row"><kbd>?</kbd><span>Show this panel</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/admin.js"></script>
+<script src="/notifications-bell.js"></script>
+<script>
+// Reposition bell before the user menu once it auto-mounts into .topbar
+(function () {
+  var t = setInterval(function () {
+    var wrap = document.getElementById('dfaBellWrap');
+    if (!wrap) return;
+    clearInterval(t);
+    var ref = document.querySelector('.nr-user-menu');
+    if (ref) ref.parentNode.insertBefore(wrap, ref);
+  }, 50);
+})();
+</script>
 <script src="/newsroom-floor.js"></script>
 <script src="/newsroom-wire.js"></script>
 <script src="/newsroom-desk.js"></script>
+<script src="/newsroom-reports.js"></script>
 <script src="/newsroom-chat.js"></script>
 <script src="/newsroom-app.js"></script>
 </body>

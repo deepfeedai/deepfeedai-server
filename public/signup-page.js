@@ -14,7 +14,7 @@ onReady(async () => {
   } catch { signupsOpen = true; /* network error — show signup form so page isn't blank */ }
 
   if (!signupsOpen) {
-    document.getElementById('waitlistPanel').style.display = '';
+    document.getElementById('waitlistPanel').style.display = 'block';
     _initWaitlistForm();
     return;
   }
