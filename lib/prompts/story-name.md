@@ -1,7 +1,7 @@
 ---
 operation: summary
 tier: fast
-maxTokens: 400
+maxTokens: 1000
 temperature: 0.4
 version: 2
 ---

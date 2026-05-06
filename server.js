@@ -349,6 +349,7 @@ app.use('/api/settings',     largeBodyParser, require('./routes/settings'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth
+app.use('/api/search',    publicApiLimiter, require('./routes/search'));    // public — unified search
 app.use('/api/news',      publicApiLimiter, require('./routes/news'));       // public — news feed
 app.use('/api/news',      publicApiLimiter, require('./routes/videos'));     // public — video hub
 app.use('/api/news',      publicApiLimiter, require('./routes/stories'));    // public — story timelines
