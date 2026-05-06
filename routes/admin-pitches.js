@@ -78,7 +78,7 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
   ).get(req.params.id, req.tenantId);
 
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
-  if (pitch.status !== 'pending') return res.status(400).json({ error: 'Pitch already resolved' });
+  if (!['pending', 'proposed'].includes(pitch.status)) return res.status(400).json({ error: 'Pitch already resolved' });
 
   // Mark as approved
   await db.prepare(
@@ -145,7 +145,7 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
 // POST /api/admin/pitches/:id/dismiss — dismiss a pitch
 router.post('/:id/dismiss', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const result = await db.prepare(
-    "UPDATE story_pitches SET status = 'dismissed', resolved_at = NOW() WHERE id = $1 AND tenant_id = $2 AND status = 'pending' RETURNING *"
+    "UPDATE story_pitches SET status = 'dismissed', resolved_at = NOW() WHERE id = $1 AND tenant_id = $2 AND status IN ('pending','proposed') RETURNING *"
   ).get(req.params.id, req.tenantId);
 
   if (!result) return res.status(404).json({ error: 'Pitch not found or already resolved' });
