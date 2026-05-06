@@ -258,6 +258,7 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     ['site_name', display_name.trim()],
     ['ai_daily_budget', '5.00'],
     ['ai_monthly_budget', '50.00'],
+    ['deployment_mode', 'multi'],
   ];
   for (const [key, value] of DEFAULT_SETTINGS) {
     try {

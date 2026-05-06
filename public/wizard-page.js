@@ -1134,6 +1134,7 @@
   var TOTAL_STEPS = 7;
   var currentStep = 1;
   var selectedMode = 'single';
+  var isSelfHosted = false; // set from /api/setup/status; SaaS skips step 2
   var siteName = '';
   var selectedNiche = null;
   var selectedTheme = null;
@@ -1181,9 +1182,14 @@
   var backBtn = document.getElementById('wizardBack');
 
   function goToStep(n) {
+    // SaaS: skip step 2 (deployment mode) in both directions
+    if (!isSelfHosted && n === 2) { n = n > currentStep ? 3 : 1; }
     currentStep = Math.max(1, Math.min(n, TOTAL_STEPS));
+    var displayTotal = isSelfHosted ? TOTAL_STEPS : TOTAL_STEPS - 1;
+    var displayStep  = isSelfHosted ? currentStep : (currentStep > 2 ? currentStep - 1 : currentStep);
     stepEls.forEach(function (el) {
       var s = parseInt(el.dataset.step, 10);
+      if (!isSelfHosted && s === 2) { el.style.display = 'none'; return; }
       el.classList.toggle('active', s === currentStep);
       el.classList.toggle('done', s < currentStep);
     });
@@ -1198,7 +1204,7 @@
     } else if (currentStep === TOTAL_STEPS) {
       nextBtn.textContent = 'Launch Newsroom';
     } else {
-      nextBtn.textContent = 'Next';
+      nextBtn.textContent = 'Next \u2014 ' + displayStep + ' of ' + displayTotal;
     }
 
     // Step-specific load
@@ -1211,7 +1217,7 @@
 
   // ── Next button handler ──────────────────────────────────────
   nextBtn.addEventListener('click', function () {
-    if (currentStep === 2) {
+    if (currentStep === 2 && isSelfHosted) {
       siteName = (document.getElementById('singleSiteName').value || '').trim();
       apiFetch('/setup/mode', { method: 'POST', body: JSON.stringify({ mode: selectedMode }) })
         .then(function () { goToStep(3); })
@@ -1908,5 +1914,11 @@
     document.getElementById('existingDataBanner').style.display = 'none';
   });
 
-  goToStep(1);
+  apiFetch('/setup/status').then(function (s) {
+    isSelfHosted = !!(s && s.is_self_hosted);
+    if (!isSelfHosted) { selectedMode = 'multi'; }
+    goToStep(1);
+  }).catch(function () {
+    goToStep(1);
+  });
 })();
