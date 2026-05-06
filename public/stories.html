@@ -224,6 +224,7 @@
               <option value="created">Created</option>
             </select>
             <button class="btn btn-ghost btn-sm" onclick="openBackfillModal()" style="margin-left:auto;">⟳ Backfill</button>
+            <button class="btn btn-ghost btn-sm" onclick="openRegenAllModal()">↻ Regen Names</button>
             <button class="btn btn-sm" onclick="openNewStoryModal()">+ New Story</button>
           </div>
           <div class="s-stats" id="sStats"></div>
@@ -315,6 +316,24 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('archiveModal')">Cancel</button>
       <button class="btn btn-danger" id="archiveConfirmBtn" onclick="confirmArchive()">Archive Story</button>
+    </div>
+  </div>
+</div>
+
+<!-- Regen All modal -->
+<div class="modal-overlay" id="regenAllModal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title">Regenerate Story Names</div>
+      <button class="modal-close" onclick="closeModal('regenAllModal')">✕</button>
+    </div>
+    <div class="modal-body" id="regenAllBody">
+      <div style="text-align:center;padding:30px;"><span class="spinner"></span></div>
+    </div>
+    <div class="modal-footer" id="regenAllFooter">
+      <button class="btn btn-ghost" onclick="closeModal('regenAllModal')">Cancel</button>
+      <button class="btn" id="regenAllGenericBtn" onclick="runRegenAll('generic')" disabled>Regen Generic</button>
+      <button class="btn btn-ghost btn-sm" id="regenAllAllBtn" onclick="runRegenAll('all')" disabled style="opacity:0.7;">Regen All</button>
     </div>
   </div>
 </div>

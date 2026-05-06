@@ -643,6 +643,81 @@
     footer.innerHTML = `<button class="btn" onclick="closeModal('backfillModal')">Done</button>`;
   }
 
+  // ── Regen All modal ───────────────────────────────────────────────────────
+  window.openRegenAllModal = async function () {
+    document.getElementById('regenAllBody').innerHTML =
+      '<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Counting stories…</p></div>';
+    document.getElementById('regenAllGenericBtn').disabled = true;
+    document.getElementById('regenAllAllBtn').disabled = true;
+    document.getElementById('regenAllFooter').innerHTML = `
+      <button class="btn btn-ghost" onclick="closeModal('regenAllModal')">Cancel</button>
+      <button class="btn" id="regenAllGenericBtn" onclick="runRegenAll('generic')" disabled>Regen Generic</button>
+      <button class="btn btn-ghost btn-sm" id="regenAllAllBtn" onclick="runRegenAll('all')" disabled style="opacity:0.7;">Regen All</button>`;
+    openModal('regenAllModal');
+
+    try {
+      const data = await apiFetch('/story-timelines/regenerate-all?dry=true&filter=all', { method: 'POST' });
+      const total   = data.count   || 0;
+      const generic = data.genericCount || 0;
+
+      document.getElementById('regenAllBody').innerHTML = `
+        <div class="bf-summary" style="margin-bottom:14px;">
+          <div class="bf-stat">
+            <div class="bf-stat-num" style="color:#f59e0b;">${generic}</div>
+            <div class="bf-stat-label">Generic names</div>
+          </div>
+          <div class="bf-stat">
+            <div class="bf-stat-num">${total}</div>
+            <div class="bf-stat-label">Total stories</div>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+          <strong>Regen Generic</strong> queues the ${generic} stor${generic !== 1 ? 'ies' : 'y'} with
+          short or missing names (≤ 3 words / no summary) for Maxwell to rename.<br/>
+          <strong>Regen All</strong> queues all ${total} stor${total !== 1 ? 'ies' : 'y'} regardless
+          of current name quality. Existing good names may be overwritten.
+        </p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:10px;">
+          Regeneration runs in the background — the list will update as names come in.
+        </p>`;
+
+      document.getElementById('regenAllGenericBtn').disabled = generic === 0;
+      document.getElementById('regenAllGenericBtn').textContent = `Regen Generic (${generic})`;
+      document.getElementById('regenAllAllBtn').disabled = total === 0;
+      document.getElementById('regenAllAllBtn').textContent = `Regen All (${total})`;
+    } catch (err) {
+      document.getElementById('regenAllBody').innerHTML =
+        `<div class="s-empty"><div class="ei">⚠️</div><p>${esc(err.message)}</p></div>`;
+    }
+  };
+
+  window.runRegenAll = async function (filter) {
+    const genericBtn = document.getElementById('regenAllGenericBtn');
+    const allBtn     = document.getElementById('regenAllAllBtn');
+    if (genericBtn) { genericBtn.disabled = true; }
+    if (allBtn)     { allBtn.disabled = true; }
+    document.getElementById('regenAllBody').innerHTML =
+      `<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Queueing regenerations…</p></div>`;
+
+    try {
+      const data = await apiFetch('/story-timelines/regenerate-all?filter=' + filter, { method: 'POST' });
+      const queued = data.queued || 0;
+      document.getElementById('regenAllBody').innerHTML = `
+        <div style="text-align:center;padding:20px 10px;">
+          <div style="font-size:36px;margin-bottom:10px;">✓</div>
+          <p style="font-size:14px;font-weight:600;">${queued} stor${queued !== 1 ? 'ies' : 'y'} queued</p>
+          <p style="font-size:13px;color:var(--text-muted);margin-top:6px;">
+            Maxwell is regenerating names in the background. Refresh the list in a minute to see updates.
+          </p>
+        </div>`;
+      document.getElementById('regenAllFooter').innerHTML =
+        `<button class="btn" onclick="closeModal('regenAllModal');loadStories();">Done</button>`;
+    } catch (err) {
+      showAlert('Regen failed: ' + err.message, 'error');
+      closeModal('regenAllModal');
+    }
+  };
+
   // ── Phase 3: New Story modal ───────────────────────────────────────────────
   window.openNewStoryModal = function () {
     _newStorySelectedIds = [];
