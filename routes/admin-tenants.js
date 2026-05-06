@@ -20,6 +20,7 @@ const { getPurchasedCreditsBalance } = require('../lib/credits');
 const storage = require('../lib/storage');
 const dns = require('dns').promises;
 const crypto = require('crypto');
+const { sendTenantInviteEmail } = require('../lib/notify');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -70,7 +71,7 @@ async function resolveOwnerByEmail(email) {
   const placeholder = await db.prepare(
     "INSERT INTO public_users (provider, provider_id, email, display_name) VALUES ('platform', $1, $2, $3) RETURNING id, email",
   ).get(`invite-${crypto.randomBytes(8).toString('hex')}`, clean, clean.split('@')[0]);
-  return placeholder;
+  return { ...placeholder, isNew: true };
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/;
@@ -292,10 +293,12 @@ router.post('/', asyncHandler(async (req, res) => {
   // Resolve owner if email provided
   let ownerUserId = null;
   let resolvedOwnerEmail = null;
+  let ownerIsNew = false;
   if (owner_email) {
     const owner = await resolveOwnerByEmail(owner_email);
     ownerUserId = owner.id;
     resolvedOwnerEmail = owner.email;
+    ownerIsNew = !!owner.isNew;
   }
 
   // Validate plan
@@ -369,6 +372,16 @@ router.post('/', asyncHandler(async (req, res) => {
   await logAudit(req, 'tenant.create', 'tenants', tenant.id, {
     slug: cleanSlug, plan: tenantPlan, owner_email: owner_email || null,
   });
+
+  if (ownerIsNew && resolvedOwnerEmail) {
+    const portalUrl = process.env.BASE_URL || 'https://portal.deepfeedai.com';
+    sendTenantInviteEmail({
+      toEmail: resolvedOwnerEmail,
+      toName: resolvedOwnerEmail,
+      tenantName: display_name.trim(),
+      portalUrl,
+    }).catch(console.error);
+  }
 
   res.status(201).json(tenant);
 }));
