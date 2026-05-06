@@ -13,6 +13,7 @@
  * DELETE /:id/articles/:aid    — remove article from story
  * PATCH  /:id/articles/:aid    — toggle is_key_moment
  * POST   /backfill             — one-shot backfill from existing articles
+ * POST   /regenerate-all       — bulk re-run Maxwell name+summary (?filter=generic|all, ?dry=true)
  * POST   /lifecycle            — run dormant/archive lifecycle (cron-callable)
  */
 'use strict';
@@ -182,6 +183,37 @@ router.post('/retro-backfill', cronOrAuth, requirePermission('articles.update'),
   const windowHours = Math.min(parseInt(req.query.hours) || 48, 168);
   const result = await retroBackfillUnassigned(req.tenantId, { windowHours });
   res.json({ ok: true, windowHours, ...result });
+}));
+
+// POST /regenerate-all — bulk re-run Maxwell name+summary for existing stories
+// ?filter=generic (default) — only stories with short/missing names or no summary
+// ?filter=all               — every story regardless of name quality
+// ?dry=true                 — count only, don't queue
+router.post('/regenerate-all', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const filter = req.query.filter === 'all' ? 'all' : 'generic';
+  const dryRun = req.query.dry === 'true' || req.body?.dryRun === true;
+
+  const genericClause = `AND (summary IS NULL OR array_length(string_to_array(trim(name), ' '), 1) <= 3)`;
+  const rows = await db.prepare(`
+    SELECT id FROM story_timelines
+    WHERE tenant_id = $1
+    ${filter === 'generic' ? genericClause : ''}
+    ORDER BY last_activity_at DESC
+  `).all(req.tenantId).catch(() => []);
+
+  // Always return the generic count so the UI can show both numbers regardless of filter
+  const genericCount = filter === 'all'
+    ? (await db.prepare(`SELECT COUNT(*)::int AS cnt FROM story_timelines WHERE tenant_id = $1 ${genericClause}`).get(req.tenantId).catch(() => ({ cnt: 0 }))).cnt
+    : rows.length;
+
+  if (dryRun) {
+    return res.json({ ok: true, dryRun: true, filter, count: rows.length, genericCount });
+  }
+
+  for (const row of rows) {
+    generateStoryNameAndSummary(row.id, req.tenantId).catch(() => {});
+  }
+  res.json({ ok: true, queued: rows.length, filter, genericCount });
 }));
 
 module.exports = router;
