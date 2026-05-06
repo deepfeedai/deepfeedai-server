@@ -328,6 +328,10 @@ const registerLimiter = rateLimit({
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 router.post('/register', registerLimiter, async (req, res) => {
+  if (process.env.SIGNUPS_ENABLED !== 'true') {
+    return res.status(503).json({ error: 'signups_disabled', message: 'Signups are not currently open.' });
+  }
+
   const { email, password, name } = req.body || {};
 
   if (!email || !EMAIL_RE.test(email)) {

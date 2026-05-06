@@ -1591,6 +1591,18 @@ async function initDb() {
        ON news_budget_slots(budget_id, sort_order)`,
     `CREATE INDEX IF NOT EXISTS idx_news_budget_slots_tenant_status
        ON news_budget_slots(tenant_id, status)`,
+
+    // Waitlist — pre-signup interest capture for closed-beta period
+    `CREATE TABLE IF NOT EXISTS waitlist (
+      id           SERIAL PRIMARY KEY,
+      email        TEXT NOT NULL UNIQUE,
+      name         TEXT,
+      source       TEXT DEFAULT 'signup',
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      notified_at  TIMESTAMPTZ,
+      converted_at TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_waitlist_notified ON waitlist (notified_at) WHERE notified_at IS NULL`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

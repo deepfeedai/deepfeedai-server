@@ -1,6 +1,58 @@
 /* ===== DeepFeedAI — Signup Page (Redesigned) ===== */
 
 onReady(async () => {
+  // ── Signups gate check ──────────────────────────────────────────
+  try {
+    const statusRes = await fetch('/api/setup/status');
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      if (!statusData.signups_enabled) {
+        document.getElementById('signupContent').style.display = 'none';
+        document.getElementById('waitlistPanel').style.display = '';
+        _initWaitlistForm();
+        return;
+      }
+    }
+  } catch { /* network error — fall through to signup form */ }
+
+  function _initWaitlistForm() {
+    const submitBtn = document.getElementById('waitlistSubmitBtn');
+    const emailInput = document.getElementById('waitlistEmail');
+    const errEl = document.getElementById('waitlistError');
+
+    function showWaitlistError(msg) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    function clearWaitlistError() { errEl.style.display = 'none'; }
+
+    async function submitWaitlist() {
+      clearWaitlistError();
+      const email = emailInput.value.trim();
+      const name = document.getElementById('waitlistName').value.trim();
+      if (!email) return showWaitlistError('Email is required');
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Joining…';
+
+      try {
+        const res = await fetch('/api/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, name, source: 'signup' }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+        document.getElementById('waitlistFormWrap').style.display = 'none';
+        document.getElementById('waitlistSuccess').style.display = 'block';
+      } catch (err) {
+        showWaitlistError(err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Join the waitlist';
+      }
+    }
+
+    submitBtn.addEventListener('click', submitWaitlist);
+    emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitWaitlist(); });
+  }
+
   const errEl = document.getElementById('signupError');
 
   let currentStep = 1;
