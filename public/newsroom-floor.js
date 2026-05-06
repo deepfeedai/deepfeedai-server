@@ -372,7 +372,7 @@
         ? '<button class="nr-assign-btn" data-synthesize-pitch="' + p.id + '">Synthesize →</button>'
         : '<button class="nr-assign-btn" data-approve-pitch="' + p.id + '">Approve →</button>';
 
-      var dismissBtn = isProposedTab
+      var dismissBtn = (isProposedTab || isApprovedTab)
         ? '<button class="nr-dismiss-btn" data-dismiss-pitch="' + p.id + '" title="Dismiss">✕</button>'
         : '';
 
@@ -746,6 +746,369 @@
     }
   }
 
+  // ── Bottom sheet ──────────────────────────────────────────────────────────
+  var sheet = (function () {
+    var overlayEl, sheetEl, titleEl, subtitleEl, bodyEl, footEl, handleEl;
+    var dragStartY, isDragging;
+
+    function init() {
+      overlayEl   = document.getElementById('nr-sheet-overlay');
+      sheetEl     = document.getElementById('nr-bottom-sheet');
+      titleEl     = document.getElementById('nr-sheet-title');
+      subtitleEl  = document.getElementById('nr-sheet-subtitle');
+      bodyEl      = document.getElementById('nr-sheet-body');
+      footEl      = document.getElementById('nr-sheet-foot');
+      handleEl    = document.getElementById('nr-sheet-drag-handle');
+      if (overlayEl) overlayEl.addEventListener('click', close);
+      // Swipe-down handle to dismiss
+      if (handleEl) {
+        handleEl.addEventListener('touchstart', function(e) {
+          dragStartY = e.touches[0].clientY; isDragging = false;
+        }, { passive: true });
+        handleEl.addEventListener('touchmove', function(e) {
+          var dy = e.touches[0].clientY - dragStartY;
+          if (dy > 5) { isDragging = true; sheetEl.style.transition = 'none'; sheetEl.style.transform = 'translateY(' + Math.max(0, dy) + 'px)'; }
+        }, { passive: true });
+        handleEl.addEventListener('touchend', function(e) {
+          var dy = e.changedTouches[0].clientY - dragStartY;
+          sheetEl.style.transition = ''; sheetEl.style.transform = '';
+          if (dy > 72) close();
+          isDragging = false;
+        });
+      }
+    }
+
+    function open(cfg) {
+      if (!sheetEl) return;
+      titleEl.innerHTML    = cfg.title    || '';
+      subtitleEl.innerHTML = cfg.subtitle || '';
+      bodyEl.innerHTML     = cfg.body     || '';
+      footEl.innerHTML     = cfg.foot     || '';
+      overlayEl.classList.add('open');
+      sheetEl.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      if (cfg.wire) cfg.wire();
+    }
+
+    function close() {
+      if (!sheetEl) return;
+      overlayEl.classList.remove('open');
+      sheetEl.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    return { init: init, open: open, close: close };
+  })();
+
+  // ── Open slot detail sheet ─────────────────────────────────────────────────
+  function openSlotSheet(s) {
+    var isEditable = s.status === 'pending';
+    var writerHtml = writerChipHtml(s);
+    var srcCount   = Array.isArray(s.source_article_ids) ? s.source_article_ids.length : 0;
+
+    var body = '';
+    if (s.rationale) {
+      body += '<div class="nr-sheet-detail-row"><span class="nr-sheet-detail-label">Rationale</span><span class="nr-sheet-detail-value" style="color:var(--muted);">' + esc(s.rationale) + '</span></div>';
+    }
+    if (writerHtml) {
+      body += '<div class="nr-sheet-detail-row"><span class="nr-sheet-detail-label">Writer</span><span class="nr-sheet-detail-value">' + writerHtml + '</span></div>';
+    }
+    if (s.target_publish_at) {
+      body += '<div class="nr-sheet-detail-row"><span class="nr-sheet-detail-label">Target</span><span class="nr-sheet-detail-value">' + esc(fmtWindow(s.target_publish_at)) + '</span></div>';
+    }
+    if (srcCount) {
+      body += '<div class="nr-sheet-detail-row"><span class="nr-sheet-detail-label">Sources</span><span class="nr-sheet-detail-value">' + srcCount + ' article' + (srcCount > 1 ? 's' : '') + '</span></div>';
+    }
+
+    var foot = isEditable
+      ? '<button class="nr-sheet-btn-primary"  id="nr-sheet-a">✓ Approve</button>'
+        + '<button class="nr-sheet-btn-secondary" id="nr-sheet-r">✕ Reject</button>'
+      : '<div style="text-align:center;width:100%;font-size:13px;color:var(--muted);">Status: <strong>' + esc(s.status) + '</strong></div>';
+
+    sheet.open({
+      title:    esc(s.headline_suggestion || s.topic_tag || '—'),
+      subtitle: esc((s.priority || 'standard').toUpperCase()) + ' · ' + esc(s.pitch_type || 'original'),
+      body:     body,
+      foot:     foot,
+      wire: function() {
+        var aBtn = document.getElementById('nr-sheet-a');
+        var rBtn = document.getElementById('nr-sheet-r');
+        if (aBtn) aBtn.addEventListener('click', function() {
+          aBtn.disabled = true; aBtn.textContent = '…';
+          if (rBtn) rBtn.disabled = true;
+          approveSlot(s.id); sheet.close();
+        });
+        if (rBtn) rBtn.addEventListener('click', function() {
+          rBtn.disabled = true; rBtn.textContent = '…';
+          if (aBtn) aBtn.disabled = true;
+          rejectSlot(s.id); sheet.close();
+        });
+      },
+    });
+  }
+
+  // ── Open pitch detail sheet ────────────────────────────────────────────────
+  function openPitchSheet(pitchId, row) {
+    var approveBtn = row.querySelector('[data-approve-pitch]');
+    var synthBtn   = row.querySelector('[data-synthesize-pitch]');
+    var dismissBtn = row.querySelector('[data-dismiss-pitch]');
+    var headlineEl = row.querySelector('.nr-pitch-headline');
+    var writerEl   = row.querySelector('.nr-writer-chip');
+    var badgeEl    = row.querySelector('.nr-pt-badge');
+
+    var headline  = headlineEl ? (headlineEl.title || headlineEl.textContent).trim() : '—';
+    var writerHtml = writerEl ? writerEl.outerHTML : '';
+    var badgeHtml  = badgeEl  ? badgeEl.outerHTML  : '';
+    var isApproved = !!synthBtn;
+
+    var body = '';
+    if (badgeHtml || writerHtml) {
+      body += '<div class="nr-sheet-detail-row" style="gap:8px;">' + badgeHtml
+        + (writerHtml ? '<span style="margin-left:auto;">' + writerHtml + '</span>' : '')
+        + '</div>';
+    }
+
+    var approveLabel = isApproved ? '⚡ Synthesize' : '✓ Approve';
+    var foot = '<button class="nr-sheet-btn-primary" id="nr-sheet-a">' + approveLabel + '</button>';
+    if (dismissBtn) foot += '<button class="nr-sheet-btn-secondary" id="nr-sheet-r">✕ Dismiss</button>';
+
+    sheet.open({
+      title:    esc(headline),
+      subtitle: 'Story Pitch',
+      body:     body,
+      foot:     foot,
+      wire: function() {
+        var aBtn = document.getElementById('nr-sheet-a');
+        var rBtn = document.getElementById('nr-sheet-r');
+        if (aBtn) aBtn.addEventListener('click', function() {
+          aBtn.disabled = true; aBtn.textContent = '…';
+          if (rBtn) rBtn.disabled = true;
+          approvePitch(pitchId, aBtn);
+          sheet.close();
+        });
+        if (rBtn) rBtn.addEventListener('click', function() {
+          rBtn.disabled = true; rBtn.textContent = '…';
+          if (aBtn) aBtn.disabled = true;
+          dismissPitch(pitchId, rBtn);
+          sheet.close();
+        });
+      },
+    });
+  }
+
+  // ── Pitch row: tap for detail sheet (all devices) ─────────────────────────
+  function wirePitchTap(containerEl) {
+    containerEl.addEventListener('click', function(e) {
+      if (e.target.closest('button')) return;
+      var row = e.target.closest('.nr-pitch-row');
+      if (!row) return;
+      var approveBtn = row.querySelector('[data-approve-pitch],[data-synthesize-pitch]');
+      if (!approveBtn) return;
+      var pitchId = parseInt(approveBtn.dataset.approvePitch || approveBtn.dataset.synthesizePitch, 10);
+      if (pitchId) openPitchSheet(pitchId, row);
+    });
+  }
+
+  // ── Swipe left/right on pitch rows ────────────────────────────────────────
+  function wireSwipePitches(containerEl) {
+    var startX, startY, activeRow, dirLocked;
+
+    containerEl.addEventListener('touchstart', function(e) {
+      var row = e.target.closest('.nr-pitch-row');
+      if (!row) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      activeRow  = row;
+      dirLocked  = null;
+    }, { passive: true });
+
+    containerEl.addEventListener('touchmove', function(e) {
+      if (!activeRow) return;
+      var dx = e.touches[0].clientX - startX;
+      var dy = e.touches[0].clientY - startY;
+      if (!dirLocked) {
+        if (Math.abs(dy) > Math.abs(dx) + 8) { activeRow = null; return; }
+        if (Math.abs(dx) > 8) dirLocked = 'h';
+      }
+      if (dirLocked !== 'h') return;
+      e.preventDefault();
+      activeRow.style.transition = 'none';
+      activeRow.style.transform  = 'translateX(' + dx + 'px)';
+      activeRow.classList.toggle('swiping-approve', dx > 28);
+      activeRow.classList.toggle('swiping-dismiss', dx < -28);
+    }, { passive: false });
+
+    containerEl.addEventListener('touchend', function(e) {
+      if (!activeRow || dirLocked !== 'h') { activeRow = null; return; }
+      var dx = e.changedTouches[0].clientX - startX;
+      activeRow.classList.remove('swiping-approve', 'swiping-dismiss');
+      activeRow.style.transition = 'transform .2s ease, opacity .2s';
+
+      var approveBtn = activeRow.querySelector('[data-approve-pitch]');
+      var synthBtn   = activeRow.querySelector('[data-synthesize-pitch]');
+      var dismissBtn = activeRow.querySelector('[data-dismiss-pitch]');
+
+      if (dx > 88 && (approveBtn || synthBtn)) {
+        var pid = parseInt((approveBtn || synthBtn).dataset.approvePitch || (synthBtn || {}).dataset.synthesizePitch, 10);
+        activeRow.style.transform = 'translateX(110%)';
+        activeRow.style.opacity   = '0';
+        var rowRef = activeRow;
+        setTimeout(function() { approvePitch(pid, null); rowRef.remove(); }, 210);
+      } else if (dx < -88 && dismissBtn) {
+        var did = parseInt(dismissBtn.dataset.dismissPitch, 10);
+        activeRow.style.transform = 'translateX(-110%)';
+        activeRow.style.opacity   = '0';
+        var rowRef2 = activeRow;
+        setTimeout(function() { dismissPitch(did, null); rowRef2.remove(); }, 210);
+      } else {
+        activeRow.style.transform = '';
+      }
+      activeRow = null;
+    });
+  }
+
+  // ── Swipe left/right on budget slot cards ─────────────────────────────────
+  function wireSwipeSlots(containerEl) {
+    var startX, startY, activeCard, dirLocked;
+
+    containerEl.addEventListener('touchstart', function(e) {
+      var card = e.target.closest('.nr-slot-card');
+      if (!card) return;
+      startX     = e.touches[0].clientX;
+      startY     = e.touches[0].clientY;
+      activeCard = card;
+      dirLocked  = null;
+    }, { passive: true });
+
+    containerEl.addEventListener('touchmove', function(e) {
+      if (!activeCard) return;
+      var dx = e.touches[0].clientX - startX;
+      var dy = e.touches[0].clientY - startY;
+      if (!dirLocked) {
+        if (Math.abs(dy) > Math.abs(dx) + 8) { activeCard = null; return; }
+        if (Math.abs(dx) > 8) dirLocked = 'h';
+      }
+      if (dirLocked !== 'h') return;
+      e.preventDefault();
+      activeCard.style.transition = 'none';
+      activeCard.style.transform  = 'translateX(' + dx + 'px)';
+      activeCard.classList.toggle('swiping-approve', dx > 28);
+      activeCard.classList.toggle('swiping-reject',  dx < -28);
+    }, { passive: false });
+
+    containerEl.addEventListener('touchend', function(e) {
+      if (!activeCard || dirLocked !== 'h') { activeCard = null; return; }
+      var dx = e.changedTouches[0].clientX - startX;
+      activeCard.classList.remove('swiping-approve', 'swiping-reject');
+      activeCard.style.transition = 'transform .2s ease, opacity .2s';
+
+      var aBtn = activeCard.querySelector('[data-approve-slot]');
+      var rBtn = activeCard.querySelector('[data-reject-slot]');
+
+      if (dx > 88 && aBtn) {
+        var sid = parseInt(aBtn.dataset.approveSlot, 10);
+        activeCard.style.transform = 'translateX(110%)';
+        activeCard.style.opacity   = '0';
+        var cardRef = activeCard;
+        setTimeout(function() { approveSlot(sid); cardRef.remove(); }, 210);
+      } else if (dx < -88 && rBtn) {
+        var rid = parseInt(rBtn.dataset.rejectSlot, 10);
+        activeCard.style.transform = 'translateX(-110%)';
+        activeCard.style.opacity   = '0';
+        var cardRef2 = activeCard;
+        setTimeout(function() { rejectSlot(rid); cardRef2.remove(); }, 210);
+      } else {
+        activeCard.style.transform = '';
+      }
+      activeCard = null;
+    });
+  }
+
+  // ── Slot card tap → detail sheet ──────────────────────────────────────────
+  function wireSlotTap(containerEl) {
+    containerEl.addEventListener('click', function(e) {
+      if (e.target.closest('button') || e.target.closest('input')) return;
+      if (e.target.closest('.nr-slot-headline')) return; // let inline edit handle it
+      var card = e.target.closest('.nr-slot-card');
+      if (!card) return;
+      var slotId = parseInt(card.dataset.slotId, 10);
+      if (!slotId) return;
+      var s = state.slots.filter(function(x) { return x.id === slotId; })[0];
+      if (s) openSlotSheet(s);
+    });
+  }
+
+  // ── FAB: create pitch / add to runsheet ───────────────────────────────────
+  function openCreateSheet() {
+    var writerOpts = state.writers.map(function(w) {
+      return '<option value="' + w.id + '">' + esc(w.name || w.persona_name || 'Writer ' + w.id) + '</option>';
+    }).join('');
+
+    var hasBudget = !!(state.budget && state.budget.id);
+
+    var body = '<div class="nr-create-form">'
+      + '<div class="nr-form-field"><label>Headline</label>'
+      + '<input id="nr-new-hl" type="text" placeholder="What\'s the story?" maxlength="300" autocomplete="off"></div>'
+      + '<div class="nr-form-field"><label>Writer</label>'
+      + '<select id="nr-new-wr"><option value="">— Pick a writer —</option>' + writerOpts + '</select></div>'
+      + '<div class="nr-form-field"><label>Priority</label>'
+      + '<select id="nr-new-pr"><option value="standard" selected>Standard</option>'
+      + '<option value="lead">Lead</option><option value="brief">Brief</option><option value="hold">Hold</option></select></div>'
+      + '<div class="nr-form-field"><label>Type</label>'
+      + '<select id="nr-new-tp"><option value="original" selected>Original</option>'
+      + '<option value="breaking">Breaking</option><option value="analysis">Analysis</option>'
+      + '<option value="deep_dive">Deep Dive</option><option value="follow_up">Follow Up</option></select></div>'
+      + '</div>';
+
+    var foot = hasBudget
+      ? '<button class="nr-sheet-btn-primary"  id="nr-create-submit">Add to Runsheet</button>'
+        + '<button class="nr-sheet-btn-secondary" id="nr-create-cancel" style="flex:0 0 auto;padding:14px 18px;">Cancel</button>'
+      : '<div style="text-align:center;width:100%;font-size:13px;color:var(--muted);">Generate today\'s runsheet first, then add pitches here.</div>';
+
+    sheet.open({
+      title:    '+ New Pitch',
+      subtitle: hasBudget ? 'Adding to today\'s runsheet' : 'No runsheet for today',
+      body:     body,
+      foot:     foot,
+      wire: function() {
+        var cancelBtn = document.getElementById('nr-create-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', sheet.close);
+
+        var submitBtn = document.getElementById('nr-create-submit');
+        if (!submitBtn) return;
+
+        var hlInput = document.getElementById('nr-new-hl');
+        if (hlInput) setTimeout(function() { hlInput.focus(); }, 60);
+
+        submitBtn.addEventListener('click', function() {
+          var hl  = (document.getElementById('nr-new-hl') || {}).value || '';
+          var wid = (document.getElementById('nr-new-wr') || {}).value || '';
+          var pr  = (document.getElementById('nr-new-pr') || {}).value || 'standard';
+
+          hl = hl.trim();
+          if (!hl)  { showAlert('Headline is required.', 'error');  return; }
+          if (!wid) { showAlert('Please pick a writer.', 'error');  return; }
+
+          submitBtn.disabled    = true;
+          submitBtn.textContent = 'Adding…';
+
+          apiFetch('/admin/budget/' + state.budget.id + '/slots', {
+            method: 'POST',
+            body: JSON.stringify({ headline_suggestion: hl, assigned_writer_id: parseInt(wid, 10), priority: pr }),
+          }).then(function() {
+            showAlert('Added to runsheet.', 'success');
+            sheet.close();
+            loadBudget();
+          }).catch(function(err) {
+            showAlert('Failed to add: ' + err.message, 'error');
+            submitBtn.disabled    = false;
+            submitBtn.textContent = 'Add to Runsheet';
+          });
+        });
+      },
+    });
+  }
+
   // ── Public init ───────────────────────────────────────────────────────────
   function init() {
     // Button handlers
@@ -780,6 +1143,33 @@
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeReviewModal();
     });
+
+    // Bottom sheet init
+    sheet.init();
+
+    // Swipe + tap handlers (attached to containers — survive re-renders)
+    var pitchListEl  = document.getElementById('nr-pitch-list');
+    var budgetBodyEl = document.getElementById('nr-budget-body');
+    if (pitchListEl)  { wireSwipePitches(pitchListEl); wirePitchTap(pitchListEl); }
+    if (budgetBodyEl) { wireSwipeSlots(budgetBodyEl); wireSlotTap(budgetBodyEl); }
+
+    // FAB
+    var fabEl = document.getElementById('nr-fab');
+    if (fabEl) {
+      fabEl.classList.remove('hidden');
+      fabEl.addEventListener('click', openCreateSheet);
+
+      // Hide FAB when user switches away from Floor
+      document.querySelectorAll('[data-ws]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (btn.dataset.ws === 'floor') {
+            fabEl.classList.remove('hidden');
+          } else {
+            fabEl.classList.add('hidden');
+          }
+        });
+      });
+    }
 
     // Load writers first so writersMap is populated before editorial queue renders
     loadWriters().then(function() {

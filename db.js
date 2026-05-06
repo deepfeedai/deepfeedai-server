@@ -1603,6 +1603,16 @@ async function initDb() {
       converted_at TIMESTAMPTZ
     )`,
     `CREATE INDEX IF NOT EXISTS idx_waitlist_notified ON waitlist (notified_at) WHERE notified_at IS NULL`,
+    `CREATE TABLE IF NOT EXISTS newsroom_prefs (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL,
+      tenant_id  INTEGER NOT NULL,
+      skin       TEXT NOT NULL DEFAULT 'ink',
+      font       TEXT NOT NULL DEFAULT 'system',
+      pinned     JSONB NOT NULL DEFAULT '[]',
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, tenant_id)
+    )`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

@@ -245,6 +245,44 @@ router.post('/slots/:id/reject', auth, asyncHandler(async (req, res) => {
   res.json({ slot: updatedSlot });
 }));
 
+// POST /api/admin/budget/:budgetId/slots — manually add a slot to a budget
+router.post('/:budgetId/slots', auth, asyncHandler(async (req, res) => {
+  const budgetId = parseInt(req.params.budgetId, 10);
+  if (!budgetId) return res.status(400).json({ error: 'Invalid budget id' });
+
+  const budget = await db.prepare(
+    'SELECT id FROM news_budgets WHERE id = $1 AND tenant_id = $2'
+  ).get(budgetId, req.tenantId);
+  if (!budget) return res.status(404).json({ error: 'Budget not found' });
+
+  const { headline_suggestion, priority = 'standard', rationale = '', assigned_writer_id } = req.body;
+  if (!headline_suggestion || !String(headline_suggestion).trim()) {
+    return res.status(400).json({ error: 'headline_suggestion is required' });
+  }
+
+  const VALID_PRIORITIES = ['lead', 'standard', 'brief', 'hold'];
+  if (!VALID_PRIORITIES.includes(priority)) {
+    return res.status(400).json({ error: `priority must be one of: ${VALID_PRIORITIES.join(', ')}` });
+  }
+
+  const slot = await db.prepare(`
+    INSERT INTO news_budget_slots
+      (tenant_id, budget_id, priority, headline_suggestion, rationale, assigned_writer_id, status, source_article_ids, sort_order)
+    VALUES ($1, $2, $3, $4, $5, $6, 'pending', '[]'::jsonb,
+      COALESCE((SELECT MAX(sort_order) + 1 FROM news_budget_slots WHERE budget_id = $2 AND tenant_id = $1), 0))
+    RETURNING *
+  `).get(
+    req.tenantId,
+    budgetId,
+    priority,
+    String(headline_suggestion).slice(0, 300),
+    String(rationale).slice(0, 1000),
+    assigned_writer_id ? parseInt(assigned_writer_id) : null,
+  );
+
+  res.json({ slot });
+}));
+
 // PATCH /api/admin/budget/slots/:id — edit slot fields
 router.patch('/slots/:id', auth, asyncHandler(async (req, res) => {
   const { headline_suggestion, rationale, assigned_writer_id, target_publish_at, priority } = req.body;

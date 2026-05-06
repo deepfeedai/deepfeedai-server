@@ -26,7 +26,7 @@
     var requiredPerm = params.get('id') ? 'articles.update' : 'articles.create';
     if (!hasPermission(requiredPerm)) {
       showAlert('You don\'t have permission to use the article editor', 'error');
-      setTimeout(function() { window.location.href = '/articles.html'; }, 1500);
+      setTimeout(function() { window.location.href = window._editorReturnUrl || '/articles.html'; }, 1500);
       return;
     }
 

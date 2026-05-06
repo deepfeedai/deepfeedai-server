@@ -556,6 +556,45 @@
     .text-muted { color: var(--muted); }
     .mt-4 { margin-top: var(--space-4); }
     .mb-4 { margin-bottom: var(--space-4); }
+
+    /* ── Mobile responsive ───────────────────────── */
+    @media (max-width: 640px) {
+      .budget-page-body {
+        padding: var(--space-3) var(--space-3) !important;
+      }
+      .budget-header {
+        gap: var(--space-2);
+      }
+      .budget-header .budget-date-picker {
+        flex: 1 1 120px;
+        min-width: 0;
+      }
+      .budget-header .budget-view-toggle {
+        order: 3;
+        width: 100%;
+      }
+      .budget-header .budget-view-toggle button {
+        flex: 1;
+        text-align: center;
+      }
+      .budget-header .budget-stats {
+        order: 4;
+        margin-left: 0;
+        width: 100%;
+      }
+      .budget-stat-pill {
+        flex: 1;
+        justify-content: center;
+      }
+      /* Show sidebar inline on mobile instead of hidden */
+      .budget-sidebar {
+        display: flex !important;
+      }
+      /* Timeline grid single column on mobile */
+      .timeline-card-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -566,7 +605,7 @@
       <div class="topbar-title">Daily Runsheet</div>
     </header>
 
-    <div class="page-body page-body-wide" style="padding: var(--space-4) var(--space-6);">
+    <div class="page-body page-body-wide budget-page-body" style="padding: var(--space-4) var(--space-6);">
 
       <!-- Page header: date, generate, views, stats -->
       <div class="budget-header">
