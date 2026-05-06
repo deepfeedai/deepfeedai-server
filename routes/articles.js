@@ -62,7 +62,7 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
                   SELECT 1 FROM article_pitches ap
                   WHERE ap.tenant_id = articles.tenant_id
                     AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
-                    AND ap.status NOT IN ('dismissed','killed')
+                    AND ap.status NOT IN ('dismissed','killed','rejected')
                     AND ap.spawned_article_id IS NOT NULL
                 ) THEN 'used'
                 WHEN EXISTS (
@@ -75,7 +75,7 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
                   SELECT 1 FROM article_pitches ap
                   WHERE ap.tenant_id = articles.tenant_id
                     AND (ap.source_article_id = articles.id OR ap.attached_article_ids @> to_jsonb(articles.id))
-                    AND ap.status NOT IN ('dismissed','killed')
+                    AND ap.status NOT IN ('dismissed','killed','rejected')
                     AND ap.spawned_article_id IS NULL
                 ) THEN 'in_pitch'
                 ELSE 'unused'
