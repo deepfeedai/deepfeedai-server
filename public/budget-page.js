@@ -382,7 +382,7 @@
     } catch (err) {
       document.getElementById('boardLoading').style.display = 'none';
       document.getElementById('boardEmpty').style.display = '';
-      toast('Failed to load budget: ' + err.message, 'error');
+      toast('Failed to load runsheet: ' + err.message, 'error');
     }
   }
 
@@ -391,7 +391,7 @@
     var btn = document.getElementById('generateBudgetBtn');
     if (btn) {
       btn.disabled = budgetExists;
-      btn.title = budgetExists ? 'Budget already generated for this date' : 'Generate budget for selected date';
+      btn.title = budgetExists ? 'Runsheet already generated for this date' : 'Generate runsheet for selected date';
     }
   }
 
@@ -449,11 +449,11 @@
       var data = await apiFetch('/admin/budget/generate', { method: 'POST', body: JSON.stringify({ date: currentDate }) });
       if (data.budget) {
         currentBudget = data.budget;
-        toast('Budget generated!', 'success');
+        toast('Runsheet generated!', 'success');
         await loadBudget(currentDate);
       }
     } catch (err) {
-      toast('Failed to generate budget: ' + err.message, 'error');
+      toast('Failed to generate runsheet: ' + err.message, 'error');
       if (btn) btn.disabled = false;
     }
   }
