@@ -905,29 +905,40 @@
     const tbody = document.getElementById('inboxBody');
     if (tbody) tbody.innerHTML = skeletonRows(['sk-w-full', 'sk-w-sm', 'sk-w-sm', 'sk-w-sm', 'sk-w-sm', 'sk-w-sm'], 5);
     try {
-      const PAGE_SIZE = 500;
-      let all = [];
-      let offset = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const data = await apiFetch(`/articles?type=curated&limit=${PAGE_SIZE}&offset=${offset}`);
-        const batch = Array.isArray(data) ? data : (data.articles || []);
-        all = all.concat(batch);
-        hasMore = data.hasMore === true;
-        offset += batch.length;
-        if (!batch.length) break;
-      }
-      allArticles = all;
+      const PAGE_SIZE = 200;
 
-      // Refresh folder counts with newly loaded articles
+      // Fetch first page and render immediately so the table isn't blocked
+      const firstData = await apiFetch(`/articles?type=curated&limit=${PAGE_SIZE}&offset=0`);
+      const firstBatch = Array.isArray(firstData) ? firstData : (firstData.articles || []);
+      allArticles = firstBatch;
+
       renderFolderPanel();
-
-      // Populate source filter
       populateSourceFilter();
       populateCategoryFilter();
       updateUncatBanner();
-
       applyFilters();
+
+      // Fetch remaining pages in the background
+      if (firstData.hasMore === true) {
+        (async () => {
+          let offset = firstBatch.length;
+          let hasMore = true;
+          while (hasMore) {
+            const data = await apiFetch(`/articles?type=curated&limit=${PAGE_SIZE}&offset=${offset}`);
+            const batch = Array.isArray(data) ? data : (data.articles || []);
+            if (!batch.length) break;
+            allArticles = allArticles.concat(batch);
+            hasMore = data.hasMore === true;
+            offset += batch.length;
+          }
+          // Refresh UI with the complete dataset
+          renderFolderPanel();
+          populateSourceFilter();
+          populateCategoryFilter();
+          updateUncatBanner();
+          applyFilters();
+        })().catch(err => console.warn('[feed-inbox] background load failed:', err.message));
+      }
     } catch (err) {
       showAlert('Failed to load feed articles: ' + err.message, 'error');
     }

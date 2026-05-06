@@ -2,18 +2,24 @@
 
 onReady(async () => {
   // ── Signups gate check ──────────────────────────────────────────
+  // signupContent is hidden by default in the HTML to prevent flash.
+  // We reveal exactly one panel after the status check resolves.
+  let signupsOpen = false;
   try {
     const statusRes = await fetch('/api/setup/status');
     if (statusRes.ok) {
       const statusData = await statusRes.json();
-      if (!statusData.signups_enabled) {
-        document.getElementById('signupContent').style.display = 'none';
-        document.getElementById('waitlistPanel').style.display = '';
-        _initWaitlistForm();
-        return;
-      }
+      signupsOpen = statusData.signups_enabled === true;
     }
-  } catch { /* network error — fall through to signup form */ }
+  } catch { signupsOpen = true; /* network error — show signup form so page isn't blank */ }
+
+  if (!signupsOpen) {
+    document.getElementById('waitlistPanel').style.display = '';
+    _initWaitlistForm();
+    return;
+  }
+
+  document.getElementById('signupContent').style.display = '';
 
   function _initWaitlistForm() {
     const submitBtn = document.getElementById('waitlistSubmitBtn');
