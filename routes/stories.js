@@ -187,6 +187,56 @@ router.get('/stories/:slug', asyncHandler(async (req, res) => {
   res.json({ status: 'ok', story: { ...story, followerCount, isFollowing } });
 }));
 
+// GET /stories/:slug/summarize — AI brief of recent story articles
+const _storySummarizeCache = new Map();
+const STORY_BRIEF_TTL = 60 * 60 * 1000; // 1 hour
+
+router.get('/stories/:slug/summarize', asyncHandler(async (req, res) => {
+  const tenantId = req.tenantId;
+  const slug     = req.params.slug;
+  const cacheKey = `${tenantId}:${slug}`;
+
+  const cached = _storySummarizeCache.get(cacheKey);
+  if (cached && Date.now() - cached.generatedAt < STORY_BRIEF_TTL) {
+    return res.json({ status: 'ok', brief: cached.text, generatedAt: cached.generatedAt, cached: true });
+  }
+
+  const story = await getStory(tenantId, slug);
+  if (!story) return res.status(404).json({ status: 'error', error: 'story not found' });
+
+  const recent = (story.articles || [])
+    .filter(a => ['original', 'deep-dive'].includes(a.content_type))
+    .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+    .slice(0, 8);
+
+  if (!recent.length) return res.status(404).json({ status: 'error', error: 'No published articles found' });
+
+  const articleBlurbs = recent.map((a, i) =>
+    `${i + 1}. ${a.generated_title || a.title}${a.tldr_overview || a.summary ? '\n   ' + (a.tldr_overview || a.summary).slice(0, 200) : ''}`
+  ).join('\n\n');
+
+  const { complete: aiComplete } = require('../lib/ai-router');
+  const result = await aiComplete({
+    operation:  'story-summarize',
+    tenantId,
+    skipBudget: false,
+    messages: [{
+      role: 'user',
+      content: `You are a news editor briefing a reader on a developing story. Based on these articles, write a 3–4 sentence summary. Cover: what happened, who's involved, where things stand now, and what's still unresolved. Be direct and specific — no hedging phrases like "according to reports". No bullet points, just flowing prose.\n\nArticles:\n${articleBlurbs}`,
+    }],
+    temperature: 0.3,
+    maxTokens:   1200,
+  });
+
+  const text = (result?.text || '').trim();
+  if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
+
+  const generatedAt = Date.now();
+  _storySummarizeCache.set(cacheKey, { text, generatedAt });
+
+  res.json({ status: 'ok', brief: text, generatedAt, cached: false });
+}));
+
 // POST /stories/:slug/follow
 router.post('/stories/:slug/follow', asyncHandler(async (req, res) => {
   const userId = await getUserId(req);
