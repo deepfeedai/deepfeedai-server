@@ -149,7 +149,7 @@
       html += '</div></div>';
     });
 
-    html += '<button class="nr-btn-gen" id="nr-floor-regen">+ Regenerate Budget</button>';
+    html += '<button class="nr-btn-gen" id="nr-floor-regen">+ Regenerate Runsheet</button>';
     bodyEl.innerHTML = html;
 
     // Wire up slot action buttons
@@ -316,7 +316,7 @@
         + (headline ? ' <span class="nr-activity-article">"' + esc(headline.slice(0,60)) + (headline.length > 60 ? '…' : '') + '"</span>' : '');
     }
     if (type === 'budget_published') {
-      return '<strong>' + esc(actor) + '</strong> published today\'s news budget';
+      return '<strong>' + esc(actor) + '</strong> published today\'s runsheet';
     }
     if (type === 'budget_slot_approved') {
       var h = payload.headline || '';
@@ -558,7 +558,7 @@
       renderBudget(budget);
     } catch (err) {
       var bodyEl = document.getElementById('nr-budget-body');
-      if (bodyEl) bodyEl.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load budget: ' + esc(err.message) + '</div>';
+      if (bodyEl) bodyEl.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load runsheet: ' + esc(err.message) + '</div>';
     }
   }
 
@@ -568,22 +568,22 @@
     var genBtn = document.getElementById('nr-budget-generate-btn');
     if (genBtn) { genBtn.disabled = true; genBtn.textContent = 'Generating…'; }
     var bodyEl = document.getElementById('nr-budget-body');
-    if (bodyEl) bodyEl.innerHTML = '<div class="nr-loading">Maxwell is writing today\'s budget…</div>';
+    if (bodyEl) bodyEl.innerHTML = '<div class="nr-loading">Maxwell is writing today\'s runsheet…</div>';
     try {
       var url = '/admin/budget/generate' + (force ? '?force=true' : '');
       var data = await apiFetch(url, { method: 'POST' });
       if (data.budget && data.skipped) {
-        showAlert('Budget already exists for today — reloading.', 'info');
+        showAlert('Runsheet already exists for today — reloading.', 'info');
         await loadBudget();
       } else if (data.budget) {
         var slotCount = (data.budget.slots || []).length;
-        showAlert('Budget generated — ' + slotCount + ' slots.', 'success');
+        showAlert('Runsheet generated — ' + slotCount + ' slots.', 'success');
         await loadBudget();
       } else {
         throw new Error(data.error || 'Generation failed');
       }
     } catch (err) {
-      showAlert('Failed to generate budget: ' + err.message, 'error');
+      showAlert('Failed to generate runsheet: ' + err.message, 'error');
       await loadBudget();
     } finally {
       state.generating = false;
@@ -593,7 +593,7 @@
 
   async function publishBudget() {
     if (!state.budget) {
-      showAlert('No budget loaded — try refreshing.', 'error');
+      showAlert('No runsheet loaded — try refreshing.', 'error');
       return;
     }
     var pubBtn = document.getElementById('nr-budget-publish-btn');
@@ -603,10 +603,10 @@
         method: 'PATCH',
         body: JSON.stringify({ status: 'published' }),
       });
-      showAlert('Budget published.', 'success');
+      showAlert('Runsheet published.', 'success');
       await loadBudget();
     } catch (err) {
-      showAlert('Failed to publish budget: ' + err.message, 'error');
+      showAlert('Failed to publish runsheet: ' + err.message, 'error');
       if (pubBtn) { pubBtn.disabled = false; pubBtn.textContent = 'Publish →'; }
     }
   }
