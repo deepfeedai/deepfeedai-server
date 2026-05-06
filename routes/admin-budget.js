@@ -135,11 +135,14 @@ router.get('/', auth, asyncHandler(async (req, res) => {
 
 // PATCH /api/admin/budget/:id — update budget header (editorial_note, status)
 router.patch('/:id', auth, asyncHandler(async (req, res) => {
+  const budgetId = parseInt(req.params.id, 10);
+  if (!budgetId) return res.status(400).json({ error: 'Invalid budget id' });
+
   const { editorial_note, status } = req.body;
 
   const existing = await db.prepare(
     'SELECT id FROM news_budgets WHERE id = $1 AND tenant_id = $2'
-  ).get(req.params.id, req.tenantId);
+  ).get(budgetId, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Budget not found' });
 
   const allowed = ['draft', 'published'];
@@ -148,7 +151,7 @@ router.patch('/:id', auth, asyncHandler(async (req, res) => {
   }
 
   const sets = ['updated_at = NOW()'];
-  const params = [req.params.id, req.tenantId];
+  const params = [budgetId, req.tenantId];
 
   if (editorial_note !== undefined) {
     params.push(editorial_note);

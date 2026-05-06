@@ -592,7 +592,12 @@
   }
 
   async function publishBudget() {
-    if (!state.budget) return;
+    if (!state.budget) {
+      showAlert('No budget loaded — try refreshing.', 'error');
+      return;
+    }
+    var pubBtn = document.getElementById('nr-budget-publish-btn');
+    if (pubBtn) { pubBtn.disabled = true; pubBtn.textContent = 'Publishing…'; }
     try {
       await apiFetch('/admin/budget/' + state.budget.id, {
         method: 'PATCH',
@@ -601,7 +606,8 @@
       showAlert('Budget published.', 'success');
       await loadBudget();
     } catch (err) {
-      showAlert('Failed to publish: ' + err.message, 'error');
+      showAlert('Failed to publish budget: ' + err.message, 'error');
+      if (pubBtn) { pubBtn.disabled = false; pubBtn.textContent = 'Publish →'; }
     }
   }
 
