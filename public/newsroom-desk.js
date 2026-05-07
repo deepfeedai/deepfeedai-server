@@ -1020,12 +1020,43 @@
 
   // Keys we surface in the read view (in display order)
   var SETTINGS_DISPLAY = [
-    { key: 'site_name',         label: 'Site Name' },
-    { key: 'site_tagline',      label: 'Tagline' },
-    { key: 'site_url',          label: 'Site URL' },
-    { key: 'mod_queue_enabled', label: 'Comment Moderation Queue' },
-    { key: 'ai_daily_budget',   label: 'AI Daily Budget (USD)' },
-    { key: 'ai_monthly_budget', label: 'AI Monthly Budget (USD)' },
+    { key: 'site_name',              label: 'Site Name' },
+    { key: 'site_tagline',           label: 'Tagline' },
+    { key: 'site_url',               label: 'Site URL' },
+    { key: 'mod_queue_enabled',      label: 'Comment Moderation Queue' },
+    { key: 'ai_daily_budget',        label: 'AI Daily Budget (USD)' },
+    { key: 'ai_monthly_budget',      label: 'AI Monthly Budget (USD)' },
+    { key: 'newsroom_timezone',      label: 'Newsroom Timezone', type: 'timezone' },
+    { key: 'budget_autopilot_hours', label: 'Auto-promote delay (hours)', type: 'number' },
+  ];
+
+  var TIMEZONE_OPTIONS = [
+    { value: 'UTC',                   label: 'UTC' },
+    { value: 'America/New_York',      label: 'Eastern (ET)' },
+    { value: 'America/Chicago',       label: 'Central (CT)' },
+    { value: 'America/Denver',        label: 'Mountain (MT)' },
+    { value: 'America/Los_Angeles',   label: 'Pacific (PT)' },
+    { value: 'America/Anchorage',     label: 'Alaska (AKT)' },
+    { value: 'Pacific/Honolulu',      label: 'Hawaii (HT)' },
+    { value: 'America/Toronto',       label: 'Toronto (ET)' },
+    { value: 'America/Vancouver',     label: 'Vancouver (PT)' },
+    { value: 'America/Sao_Paulo',     label: 'São Paulo (BRT)' },
+    { value: 'Europe/London',         label: 'London (GMT/BST)' },
+    { value: 'Europe/Paris',          label: 'Paris (CET/CEST)' },
+    { value: 'Europe/Berlin',         label: 'Berlin (CET/CEST)' },
+    { value: 'Europe/Amsterdam',      label: 'Amsterdam (CET/CEST)' },
+    { value: 'Europe/Stockholm',      label: 'Stockholm (CET/CEST)' },
+    { value: 'Europe/Warsaw',         label: 'Warsaw (CET/CEST)' },
+    { value: 'Europe/Kiev',           label: 'Kyiv (EET/EEST)' },
+    { value: 'Asia/Dubai',            label: 'Dubai (GST)' },
+    { value: 'Asia/Kolkata',          label: 'India (IST)' },
+    { value: 'Asia/Singapore',        label: 'Singapore (SGT)' },
+    { value: 'Asia/Tokyo',            label: 'Tokyo (JST)' },
+    { value: 'Asia/Seoul',            label: 'Seoul (KST)' },
+    { value: 'Asia/Shanghai',         label: 'Shanghai (CST)' },
+    { value: 'Australia/Sydney',      label: 'Sydney (AEST/AEDT)' },
+    { value: 'Australia/Melbourne',   label: 'Melbourne (AEST/AEDT)' },
+    { value: 'Pacific/Auckland',      label: 'Auckland (NZST/NZDT)' },
   ];
 
   async function loadSettings() {
@@ -1057,9 +1088,11 @@
 
     SETTINGS_DISPLAY.forEach(function (def) {
       var raw = data[def.key];
-      if (raw === undefined || raw === null) return;
-      var strVal = String(raw);
-      if (strVal.length > 200 || /^[A-Za-z0-9+/]{40,}={0,2}$/.test(strVal)) return;
+      // For timezone/number settings show even when not yet set (use empty default)
+      var isSpecialType = def.type === 'timezone' || def.type === 'number';
+      if (!isSpecialType && (raw === undefined || raw === null)) return;
+      var strVal = raw !== undefined && raw !== null ? String(raw) : '';
+      if (!isSpecialType && (strVal.length > 200 || /^[A-Za-z0-9+/]{40,}={0,2}$/.test(strVal))) return;
 
       html += '<div class="nr-settings-row">';
       html += '<label class="nr-settings-label" for="nr-setting-' + esc(def.key) + '">' + esc(def.label) + '</label>';
@@ -1072,11 +1105,19 @@
           + '<span class="nr-toggle-track"><span class="nr-toggle-thumb"></span></span>'
           + '<span class="nr-toggle-label">' + (on ? 'Enabled' : 'Disabled') + '</span>'
           + '</button>';
+      } else if (def.type === 'timezone') {
+        html += '<select id="nr-setting-' + esc(def.key) + '" class="nr-setting-select" data-setting-key="' + esc(def.key) + '">';
+        TIMEZONE_OPTIONS.forEach(function (opt) {
+          var sel = (strVal === opt.value || (!strVal && opt.value === 'UTC')) ? ' selected' : '';
+          html += '<option value="' + esc(opt.value) + '"' + sel + '>' + esc(opt.label) + '</option>';
+        });
+        html += '</select>';
       } else {
         var inputType = 'text';
         if (def.key === 'site_url') inputType = 'url';
-        if (def.key === 'ai_daily_budget' || def.key === 'ai_monthly_budget') inputType = 'number';
-        var extra = inputType === 'number' ? ' step="0.01" min="0"' : '';
+        if (def.type === 'number' || def.key === 'ai_daily_budget' || def.key === 'ai_monthly_budget') inputType = 'number';
+        var extra = inputType === 'number' ? ' step="1" min="0"' : '';
+        if (def.key === 'ai_daily_budget' || def.key === 'ai_monthly_budget') extra = ' step="0.01" min="0"';
         html += '<input type="' + inputType + '" '
           + 'id="nr-setting-' + esc(def.key) + '" '
           + 'class="nr-setting-input" '
@@ -1124,7 +1165,7 @@
 
     panel.innerHTML = html;
 
-    // Wire save-on-blur / Enter for text & number inputs
+    // Wire save-on-blur / Enter for text & number inputs; save-on-change for selects
     var form = document.getElementById('nr-settings-form');
     if (form) {
       form.addEventListener('blur', function (e) {
@@ -1135,6 +1176,11 @@
       form.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && e.target.matches('.nr-setting-input')) {
           e.target.blur();
+        }
+      });
+      form.addEventListener('change', function (e) {
+        if (e.target.matches('.nr-setting-select')) {
+          saveSetting(e.target.dataset.settingKey, e.target.value);
         }
       });
       form.addEventListener('click', function (e) {

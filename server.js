@@ -712,11 +712,21 @@ registerJob({
   name: 'daily-budget',
   description: 'Daily news budget — Maxwell generates the editorial plan for the day',
   category: 'Editorial',
-  defaultSchedule: '0 7 * * *',  // 7 AM UTC — after agent-scan (6:30) and before standup (7:30)
+  // Runs hourly; generation only fires when it's the target hour in the tenant's timezone.
+  // Set cron_daily-budget_schedule in platform settings to override (e.g. '0 * * * *').
+  defaultSchedule: '0 * * * *',
   handler: async (tenantId) => {
     const { isFeatureEnabled } = require('./lib/feature-registry');
     const enabled = await isFeatureEnabled(tenantId, 'daily_budget').catch(() => false);
     if (!enabled) return { skipped: 'daily_budget feature not enabled' };
+
+    // Check if it's the right hour in the newsroom's local timezone (default 7 AM).
+    const { getAppConfig } = require('./lib/app-config');
+    const { currentHourInTz } = require('./lib/news-budget');
+    const appCfg = await getAppConfig(tenantId);
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const targetHour = 7;
+    if (currentHourInTz(tz) !== targetHour) return { skipped: `not yet ${targetHour}:00 in ${tz}` };
 
     const { generateDailyBudget } = require('./lib/news-budget');
     const result = await generateDailyBudget(tenantId);
@@ -739,6 +749,22 @@ registerJob({
     }
 
     return result;
+  },
+});
+
+registerJob({
+  name: 'budget-autopromote',
+  description: 'Auto-promote pending runsheet slots whose deadline has passed',
+  category: 'Editorial',
+  defaultSchedule: '*/15 * * * *', // every 15 minutes
+  handler: async (tenantId) => {
+    const autopilotRow = await db.prepare(
+      "SELECT value FROM settings WHERE tenant_id = $1 AND key = 'autopilot_enabled'"
+    ).get(tenantId).catch(() => null);
+    if (autopilotRow?.value === '0') return { skipped: 'autopilot disabled' };
+
+    const { autoPromoteSlots } = require('./lib/news-budget');
+    return autoPromoteSlots(tenantId);
   },
 });
 

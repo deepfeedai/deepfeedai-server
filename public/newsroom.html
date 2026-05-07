@@ -2147,6 +2147,16 @@ section.nr-expanded {
 .nr-setting-input:focus {
   border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim);
 }
+.nr-setting-select {
+  flex: 1; min-width: 0; padding: 5px 8px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px;
+  font-family: inherit; outline: none; cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.nr-setting-select:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim);
+}
 .nr-setting-status {
   flex-shrink: 0; font-size: 11px; font-weight: 500;
   white-space: nowrap; min-width: 52px; text-align: right;
