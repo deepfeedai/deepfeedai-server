@@ -576,9 +576,16 @@ router.get('/quick-stories', require('../middleware/user-jwt'), asyncHandler(asy
   ).get(req.user.email, article.tenant_id);
   if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
 
-  const stories = await db.prepare(
-    "SELECT id, name FROM story_timelines WHERE tenant_id = $1 AND status IN ('active','dormant') ORDER BY updated_at DESC LIMIT 100"
-  ).all(article.tenant_id);
+  const stories = await db.prepare(`
+    SELECT st.id, st.name,
+      CASE WHEN sta.story_id IS NOT NULL THEN 1 ELSE 0 END AS already_added
+    FROM story_timelines st
+    LEFT JOIN story_timeline_articles sta
+      ON sta.story_id = st.id AND sta.article_id = $2
+    WHERE st.tenant_id = $1 AND st.status IN ('active','dormant')
+    ORDER BY st.name ASC
+    LIMIT 100
+  `).all(article.tenant_id, article.id);
 
   res.json({ stories: stories || [] });
 }));
