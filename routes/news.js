@@ -858,4 +858,31 @@ router.get('/next-drop', asyncHandler(async (req, res) => {
   });
 }));
 
+// GET /api/news/live-events — public Newsroom Glass feed
+// Returns the most recent public newsroom events for the live feed widget.
+// ?limit=20  — max 50
+// ?before=<id> — cursor for pagination (load older events)
+router.get('/live-events', asyncHandler(async (req, res) => {
+  const limit  = Math.min(parseInt(req.query.limit) || 20, 50);
+  const before = parseInt(req.query.before) || null;
+
+  const params = [req.tenantId, limit];
+  const beforeClause = before ? `AND id < $3` : '';
+  if (before) params.push(before);
+
+  const rows = await db.prepare(`
+    SELECT id, event_type, headline, entity_slug, is_terminal,
+           actor_writer_id, target_article_id, target_pitch_id,
+           payload, created_at
+    FROM newsroom_events
+    WHERE tenant_id = $1
+      AND is_public = true
+      ${beforeClause}
+    ORDER BY created_at DESC
+    LIMIT $2
+  `).all(...params);
+
+  res.json({ events: rows || [] });
+}));
+
 module.exports = router;
