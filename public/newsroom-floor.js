@@ -361,6 +361,10 @@
     var isApprovedTab = pitchStatusFilter === 'approved';
     var isProposedTab = pitchStatusFilter === 'proposed';
 
+    // Reset bulk bar when list re-renders
+    var bulkBar = document.getElementById('nr-pitch-bulk-bar');
+    if (bulkBar) bulkBar.style.display = 'none';
+
     var html = '';
     pitches.forEach(function(p) {
       var initials = (p.writer_name || '?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
@@ -376,7 +380,12 @@
         ? '<button class="nr-dismiss-btn" data-dismiss-pitch="' + p.id + '" title="Dismiss">✕</button>'
         : '';
 
-      html += '<div class="nr-pitch-row">'
+      var checkHtml = (isProposedTab || isApprovedTab)
+        ? '<input type="checkbox" class="nr-bulk-check nr-pitch-bulk-check" data-pitch-id="' + p.id + '" aria-label="Select pitch">'
+        : '';
+
+      html += '<div class="nr-pitch-row" data-pitch-row-id="' + p.id + '">'
+        + checkHtml
         + pitchTypeBadge(p.pitch_type)
         + '<span class="nr-pitch-headline" title="' + esc(p.headline) + '">' + esc(p.headline || '—') + '</span>'
         + '<span class="nr-writer-chip" style="flex-shrink:0;"><span class="nr-av" style="' + avStyle + '">' + (p.writer_avatar_url ? '' : esc(initials)) + '</span>' + esc(p.writer_name || '') + '</span>'
@@ -714,36 +723,65 @@
       // Remove the row
       var row = btn && btn.closest('.nr-pitch-row');
       if (row) row.remove();
-      // Decrement count
-      var countEl = document.getElementById('nr-pitch-count');
-      if (countEl) {
-        var n = parseInt(countEl.textContent, 10) - 1;
-        if (n <= 0) countEl.style.display = 'none';
-        else countEl.textContent = n;
-      }
+      updatePitchCount(-1);
     } catch (err) {
       showAlert('Failed to approve pitch: ' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = pitchStatusFilter === 'approved' ? 'Synthesize →' : 'Approve →'; }
     }
   }
 
-  async function dismissPitch(pitchId, btn) {
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    try {
-      await apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' });
-      showAlert('Pitch dismissed.', 'info');
-      var row = btn && btn.closest('.nr-pitch-row');
-      if (row) row.remove();
-      var countEl = document.getElementById('nr-pitch-count');
-      if (countEl) {
-        var n = parseInt(countEl.textContent, 10) - 1;
-        if (n <= 0) countEl.style.display = 'none';
-        else countEl.textContent = n;
-      }
-    } catch (err) {
-      showAlert('Failed to dismiss pitch: ' + err.message, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+  function updatePitchCount(delta) {
+    var countEl = document.getElementById('nr-pitch-count');
+    if (!countEl) return;
+    var n = (parseInt(countEl.textContent, 10) || 0) + delta;
+    if (n <= 0) countEl.style.display = 'none';
+    else { countEl.textContent = String(n); countEl.style.display = ''; }
+  }
+
+  function dismissPitch(pitchId, btn) {
+    var row = btn && btn.closest('.nr-pitch-row');
+
+    if (!row) {
+      // No row context (swipe or sheet) — direct dismiss
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+      });
+      return;
     }
+
+    // Undo toast path
+    row.style.transition = 'opacity .15s';
+    row.style.opacity = '0.25';
+    if (btn) btn.disabled = true;
+
+    if (typeof showUndoToast !== 'function') {
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        row.remove();
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+      });
+      return;
+    }
+
+    showUndoToast('Pitch dismissed.', function onCommit() {
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        row.remove();
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+      });
+    }, function onUndo() {
+      row.style.opacity = '';
+      if (btn) btn.disabled = false;
+    });
   }
 
   // ── Bottom sheet ──────────────────────────────────────────────────────────
@@ -1109,6 +1147,117 @@
     });
   }
 
+  // ── Bulk pitch actions ────────────────────────────────────────────────────
+
+  function updatePitchBulkBar() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    var bar     = document.getElementById('nr-pitch-bulk-bar');
+    var countEl = document.getElementById('nr-pitch-bulk-count');
+    if (!bar) return;
+    var n = checked.length;
+    if (countEl) countEl.textContent = n + ' selected';
+    bar.style.display = n > 0 ? '' : 'none';
+  }
+
+  async function bulkApprovePitches() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    if (!checked.length) return;
+    var items = Array.prototype.map.call(checked, function(c) {
+      return { id: parseInt(c.dataset.pitchId, 10), row: c.closest('.nr-pitch-row') };
+    });
+
+    var btn = document.getElementById('nr-pitch-bulk-approve');
+    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+
+    var succeeded = 0;
+    await Promise.all(items.map(function(item) {
+      return apiFetch('/admin/pitches/' + item.id + '/approve', { method: 'POST' }).then(function() {
+        succeeded++;
+        if (item.row) item.row.remove();
+      }).catch(function(err) {
+        showAlert('Approve failed for pitch ' + item.id + ': ' + err.message, 'error');
+      });
+    }));
+
+    if (succeeded > 0) {
+      showAlert('Approved ' + succeeded + ' pitch' + (succeeded !== 1 ? 'es' : '') + '.', 'success');
+      updatePitchCount(-succeeded);
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Approve'; }
+    updatePitchBulkBar();
+  }
+
+  function bulkDismissPitches() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    if (!checked.length) return;
+    var items = Array.prototype.map.call(checked, function(c) {
+      var row = c.closest('.nr-pitch-row');
+      return { id: parseInt(c.dataset.pitchId, 10), row: row };
+    });
+
+    // Dim rows immediately
+    items.forEach(function(item) {
+      if (item.row) { item.row.style.transition = 'opacity .15s'; item.row.style.opacity = '0.25'; }
+    });
+
+    var bar = document.getElementById('nr-pitch-bulk-bar');
+    if (bar) bar.style.display = 'none';
+
+    var n = items.length;
+    var label = n + ' pitch' + (n !== 1 ? 'es' : '');
+
+    if (typeof showUndoToast !== 'function') {
+      items.forEach(function(item) {
+        apiFetch('/admin/pitches/' + item.id + '/dismiss', { method: 'POST' }).then(function() {
+          if (item.row) item.row.remove();
+          updatePitchCount(-1);
+        });
+      });
+      return;
+    }
+
+    showUndoToast('Dismissed ' + label + '.', function onCommit() {
+      items.forEach(function(item) {
+        apiFetch('/admin/pitches/' + item.id + '/dismiss', { method: 'POST' }).then(function() {
+          if (item.row) item.row.remove();
+          updatePitchCount(-1);
+        }).catch(function(err) {
+          if (item.row) item.row.style.opacity = '';
+          showAlert('Dismiss failed: ' + err.message, 'error');
+        });
+      });
+    }, function onUndo() {
+      items.forEach(function(item) {
+        if (item.row) {
+          item.row.style.opacity = '';
+          var check = item.row.querySelector('.nr-pitch-bulk-check');
+          if (check) check.checked = false;
+        }
+      });
+      updatePitchBulkBar();
+    });
+  }
+
+  function initPitchBulkBar() {
+    var approveBtn = document.getElementById('nr-pitch-bulk-approve');
+    if (approveBtn) approveBtn.addEventListener('click', bulkApprovePitches);
+
+    var dismissBtn = document.getElementById('nr-pitch-bulk-dismiss');
+    if (dismissBtn) dismissBtn.addEventListener('click', bulkDismissPitches);
+
+    var clearBtn = document.getElementById('nr-pitch-bulk-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        Array.prototype.forEach.call(
+          document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check'),
+          function(c) { c.checked = false; }
+        );
+        updatePitchBulkBar();
+      });
+    }
+  }
+
   // ── Public init ───────────────────────────────────────────────────────────
   function init() {
     // Button handlers
@@ -1147,11 +1296,20 @@
     // Bottom sheet init
     sheet.init();
 
-    // Swipe + tap handlers (attached to containers — survive re-renders)
+    // Swipe + tap + bulk-check handlers (attached to containers — survive re-renders)
     var pitchListEl  = document.getElementById('nr-pitch-list');
     var budgetBodyEl = document.getElementById('nr-budget-body');
-    if (pitchListEl)  { wireSwipePitches(pitchListEl); wirePitchTap(pitchListEl); }
+    if (pitchListEl) {
+      wireSwipePitches(pitchListEl);
+      wirePitchTap(pitchListEl);
+      pitchListEl.addEventListener('change', function(e) {
+        if (e.target.closest('.nr-pitch-bulk-check')) updatePitchBulkBar();
+      });
+    }
     if (budgetBodyEl) { wireSwipeSlots(budgetBodyEl); wireSlotTap(budgetBodyEl); }
+
+    // Init bulk action bar
+    initPitchBulkBar();
 
     // FAB
     var fabEl = document.getElementById('nr-fab');

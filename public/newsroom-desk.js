@@ -31,7 +31,7 @@
     styles:     false,
   };
 
-  var activeTab = 'writers';
+  var activeTab = 'articles';
 
   // Articles tab state
   var artOffset      = 0;
@@ -317,10 +317,15 @@
     var panel = document.getElementById('desk-articles');
     if (!panel) return;
 
+    // Reset bulk bar on re-render
+    var bulkBar = document.getElementById('nr-article-bulk-bar');
+    if (bulkBar) bulkBar.style.display = 'none';
+
     // Restore persisted filter
     try { artStatus = localStorage.getItem('nr_desk_art_filter') || ''; } catch (_) {}
 
     var html = '<div class="nr-articles-toolbar">';
+    html += '<input type="checkbox" class="nr-bulk-check" id="nr-art-select-all" title="Select all" style="margin-right:2px;">';
     html += '<input class="nr-articles-search" id="nr-articles-search" placeholder="Search articles…" value="' + esc(artSearch) + '">';
     html += '<div class="nr-filter-chips" id="nr-articles-filter">';
     html += chipHtml('', 'All', artStatus);
@@ -360,7 +365,8 @@
       var dateSrc      = a.published_at || a.created_at;
       var meta         = (a.category ? esc(a.category) + ' · ' : '') + esc(relTime(dateSrc));
       var previewHref  = (a.slug && siteBase) ? siteBase + '/article/' + esc(a.slug) : '';
-      return '<div class="nr-article-row">'
+      return '<div class="nr-article-row" data-art-row-id="' + esc(String(a.id)) + '">'
+        + '<input type="checkbox" class="nr-bulk-check nr-art-row-check" data-art-id="' + esc(String(a.id)) + '" aria-label="Select">'
         + '<a class="nr-article-title" href="/article-editor.html?id=' + esc(String(a.id)) + '&return=/newsroom.html%23desk/articles" title="' + esc(displayTitle) + '">'
         + esc(truncate(displayTitle, 90))
         + '</a>'
@@ -439,6 +445,9 @@
       lmBtn.addEventListener('click', onArtLoadMore);
     }
 
+    // Wire bulk bar
+    initArticleBulkBar(panel);
+
     // Article inline action buttons (image, audio, archive, unpublish)
     panel.addEventListener('click', function(e) {
       var imgBtn = e.target.closest('[data-art-image]');
@@ -487,22 +496,39 @@
     }
   }
 
-  async function artArchive(articleId, btn) {
-    if (!confirm('Archive this article?')) return;
-    if (btn) { btn.disabled = true; }
-    try {
-      await apiFetch('/articles/' + articleId, { method: 'DELETE' });
-      showAlert('Article archived.', 'info');
-      var row = btn && btn.closest('.nr-article-row');
-      if (row) row.remove();
-    } catch(err) {
-      showAlert('Archive failed: ' + err.message, 'error');
-      if (btn) btn.disabled = false;
+  function artArchive(articleId, btn) {
+    var row = btn && btn.closest('.nr-article-row');
+    if (!row) return;
+    row.style.transition = 'opacity .15s';
+    row.style.opacity = '0.25';
+    if (btn) btn.disabled = true;
+
+    if (typeof showUndoToast !== 'function') {
+      apiFetch('/articles/' + articleId, { method: 'DELETE' }).then(function() {
+        row.remove();
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) btn.disabled = false;
+        showAlert('Archive failed: ' + err.message, 'error');
+      });
+      return;
     }
+
+    showUndoToast('Article archived.', function onCommit() {
+      apiFetch('/articles/' + articleId, { method: 'DELETE' }).then(function() {
+        row.remove();
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) btn.disabled = false;
+        showAlert('Archive failed: ' + err.message, 'error');
+      });
+    }, function onUndo() {
+      row.style.opacity = '';
+      if (btn) btn.disabled = false;
+    });
   }
 
   async function artUnpublish(articleId, btn) {
-    if (!confirm('Unpublish this article? It will revert to draft.')) return;
     var origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '…';
@@ -528,6 +554,145 @@
   function truncate(s, max) {
     var str = String(s || '');
     return str.length > max ? str.slice(0, max) + '…' : str;
+  }
+
+  // ── Bulk article actions ──────────────────────────────────────────────────
+
+  function updateArtBulkBar() {
+    var checked = document.querySelectorAll('#nr-articles-list .nr-art-row-check:checked');
+    var bar     = document.getElementById('nr-article-bulk-bar');
+    var countEl = document.getElementById('nr-article-bulk-count');
+    if (!bar) return;
+    var n = checked.length;
+    if (countEl) countEl.textContent = n + ' selected';
+    bar.style.display = n > 0 ? '' : 'none';
+  }
+
+  function bulkArchive() {
+    var checked = document.querySelectorAll('#nr-articles-list .nr-art-row-check:checked');
+    if (!checked.length) return;
+    var ids = Array.prototype.map.call(checked, function(c) { return parseInt(c.dataset.artId, 10); });
+
+    // Visually dim rows immediately
+    ids.forEach(function(id) {
+      var row = document.querySelector('[data-art-row-id="' + id + '"]');
+      if (row) { row.style.transition = 'opacity .15s'; row.style.opacity = '0.25'; }
+    });
+
+    var bar = document.getElementById('nr-article-bulk-bar');
+    if (bar) bar.style.display = 'none';
+
+    if (typeof showUndoToast !== 'function') {
+      ids.forEach(function(id) {
+        apiFetch('/articles/' + id, { method: 'DELETE' }).then(function() {
+          var row = document.querySelector('[data-art-row-id="' + id + '"]');
+          if (row) row.remove();
+        });
+      });
+      return;
+    }
+
+    var label = ids.length + ' article' + (ids.length !== 1 ? 's' : '');
+    showUndoToast('Archived ' + label + '.', function onCommit() {
+      ids.forEach(function(id) {
+        apiFetch('/articles/' + id, { method: 'DELETE' }).then(function() {
+          var row = document.querySelector('[data-art-row-id="' + id + '"]');
+          if (row) row.remove();
+        }).catch(function(err) {
+          var row = document.querySelector('[data-art-row-id="' + id + '"]');
+          if (row) row.style.opacity = '';
+          showAlert('Archive failed: ' + err.message, 'error');
+        });
+      });
+    }, function onUndo() {
+      ids.forEach(function(id) {
+        var row = document.querySelector('[data-art-row-id="' + id + '"]');
+        if (row) {
+          row.style.opacity = '';
+          var check = row.querySelector('.nr-art-row-check');
+          if (check) check.checked = false;
+        }
+      });
+    });
+  }
+
+  async function bulkUnpublish() {
+    var checked = document.querySelectorAll('#nr-articles-list .nr-art-row-check:checked');
+    if (!checked.length) return;
+    var ids = Array.prototype.map.call(checked, function(c) { return parseInt(c.dataset.artId, 10); });
+
+    var btn = document.getElementById('nr-article-bulk-unpublish');
+    if (btn) { btn.disabled = true; btn.textContent = 'Unpublishing…'; }
+
+    var succeeded = 0;
+    await Promise.all(ids.map(function(id) {
+      return apiFetch('/articles/' + id + '/publish', { method: 'PUT' }).then(function() {
+        succeeded++;
+        var row = document.querySelector('[data-art-row-id="' + id + '"]');
+        if (row) {
+          var statusBadge = row.querySelector('.nr-article-status');
+          if (statusBadge) { statusBadge.className = 'nr-article-status as-draft'; statusBadge.textContent = 'draft'; }
+          var unpubBtn = row.querySelector('[data-art-unpublish]');
+          if (unpubBtn) unpubBtn.remove();
+          var check = row.querySelector('.nr-art-row-check');
+          if (check) check.checked = false;
+        }
+      }).catch(function(err) {
+        showAlert('Unpublish failed for article ' + id + ': ' + err.message, 'error');
+      });
+    }));
+
+    if (succeeded > 0) showAlert('Unpublished ' + succeeded + ' article' + (succeeded !== 1 ? 's' : '') + '.', 'info');
+    if (btn) { btn.disabled = false; btn.textContent = 'Unpublish'; }
+    updateArtBulkBar();
+  }
+
+  function initArticleBulkBar(panel) {
+    // Wire select-all checkbox
+    var selectAll = panel.querySelector('#nr-art-select-all');
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        var allChecks = document.querySelectorAll('#nr-articles-list .nr-art-row-check');
+        Array.prototype.forEach.call(allChecks, function(c) { c.checked = selectAll.checked; });
+        updateArtBulkBar();
+      });
+    }
+
+    // Wire row checkbox changes
+    var listEl = document.getElementById('nr-articles-list');
+    if (listEl) {
+      listEl.addEventListener('change', function(e) {
+        if (e.target.closest('.nr-art-row-check')) {
+          // Update select-all indeterminate state
+          var allChecks = document.querySelectorAll('#nr-articles-list .nr-art-row-check');
+          var checkedCount = document.querySelectorAll('#nr-articles-list .nr-art-row-check:checked').length;
+          if (selectAll) {
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < allChecks.length;
+            selectAll.checked = checkedCount === allChecks.length && allChecks.length > 0;
+          }
+          updateArtBulkBar();
+        }
+      });
+    }
+
+    // Wire bulk bar buttons (outside panel — in main layout)
+    var archiveBtn = document.getElementById('nr-article-bulk-archive');
+    if (archiveBtn) { archiveBtn.onclick = bulkArchive; }
+
+    var unpublishBtn = document.getElementById('nr-article-bulk-unpublish');
+    if (unpublishBtn) { unpublishBtn.onclick = bulkUnpublish; }
+
+    var clearBtn = document.getElementById('nr-article-bulk-clear');
+    if (clearBtn) {
+      clearBtn.onclick = function() {
+        Array.prototype.forEach.call(
+          document.querySelectorAll('#nr-articles-list .nr-art-row-check'),
+          function(c) { c.checked = false; }
+        );
+        if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+        updateArtBulkBar();
+      };
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -565,7 +730,7 @@
     // ── Comments section ──
     var html = '<div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">';
     html += '<div class="nr-section-heading">Pending Moderation</div>';
-    html += '<span style="font-size:12px;color:var(--muted,#9ca3af);">'
+    html += '<span style="font-size:12px;color:var(--muted,#9ca3af);" data-queue-count="' + queue.length + '">'
       + esc(String(queue.length)) + ' item' + (queue.length !== 1 ? 's' : '')
       + '</span>';
     html += '</div>';
@@ -844,8 +1009,9 @@
     if (!panel) return;
     var countEl = panel.querySelector('[data-queue-count]');
     if (!countEl) return;
-    var n = (parseInt(countEl.textContent, 10) || 0) + delta;
-    countEl.textContent = String(Math.max(0, n));
+    var n = Math.max(0, (parseInt(countEl.dataset.queueCount, 10) || 0) + delta);
+    countEl.dataset.queueCount = String(n);
+    countEl.textContent = n + ' item' + (n !== 1 ? 's' : '');
   }
 
   // ══════════════════════════════════════════════════════════════════════════

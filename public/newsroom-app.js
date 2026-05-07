@@ -152,8 +152,88 @@
     }
   });
 
+  // Handle dynamic [data-ws][data-reports-tab] deep links (e.g. "AI Spend →" in Reports Overview)
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest('[data-reports-tab][data-ws]');
+    if (!link) return;
+    var ws  = link.dataset.ws;
+    var tab = link.dataset.reportsTab;
+    if (link.tagName === 'A') e.preventDefault();
+    if (ws) switchWorkspace(ws);
+    if (tab) setTimeout(function () {
+      if (window.NRReports && NRReports.switchTab) NRReports.switchTab(tab);
+    }, ws === activeWs ? 0 : 160);
+  });
+
   // Expose for inter-module communication
   window.NRApp = { switchWorkspace: switchWorkspace };
+})();
+
+// ── Shared undo toast ─────────────────────────────────────────────────────────
+(function () {
+  'use strict';
+
+  var _timer    = null;
+  var _commitFn = null;
+  var _undoFn   = null;
+  var DURATION  = 5000;
+
+  function showUndoToast(message, onCommit, onUndo) {
+    // If a previous toast is pending, commit it immediately before showing new one
+    if (_timer) {
+      clearTimeout(_timer);
+      _timer = null;
+      if (_commitFn) { _commitFn(); }
+    }
+    _commitFn = onCommit || null;
+    _undoFn   = onUndo   || null;
+
+    var toast = document.getElementById('nr-undo-toast');
+    if (!toast) { if (onCommit) onCommit(); return; }
+
+    var msgEl = toast.querySelector('.nr-undo-msg');
+    if (msgEl) msgEl.textContent = message;
+
+    // Reset + restart progress bar animation
+    var bar = toast.querySelector('.nr-undo-bar');
+    if (bar) { bar.style.transition = 'none'; bar.style.width = '100%'; }
+
+    toast.classList.add('visible');
+
+    if (bar) {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          bar.style.transition = 'width ' + DURATION + 'ms linear';
+          bar.style.width = '0%';
+        });
+      });
+    }
+
+    _timer = setTimeout(function () {
+      _timer = null;
+      _dismiss();
+      if (_commitFn) { _commitFn(); _commitFn = null; }
+    }, DURATION);
+  }
+
+  function _dismiss() {
+    var toast = document.getElementById('nr-undo-toast');
+    if (toast) toast.classList.remove('visible');
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var undoBtn = document.getElementById('nr-undo-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', function () {
+        if (_timer) { clearTimeout(_timer); _timer = null; }
+        _dismiss();
+        _commitFn = null;
+        if (_undoFn) { _undoFn(); _undoFn = null; }
+      });
+    }
+  });
+
+  window.showUndoToast = showUndoToast;
 })();
 
 // ── Appearance management (skin + font) ────────────────────────────────────────

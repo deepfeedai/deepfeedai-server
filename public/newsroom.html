@@ -1147,6 +1147,105 @@
 .as-draft     { background: rgba(255,255,255,.06); color: var(--muted); }
 .as-review    { background: var(--warn-dim); color: var(--warn); }
 
+/* ── Bulk-selection checkboxes ─────────────────────── */
+.nr-bulk-check {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* ── Floating bulk action bar ───────────────────────── */
+.nr-bulk-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--bg-sidebar, #18181b);
+  border: 1px solid var(--accent, #7c3aed);
+  border-radius: 8px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  z-index: 400;
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+  animation: ws-appear .18s ease;
+}
+.nr-bulk-count { color: var(--muted); white-space: nowrap; font-size: 11px; }
+.nr-bulk-approve-btn, .nr-bulk-archive-btn {
+  background: var(--success-dim, rgba(74,222,128,.08));
+  color: var(--success, #4ade80);
+  border: 1px solid rgba(74,222,128,.25);
+  border-radius: 5px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 4px 12px; cursor: pointer; white-space: nowrap;
+}
+.nr-bulk-approve-btn:hover { background: rgba(74,222,128,.18); }
+.nr-bulk-archive-btn:hover { background: rgba(74,222,128,.18); }
+.nr-bulk-dismiss-btn, .nr-bulk-unpublish-btn {
+  background: rgba(248,113,113,.08);
+  color: var(--danger, #ef4444);
+  border: 1px solid rgba(248,113,113,.25);
+  border-radius: 5px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 4px 12px; cursor: pointer; white-space: nowrap;
+}
+.nr-bulk-dismiss-btn:hover, .nr-bulk-unpublish-btn:hover { background: rgba(248,113,113,.18); }
+.nr-bulk-clear-btn {
+  background: none; border: none;
+  color: var(--muted); cursor: pointer;
+  font-size: 14px; padding: 2px 4px; line-height: 1;
+}
+.nr-bulk-clear-btn:hover { color: var(--text); }
+
+/* ── Undo toast ─────────────────────────────────────── */
+.nr-undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(130%);
+  background: #1a1a1f;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text);
+  z-index: 500;
+  transition: transform .25s ease, opacity .25s ease;
+  opacity: 0;
+  min-width: 260px;
+  max-width: 400px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.45);
+  overflow: hidden;
+  pointer-events: none;
+}
+.nr-undo-toast.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.nr-undo-msg { flex: 1; }
+.nr-undo-btn {
+  background: none;
+  border: 1px solid var(--accent, #7c3aed);
+  color: var(--accent, #7c3aed);
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+}
+.nr-undo-btn:hover { background: var(--accent-dim); }
+.nr-undo-bar {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 2px;
+  background: var(--accent, #7c3aed);
+  width: 100%;
+}
+
 /* ── Mobile bottom nav ─────────────────────────────── */
 .nr-mob-nav {
   display: none;
@@ -2277,15 +2376,15 @@ section.nr-expanded {
   <!-- ════════════ THE DESK ════════════ -->
   <div id="ws-desk" class="nr-workspace">
     <div class="desk-inner-tabs" id="nr-desk-tabs">
-      <button class="desk-inner-tab active" data-tab="writers">Writers</button>
-      <button class="desk-inner-tab" data-tab="articles">Articles</button>
+      <button class="desk-inner-tab active" data-tab="articles">Articles</button>
+      <button class="desk-inner-tab" data-tab="writers">Writers</button>
+      <button class="desk-inner-tab" data-tab="styles">Styles</button>
       <button class="desk-inner-tab" data-tab="engagement">Engagement</button>
       <button class="desk-inner-tab" data-tab="settings">Settings</button>
-      <button class="desk-tab desk-inner-tab" data-desk-tab="styles" data-tab="styles">Styles</button>
     </div>
     <div class="desk-panels">
-      <div id="desk-writers"    class="desk-panel active"><div class="nr-loading">Loading writers…</div></div>
-      <div id="desk-articles"   class="desk-panel"><div class="nr-loading">Loading articles…</div></div>
+      <div id="desk-articles"   class="desk-panel active"><div class="nr-loading">Loading articles…</div></div>
+      <div id="desk-writers"    class="desk-panel"><div class="nr-loading">Loading writers…</div></div>
       <div id="desk-engagement" class="desk-panel"><div class="nr-loading">Loading…</div></div>
       <div id="desk-settings"   class="desk-panel"><div class="nr-loading">Loading settings…</div></div>
       <div id="desk-styles"     class="desk-panel"><div class="nr-loading">Loading styles…</div></div>
@@ -2410,6 +2509,29 @@ section.nr-expanded {
 
 <!-- FAB — quick pitch creation -->
 <button class="nr-fab hidden" id="nr-fab" type="button" title="New pitch" aria-label="Create new pitch">+</button>
+
+<!-- UNDO TOAST -->
+<div id="nr-undo-toast" class="nr-undo-toast" role="status" aria-live="polite">
+  <span class="nr-undo-msg"></span>
+  <button type="button" class="nr-undo-btn" id="nr-undo-btn">Undo</button>
+  <div class="nr-undo-bar"></div>
+</div>
+
+<!-- PITCH BULK ACTION BAR -->
+<div id="nr-pitch-bulk-bar" class="nr-bulk-bar" aria-label="Bulk pitch actions" style="display:none;">
+  <span class="nr-bulk-count" id="nr-pitch-bulk-count">0 selected</span>
+  <button type="button" class="nr-bulk-approve-btn" id="nr-pitch-bulk-approve">Approve</button>
+  <button type="button" class="nr-bulk-dismiss-btn" id="nr-pitch-bulk-dismiss">Dismiss</button>
+  <button type="button" class="nr-bulk-clear-btn" id="nr-pitch-bulk-clear" aria-label="Clear selection">✕</button>
+</div>
+
+<!-- ARTICLE BULK ACTION BAR -->
+<div id="nr-article-bulk-bar" class="nr-bulk-bar" aria-label="Bulk article actions" style="display:none;">
+  <span class="nr-bulk-count" id="nr-article-bulk-count">0 selected</span>
+  <button type="button" class="nr-bulk-archive-btn" id="nr-article-bulk-archive">Archive</button>
+  <button type="button" class="nr-bulk-unpublish-btn" id="nr-article-bulk-unpublish">Unpublish</button>
+  <button type="button" class="nr-bulk-clear-btn" id="nr-article-bulk-clear" aria-label="Clear selection">✕</button>
+</div>
 
 <!-- Keyboard shortcut cheatsheet -->
 <div id="nr-shortcuts-backdrop" class="nr-shortcuts-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
