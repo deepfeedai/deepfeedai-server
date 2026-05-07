@@ -859,28 +859,48 @@ router.get('/next-drop', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/news/live-events — public Newsroom Glass feed
-// Returns the most recent public newsroom events for the live feed widget.
+// Returns recent public newsroom events for the live feed widget.
+// Default window: 48h. Falls back to the latest 20 events if the window
+// yields fewer than 5 results (keeps the feed useful on quiet days).
 // ?limit=20  — max 50
 // ?before=<id> — cursor for pagination (load older events)
+// ?hours=48   — override window (max 168)
 router.get('/live-events', asyncHandler(async (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit) || 20, 50);
+  const hours  = Math.min(parseInt(req.query.hours)  || 48, 168);
   const before = parseInt(req.query.before) || null;
 
   const params = [req.tenantId, limit];
-  const beforeClause = before ? `AND id < $3` : '';
-  if (before) params.push(before);
+  const beforeClause = before ? `AND id < $${params.push(before) && params.length}` : '';
+  const windowClause = `AND created_at > NOW() - ($${params.push(hours + ' hours') && params.length})::interval`;
 
-  const rows = await db.prepare(`
+  let rows = await db.prepare(`
     SELECT id, event_type, headline, entity_slug, is_terminal,
            actor_writer_id, target_article_id, target_pitch_id,
            payload, created_at
     FROM newsroom_events
     WHERE tenant_id = $1
       AND is_public = true
+      ${windowClause}
       ${beforeClause}
     ORDER BY created_at DESC
     LIMIT $2
   `).all(...params);
+
+  // Fallback: if the time window returns fewer than 5 events, extend to all-time
+  // so the feed isn't empty on quiet days.
+  if (rows.length < 5 && !before) {
+    rows = await db.prepare(`
+      SELECT id, event_type, headline, entity_slug, is_terminal,
+             actor_writer_id, target_article_id, target_pitch_id,
+             payload, created_at
+      FROM newsroom_events
+      WHERE tenant_id = $1
+        AND is_public = true
+      ORDER BY created_at DESC
+      LIMIT $2
+    `).all(req.tenantId, limit);
+  }
 
   res.json({ events: rows || [] });
 }));
