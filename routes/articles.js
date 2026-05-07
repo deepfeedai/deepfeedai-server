@@ -1540,4 +1540,72 @@ ${articleLines}`,
   });
 }));
 
+// POST /api/articles/:id/rewrite — lightweight AI rewrite of headline, summary, or full body
+// Body: { mode: 'headline' | 'summary' | 'full' }
+router.post('/:id/rewrite', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const { mode } = req.body || {};
+  if (!['headline', 'summary', 'full'].includes(mode)) {
+    return res.status(400).json({ error: 'mode must be headline, summary, or full' });
+  }
+
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const { complete: aiComplete } = require('../lib/ai-router');
+
+  if (mode === 'headline') {
+    const prompt = `Rewrite this news headline to be clear, direct, and compelling without clickbait or sensationalism. Return only the headline text, no quotes.\n\nOriginal: ${article.title}\n\nContext: ${(article.summary || '').slice(0, 200)}`;
+    const result = await aiComplete({
+      operation: 'summary',
+      tenantId: req.tenantId,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      maxTokens: 100,
+      trigger: 'article-rewrite',
+    });
+    const newTitle = result?.text?.trim().replace(/^["']|["']$/g, '');
+    if (!newTitle) return res.status(500).json({ error: 'AI returned no result' });
+    await db.prepare('UPDATE articles SET generated_title = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newTitle, article.id, req.tenantId);
+    logAudit(req, 'article.rewrite', 'article', parseInt(req.params.id), { mode, title: newTitle });
+    return res.json({ ok: true, mode, generated_title: newTitle });
+  }
+
+  if (mode === 'summary') {
+    const body = (article.full_content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1200);
+    const prompt = `Write a concise 1–2 sentence news summary for the article below. Return only the summary text.\n\nTitle: ${article.title}\n\nBody: ${body}`;
+    const result = await aiComplete({
+      operation: 'summary',
+      tenantId: req.tenantId,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      maxTokens: 160,
+      trigger: 'article-rewrite',
+    });
+    const newSummary = result?.text?.trim();
+    if (!newSummary) return res.status(500).json({ error: 'AI returned no result' });
+    await db.prepare('UPDATE articles SET summary = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newSummary, article.id, req.tenantId);
+    logAudit(req, 'article.rewrite', 'article', parseInt(req.params.id), { mode });
+    return res.json({ ok: true, mode, summary: newSummary });
+  }
+
+  if (mode === 'full') {
+    const body = article.full_content || '';
+    if (!body || body.trim().length < 100) return res.status(400).json({ error: 'Article body is too short to rewrite' });
+    const prompt = `You are a tech news editor. Rewrite the following article to improve clarity, flow, and readability while preserving all facts and key information. Return only the rewritten article body in plain markdown.\n\nTitle: ${article.title}\n\nArticle:\n${body.slice(0, 4000)}`;
+    const result = await aiComplete({
+      operation: 'content',
+      tenantId: req.tenantId,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.6,
+      maxTokens: 2000,
+      trigger: 'article-rewrite',
+    });
+    const newContent = result?.text?.trim();
+    if (!newContent) return res.status(500).json({ error: 'AI returned no result' });
+    await db.prepare('UPDATE articles SET full_content = $1, content_blocks = NULL, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newContent, article.id, req.tenantId);
+    logAudit(req, 'article.rewrite', 'article', parseInt(req.params.id), { mode });
+    return res.json({ ok: true, mode, full_content: newContent });
+  }
+}));
+
 module.exports = router;
