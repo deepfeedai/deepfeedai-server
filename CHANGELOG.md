@@ -8,6 +8,111 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.0-beta.2] — 2026-05-07
+Newsroom timezone support + budget auto-promote wiring (PR #740)
+
+**Added:**
+- `newsroom_timezone` setting per tenant — IANA timezone string (e.g. `America/New_York`); falls back to `UTC`. Set in Desk → Settings via a new dropdown (27 zones).
+- `budget_autopilot_hours` setting — hours before pending runsheet slots auto-promote (default 2h). Editable in Desk → Settings.
+- `todayInTz(tz)` and `currentHourInTz(tz)` helpers in `lib/news-budget.js` — `generateDailyBudget()` now uses the tenant's local date, not UTC.
+- `target_publish_at` on each runsheet slot is now calculated in the newsroom timezone (was always UTC).
+- `auto_promote_at` is now populated at budget INSERT time from `budget_autopilot_hours`.
+- `daily-budget` cron changed from `0 7 * * *` (UTC-hardcoded) to `0 * * * *` with an in-handler hour check — fires generation at 7 AM local time for each tenant.
+- New `budget-autopromote` cron runs every 15 minutes; calls `autoPromoteSlots()` when autopilot is on.
+
+---
+
+## [1.0.0-beta.1] — 2026-05-07
+Newsroom bulk actions, undo toast, and 3 bug fixes (PR #739)
+
+**Added:**
+- Bulk pitch selection on The Floor — checkbox per pitch row + select-all; floating action bar with Approve and Dismiss buttons; parallel API calls with per-item error handling.
+- Bulk article selection on The Desk → Articles — checkbox per row + select-all; floating action bar with Archive and Unpublish buttons.
+- Undo toast (5-second countdown, Slack/Gmail style) replaces all `confirm()` dialogs on destructive actions — dismiss pitch, archive article, unpublish article. Optimistically dims the row; API call fires on expiry; Undo cancels the timer and restores the row.
+
+**Fixed:**
+- Engagement count in Desk → Engagement tab always showed 0 — `data-queue-count` attribute was never written to the count span; `updateEngagementCount()` now reads/writes via `dataset.queueCount`.
+- Reports "AI Spend →" deep link was a dead no-op — added a document-level delegated handler for `[data-reports-tab][data-ws]` anchors; exposed `NRReports.switchTab()` in the public API.
+- Wire tab badge went stale after spiking a cluster — `updateWireTabBadge()` was create-once guarded; rewritten to always update, create, or remove the badge on every call.
+
+---
+
+## [1.0.0-beta] — 2026-05-05
+Major beta launch — Newsroom 1.0, writer agents, daily news budget, conversational AI, and social newsroom.
+
+**Newsroom (3-workspace editor UI):**
+- The Floor — today's runsheet (priority swimlanes: Lead / Standard / Brief / Hold), live activity feed, pitch queue with assign/approve/dismiss, agent standups.
+- The Wire — feed inbox clusters with Synthesize / Pitch / Spike actions; Stories tab (living story arcs, source count, inline article expand, dormant/reactivate); Discover tab; Pipeline status.
+- The Desk — Articles archive (search, filter, type/status, bulk actions); Writers tab; Styles tab; Engagement (comments moderation queue); Settings.
+- Reports workspace — Overview, Production (KPIs + sparklines), Content, AI Spend, Writers performance, Audit.
+- Maxwell chat bubble persistent across all workspaces.
+- Mobile bottom tab bar at ≤768px.
+
+**Daily News Budget (Runsheet):**
+- Maxwell generates 8–12 story slots at 7 AM: priority tiers, headline suggestions, rationale, recommended writer, publish window.
+- Editor approves slots (spawns pitch → synthesis), rejects, reassigns, or edits headlines inline.
+- Auto-promote: pending slots promote automatically after configurable delay when autopilot is on.
+- Budget performance feeds back into Maxwell's daily brief.
+
+**Writer Agents:**
+- Proactive beat search — agents scan Brave/HN/Reddit for their beat keywords every 2 hours; per-writer daily ingest cap.
+- Keyword-based article pool expansion — ILIKE matching on title/summary for miscategorised articles.
+- Cross-writer dedup — source overlap check prevents two agents pitching the same story within 24 hours.
+- Skip reason logging in `cron_runs.summary` (`pool_too_small`, `ai_parse_fail`, `cap_exhausted`).
+- Writer predictions, standups, and weekly follow-up reminders.
+
+**Conversational AI (LangGraph chat agent):**
+- Tool-loop StateGraph: load context → agent → (tools → agent)* → persist.
+- Six tools: searchArticles, fetchArticle, listWriterBeats, getWriterMemory, updateWriterMemory, checkRecentColleagueWork.
+- Slash commands: `/pitch`, `/tip`, `/clear`, `/new`, `/search`.
+- Persistent conversation history with summarisation; pgvector semantic article matching.
+
+**Social Newsroom:**
+- Activity feed with chronological event cards (published, pitched, approved, enriched).
+- Reactions (🔥💡🚩👀) and threaded replies on feed cards.
+- Agent presence dots (idle / chatting / drafting / researching / waiting-on-editor).
+- @mentions in replies dispatch to the named writer's agent; replies post back to the thread.
+
+**Living Story Timelines:**
+- Named story arcs grouping articles by topic_tag + pgvector cosine similarity (≥0.78).
+- Maxwell AI generates story name and "story so far" summary.
+- Lifecycle: active → dormant (7 days quiet) → archived (14 days dormant).
+- Stories admin page with sparkline, article list, backfill modal, and lifecycle controls.
+- Public API: `/api/news/stories`, `/api/news/stories/:slug`.
+
+**Graphic Designer agent (Iris):**
+- Art-directs thumbnails and writer avatars via 8 style families.
+- Per-writer avatar style overrides; batchRegenerateWriterAvatars tool.
+- Separate art direction for thumbnails vs avatars.
+
+**Notifications & Actions:**
+- Cross-channel notifications (web bell, Telegram inline keyboards, Slack).
+- HMAC-signed action tokens — approve/reject from any channel in one click.
+- Cohort cascade: action in one channel marks siblings as used across all channels.
+
+**External Research:**
+- Brave News, Hacker News (Algolia), and Reddit search backends.
+- On-demand ingest as curated rows; editor-mediated trust; per-tenant quota.
+
+**Waitlist & signup gate:**
+- `SIGNUPS_ENABLED=false` by default; waitlist capture with Resend audience sync.
+- Waitlist confirmation email flow.
+
+**Other:**
+- Unified AI router: text + image + embeddings + voice all route through `lib/ai-router.js`.
+- DALL-E image provider alongside Imagen.
+- Originals-only tiered public feed (Breaking / Major / Trending) with decay scoring.
+- Topic following — readers follow topics; post-publish fan-out notifications.
+- Semantic synthesis clustering (pgvector cosine ≥0.72, named-entity overlap, recency weighting).
+- Editorial bulk actions (approve/reject/discard) on the Editorial review queue.
+- Budget gate on all AI operations with daily/monthly spend tracking and alerts.
+
+---
+
+> **Note:** Prior to 1.0.0-beta, this project used a legacy versioning scheme (1.x → 4.x based on feature milestones). That history is preserved below for reference.
+
+---
+
 ## [4.15.0] — 2026-05-03
 
 Living Story Timelines — persistent named story arcs grouping articles across time, with admin UI and feed inbox source support.

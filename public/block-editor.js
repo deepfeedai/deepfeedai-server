@@ -582,7 +582,14 @@
   function initActionsPanel() {
     if (!articleId) return;
 
-    document.getElementById('editorActions').style.display = '';
+    const actionsEl = document.getElementById('editorActions');
+    actionsEl.style.display = '';
+
+    // Scroll sidebar to reveal Actions section after layout settles
+    setTimeout(function() {
+      const sidebar = document.getElementById('editorSidebar');
+      if (sidebar) sidebar.scrollTop = actionsEl.offsetTop - 20;
+    }, 400);
 
     // Publish toggle label
     syncPublishToggleLabel();
