@@ -30,6 +30,9 @@
     writersMap: {},
     generating: false,
     publishConfirmPending: false,
+    publishMode: 'continuous',   // 'continuous' | 'scheduled'
+    dropWindows: ['07:00', '12:00', '18:00'],
+    newsroomTz: 'UTC',
   };
 
   // Pitch filter state
@@ -41,6 +44,28 @@
   function writerColour(id) {
     if (!avColourCache[id]) avColourCache[id] = AV_COLOURS[(id || 0) % AV_COLOURS.length];
     return avColourCache[id];
+  }
+
+  function renderPresenceRow(writers) {
+    var el = document.getElementById('nr-presence-row');
+    if (!el) return;
+    var active = writers.filter(function(w) { return !w.is_system; });
+    if (!active.length) { el.style.display = 'none'; return; }
+    var html = '';
+    active.forEach(function(w) {
+      var st   = w.presence_state || 'idle';
+      var dotCls = (st === 'drafting' || st === 'researching') ? 'nr-presence-dot--active'
+                 : st === 'chatting' ? 'nr-presence-dot--busy'
+                 : 'nr-presence-dot--idle';
+      var stLabel = st === 'waiting-on-editor' ? 'waiting' : st === 'idle' ? '' : st;
+      html += '<span class="nr-presence-chip">'
+        + '<span class="nr-presence-dot ' + esc(dotCls) + '"></span>'
+        + '<span class="nr-presence-name">' + esc((w.name || '').split(' ')[0]) + '</span>'
+        + (stLabel ? '<span class="nr-presence-state">· ' + esc(stLabel) + '</span>' : '')
+        + '</span>';
+    });
+    el.innerHTML = html;
+    el.style.display = 'flex';
   }
 
   // ── HTML helpers ──────────────────────────────────────────────────────────
@@ -68,8 +93,33 @@
     if (!iso) return 'Unscheduled';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return 'Unscheduled';
-    var h = d.getUTCHours(), mn = d.getUTCMinutes();
-    return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0') + ' UTC';
+    try {
+      return d.toLocaleTimeString('en-US', {
+        timeZone: state.newsroomTz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      var h = d.getUTCHours(), mn = d.getUTCMinutes();
+      return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0') + ' UTC';
+    }
+  }
+
+  function nextWindowLabel() {
+    // Returns the label for the next upcoming drop window in newsroom tz
+    var now = new Date();
+    for (var i = 0; i < state.dropWindows.length; i++) {
+      var parts = state.dropWindows[i].split(':');
+      var candidate = new Date(now);
+      candidate.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+      if (candidate > now) {
+        return candidate.toLocaleTimeString('en-US', {
+          timeZone: state.newsroomTz, hour: 'numeric', minute: '2-digit', hour12: true,
+        });
+      }
+    }
+    return 'tomorrow ' + state.dropWindows[0];
   }
 
   function writerChipHtml(slot) {
@@ -276,62 +326,212 @@
       return;
     }
 
-    var html = '';
+    // Group by target_article_id; events without one stay as standalone rows.
+    var groups = [];
+    var byArticle = {};
     events.forEach(function(ev) {
-      var dotCls = activityDotClass(ev.event_type);
-      var text   = activityText(ev);
-      html += '<div class="nr-activity-item">'
-        + '<div class="nr-ev-dot ' + dotCls + '"></div>'
-        + '<div class="nr-activity-body">'
-        + '<div class="nr-activity-text">' + text + '</div>'
-        + '<div class="nr-activity-time">' + esc(relTime(ev.created_at)) + '</div>'
-        + '</div>'
+      if (ev.event_type === 'standup') {
+        groups.push({ type: 'standup', ev: ev });
+        return;
+      }
+      var key = ev.target_article_id ? 'a' + ev.target_article_id : null;
+      if (key && byArticle[key]) {
+        byArticle[key].events.push(ev);
+      } else if (key) {
+        var g = { type: 'thread', key: key, events: [ev] };
+        byArticle[key] = g;
+        groups.push(g);
+      } else {
+        groups.push({ type: 'single', ev: ev });
+      }
+    });
+
+    var html = '';
+    groups.forEach(function(g) {
+      if (g.type === 'standup') {
+        html += renderStandupCard(g.ev);
+        return;
+      }
+      if (g.type === 'single') {
+        html += renderActivityRow(g.ev, '');
+        return;
+      }
+      // thread with 2+ events
+      var evts = g.events.slice().sort(function(a, b) {
+        if (a.is_terminal && !b.is_terminal) return -1;
+        if (!a.is_terminal && b.is_terminal) return 1;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+      var lead = evts[0];
+      var rest = evts.slice(1);
+      if (!rest.length) { html += renderActivityRow(lead, ''); return; }
+      var histHtml = '';
+      rest.forEach(function(ev) {
+        histHtml += '<div class="nr-activity-thread-item">' + renderActivityRowInner(ev) + '</div>';
+      });
+      var toggleLabel = rest.length + ' earlier event' + (rest.length !== 1 ? 's' : '');
+      html += '<div class="nr-activity-thread">'
+        + '<div class="nr-activity-thread-lead">' + renderActivityRowInner(lead)
+        + '<span class="nr-activity-thread-chevron">›</span></div>'
+        + '<button class="nr-activity-thread-toggle" type="button">↳ ' + esc(toggleLabel) + '</button>'
+        + '<div class="nr-activity-thread-history">' + histHtml + '</div>'
         + '</div>';
     });
     el.innerHTML = html;
+
+    // Wire up thread expand/collapse
+    el.querySelectorAll('.nr-activity-thread').forEach(function(thread) {
+      thread.addEventListener('click', function(e) {
+        if (e.target.closest('a') || e.target.closest('.nr-react-pill')) return;
+        thread.classList.toggle('expanded');
+      });
+    });
+
+    // Wire up reaction pills
+    el.querySelectorAll('.nr-react-pill').forEach(function(pill) {
+      pill.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var eventId = pill.dataset.eventId;
+        var emoji   = pill.dataset.emoji;
+        if (!eventId || !emoji) return;
+        apiFetch('/newsroom-feed/' + eventId + '/react', { method: 'POST', body: { emoji: emoji } })
+          .then(function(res) {
+            if (!res) return;
+            var cnt = pill.querySelector('.nr-react-cnt');
+            var cur = cnt ? parseInt(cnt.textContent, 10) || 0 : 0;
+            if (res.action === 'added') {
+              var next = cur + 1;
+              pill.innerHTML = emoji + ' <span class="nr-react-cnt">' + next + '</span>';
+              pill.classList.add('nr-react-pill--active');
+            } else {
+              var next2 = Math.max(0, cur - 1);
+              pill.innerHTML = next2 > 0 ? emoji + ' <span class="nr-react-cnt">' + next2 + '</span>' : emoji;
+              pill.classList.remove('nr-react-pill--active');
+            }
+          }).catch(function() {});
+      });
+    });
+  }
+
+  function renderActivityRow(ev, extraClass) {
+    return '<div class="nr-activity-item' + (extraClass ? ' ' + extraClass : '') + '">'
+      + renderActivityRowInner(ev)
+      + '</div>';
+  }
+
+  var REACTION_EMOJIS = ['👍', '🔥', '⚡', '👀', '❤️'];
+
+  function renderReactionBar(ev) {
+    var reactions = ev.reactions || {};
+    var replyCount = ev.reply_count || 0;
+    var pills = '';
+    REACTION_EMOJIS.forEach(function(emoji) {
+      var cnt = reactions[emoji] || 0;
+      pills += '<button class="nr-react-pill" data-event-id="' + ev.id + '" data-emoji="' + esc(emoji) + '" title="React ' + esc(emoji) + '">'
+        + emoji + (cnt > 0 ? ' <span class="nr-react-cnt">' + cnt + '</span>' : '')
+        + '</button>';
+    });
+    if (replyCount > 0) {
+      pills += '<span class="nr-reply-count">💬 ' + replyCount + '</span>';
+    }
+    return '<div class="nr-reaction-bar">' + pills + '</div>';
+  }
+
+  function renderActivityRowInner(ev) {
+    var dotCls  = activityDotClass(ev.event_type);
+    var text    = activityText(ev);
+    var avatarHtml = '';
+    if (ev.actor_writer_avatar_url) {
+      avatarHtml = '<img class="nr-ev-avatar" src="' + esc(ev.actor_writer_avatar_url) + '" alt="" loading="lazy">';
+    } else if (ev.actor_writer_name || ev.actor_writer_avatar) {
+      var writerName = ev.actor_writer_name || '';
+      var initials = writerName.split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
+      var colour   = ev.actor_writer_accent_color || writerColour(ev.actor_writer_id);
+      avatarHtml   = '<div class="nr-ev-avatar nr-ev-avatar--initials" style="background:' + esc(colour) + '">' + esc(initials) + '</div>';
+    } else {
+      avatarHtml = '<div class="nr-ev-dot ' + esc(dotCls) + '"></div>';
+    }
+    return avatarHtml
+      + '<div class="nr-activity-body">'
+      + '<div class="nr-activity-text">' + text + '</div>'
+      + '<div class="nr-activity-time">' + esc(relTime(ev.created_at)) + '</div>'
+      + renderReactionBar(ev)
+      + '</div>';
+  }
+
+  function renderStandupCard(ev) {
+    var actor = ev.actor_writer_name || (ev.actor_writer_id ? 'Writer' : 'Maxwell');
+    var text  = (ev.payload && ev.payload.text) || '';
+    return '<div class="nr-standup-card">'
+      + '<div class="nr-standup-card-header">'
+      + esc(actor) + ' standup'
+      + '<span class="nr-standup-time">' + esc(relTime(ev.created_at)) + '</span>'
+      + '</div>'
+      + (text ? '<div class="nr-standup-card-text">' + esc(text.slice(0, 160)) + (text.length > 160 ? '…' : '') + '</div>' : '')
+      + '</div>';
   }
 
   function activityDotClass(type) {
     if (!type) return 'nr-ev-default';
-    if (type === 'published')              return 'nr-ev-published';
-    if (type.startsWith('pitch') || type === 'pitched') return 'nr-ev-pitched';
-    if (type === 'daily_brief' || type === 'weekly_digest') return 'nr-ev-brief';
+    if (type === 'published')                                      return 'nr-ev-published';
+    if (type === 'synthesis_started')                              return 'nr-ev-synthesis';
+    if (type === 'pitched' || type.startsWith('pitch'))            return 'nr-ev-pitched';
+    if (type === 'daily_brief' || type === 'weekly_digest')        return 'nr-ev-brief';
+    if (type === 'standup')                                        return 'nr-ev-standup';
     if (type.includes('editorial') || type.includes('budget') || type.includes('slot')) return 'nr-ev-editorial';
     return 'nr-ev-default';
   }
 
   function activityText(ev) {
-    var actor = ev.actor_writer_name || 'System';
-    var type  = ev.event_type || '';
+    var actor   = ev.actor_writer_name || (ev.actor_writer_id ? 'Writer' : 'System');
+    var type    = ev.event_type || '';
     var payload = ev.payload || {};
+    var hl      = ev.headline || '';
 
     if (type === 'published') {
-      var title = (payload.title || payload.generated_title || '');
+      var title = payload.title || payload.generated_title || hl.replace(/^Published:\s*/i, '') || '';
+      var cat   = payload.category ? ' <span class="nr-badge nr-badge--cat">' + esc(payload.category) + '</span>' : '';
       return '<strong>' + esc(actor) + '</strong> published'
+        + cat
         + (title ? ' <span class="nr-activity-article">"' + esc(title.slice(0,70)) + (title.length > 70 ? '…' : '') + '"</span>' : '');
     }
     if (type === 'pitched' || type === 'pitch_proposed') {
-      var headline = payload.headline || '';
+      var topic  = hl.replace(/^New investigation:\s*/i, '').replace(/^[^:]+:\s+is investigating:\s*/i, '') || payload.angle_summary || '';
+      var srcs   = payload.source_count ? ' <span class="nr-badge nr-badge--sources">' + payload.source_count + ' sources</span>' : '';
       return '<strong>' + esc(actor) + '</strong> pitched'
-        + (headline ? ' <span class="nr-activity-article">"' + esc(headline.slice(0,60)) + (headline.length > 60 ? '…' : '') + '"</span>' : '');
+        + srcs
+        + (topic ? ' <span class="nr-activity-article">"' + esc(topic.slice(0,65)) + (topic.length > 65 ? '…' : '') + '"</span>' : '');
+    }
+    if (type === 'synthesis_started') {
+      var topic2 = payload.topic || (hl.replace(/^[^:]+:\s+is writing\s*(on\s*)?/i, '')) || '';
+      return '<strong>' + esc(actor) + '</strong> started writing'
+        + (topic2 ? ' <span class="nr-activity-article">"' + esc(topic2.slice(0,65)) + (topic2.length > 65 ? '…' : '') + '"</span>' : '');
+    }
+    if (type === 'editorial_review') {
+      var art = payload.title || hl || '';
+      return '<strong>Editorial</strong> reviewing'
+        + (art ? ' <span class="nr-activity-article">"' + esc(art.replace(/^Story under editorial review[^—]*—?\s*/i,'').slice(0,55)) + '…"</span>' : ' an article');
     }
     if (type === 'budget_published') {
       return '<strong>' + esc(actor) + '</strong> published today\'s runsheet';
     }
     if (type === 'budget_slot_approved') {
       var h = payload.headline || '';
-      return '<strong>' + esc(actor) + '</strong> approved slot'
-        + (h ? ': <span class="nr-activity-article">"' + esc(h.slice(0,55)) + (h.length > 55 ? '…' : '') + '"</span>' : '');
+      return '<strong>' + esc(actor) + '</strong> approved'
+        + (h ? ' <span class="nr-activity-article">"' + esc(h.slice(0,55)) + (h.length > 55 ? '…' : '') + '"</span>' : ' a slot');
     }
-    if (type === 'daily_brief') {
-      return '<strong>' + esc(actor) + '</strong> received daily brief';
+    if (type === 'pitch_rejected') {
+      return '<strong>' + esc(actor) + '</strong> <span style="color:var(--muted)">spiked a pitch</span>';
     }
-    if (type === 'editorial_review') {
-      var art = payload.title || '';
-      return '<strong>Editorial</strong> reviewed'
-        + (art ? ' <span class="nr-activity-article">"' + esc(art.slice(0,55)) + (art.length > 55 ? '…' : '') + '"</span>' : ' an article');
+    if (type === 'standup') {
+      var txt = payload.text || '';
+      return '<strong>' + esc(actor) + '</strong> standup'
+        + (txt ? ' — <span class="nr-activity-meta">' + esc(txt.slice(0,80)) + (txt.length > 80 ? '…' : '') + '</span>' : '');
     }
-    // fallback: humanise the event type
+    if (type === 'daily_brief' || type === 'weekly_digest') {
+      var label2 = type === 'weekly_digest' ? 'weekly digest' : 'daily brief';
+      return '<strong>' + esc(actor) + '</strong> posted ' + label2;
+    }
     var label = type.replace(/_/g, ' ');
     return '<strong>' + esc(actor) + '</strong> · ' + esc(label);
   }
@@ -361,6 +561,10 @@
     var isApprovedTab = pitchStatusFilter === 'approved';
     var isProposedTab = pitchStatusFilter === 'proposed';
 
+    // Reset bulk bar when list re-renders
+    var bulkBar = document.getElementById('nr-pitch-bulk-bar');
+    if (bulkBar) bulkBar.style.display = 'none';
+
     var html = '';
     pitches.forEach(function(p) {
       var initials = (p.writer_name || '?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
@@ -376,7 +580,12 @@
         ? '<button class="nr-dismiss-btn" data-dismiss-pitch="' + p.id + '" title="Dismiss">✕</button>'
         : '';
 
-      html += '<div class="nr-pitch-row">'
+      var checkHtml = (isProposedTab || isApprovedTab)
+        ? '<input type="checkbox" class="nr-bulk-check nr-pitch-bulk-check" data-pitch-id="' + p.id + '" aria-label="Select pitch">'
+        : '';
+
+      html += '<div class="nr-pitch-row" data-pitch-row-id="' + p.id + '">'
+        + checkHtml
         + pitchTypeBadge(p.pitch_type)
         + '<span class="nr-pitch-headline" title="' + esc(p.headline) + '">' + esc(p.headline || '—') + '</span>'
         + '<span class="nr-writer-chip" style="flex-shrink:0;"><span class="nr-av" style="' + avStyle + '">' + (p.writer_avatar_url ? '' : esc(initials)) + '</span>' + esc(p.writer_name || '') + '</span>'
@@ -470,7 +679,10 @@
     if (fullLink)  fullLink.href = '/article-editor.html?id=' + articleId;
     if (metaEl)    metaEl.innerHTML = '';
     if (excerptEl) excerptEl.innerHTML = '<div class="nr-loading">Loading…</div>';
-    if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+    var approveBtnLabel = state.publishMode === 'scheduled'
+      ? 'Approve & Schedule (' + nextWindowLabel() + ')'
+      : 'Approve & Publish';
+    if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = approveBtnLabel; }
     if (rejectBtn)  { rejectBtn.disabled = false;  rejectBtn.textContent = 'Send Back to Draft'; }
 
     overlay.style.display = 'flex';
@@ -522,14 +734,21 @@
     if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Approving…'; }
     if (rejectBtn)  rejectBtn.disabled = true;
     try {
-      await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
-      showAlert('Article approved and published.', 'success');
+      var result = await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      if (result && result.status === 'scheduled' && result.publish_at) {
+        var dropTime = fmtWindow(result.publish_at);
+        showAlert('Article scheduled — drops at ' + dropTime + '.', 'success');
+      } else {
+        showAlert('Article approved and published.', 'success');
+      }
       closeReviewModal();
       loadEditorialQueue();
       loadActivity();
+      if (state.publishMode === 'scheduled') loadScheduledQueue();
     } catch(err) {
       showAlert('Failed to approve: ' + err.message, 'error');
-      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+      var lbl = state.publishMode === 'scheduled' ? 'Approve & Schedule' : 'Approve & Publish';
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = lbl; }
       if (rejectBtn)  rejectBtn.disabled = false;
     }
   }
@@ -547,6 +766,220 @@
       showAlert('Failed to reject: ' + err.message, 'error');
       if (rejectBtn)  { rejectBtn.disabled = false; rejectBtn.textContent = 'Send Back to Draft'; }
       if (approveBtn) approveBtn.disabled = false;
+    }
+  }
+
+  // ── Drop countdown widget ─────────────────────────────────────────────────
+  var _dropTarget = null;   // Date of next drop
+  var _dropQueued = 0;
+  var _dropLabel  = 'Next drop';
+  var _dropTimer  = null;
+
+  function _fmtCountdown(ms) {
+    if (ms <= 0) return '00:00:00';
+    var s = Math.floor(ms / 1000);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(sec);
+  }
+
+  function _tickDropCountdown() {
+    var el = document.getElementById('nr-drop-countdown');
+    if (!el || !_dropTarget) return;
+    var ms = _dropTarget - Date.now();
+    var timerEl = el.querySelector('.nr-drop-timer');
+    if (timerEl) timerEl.textContent = _fmtCountdown(ms);
+    if (ms <= 0 && _dropTimer) {
+      // Window arrived — reload next drop info and scheduled queue
+      clearInterval(_dropTimer);
+      _dropTimer = null;
+      loadNextDrop();
+      loadScheduledQueue();
+    }
+  }
+
+  async function loadNextDrop() {
+    var el = document.getElementById('nr-drop-countdown');
+    if (!el) return;
+    try {
+      var data = await apiFetch('/news/next-drop');
+      if (!data || !data.enabled) { el.style.display = 'none'; return; }
+      _dropTarget = new Date(data.next_drop_at);
+      _dropQueued = data.articles_queued || 0;
+      _dropLabel  = data.drop_label || 'Next drop';
+
+      el.style.display = '';
+      el.innerHTML = '<span class="nr-drop-label">' + esc(_dropLabel) + '</span>'
+        + '<span class="nr-drop-timer">' + _fmtCountdown(_dropTarget - Date.now()) + '</span>'
+        + '<span class="nr-drop-queued"><strong>' + _dropQueued + '</strong> article' + (_dropQueued !== 1 ? 's' : '') + ' queued</span>';
+
+      if (_dropTimer) clearInterval(_dropTimer);
+      _dropTimer = setInterval(_tickDropCountdown, 1000);
+    } catch (err) {
+      el.style.display = 'none';
+    }
+  }
+
+  // ── Scheduled queue ───────────────────────────────────────────────────────
+  async function loadScheduledQueue() {
+    var el = document.getElementById('nr-scheduled-section');
+    if (!el) return;
+    if (state.publishMode !== 'scheduled') { el.style.display = 'none'; return; }
+    el.style.display = '';
+
+    var listEl = document.getElementById('nr-scheduled-list');
+    var countEl = document.getElementById('nr-scheduled-count');
+    try {
+      var data = await apiFetch('/articles/scheduled');
+      var articles = (data && data.articles) || [];
+      if (countEl) {
+        countEl.textContent = articles.length || '';
+        countEl.style.display = articles.length ? '' : 'none';
+      }
+      renderScheduledQueue(articles, listEl);
+    } catch (err) {
+      if (listEl) listEl.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderScheduledQueue(articles, listEl) {
+    if (!listEl) return;
+    if (!articles || !articles.length) {
+      listEl.innerHTML = '<div class="nr-empty"><span>Nothing scheduled.</span></div>';
+      return;
+    }
+
+    // Group by drop window (same publish_at = same window)
+    var groups = []; // [{time: ISO, label: string, items: []}]
+    articles.forEach(function(a) {
+      var key = a.publish_at ? new Date(a.publish_at).toISOString().slice(0,16) : 'unscheduled';
+      var last = groups[groups.length - 1];
+      if (last && last.key === key) {
+        last.items.push(a);
+      } else {
+        groups.push({
+          key: key,
+          label: a.publish_at ? fmtWindow(a.publish_at) : 'Unscheduled',
+          isMissed: a.publish_at && new Date(a.publish_at) < new Date(),
+          items: [a],
+        });
+      }
+    });
+
+    var html = '';
+    groups.forEach(function(g) {
+      var missedBadge = g.isMissed
+        ? '<span class="nr-missed-badge">⚠ missed</span>'
+        : '';
+      html += '<div class="nr-sched-group">';
+      html += '<div class="nr-sched-window-header">'
+        + '<span class="nr-sched-window-time">' + esc(g.label) + '</span>'
+        + missedBadge
+        + '<span class="nr-sched-window-count">' + g.items.length + ' article' + (g.items.length !== 1 ? 's' : '') + '</span>'
+        + '</div>';
+      g.items.forEach(function(a) {
+        var title = a.generated_title || a.title || '(Untitled)';
+        var truncated = title.length > 65 ? title.slice(0, 65) + '…' : title;
+        var writerChip = writerChipFromId(a.writer_id);
+        html += '<div class="nr-pitch-row nr-sched-row" data-article-id="' + a.id + '">'
+          + '<span class="nr-pitch-headline" title="' + esc(title) + '">' + esc(truncated) + '</span>'
+          + (writerChip || '')
+          + '<div class="nr-sched-actions">'
+          + '<button class="nr-btn-publish-now" data-sched-now="' + a.id + '" title="Publish immediately">Now</button>'
+          + '<div class="nr-sched-dropdown" data-sched-id="' + a.id + '">'
+          + '<button class="nr-btn-reschedule" data-sched-toggle="' + a.id + '" title="Reschedule">▾</button>'
+          + '<div class="nr-sched-menu" id="nr-sched-menu-' + a.id + '" style="display:none">'
+          + scheduleMenuOptions(a.id)
+          + '</div></div>'
+          + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    });
+    listEl.innerHTML = html;
+
+    // Wire up Publish Now buttons
+    listEl.querySelectorAll('[data-sched-now]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        rescheduleDrop(parseInt(btn.dataset.schedNow, 10), 'now', null, btn);
+      });
+    });
+
+    // Wire up reschedule dropdown toggles
+    listEl.querySelectorAll('[data-sched-toggle]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = btn.dataset.schedToggle;
+        var menu = document.getElementById('nr-sched-menu-' + id);
+        if (!menu) return;
+        var isOpen = menu.style.display !== 'none';
+        // Close all open menus first
+        listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+        if (!isOpen) menu.style.display = '';
+      });
+    });
+
+    // Wire up menu option clicks
+    listEl.querySelectorAll('[data-sched-window]').forEach(function(opt) {
+      opt.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id   = parseInt(opt.dataset.schedWindow, 10);
+        var time = opt.dataset.windowTime;
+        rescheduleDrop(id, 'window', time, opt);
+      });
+    });
+
+    // Close menus on outside click
+    document.addEventListener('click', function() {
+      if (listEl) listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+    }, { once: false });
+  }
+
+  function scheduleMenuOptions(articleId) {
+    // Build menu options from configured drop windows
+    var html = '';
+    state.dropWindows.forEach(function(w) {
+      // Convert window "HH:MM" to next UTC occurrence for display
+      var parts = w.split(':');
+      var candidate = new Date();
+      candidate.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+      if (candidate <= new Date()) candidate.setDate(candidate.getDate() + 1);
+      var label = candidate.toLocaleTimeString('en-US', {
+        timeZone: state.newsroomTz, hour: 'numeric', minute: '2-digit', hour12: true,
+      });
+      html += '<button class="nr-sched-option" data-sched-window="' + esc(String(articleId))
+        + '" data-window-time="' + esc(candidate.toISOString()) + '">' + esc(label) + '</button>';
+    });
+    return html;
+  }
+
+  async function rescheduleDrop(articleId, action, publishAt, triggerEl) {
+    if (triggerEl) triggerEl.disabled = true;
+    // Close any open menus
+    var listEl = document.getElementById('nr-scheduled-list');
+    if (listEl) listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+    try {
+      var body = action === 'now'
+        ? { action: 'now' }
+        : { action: 'window', publish_at: publishAt };
+      await apiFetch('/articles/' + articleId + '/reschedule', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      if (action === 'now') {
+        showAlert('Article published immediately.', 'success');
+      } else {
+        var label = fmtWindow(publishAt);
+        showAlert('Rescheduled to ' + label + '.', 'success');
+      }
+      loadScheduledQueue();
+      loadActivity();
+    } catch(err) {
+      showAlert('Failed: ' + err.message, 'error');
+      if (triggerEl) triggerEl.disabled = false;
     }
   }
 
@@ -700,6 +1133,7 @@
         state.writers = writers;
         state.writersMap = {};
         writers.forEach(function(w) { state.writersMap[w.id] = w; });
+        renderPresenceRow(state.writers);
       }
     } catch (err) {
       // Non-critical — editorial queue will just omit writer chips
@@ -714,36 +1148,65 @@
       // Remove the row
       var row = btn && btn.closest('.nr-pitch-row');
       if (row) row.remove();
-      // Decrement count
-      var countEl = document.getElementById('nr-pitch-count');
-      if (countEl) {
-        var n = parseInt(countEl.textContent, 10) - 1;
-        if (n <= 0) countEl.style.display = 'none';
-        else countEl.textContent = n;
-      }
+      updatePitchCount(-1);
     } catch (err) {
       showAlert('Failed to approve pitch: ' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = pitchStatusFilter === 'approved' ? 'Synthesize →' : 'Approve →'; }
     }
   }
 
-  async function dismissPitch(pitchId, btn) {
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    try {
-      await apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' });
-      showAlert('Pitch dismissed.', 'info');
-      var row = btn && btn.closest('.nr-pitch-row');
-      if (row) row.remove();
-      var countEl = document.getElementById('nr-pitch-count');
-      if (countEl) {
-        var n = parseInt(countEl.textContent, 10) - 1;
-        if (n <= 0) countEl.style.display = 'none';
-        else countEl.textContent = n;
-      }
-    } catch (err) {
-      showAlert('Failed to dismiss pitch: ' + err.message, 'error');
-      if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+  function updatePitchCount(delta) {
+    var countEl = document.getElementById('nr-pitch-count');
+    if (!countEl) return;
+    var n = (parseInt(countEl.textContent, 10) || 0) + delta;
+    if (n <= 0) countEl.style.display = 'none';
+    else { countEl.textContent = String(n); countEl.style.display = ''; }
+  }
+
+  function dismissPitch(pitchId, btn) {
+    var row = btn && btn.closest('.nr-pitch-row');
+
+    if (!row) {
+      // No row context (swipe or sheet) — direct dismiss
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+      });
+      return;
     }
+
+    // Undo toast path
+    row.style.transition = 'opacity .15s';
+    row.style.opacity = '0.25';
+    if (btn) btn.disabled = true;
+
+    if (typeof showUndoToast !== 'function') {
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        row.remove();
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+      });
+      return;
+    }
+
+    showUndoToast('Pitch dismissed.', function onCommit() {
+      apiFetch('/admin/pitches/' + pitchId + '/dismiss', { method: 'POST' }).then(function() {
+        row.remove();
+        updatePitchCount(-1);
+      }).catch(function(err) {
+        row.style.opacity = '';
+        if (btn) { btn.disabled = false; btn.textContent = '✕'; }
+        showAlert('Failed to dismiss pitch: ' + err.message, 'error');
+      });
+    }, function onUndo() {
+      row.style.opacity = '';
+      if (btn) btn.disabled = false;
+    });
   }
 
   // ── Bottom sheet ──────────────────────────────────────────────────────────
@@ -1109,6 +1572,117 @@
     });
   }
 
+  // ── Bulk pitch actions ────────────────────────────────────────────────────
+
+  function updatePitchBulkBar() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    var bar     = document.getElementById('nr-pitch-bulk-bar');
+    var countEl = document.getElementById('nr-pitch-bulk-count');
+    if (!bar) return;
+    var n = checked.length;
+    if (countEl) countEl.textContent = n + ' selected';
+    bar.style.display = n > 0 ? '' : 'none';
+  }
+
+  async function bulkApprovePitches() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    if (!checked.length) return;
+    var items = Array.prototype.map.call(checked, function(c) {
+      return { id: parseInt(c.dataset.pitchId, 10), row: c.closest('.nr-pitch-row') };
+    });
+
+    var btn = document.getElementById('nr-pitch-bulk-approve');
+    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+
+    var succeeded = 0;
+    await Promise.all(items.map(function(item) {
+      return apiFetch('/admin/pitches/' + item.id + '/approve', { method: 'POST' }).then(function() {
+        succeeded++;
+        if (item.row) item.row.remove();
+      }).catch(function(err) {
+        showAlert('Approve failed for pitch ' + item.id + ': ' + err.message, 'error');
+      });
+    }));
+
+    if (succeeded > 0) {
+      showAlert('Approved ' + succeeded + ' pitch' + (succeeded !== 1 ? 'es' : '') + '.', 'success');
+      updatePitchCount(-succeeded);
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = 'Approve'; }
+    updatePitchBulkBar();
+  }
+
+  function bulkDismissPitches() {
+    var checked = document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check:checked');
+    if (!checked.length) return;
+    var items = Array.prototype.map.call(checked, function(c) {
+      var row = c.closest('.nr-pitch-row');
+      return { id: parseInt(c.dataset.pitchId, 10), row: row };
+    });
+
+    // Dim rows immediately
+    items.forEach(function(item) {
+      if (item.row) { item.row.style.transition = 'opacity .15s'; item.row.style.opacity = '0.25'; }
+    });
+
+    var bar = document.getElementById('nr-pitch-bulk-bar');
+    if (bar) bar.style.display = 'none';
+
+    var n = items.length;
+    var label = n + ' pitch' + (n !== 1 ? 'es' : '');
+
+    if (typeof showUndoToast !== 'function') {
+      items.forEach(function(item) {
+        apiFetch('/admin/pitches/' + item.id + '/dismiss', { method: 'POST' }).then(function() {
+          if (item.row) item.row.remove();
+          updatePitchCount(-1);
+        });
+      });
+      return;
+    }
+
+    showUndoToast('Dismissed ' + label + '.', function onCommit() {
+      items.forEach(function(item) {
+        apiFetch('/admin/pitches/' + item.id + '/dismiss', { method: 'POST' }).then(function() {
+          if (item.row) item.row.remove();
+          updatePitchCount(-1);
+        }).catch(function(err) {
+          if (item.row) item.row.style.opacity = '';
+          showAlert('Dismiss failed: ' + err.message, 'error');
+        });
+      });
+    }, function onUndo() {
+      items.forEach(function(item) {
+        if (item.row) {
+          item.row.style.opacity = '';
+          var check = item.row.querySelector('.nr-pitch-bulk-check');
+          if (check) check.checked = false;
+        }
+      });
+      updatePitchBulkBar();
+    });
+  }
+
+  function initPitchBulkBar() {
+    var approveBtn = document.getElementById('nr-pitch-bulk-approve');
+    if (approveBtn) approveBtn.addEventListener('click', bulkApprovePitches);
+
+    var dismissBtn = document.getElementById('nr-pitch-bulk-dismiss');
+    if (dismissBtn) dismissBtn.addEventListener('click', bulkDismissPitches);
+
+    var clearBtn = document.getElementById('nr-pitch-bulk-clear');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        Array.prototype.forEach.call(
+          document.querySelectorAll('#nr-pitch-list .nr-pitch-bulk-check'),
+          function(c) { c.checked = false; }
+        );
+        updatePitchBulkBar();
+      });
+    }
+  }
+
   // ── Public init ───────────────────────────────────────────────────────────
   function init() {
     // Button handlers
@@ -1147,11 +1721,20 @@
     // Bottom sheet init
     sheet.init();
 
-    // Swipe + tap handlers (attached to containers — survive re-renders)
+    // Swipe + tap + bulk-check handlers (attached to containers — survive re-renders)
     var pitchListEl  = document.getElementById('nr-pitch-list');
     var budgetBodyEl = document.getElementById('nr-budget-body');
-    if (pitchListEl)  { wireSwipePitches(pitchListEl); wirePitchTap(pitchListEl); }
+    if (pitchListEl) {
+      wireSwipePitches(pitchListEl);
+      wirePitchTap(pitchListEl);
+      pitchListEl.addEventListener('change', function(e) {
+        if (e.target.closest('.nr-pitch-bulk-check')) updatePitchBulkBar();
+      });
+    }
     if (budgetBodyEl) { wireSwipeSlots(budgetBodyEl); wireSlotTap(budgetBodyEl); }
+
+    // Init bulk action bar
+    initPitchBulkBar();
 
     // FAB
     var fabEl = document.getElementById('nr-fab');
@@ -1171,31 +1754,45 @@
       });
     }
 
-    // Load writers first so writersMap is populated before editorial queue renders
-    loadWriters().then(function() {
-      loadEditorialQueue();
+    // Load publish mode settings first, then all panels
+    apiFetch('/settings').then(function(cfg) {
+      if (cfg && cfg.publish_mode) state.publishMode = cfg.publish_mode;
+      if (cfg && cfg.newsroom_timezone) state.newsroomTz = cfg.newsroom_timezone;
+      if (cfg && cfg.drop_windows) {
+        try { state.dropWindows = JSON.parse(cfg.drop_windows); } catch { /* use defaults */ }
+      }
+    }).catch(function() { /* use defaults */ }).finally(function() {
+      // Load writers first so writersMap is populated before editorial queue renders
+      loadWriters().then(function() {
+        loadEditorialQueue();
+        loadScheduledQueue();
+      });
+      loadNextDrop();
+      loadBudget();
+      loadActivity();
+      loadPitches();
     });
 
-    // Load all panels
-    loadBudget();
-    loadActivity();
-    loadPitches();
-
-    // Poll while Floor is active: activity 60s, pitches + editorial 120s
+    // Poll while Floor is active: activity 60s, pitches + editorial 120s, scheduled queue 60s
     var pollTick = 0;
     var pollTimer = setInterval(function() {
       var floor = document.getElementById('ws-floor');
       if (!floor || !floor.classList.contains('active')) return;
       pollTick++;
       loadActivity();
+      loadScheduledQueue();
       if (pollTick % 2 === 0) {   // every 2nd tick = 120s
         loadPitches();
         loadEditorialQueue();
+        loadNextDrop();
       }
     }, 60000);
 
     // Clean up on page hide
-    window.addEventListener('pagehide', function() { clearInterval(pollTimer); }, { once: true });
+    window.addEventListener('pagehide', function() {
+      clearInterval(pollTimer);
+      if (_dropTimer) clearInterval(_dropTimer);
+    }, { once: true });
   }
 
   window.NRFloor = { init: init, refreshPitches: loadPitches };

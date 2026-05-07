@@ -194,7 +194,7 @@ router.post('/trigger-digest', auth, requirePermission('articles.write'), requir
   res.json({ ok: true });
 }));
 
-const ALLOWED_EMOJI = new Set(['🔥', '💡', '🚩', '👀']);
+const ALLOWED_EMOJI = new Set(['🔥', '💡', '🚩', '👀', '👍', '⚡', '❤️']);
 
 async function requireSocialEnabled(req, res, next) {
   const on = await isFeatureEnabled(req.tenantId, 'newsroom_social').catch(() => false);

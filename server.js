@@ -656,6 +656,9 @@ registerJob({
       }
     }
 
+    const { checkAndEmitWireClusters } = require('./lib/newsroom-events');
+    checkAndEmitWireClusters(tenantId).catch(() => {});
+
     return { writers: writers.length, pitches: totalPitches, ingested: totalIngested, reasons: reasonLog };
   },
 });
