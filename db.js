@@ -1273,6 +1273,12 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_type ON newsroom_events(tenant_id, event_type, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_actor ON newsroom_events(actor_writer_id) WHERE actor_writer_id IS NOT NULL`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMPTZ`,
+    // Newsroom Glass — public live feed columns
+    `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS is_public   BOOLEAN DEFAULT false`,
+    `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS headline    TEXT`,
+    `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS entity_slug TEXT`,
+    `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS is_terminal BOOLEAN DEFAULT false`,
+    `CREATE INDEX IF NOT EXISTS idx_newsroom_events_public ON newsroom_events(tenant_id, created_at DESC) WHERE is_public = true`,
     // Editor thumbs-up/down feedback on individual briefs + digests. Used
     // immediately to show the user their prior vote; will later feed into
     // the brief prompt so Maxwell can adjust tone based on trailing feedback.

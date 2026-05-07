@@ -96,6 +96,10 @@ router.post('/', auth, requirePermission('articles.update'), requirePitchesEnabl
     targetArticleId: source_article_id,
     targetPitchId: row.id,
     payload: { angle_summary: row.angle_summary, source_title: source.title || null },
+    isPublic: true,
+    headline: writerName
+      ? `${writerName} is investigating: ${(row.angle_summary || source.title || '').slice(0, 160)}`
+      : `New investigation: ${(row.angle_summary || source.title || '').slice(0, 180)}`,
   });
   if (pitched_by_writer_id) {
     require('../lib/presence').setPresence(pitched_by_writer_id, req.tenantId, 'waiting-on-editor').catch(() => {});
