@@ -66,7 +66,9 @@ function isLoggedIn() {
   if (!token) return false;
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.exp * 1000 > Date.now();
+    if (payload.exp * 1000 <= Date.now()) return false;
+    if (payload.type !== 'tenant-admin' && payload.type !== 'platform-admin') return false;
+    return true;
   } catch {
     return false;
   }
