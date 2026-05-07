@@ -560,6 +560,29 @@ router.patch('/:id/importance', auth, requirePermission('articles.update'), asyn
   res.json({ ok: true, importance, locked: true });
 }));
 
+// GET /api/articles/quick-stories?slug= — list active/dormant stories for story picker (public user JWT)
+// NOTE: must be registered before GET /:id so Express doesn't consume this path as an id param.
+router.get('/quick-stories', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const stories = await db.prepare(
+    "SELECT id, name FROM story_timelines WHERE tenant_id = $1 AND status IN ('active','dormant') ORDER BY updated_at DESC LIMIT 100"
+  ).all(article.tenant_id);
+
+  res.json({ stories: stories || [] });
+}));
+
 // GET /api/articles/:id
 router.get('/:id', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
@@ -1497,6 +1520,124 @@ router.post('/regen-audio', require('../middleware/user-jwt'), userImageRegenLim
   res.json({ ok: true, queued: true });
 }));
 
+// ── Quick-action endpoints (public user JWT, slug-based) ─────────────────────
+// Used by the floating admin toolbar on the public site. All require the caller's
+// email to match an active admin user for the article's tenant.
+
+// POST /api/articles/quick-publish?slug= — toggle published status
+router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id, title, is_published FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const newPublished = article.is_published ? 0 : 1;
+  const newStatus    = newPublished ? 'published' : 'draft';
+  await db.prepare(
+    'UPDATE articles SET is_published = $1, is_archived = 0, status = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
+  ).run(newPublished, newStatus, article.id, article.tenant_id);
+
+  if (newPublished) {
+    onArticlePublished(article.id, article.tenant_id).catch(() => {});
+  }
+
+  res.json({ ok: true, is_published: newPublished });
+}));
+
+// POST /api/articles/quick-archive?slug= — soft-archive article
+router.post('/quick-archive', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  await db.prepare(`
+    UPDATE articles
+    SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
+        is_pinned = 0, featured_source = NULL, featured_until = NULL,
+        status = 'archived', archived_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2
+  `).run(article.id, article.tenant_id);
+
+  res.json({ ok: true });
+}));
+
+// POST /api/articles/quick-feature?slug= — toggle featured status
+router.post('/quick-feature', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id, is_featured FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const newFeatured = article.is_featured ? 0 : 1;
+  if (newFeatured) {
+    await db.prepare(
+      'UPDATE articles SET is_featured = 1, featured_priority = 1, featured_source = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
+    ).run('toolbar', article.id, article.tenant_id);
+  } else {
+    await db.prepare(
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, featured_source = NULL, featured_until = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+    ).run(article.id, article.tenant_id);
+  }
+
+  res.json({ ok: true, is_featured: newFeatured });
+}));
+
+// POST /api/articles/quick-story?slug= — add article to a story
+// Body: { storyId }
+router.post('/quick-story', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const { storyId } = req.body || {};
+  if (!storyId) return res.status(400).json({ error: 'storyId required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const story = await db.prepare(
+    'SELECT id FROM story_timelines WHERE id = $1 AND tenant_id = $2'
+  ).get(parseInt(storyId), article.tenant_id);
+  if (!story) return res.status(404).json({ error: 'Story not found' });
+
+  const { addArticleToStory } = require('../lib/story-timelines');
+  await addArticleToStory(story.id, article.id, article.tenant_id);
+
+  res.json({ ok: true });
+}));
+
+// ── End quick-action endpoints ────────────────────────────────────────────────
 
 // PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
 router.patch('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
