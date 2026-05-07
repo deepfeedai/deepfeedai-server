@@ -30,6 +30,9 @@
     writersMap: {},
     generating: false,
     publishConfirmPending: false,
+    publishMode: 'continuous',   // 'continuous' | 'scheduled'
+    dropWindows: ['07:00', '12:00', '18:00'],
+    newsroomTz: 'UTC',
   };
 
   // Pitch filter state
@@ -68,8 +71,33 @@
     if (!iso) return 'Unscheduled';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return 'Unscheduled';
-    var h = d.getUTCHours(), mn = d.getUTCMinutes();
-    return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0') + ' UTC';
+    try {
+      return d.toLocaleTimeString('en-US', {
+        timeZone: state.newsroomTz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      var h = d.getUTCHours(), mn = d.getUTCMinutes();
+      return String(h).padStart(2,'0') + ':' + String(mn).padStart(2,'0') + ' UTC';
+    }
+  }
+
+  function nextWindowLabel() {
+    // Returns the label for the next upcoming drop window in newsroom tz
+    var now = new Date();
+    for (var i = 0; i < state.dropWindows.length; i++) {
+      var parts = state.dropWindows[i].split(':');
+      var candidate = new Date(now);
+      candidate.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+      if (candidate > now) {
+        return candidate.toLocaleTimeString('en-US', {
+          timeZone: state.newsroomTz, hour: 'numeric', minute: '2-digit', hour12: true,
+        });
+      }
+    }
+    return 'tomorrow ' + state.dropWindows[0];
   }
 
   function writerChipHtml(slot) {
@@ -479,7 +507,10 @@
     if (fullLink)  fullLink.href = '/article-editor.html?id=' + articleId;
     if (metaEl)    metaEl.innerHTML = '';
     if (excerptEl) excerptEl.innerHTML = '<div class="nr-loading">Loading…</div>';
-    if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+    var approveBtnLabel = state.publishMode === 'scheduled'
+      ? 'Approve & Schedule (' + nextWindowLabel() + ')'
+      : 'Approve & Publish';
+    if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = approveBtnLabel; }
     if (rejectBtn)  { rejectBtn.disabled = false;  rejectBtn.textContent = 'Send Back to Draft'; }
 
     overlay.style.display = 'flex';
@@ -531,14 +562,21 @@
     if (approveBtn) { approveBtn.disabled = true; approveBtn.textContent = 'Approving…'; }
     if (rejectBtn)  rejectBtn.disabled = true;
     try {
-      await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
-      showAlert('Article approved and published.', 'success');
+      var result = await apiFetch('/articles/' + articleId + '/approve', { method: 'PUT' });
+      if (result && result.status === 'scheduled' && result.publish_at) {
+        var dropTime = fmtWindow(result.publish_at);
+        showAlert('Article scheduled — drops at ' + dropTime + '.', 'success');
+      } else {
+        showAlert('Article approved and published.', 'success');
+      }
       closeReviewModal();
       loadEditorialQueue();
       loadActivity();
+      if (state.publishMode === 'scheduled') loadScheduledQueue();
     } catch(err) {
       showAlert('Failed to approve: ' + err.message, 'error');
-      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = 'Approve & Publish'; }
+      var lbl = state.publishMode === 'scheduled' ? 'Approve & Schedule' : 'Approve & Publish';
+      if (approveBtn) { approveBtn.disabled = false; approveBtn.textContent = lbl; }
       if (rejectBtn)  rejectBtn.disabled = false;
     }
   }
@@ -556,6 +594,167 @@
       showAlert('Failed to reject: ' + err.message, 'error');
       if (rejectBtn)  { rejectBtn.disabled = false; rejectBtn.textContent = 'Send Back to Draft'; }
       if (approveBtn) approveBtn.disabled = false;
+    }
+  }
+
+  // ── Scheduled queue ───────────────────────────────────────────────────────
+  async function loadScheduledQueue() {
+    var el = document.getElementById('nr-scheduled-section');
+    if (!el) return;
+    if (state.publishMode !== 'scheduled') { el.style.display = 'none'; return; }
+    el.style.display = '';
+
+    var listEl = document.getElementById('nr-scheduled-list');
+    var countEl = document.getElementById('nr-scheduled-count');
+    try {
+      var data = await apiFetch('/articles/scheduled');
+      var articles = (data && data.articles) || [];
+      if (countEl) {
+        countEl.textContent = articles.length || '';
+        countEl.style.display = articles.length ? '' : 'none';
+      }
+      renderScheduledQueue(articles, listEl);
+    } catch (err) {
+      if (listEl) listEl.innerHTML = '<div class="nr-empty" style="color:var(--danger);">Failed to load: ' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderScheduledQueue(articles, listEl) {
+    if (!listEl) return;
+    if (!articles || !articles.length) {
+      listEl.innerHTML = '<div class="nr-empty"><span>Nothing scheduled.</span></div>';
+      return;
+    }
+
+    // Group by drop window (same publish_at = same window)
+    var groups = []; // [{time: ISO, label: string, items: []}]
+    articles.forEach(function(a) {
+      var key = a.publish_at ? new Date(a.publish_at).toISOString().slice(0,16) : 'unscheduled';
+      var last = groups[groups.length - 1];
+      if (last && last.key === key) {
+        last.items.push(a);
+      } else {
+        groups.push({
+          key: key,
+          label: a.publish_at ? fmtWindow(a.publish_at) : 'Unscheduled',
+          isMissed: a.publish_at && new Date(a.publish_at) < new Date(),
+          items: [a],
+        });
+      }
+    });
+
+    var html = '';
+    groups.forEach(function(g) {
+      var missedBadge = g.isMissed
+        ? '<span class="nr-missed-badge">⚠ missed</span>'
+        : '';
+      html += '<div class="nr-sched-group">';
+      html += '<div class="nr-sched-window-header">'
+        + '<span class="nr-sched-window-time">' + esc(g.label) + '</span>'
+        + missedBadge
+        + '<span class="nr-sched-window-count">' + g.items.length + ' article' + (g.items.length !== 1 ? 's' : '') + '</span>'
+        + '</div>';
+      g.items.forEach(function(a) {
+        var title = a.generated_title || a.title || '(Untitled)';
+        var truncated = title.length > 65 ? title.slice(0, 65) + '…' : title;
+        var writerChip = writerChipFromId(a.writer_id);
+        html += '<div class="nr-pitch-row nr-sched-row" data-article-id="' + a.id + '">'
+          + '<span class="nr-pitch-headline" title="' + esc(title) + '">' + esc(truncated) + '</span>'
+          + (writerChip || '')
+          + '<div class="nr-sched-actions">'
+          + '<button class="nr-btn-publish-now" data-sched-now="' + a.id + '" title="Publish immediately">Now</button>'
+          + '<div class="nr-sched-dropdown" data-sched-id="' + a.id + '">'
+          + '<button class="nr-btn-reschedule" data-sched-toggle="' + a.id + '" title="Reschedule">▾</button>'
+          + '<div class="nr-sched-menu" id="nr-sched-menu-' + a.id + '" style="display:none">'
+          + scheduleMenuOptions(a.id)
+          + '</div></div>'
+          + '</div>'
+          + '</div>';
+      });
+      html += '</div>';
+    });
+    listEl.innerHTML = html;
+
+    // Wire up Publish Now buttons
+    listEl.querySelectorAll('[data-sched-now]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        rescheduleDrop(parseInt(btn.dataset.schedNow, 10), 'now', null, btn);
+      });
+    });
+
+    // Wire up reschedule dropdown toggles
+    listEl.querySelectorAll('[data-sched-toggle]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id = btn.dataset.schedToggle;
+        var menu = document.getElementById('nr-sched-menu-' + id);
+        if (!menu) return;
+        var isOpen = menu.style.display !== 'none';
+        // Close all open menus first
+        listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+        if (!isOpen) menu.style.display = '';
+      });
+    });
+
+    // Wire up menu option clicks
+    listEl.querySelectorAll('[data-sched-window]').forEach(function(opt) {
+      opt.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id   = parseInt(opt.dataset.schedWindow, 10);
+        var time = opt.dataset.windowTime;
+        rescheduleDrop(id, 'window', time, opt);
+      });
+    });
+
+    // Close menus on outside click
+    document.addEventListener('click', function() {
+      if (listEl) listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+    }, { once: false });
+  }
+
+  function scheduleMenuOptions(articleId) {
+    // Build menu options from configured drop windows
+    var html = '';
+    state.dropWindows.forEach(function(w) {
+      // Convert window "HH:MM" to next UTC occurrence for display
+      var parts = w.split(':');
+      var candidate = new Date();
+      candidate.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+      if (candidate <= new Date()) candidate.setDate(candidate.getDate() + 1);
+      var label = candidate.toLocaleTimeString('en-US', {
+        timeZone: state.newsroomTz, hour: 'numeric', minute: '2-digit', hour12: true,
+      });
+      html += '<button class="nr-sched-option" data-sched-window="' + esc(String(articleId))
+        + '" data-window-time="' + esc(candidate.toISOString()) + '">' + esc(label) + '</button>';
+    });
+    return html;
+  }
+
+  async function rescheduleDrop(articleId, action, publishAt, triggerEl) {
+    if (triggerEl) triggerEl.disabled = true;
+    // Close any open menus
+    var listEl = document.getElementById('nr-scheduled-list');
+    if (listEl) listEl.querySelectorAll('.nr-sched-menu').forEach(function(m) { m.style.display = 'none'; });
+    try {
+      var body = action === 'now'
+        ? { action: 'now' }
+        : { action: 'window', publish_at: publishAt };
+      await apiFetch('/articles/' + articleId + '/reschedule', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      if (action === 'now') {
+        showAlert('Article published immediately.', 'success');
+      } else {
+        var label = fmtWindow(publishAt);
+        showAlert('Rescheduled to ' + label + '.', 'success');
+      }
+      loadScheduledQueue();
+      loadActivity();
+    } catch(err) {
+      showAlert('Failed: ' + err.message, 'error');
+      if (triggerEl) triggerEl.disabled = false;
     }
   }
 
@@ -1329,23 +1528,32 @@
       });
     }
 
-    // Load writers first so writersMap is populated before editorial queue renders
-    loadWriters().then(function() {
-      loadEditorialQueue();
+    // Load publish mode settings first, then all panels
+    apiFetch('/settings').then(function(cfg) {
+      if (cfg && cfg.publish_mode) state.publishMode = cfg.publish_mode;
+      if (cfg && cfg.newsroom_timezone) state.newsroomTz = cfg.newsroom_timezone;
+      if (cfg && cfg.drop_windows) {
+        try { state.dropWindows = JSON.parse(cfg.drop_windows); } catch { /* use defaults */ }
+      }
+    }).catch(function() { /* use defaults */ }).finally(function() {
+      // Load writers first so writersMap is populated before editorial queue renders
+      loadWriters().then(function() {
+        loadEditorialQueue();
+        loadScheduledQueue();
+      });
+      loadBudget();
+      loadActivity();
+      loadPitches();
     });
 
-    // Load all panels
-    loadBudget();
-    loadActivity();
-    loadPitches();
-
-    // Poll while Floor is active: activity 60s, pitches + editorial 120s
+    // Poll while Floor is active: activity 60s, pitches + editorial 120s, scheduled queue 60s
     var pollTick = 0;
     var pollTimer = setInterval(function() {
       var floor = document.getElementById('ws-floor');
       if (!floor || !floor.classList.contains('active')) return;
       pollTick++;
       loadActivity();
+      loadScheduledQueue();
       if (pollTick % 2 === 0) {   // every 2nd tick = 120s
         loadPitches();
         loadEditorialQueue();

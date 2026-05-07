@@ -116,6 +116,73 @@
             Disable AI Summary
           </label>
         </div>
+
+        <!-- Actions panel — shown only when editing an existing article -->
+        <div id="editorActions" style="display:none">
+          <h3 class="editor-sidebar-heading" style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border-color)">Actions</h3>
+
+          <!-- Status -->
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="btn btn-outline btn-sm" id="actionTogglePublish" style="width:100%;justify-content:center;">Unpublish</button>
+              <button class="btn btn-ghost btn-sm" id="actionArchive" style="width:100%;justify-content:center;">Archive</button>
+            </div>
+          </div>
+
+          <!-- Rewrite -->
+          <div class="form-group">
+            <label class="form-label">Rewrite</label>
+            <div style="display:flex;gap:6px;">
+              <select class="form-control form-control-sm" id="actionRewriteMode" style="flex:1">
+                <option value="headline">Headline</option>
+                <option value="summary">Summary</option>
+                <option value="full">Full body</option>
+              </select>
+              <button class="btn btn-ghost btn-sm" id="actionRewrite" style="white-space:nowrap">Go</button>
+            </div>
+          </div>
+
+          <!-- AI Media -->
+          <div class="form-group">
+            <label class="form-label">AI Media</label>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="btn btn-ghost btn-sm" id="actionGenAudio" style="width:100%;justify-content:center;">Generate Audio</button>
+              <button class="btn btn-ghost btn-sm" id="actionGenThumbnail" style="width:100%;justify-content:center;">Regenerate Thumbnail</button>
+              <button class="btn btn-ghost btn-sm" id="actionRegenerate" style="display:none;width:100%;justify-content:center;">Regenerate Article</button>
+            </div>
+          </div>
+
+          <!-- Source panel (originals only) -->
+          <div id="actionSourcePanel" class="form-group" style="display:none">
+            <label class="form-label">Source Articles</label>
+            <div id="actionSourceList" style="display:flex;flex-direction:column;gap:4px;"></div>
+          </div>
+
+          <!-- Utilities -->
+          <div class="form-group">
+            <label class="form-label">Utilities</label>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="btn btn-ghost btn-sm" id="actionCopyLink" style="width:100%;justify-content:center;">Copy Share Link</button>
+              <div id="actionReadingTime" class="text-muted text-sm" style="padding:4px 0;">Reading time: —</div>
+            </div>
+          </div>
+
+          <!-- Add to Story -->
+          <div class="form-group">
+            <label class="form-label">Add to Story</label>
+            <select class="form-control form-control-sm" id="actionStorySelect">
+              <option value="">Loading stories…</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" id="actionAddToStory" style="width:100%;margin-top:4px;justify-content:center;">Add to Story</button>
+          </div>
+
+          <!-- Danger zone -->
+          <div class="form-group" style="margin-top:8px;padding-top:16px;border-top:1px solid var(--border-color)">
+            <button class="btn btn-sm" id="actionDelete" style="width:100%;justify-content:center;background:transparent;border:1px solid #e53e3e;color:#e53e3e;">Delete Permanently</button>
+          </div>
+        </div>
+
       </div>
     </aside>
 

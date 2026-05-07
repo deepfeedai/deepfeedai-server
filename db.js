@@ -1952,6 +1952,12 @@ async function initDb() {
     if (!/already exists/i.test(err.message)) console.error('[DB] writing_styles setup:', err.message);
   }
 
+  // Scheduled publishing — publish_at holds article until drop window; status = 'scheduled' bridges approved → published.
+  await p.query(`ALTER TABLE articles ADD COLUMN IF NOT EXISTS publish_at TIMESTAMPTZ DEFAULT NULL`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_articles_scheduled ON articles(tenant_id, status, publish_at) WHERE status = 'scheduled'`);
+  // Thread target_publish_at from budget slot → story pitch so synthesis can seed articles.publish_at.
+  await p.query(`ALTER TABLE story_pitches ADD COLUMN IF NOT EXISTS target_publish_at TIMESTAMPTZ DEFAULT NULL`);
+
   // Seed default voice character
   const voiceCount = await prepare('SELECT COUNT(*) as cnt FROM voices').get();
   if (parseInt(voiceCount.cnt) === 0) {

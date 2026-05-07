@@ -101,7 +101,7 @@ const aiLimiter = rateLimit({
 // For cross-origin write/admin requests the ALLOWED_ORIGINS env var is
 // used as an allowlist (set in Railway). Same-origin requests (admin panel
 // fetching its own API) are always allowed.
-const PUBLIC_PATHS = ['/api/news', '/api/article', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/analytics/client-logs', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
+const PUBLIC_PATHS = ['/api/news', '/api/news/next-drop', '/api/article', '/api/user-auth', '/api/comments', '/api/subscribe', '/api/unsubscribe', '/api/contact', '/api/thumbnail', '/api/trends', '/api/favorites', '/api/article-reactions', '/api/notifications', '/api/read-history', '/api/site-config', '/api/analytics/event', '/api/analytics/client-logs', '/api/writers', '/api/newsletter/preview', '/api/banners/active', '/api/features', '/api/instance-info', '/api/setup'];
 
 const DEFAULT_LOCAL_ORIGINS = ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:4000', 'http://127.0.0.1:4000'];
 
@@ -765,6 +765,64 @@ registerJob({
 
     const { autoPromoteSlots } = require('./lib/news-budget');
     return autoPromoteSlots(tenantId);
+  },
+});
+
+registerJob({
+  name: 'article-publisher',
+  description: 'Releases scheduled articles whose drop-window publish_at time has passed',
+  category: 'Editorial',
+  defaultSchedule: '*/5 * * * *', // every 5 minutes
+  handler: async (tenantId) => {
+    const appCfg = await getAppConfig(tenantId);
+    if (appCfg.publish_mode !== 'scheduled') return { skipped: 'publish_mode is continuous' };
+
+    const { rows: due } = await db.getPool().query(
+      `SELECT id, title, editorial_score FROM articles
+       WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0 AND publish_at <= NOW()`,
+      [tenantId]
+    );
+    if (!due.length) return { published: 0 };
+
+    const ids = due.map(a => a.id);
+    const ph  = ids.map((_, i) => `$${i + 2}`).join(', ');
+    await db.getPool().query(
+      `UPDATE articles
+       SET status = 'published', is_published = 1, is_archived = 0, published_at = NOW(), updated_at = NOW()
+       WHERE tenant_id = $1 AND id IN (${ph})`,
+      [tenantId, ...ids]
+    );
+
+    const { onArticlePublished } = require('./lib/post-publish');
+    for (const a of due) onArticlePublished(a.id, tenantId).catch(() => {});
+
+    // Batch notification to editors — one message for the whole drop, not per-article.
+    setImmediate(() => {
+      (async () => {
+        try {
+          const { notify } = require('./lib/notifications');
+          const editors = await db.prepare(
+            `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
+          ).all(tenantId).catch(() => []);
+          const body = due.length === 1
+            ? `"${due[0].title}" is now live.`
+            : `${due.length} articles are now live.`;
+          for (const ed of editors) {
+            notify({
+              tenantId,
+              userId:  ed.id,
+              kind:    'drop_published',
+              title:   'Articles dropped',
+              body,
+              payload: { count: due.length, ids },
+            }).catch(() => {});
+          }
+        } catch { /* non-fatal */ }
+      })();
+    });
+
+    console.log(`[article-publisher] tenant ${tenantId}: published ${ids.length} articles (${ids.join(', ')})`);
+    return { published: ids.length, ids };
   },
 });
 

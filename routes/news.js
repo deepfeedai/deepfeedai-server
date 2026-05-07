@@ -811,4 +811,51 @@ router.delete('/topic-pulse/:tag/follow', asyncHandler(async (req, res) => {
   res.json({ ok: true, topic_tag: req.params.tag, following: false });
 }));
 
+// GET /api/news/next-drop — public; returns next drop window time + queued article count.
+// Returns { enabled: false } when publish_mode is continuous.
+router.get('/next-drop', asyncHandler(async (req, res) => {
+  const { getAppConfig } = require('../lib/app-config');
+  const { nextDropWindow } = require('../lib/news-budget');
+
+  const appCfg = await getAppConfig(req.tenantId);
+  if (appCfg.publish_mode !== 'scheduled') {
+    return res.json({ enabled: false });
+  }
+
+  const tz   = appCfg.newsroom_timezone || 'UTC';
+  const next = nextDropWindow(tz, appCfg.drop_windows);
+
+  const { rows } = await getPool().query(
+    `SELECT COUNT(*)::int AS count FROM articles
+     WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0`,
+    [req.tenantId]
+  );
+  const queued = rows[0]?.count || 0;
+
+  // Find which named window this maps to for the label
+  let dropLabel = 'Next drop';
+  try {
+    const windows = typeof appCfg.drop_windows === 'string'
+      ? JSON.parse(appCfg.drop_windows)
+      : (appCfg.drop_windows || ['07:00', '12:00', '18:00']);
+    const localHour = parseInt(
+      new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(next),
+      10
+    );
+    const NAMES = { 7: 'Morning', 12: 'Afternoon', 18: 'Evening', 6: 'Evening' };
+    const winHour = parseInt((windows.find(w => {
+      const h = parseInt(w.split(':')[0], 10);
+      return h === localHour;
+    }) || '').split(':')[0], 10);
+    dropLabel = NAMES[winHour] || 'Next drop';
+  } catch { /* use default label */ }
+
+  res.json({
+    enabled:      true,
+    next_drop_at: next.toISOString(),
+    drop_label:   dropLabel,
+    articles_queued: queued,
+  });
+}));
+
 module.exports = router;

@@ -52,7 +52,7 @@
       document.getElementById(id)?.addEventListener('input', () => { isDirty = true; });
     });
     document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
-    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
+    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; saveArticle(); if (articleId) syncPublishToggleLabel(); });
 
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
@@ -149,6 +149,7 @@
     }
 
     await initEditorInstance(blockData);
+    initActionsPanel();
   }
 
   // ── Initialize Editor.js ───────────────────────────────
@@ -206,6 +207,7 @@
       onChange: () => {
         isDirty = true;
         updateStatus('Unsaved changes');
+        updateReadingTime();
       },
     };
 
@@ -574,5 +576,308 @@
       .replace(/_(.+?)_/g, '<i>$1</i>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  }
+
+  // ── Actions Panel ──────────────────────────────────────
+  function initActionsPanel() {
+    if (!articleId) return;
+
+    document.getElementById('editorActions').style.display = '';
+
+    // Publish toggle label
+    syncPublishToggleLabel();
+
+    // Show regenerate + source panel only for originals/deep-dive
+    const isOriginal = articleData && (articleData.content_type === 'original' || articleData.content_type === 'deep-dive');
+    if (isOriginal) {
+      document.getElementById('actionRegenerate').style.display = '';
+      renderSourcePanel();
+    }
+
+    // Wire listeners
+    document.getElementById('actionTogglePublish').addEventListener('click', handleTogglePublish);
+    document.getElementById('actionArchive').addEventListener('click', handleArchive);
+    document.getElementById('actionRewrite').addEventListener('click', handleRewrite);
+    document.getElementById('actionGenAudio').addEventListener('click', handleGenAudio);
+    document.getElementById('actionGenThumbnail').addEventListener('click', handleGenThumbnail);
+    document.getElementById('actionRegenerate').addEventListener('click', handleRegenerate);
+    document.getElementById('actionCopyLink').addEventListener('click', handleCopyLink);
+    document.getElementById('actionAddToStory').addEventListener('click', handleAddToStory);
+    document.getElementById('actionDelete').addEventListener('click', handleDelete);
+
+    // Reading time — live update on editor change
+    updateReadingTime();
+
+    // Load active stories for dropdown
+    loadStoriesForDropdown();
+  }
+
+  function syncPublishToggleLabel() {
+    const btn = document.getElementById('actionTogglePublish');
+    if (!btn) return;
+    const isPublished = document.getElementById('editorPublished').checked;
+    btn.textContent = isPublished ? 'Unpublish' : 'Publish';
+  }
+
+  function updateReadingTime() {
+    if (!editor) return;
+    editor.save().then(function(data) {
+      var words = 0;
+      (data.blocks || []).forEach(function(b) {
+        var text = '';
+        if (b.data) {
+          text = (b.data.text || '') + ' ' + (b.data.caption || '') + ' ' +
+            (Array.isArray(b.data.items) ? b.data.items.join(' ') : '');
+        }
+        words += text.replace(/<[^>]+>/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+      });
+      var mins = Math.max(1, Math.round(words / 200));
+      var el = document.getElementById('actionReadingTime');
+      if (el) el.textContent = 'Reading time: ~' + mins + ' min (' + words + ' words)';
+    }).catch(function() {});
+  }
+
+  async function handleTogglePublish() {
+    const btn = document.getElementById('actionTogglePublish');
+    btn.disabled = true;
+    try {
+      const result = await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT' });
+      const nowPublished = result.is_published === 1;
+      document.getElementById('editorPublished').checked = nowPublished;
+      articleData.is_published = nowPublished ? 1 : 0;
+      syncPublishToggleLabel();
+      updateStatus(nowPublished ? 'Published' : 'Unpublished');
+      showAlert(nowPublished ? 'Article published' : 'Article unpublished');
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function handleArchive() {
+    if (!confirm('Archive this article? It will be unpublished and hidden from the feed.')) return;
+    const btn = document.getElementById('actionArchive');
+    btn.disabled = true;
+    try {
+      await apiFetch('/articles/' + articleId, { method: 'DELETE' });
+      showAlert('Article archived');
+      setTimeout(function() { window.location.href = '/articles.html'; }, 1200);
+    } catch (err) {
+      showAlert('Archive failed: ' + err.message, 'error');
+      btn.disabled = false;
+    }
+  }
+
+  async function handleRewrite() {
+    const mode = document.getElementById('actionRewriteMode').value;
+    const btn = document.getElementById('actionRewrite');
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const result = await apiFetch('/articles/' + articleId + '/rewrite', {
+        method: 'POST',
+        body: JSON.stringify({ mode }),
+      });
+      if (mode === 'headline' && result.generated_title) {
+        document.getElementById('editorTitle').value = result.generated_title;
+        updateTopbarTitle();
+        autoResizeTitle();
+        isDirty = true;
+      } else if (mode === 'summary' && result.summary) {
+        document.getElementById('esSummary').value = result.summary;
+        isDirty = true;
+      } else if (mode === 'full' && result.full_content) {
+        // Reload editor with new content
+        var blocks = markdownToBlocks(result.full_content);
+        await initEditorInstance(blocks);
+        isDirty = true;
+      }
+      updateReadingTime();
+      showAlert('Rewrite complete');
+    } catch (err) {
+      showAlert('Rewrite failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Go';
+    }
+  }
+
+  async function handleGenAudio() {
+    const btn = document.getElementById('actionGenAudio');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      await apiFetch('/media/generate-audio', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: parseInt(articleId) }),
+      });
+      showAlert('Audio generation started — check back shortly');
+    } catch (err) {
+      showAlert('Audio failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate Audio';
+    }
+  }
+
+  async function handleGenThumbnail() {
+    const btn = document.getElementById('actionGenThumbnail');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    try {
+      const result = await apiFetch('/media/generate-image', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: parseInt(articleId) }),
+      });
+      if (result && result.imageUrl) {
+        setImageField(result.imageUrl);
+        isDirty = true;
+      }
+      showAlert('Thumbnail regenerated');
+    } catch (err) {
+      showAlert('Thumbnail failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Regenerate Thumbnail';
+    }
+  }
+
+  async function handleRegenerate() {
+    if (!confirm('Regenerate this article from its source articles? This will replace the current content.')) return;
+    const btn = document.getElementById('actionRegenerate');
+    btn.disabled = true;
+    btn.textContent = 'Regenerating…';
+    try {
+      const result = await apiFetch('/articles/' + articleId + '/regenerate', { method: 'POST' });
+      showAlert('Article regenerated — reloading…');
+      setTimeout(function() { window.location.reload(); }, 1500);
+    } catch (err) {
+      showAlert('Regenerate failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Regenerate Article';
+    }
+  }
+
+  function handleCopyLink() {
+    if (!articleData) return;
+    var slug = articleData.slug || '';
+    var url = getSiteBase() + '/article/' + slug;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(function() {
+        showAlert('Link copied');
+      }).catch(function() {
+        prompt('Copy this link:', url);
+      });
+    } else {
+      prompt('Copy this link:', url);
+    }
+  }
+
+  async function loadStoriesForDropdown() {
+    try {
+      const data = await apiFetch('/story-timelines?status=active,dormant&limit=100');
+      const stories = (data && data.stories) ? data.stories : (Array.isArray(data) ? data : []);
+      const sel = document.getElementById('actionStorySelect');
+      if (!stories.length) {
+        sel.innerHTML = '<option value="">No active stories</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">Select a story…</option>' +
+        stories.map(function(s) {
+          return '<option value="' + s.id + '">' + escHtml(s.name || ('Story #' + s.id)) + '</option>';
+        }).join('');
+    } catch (err) {
+      document.getElementById('actionStorySelect').innerHTML = '<option value="">Failed to load stories</option>';
+    }
+  }
+
+  async function handleAddToStory() {
+    const storyId = document.getElementById('actionStorySelect').value;
+    if (!storyId) { showAlert('Select a story first', 'error'); return; }
+    const btn = document.getElementById('actionAddToStory');
+    btn.disabled = true;
+    try {
+      await apiFetch('/story-timelines/' + storyId + '/articles', {
+        method: 'POST',
+        body: JSON.stringify({ articleId: parseInt(articleId) }),
+      });
+      showAlert('Added to story');
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function handleDelete() {
+    const title = document.getElementById('editorTitle').value.trim() || 'this article';
+    if (!confirm('Permanently delete "' + title + '"?\n\nThis cannot be undone.')) return;
+    if (!confirm('Are you sure? All media and analytics data will be removed.')) return;
+    const btn = document.getElementById('actionDelete');
+    btn.disabled = true;
+    try {
+      await apiFetch('/articles/' + articleId + '/purge', { method: 'DELETE' });
+      showAlert('Article deleted');
+      isDirty = false;
+      setTimeout(function() { window.location.href = '/articles.html'; }, 1200);
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+      btn.disabled = false;
+    }
+  }
+
+  function renderSourcePanel() {
+    let sourceIds;
+    try {
+      const raw = typeof articleData.source_article_ids === 'string'
+        ? JSON.parse(articleData.source_article_ids)
+        : (articleData.source_article_ids || []);
+      sourceIds = raw.map(function(r) { return (typeof r === 'object' && r !== null) ? r.id : r; }).filter(Boolean);
+    } catch { sourceIds = []; }
+
+    if (!sourceIds.length) return;
+
+    const panel = document.getElementById('actionSourcePanel');
+    const list = document.getElementById('actionSourceList');
+    panel.style.display = '';
+
+    // Fetch source article titles
+    Promise.all(sourceIds.map(function(id) {
+      return apiFetch('/articles/' + id).catch(function() { return { id: id, title: 'Article #' + id }; });
+    })).then(function(sources) {
+      list.innerHTML = sources.map(function(s) {
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border-color)">'
+          + '<span class="text-sm" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(s.title) + '">' + escHtml(s.title) + '</span>'
+          + '<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;flex-shrink:0" data-remove-source="' + s.id + '">✕</button>'
+          + '</div>';
+      }).join('');
+
+      list.addEventListener('click', function(e) {
+        const btn = e.target.closest('[data-remove-source]');
+        if (!btn) return;
+        const srcId = parseInt(btn.getAttribute('data-remove-source'));
+        handleRemoveSource(srcId, sourceIds, sources);
+      });
+    }).catch(function() {});
+  }
+
+  async function handleRemoveSource(srcId, sourceIds, sources) {
+    if (!confirm('Remove this source article from the synthesis? The article itself will not be deleted.')) return;
+
+    const newIds = sourceIds.filter(function(id) { return id !== srcId; });
+    try {
+      await apiFetch('/articles/' + articleId, {
+        method: 'PUT',
+        body: JSON.stringify({ source_article_ids: newIds }),
+      });
+      // Re-render source panel
+      articleData.source_article_ids = JSON.stringify(newIds);
+      document.getElementById('actionSourceList').innerHTML = '';
+      renderSourcePanel();
+      showAlert('Source removed');
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
+    }
   }
 })();

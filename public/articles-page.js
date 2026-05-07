@@ -77,6 +77,35 @@ let articles = [];
       reviewCountEl.textContent = reviewCount || '';
       reviewCountEl.style.display = reviewCount ? 'inline-flex' : 'none';
     }
+    const scheduledCountEl = document.getElementById('scheduledCount');
+    if (scheduledCountEl) {
+      const scheduledCount = allArticles.filter(a => a.status === 'scheduled').length;
+      scheduledCountEl.textContent = scheduledCount || '';
+      scheduledCountEl.style.display = scheduledCount ? 'inline-flex' : 'none';
+    }
+
+    // Scheduled tab — articles approved and waiting for drop window
+    if (activeTab === 'scheduled') {
+      let filtered = allArticles.filter(a => a.status === 'scheduled');
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        filtered = filtered.filter(a =>
+          (a.title   && a.title.toLowerCase().includes(q)) ||
+          (a.summary && a.summary.toLowerCase().includes(q))
+        );
+      }
+      filtered.sort((a, b) => new Date(a.publish_at || a.created_at) - new Date(b.publish_at || b.created_at));
+      articles = filtered;
+      if (!preservePage) artPage = 1;
+      else artPage = Math.min(artPage, Math.ceil(articles.length / artPageSize) || 1);
+      const countEl = document.getElementById('filterCount');
+      if (countEl) {
+        countEl.textContent = `${filtered.length} scheduled`;
+        countEl.classList.remove('filter-count-active');
+      }
+      renderTable();
+      return;
+    }
 
     // Published tab — show published, non-archived articles
     if (activeTab === 'published') {
@@ -314,6 +343,7 @@ let articles = [];
       </td>
       <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
         : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
+        : a.status === 'scheduled' ? `<span class="badge badge-accent" title="Drops at ${a.publish_at ? new Date(a.publish_at).toLocaleString() : '—'}">⏱ Scheduled</span>`
         : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
       </td>
       <td class="td-importance">${renderImportanceCell(a)}</td>
