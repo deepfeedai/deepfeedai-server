@@ -684,6 +684,6 @@
   }
 
   // ── Public surface ─────────────────────────────────────────────────────────
-  window.NRReports = { init: init, reload: reloadActiveTab };
+  window.NRReports = { init: init, reload: reloadActiveTab, switchTab: switchTab };
 
 })();
