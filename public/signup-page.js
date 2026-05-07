@@ -11,7 +11,7 @@ onReady(async () => {
       const statusData = await statusRes.json();
       signupsOpen = statusData.signups_enabled === true;
     }
-  } catch { signupsOpen = true; /* network error — show signup form so page isn't blank */ }
+  } catch { signupsOpen = false; /* network error — default closed, don't expose signup */ }
 
   if (!signupsOpen) {
     document.getElementById('waitlistPanel').style.display = 'block';

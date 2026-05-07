@@ -357,7 +357,7 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
   }
 
   if (!admin) {
-    const signupsEnabled = process.env.SIGNUPS_ENABLED !== 'false';
+    const signupsEnabled = process.env.SIGNUPS_ENABLED === 'true';
     return res.status(404).json({
       error: signupsEnabled ? 'No site found for this account' : 'Access denied. Contact your administrator.',
       signup: signupsEnabled,
