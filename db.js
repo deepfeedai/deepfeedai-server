@@ -1279,6 +1279,26 @@ async function initDb() {
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS entity_slug TEXT`,
     `ALTER TABLE newsroom_events ADD COLUMN IF NOT EXISTS is_terminal BOOLEAN DEFAULT false`,
     `CREATE INDEX IF NOT EXISTS idx_newsroom_events_public ON newsroom_events(tenant_id, created_at DESC) WHERE is_public = true`,
+    // Newsroom Glass backfill — promote pre-existing events to is_public=true.
+    // Safe to run on every boot (WHERE is_public = false guards re-execution).
+    `UPDATE newsroom_events
+       SET is_public   = true,
+           is_terminal = true,
+           headline    = 'Published: ' || LEFT(payload->>'title', 200),
+           entity_slug = payload->>'slug'
+       WHERE event_type = 'published'
+         AND is_public  = false
+         AND payload->>'title' IS NOT NULL`,
+    `UPDATE newsroom_events
+       SET is_public = true,
+           headline  = CASE
+             WHEN payload->>'angle_summary' IS NOT NULL
+               THEN 'New investigation: ' || LEFT(payload->>'angle_summary', 180)
+             ELSE 'New investigation: ' || LEFT(payload->>'source_title', 180)
+           END
+       WHERE event_type = 'pitched'
+         AND is_public  = false
+         AND (payload->>'angle_summary' IS NOT NULL OR payload->>'source_title' IS NOT NULL)`,
     // Editor thumbs-up/down feedback on individual briefs + digests. Used
     // immediately to show the user their prior vote; will later feed into
     // the brief prompt so Maxwell can adjust tone based on trailing feedback.
