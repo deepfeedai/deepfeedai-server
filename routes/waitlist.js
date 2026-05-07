@@ -9,7 +9,7 @@ const db        = require('../db');
 const { asyncHandler }        = require('../lib/utils');
 const { auth }                = require('../middleware/auth');
 const { requirePlatformAdmin } = require('../middleware/permissions');
-const { sendWaitlistOpenEmail } = require('../lib/notify');
+const { sendWaitlistOpenEmail, sendWaitlistJoinedEmail } = require('../lib/notify');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -31,11 +31,19 @@ router.post('/', waitlistLimiter, asyncHandler(async (req, res) => {
   const safeName = name ? String(name).replace(/<[^>]*>/g, '').trim().slice(0, 100) : null;
   const safeSource = ['signup', 'product', 'docs', 'blog'].includes(source) ? source : 'signup';
 
-  await db.prepare(`
+  const result = await db.prepare(`
     INSERT INTO waitlist (email, name, source)
     VALUES ($1, $2, $3)
     ON CONFLICT (email) DO NOTHING
-  `).run(clean, safeName, safeSource);
+    RETURNING id
+  `).get(clean, safeName, safeSource);
+
+  // Only send confirmation on first signup (not duplicate)
+  if (result) {
+    sendWaitlistJoinedEmail({ toEmail: clean, toName: safeName }).catch(err =>
+      console.error('[Waitlist] Confirmation email failed:', err.message)
+    );
+  }
 
   res.json({ status: 'ok', message: "You're on the list! We'll let you know as soon as signups open." });
 }));

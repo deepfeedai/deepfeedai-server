@@ -9,6 +9,8 @@ const { serializeRow, asyncHandler } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
 const { findBestWriter } = require('../lib/writer-assign');
+const { getAppConfig } = require('../lib/app-config');
+const { nextDropWindow } = require('../lib/news-budget');
 // Plan limit for articles removed — credits are the natural throttle
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { learnFromCorrection } = require('../lib/categorize');
@@ -349,6 +351,57 @@ router.get('/review-queue', auth, requirePermission('articles.read'), asyncHandl
   res.json({ articles: result.rows.map(serializeRow), count: result.rows.length });
 }));
 
+// GET /api/articles/scheduled — articles in status='scheduled' (drop queue)
+router.get('/scheduled', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+  const { rows } = await getPool().query(`
+    SELECT a.id, a.title, a.generated_title, a.publish_at, a.editorial_score,
+           a.category, a.writer_id, w.name AS writer_name, w.avatar_url AS writer_avatar_url
+    FROM articles a
+    LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+    WHERE a.tenant_id = $1 AND a.status = 'scheduled'
+    ORDER BY a.publish_at ASC NULLS LAST
+  `, [req.tenantId]);
+  res.json({ articles: rows.map(serializeRow), count: rows.length });
+}));
+
+// PUT /api/articles/:id/reschedule — change drop time or publish immediately
+// Body: { action: 'now' }  OR  { action: 'window', publish_at: ISO_string }
+router.put('/:id/reschedule', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare(
+    'SELECT id, title, status FROM articles WHERE id = $1 AND tenant_id = $2'
+  ).get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.status !== 'scheduled') return res.status(400).json({ error: 'Only scheduled articles can be rescheduled' });
+
+  const { action, publish_at } = req.body || {};
+  if (!action) return res.status(400).json({ error: 'action required: "now" or "window"' });
+
+  if (action === 'now') {
+    const updated = await db.prepare(`
+      UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
+        publish_at = NULL, published_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2 RETURNING *
+    `).get(req.params.id, req.tenantId);
+    onArticlePublished(article.id, req.tenantId).catch(() => {});
+    logAudit(req, 'article.publish_now', 'article', parseInt(req.params.id), { title: article.title });
+    return res.json(updated);
+  }
+
+  if (action === 'window') {
+    if (!publish_at) return res.status(400).json({ error: 'publish_at required for action "window"' });
+    const newTime = new Date(publish_at);
+    if (isNaN(newTime.getTime())) return res.status(400).json({ error: 'Invalid publish_at timestamp' });
+    if (newTime <= new Date()) return res.status(400).json({ error: 'publish_at must be in the future' });
+    const updated = await db.prepare(
+      'UPDATE articles SET publish_at = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3 RETURNING *'
+    ).get(newTime.toISOString(), req.params.id, req.tenantId);
+    logAudit(req, 'article.reschedule', 'article', parseInt(req.params.id), { title: article.title, publish_at: newTime.toISOString() });
+    return res.json(updated);
+  }
+
+  res.status(400).json({ error: 'action must be "now" or "window"' });
+}));
+
 // PUT /api/articles/bulk-action — approve / reject-draft / discard multiple articles at once
 // Must be declared before /:id routes so 'bulk-action' isn't matched as a numeric id.
 router.put('/bulk-action', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
@@ -374,14 +427,36 @@ router.put('/bulk-action', auth, requirePermission('articles.update'), asyncHand
   const reviewer  = req.user?.sub || null;
 
   if (action === 'approve') {
-    await getPool().query(
-      `UPDATE articles
-       SET status = 'published', is_published = 1, is_archived = 0,
-           reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
-       WHERE tenant_id = $2 AND id IN (${vph})`,
-      [reviewer, req.tenantId, ...validIds]
-    );
-    for (const id of validIds) onArticlePublished(id, req.tenantId).catch(() => {});
+    const appCfg    = await getAppConfig(req.tenantId);
+    const scheduled = appCfg.publish_mode === 'scheduled';
+
+    if (scheduled) {
+      const tz        = appCfg.newsroom_timezone || 'UTC';
+      const fallback  = nextDropWindow(tz, appCfg.drop_windows).toISOString();
+      const vph4      = validIds.map((_, i) => `$${i + 4}`).join(', ');
+      // Preserve each article's seeded publish_at if it's still in the future;
+      // fall back to the next drop window for articles with no seeded time or a missed window.
+      await getPool().query(
+        `UPDATE articles
+         SET status = 'scheduled', is_published = 0, is_archived = 0,
+             reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW(),
+             publish_at = CASE
+               WHEN publish_at IS NOT NULL AND publish_at > NOW() THEN publish_at
+               ELSE $2::timestamptz
+             END
+         WHERE tenant_id = $3 AND id IN (${vph4})`,
+        [reviewer, fallback, req.tenantId, ...validIds]
+      );
+    } else {
+      await getPool().query(
+        `UPDATE articles
+         SET status = 'published', is_published = 1, is_archived = 0,
+             reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
+         WHERE tenant_id = $2 AND id IN (${vph})`,
+        [reviewer, req.tenantId, ...validIds]
+      );
+      for (const id of validIds) onArticlePublished(id, req.tenantId).catch(() => {});
+    }
 
   } else if (action === 'reject-draft') {
     const vph2 = validIds.map((_, i) => `$${i + 2}`).join(', ');
@@ -483,6 +558,29 @@ router.patch('/:id/importance', auth, requirePermission('articles.update'), asyn
   await setImportanceManual(req.params.id, req.tenantId, importance);
   logAudit(req, 'article.importance.set', 'articles', req.params.id, { importance });
   res.json({ ok: true, importance, locked: true });
+}));
+
+// GET /api/articles/quick-stories?slug= — list active/dormant stories for story picker (public user JWT)
+// NOTE: must be registered before GET /:id so Express doesn't consume this path as an id param.
+router.get('/quick-stories', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const stories = await db.prepare(
+    "SELECT id, name FROM story_timelines WHERE tenant_id = $1 AND status IN ('active','dormant') ORDER BY updated_at DESC LIMIT 100"
+  ).all(article.tenant_id);
+
+  res.json({ stories: stories || [] });
 }));
 
 // GET /api/articles/:id
@@ -829,45 +927,84 @@ router.put('/:id/approve', auth, requirePermission('articles.update'), asyncHand
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be approved' });
-  const updated = await db.prepare(`
-    UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
-      reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
-    WHERE id = $2 AND tenant_id = $3 RETURNING *
-  `).get(req.user?.sub || null, req.params.id, req.tenantId);
-  onArticlePublished(article.id, req.tenantId).catch(() => {});
-  logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
 
-  // Fire-and-forget: notify editors that the article was published.
-  // Writers are AI agents (not users) so we fan out to the editor cohort only.
-  setImmediate(() => {
-    (async () => {
-      try {
-        const { notify } = require('../lib/notifications');
-        const editors = await db.prepare(`
-          SELECT id FROM users
-          WHERE tenant_id = $1
-            AND is_active = 1
-            AND role IN ('owner', 'admin', 'editor', 'superadmin')
-        `).all(req.tenantId);
-        for (const ed of editors) {
-          notify({
-            tenantId: req.tenantId,
-            userId:   ed.id,
-            kind:     'article_published',
-            title:    'Article published',
-            body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
-            payload:  {
-              article_id: article.id,
-              title:      article.title,
-              score:      article.editorial_score ?? null,
-            },
-          }).catch(err => console.error('[articles.approve] notify failed:', err.message));
-        }
-      } catch (err) {
-        console.error('[articles.approve] notify fanout failed:', err.message);
-      }
-    })();
-  });
+  const appCfg    = await getAppConfig(req.tenantId);
+  const scheduled = appCfg.publish_mode === 'scheduled';
+
+  let updated;
+  if (scheduled) {
+    const tz  = appCfg.newsroom_timezone || 'UTC';
+    // Use the slot-seeded publish_at if it's still in the future; otherwise roll to next window.
+    // This covers both budget-originated articles (seeded from slot.target_publish_at) and
+    // missed windows (article spent too long in review — quietly bumps to next available drop).
+    const seeded     = article.publish_at ? new Date(article.publish_at) : null;
+    const publishAt  = (seeded && seeded > new Date())
+      ? article.publish_at
+      : nextDropWindow(tz, appCfg.drop_windows).toISOString();
+    const wasMissed  = seeded && seeded <= new Date();
+    updated = await db.prepare(`
+      UPDATE articles SET status = 'scheduled', is_published = 0, is_archived = 0,
+        reviewed_by = $1, reviewed_at = NOW(), publish_at = $2, updated_at = NOW()
+      WHERE id = $3 AND tenant_id = $4 RETURNING *
+    `).get(req.user?.sub || null, publishAt, req.params.id, req.tenantId);
+    logAudit(req, 'article.approve_scheduled', 'article', parseInt(req.params.id), {
+      title: article.title, publish_at: publishAt, window_rolled: wasMissed || false,
+    });
+
+    setImmediate(() => {
+      (async () => {
+        try {
+          const { notify } = require('../lib/notifications');
+          const editors = await db.prepare(
+            `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
+          ).all(req.tenantId);
+          const dropLabel = new Date(publishAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+          const body = wasMissed
+            ? `"${article.title}" approved — missed original window, rescheduled to ${dropLabel}.`
+            : `"${article.title}" approved — drops at ${dropLabel}.`;
+          for (const ed of editors) {
+            notify({
+              tenantId: req.tenantId,
+              userId:   ed.id,
+              kind:     wasMissed ? 'article_window_rolled' : 'article_scheduled',
+              title:    wasMissed ? 'Drop window rolled' : 'Article scheduled',
+              body,
+              payload:  { article_id: article.id, title: article.title, publish_at: publishAt, window_rolled: wasMissed || false },
+            }).catch(() => {});
+          }
+        } catch { /* non-fatal */ }
+      })();
+    });
+  } else {
+    updated = await db.prepare(`
+      UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
+        reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
+      WHERE id = $2 AND tenant_id = $3 RETURNING *
+    `).get(req.user?.sub || null, req.params.id, req.tenantId);
+    onArticlePublished(article.id, req.tenantId).catch(() => {});
+    logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
+
+    setImmediate(() => {
+      (async () => {
+        try {
+          const { notify } = require('../lib/notifications');
+          const editors = await db.prepare(
+            `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
+          ).all(req.tenantId);
+          for (const ed of editors) {
+            notify({
+              tenantId: req.tenantId,
+              userId:   ed.id,
+              kind:     'article_published',
+              title:    'Article published',
+              body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
+              payload:  { article_id: article.id, title: article.title, score: article.editorial_score ?? null },
+            }).catch(() => {});
+          }
+        } catch { /* non-fatal */ }
+      })();
+    });
+  }
 
   res.json(updated);
 }));
@@ -1383,6 +1520,124 @@ router.post('/regen-audio', require('../middleware/user-jwt'), userImageRegenLim
   res.json({ ok: true, queued: true });
 }));
 
+// ── Quick-action endpoints (public user JWT, slug-based) ─────────────────────
+// Used by the floating admin toolbar on the public site. All require the caller's
+// email to match an active admin user for the article's tenant.
+
+// POST /api/articles/quick-publish?slug= — toggle published status
+router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id, title, is_published FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const newPublished = article.is_published ? 0 : 1;
+  const newStatus    = newPublished ? 'published' : 'draft';
+  await db.prepare(
+    'UPDATE articles SET is_published = $1, is_archived = 0, status = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
+  ).run(newPublished, newStatus, article.id, article.tenant_id);
+
+  if (newPublished) {
+    onArticlePublished(article.id, article.tenant_id).catch(() => {});
+  }
+
+  res.json({ ok: true, is_published: newPublished });
+}));
+
+// POST /api/articles/quick-archive?slug= — soft-archive article
+router.post('/quick-archive', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  await db.prepare(`
+    UPDATE articles
+    SET is_archived = 1, is_published = 0, is_featured = 0, featured_priority = NULL,
+        is_pinned = 0, featured_source = NULL, featured_until = NULL,
+        status = 'archived', archived_at = NOW(), updated_at = NOW()
+    WHERE id = $1 AND tenant_id = $2
+  `).run(article.id, article.tenant_id);
+
+  res.json({ ok: true });
+}));
+
+// POST /api/articles/quick-feature?slug= — toggle featured status
+router.post('/quick-feature', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id, is_featured FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const newFeatured = article.is_featured ? 0 : 1;
+  if (newFeatured) {
+    await db.prepare(
+      'UPDATE articles SET is_featured = 1, featured_priority = 1, featured_source = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3'
+    ).run('toolbar', article.id, article.tenant_id);
+  } else {
+    await db.prepare(
+      'UPDATE articles SET is_featured = 0, featured_priority = NULL, featured_source = NULL, featured_until = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2'
+    ).run(article.id, article.tenant_id);
+  }
+
+  res.json({ ok: true, is_featured: newFeatured });
+}));
+
+// POST /api/articles/quick-story?slug= — add article to a story
+// Body: { storyId }
+router.post('/quick-story', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const { storyId } = req.body || {};
+  if (!storyId) return res.status(400).json({ error: 'storyId required' });
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  const story = await db.prepare(
+    'SELECT id FROM story_timelines WHERE id = $1 AND tenant_id = $2'
+  ).get(parseInt(storyId), article.tenant_id);
+  if (!story) return res.status(404).json({ error: 'Story not found' });
+
+  const { addArticleToStory } = require('../lib/story-timelines');
+  await addArticleToStory(story.id, article.id, article.tenant_id);
+
+  res.json({ ok: true });
+}));
+
+// ── End quick-action endpoints ────────────────────────────────────────────────
 
 // PATCH /api/articles/:id/final-thoughts — manually set final thoughts text
 router.patch('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {

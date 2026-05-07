@@ -382,6 +382,7 @@
 
     if (!articleIds.length) {
       state.clusters = state.clusters.filter(function (c) { return c.tag !== tag; });
+      updateWireTabBadge();
       showAlert('Cluster spiked.', 'info');
       return;
     }
@@ -391,6 +392,7 @@
         return apiFetch('/articles/' + id, { method: 'DELETE' });
       }));
       state.clusters = state.clusters.filter(function (c) { return c.tag !== tag; });
+      updateWireTabBadge();
       showAlert(
         'Spiked — ' + articleIds.length + ' article' + (articleIds.length !== 1 ? 's' : '') + ' archived.',
         'success'
@@ -1202,22 +1204,25 @@
     }
   }
 
-  // ── Update the Wire tab with cluster count (best-effort) ─────────────────
+  // ── Update the Wire tab badge with current cluster count ─────────────────
   function updateWireTabBadge() {
     var clusterCount = state.clusters.filter(function (c) { return c.isCluster; }).length;
-    if (!clusterCount) return;
     var tab = document.querySelector('[data-ws="wire"]');
     if (!tab) return;
-    // Only add badge if not already there
-    if (!tab.querySelector('.nr-wire-badge')) {
-      var badge = document.createElement('span');
+    var badge = tab.querySelector('.nr-wire-badge');
+    if (!clusterCount) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
       badge.className = 'nr-wire-badge';
       badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;'
         + 'min-width:16px;height:16px;border-radius:8px;font-size:9px;font-weight:700;'
         + 'background:var(--accent-dim);color:var(--accent);padding:0 4px;margin-left:5px;vertical-align:middle;';
-      badge.textContent = clusterCount;
       tab.appendChild(badge);
     }
+    badge.textContent = String(clusterCount);
   }
 
   // ── Public API ────────────────────────────────────────────────────────────

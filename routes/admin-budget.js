@@ -61,8 +61,8 @@ async function _createPitchFromSlot(slot, tenantId) {
 
   const pitch = await db.prepare(`
     INSERT INTO story_pitches
-      (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, status)
-    VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'proposed')
+      (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, status)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'proposed')
     RETURNING *
   `).get(
     tenantId,
@@ -75,6 +75,7 @@ async function _createPitchFromSlot(slot, tenantId) {
         ? slot.source_article_ids
         : (typeof slot.source_article_ids === 'string' ? JSON.parse(slot.source_article_ids || '[]') : [])
     ),
+    slot.target_publish_at || null,
   );
 
   return pitch;
