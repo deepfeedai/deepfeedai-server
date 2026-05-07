@@ -19,6 +19,10 @@ const { getPlatformTenantId } = require('../lib/platform-tenant');
 const _roleCache = new Map();
 const ROLE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Tenant-admin existence cache: 'userId:tenantId' → { exists, ts }
+const _adminExistsCache = new Map();
+const ADMIN_EXISTS_TTL = 5 * 60 * 1000; // 5 minutes
+
 const VALID_TYPES = new Set(['platform-admin', 'tenant-admin']);
 
 /**
@@ -88,6 +92,30 @@ async function auth(req, res, next) {
     }
   }
 
+  // Verify tenant-admin still has an active tenant_admins record
+  // Catches deleted users whose JWTs haven't expired yet
+  if (payload.type === 'tenant-admin' && payload.sub) {
+    const checkTenantId = req.tenantId;
+    if (checkTenantId) {
+      const cacheKey = `${payload.sub}:${checkTenantId}`;
+      const cached = _adminExistsCache.get(cacheKey);
+      if (cached && Date.now() - cached.ts < ADMIN_EXISTS_TTL) {
+        if (!cached.exists) return res.status(403).json({ error: 'Admin access revoked' });
+      } else {
+        try {
+          const adminRow = await db.prepare(
+            'SELECT id FROM tenant_admins WHERE user_id = $1 AND tenant_id = $2'
+          ).get(payload.sub, checkTenantId);
+          const exists = !!adminRow;
+          _adminExistsCache.set(cacheKey, { exists, ts: Date.now() });
+          if (!exists) return res.status(403).json({ error: 'Admin access revoked' });
+        } catch {
+          // DB error — fail open to avoid locking out on transient errors
+        }
+      }
+    }
+  }
+
   req.user = payload;
 
   // Resolve role → permissions (always use internal integer tenantId)
@@ -132,5 +160,6 @@ async function auth(req, res, next) {
 async function getJwtSecret() { return (await getSecrets()).jwtSecret; }
 
 function bustRoleCache() { _roleCache.clear(); }
+function bustAdminExistsCache() { _adminExistsCache.clear(); }
 
-module.exports = { auth, getJwtSecret, bustRoleCache };
+module.exports = { auth, getJwtSecret, bustRoleCache, bustAdminExistsCache };

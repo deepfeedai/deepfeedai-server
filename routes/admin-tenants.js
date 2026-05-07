@@ -7,7 +7,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { asyncHandler } = require('../lib/utils');
-const { auth } = require('../middleware/auth');
+const { auth, bustAdminExistsCache } = require('../middleware/auth');
 const { requirePlatformAdmin } = require('../middleware/permissions');
 const { logAudit, logAuditWithDiff } = require('../middleware/audit');
 const { invalidateSlugCache, invalidateDomainCache } = require('../middleware/tenant');
@@ -630,6 +630,7 @@ router.delete('/public-users/:id', asyncHandler(async (req, res) => {
 
   await db.prepare("UPDATE comments SET body = '[deleted]', is_deleted = 1 WHERE user_id = $1").run(userId);
   await db.prepare('DELETE FROM public_users WHERE id = $1').run(userId);
+  bustAdminExistsCache();
 
   await logAudit(req, 'public_user.delete', 'public_users', userId, { email: user.email, provider: user.provider });
   res.json({ success: true, message: `Deleted public user ${user.email || user.display_name}` });

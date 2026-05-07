@@ -357,7 +357,11 @@ router.post('/login', requireUser, asyncHandler(async (req, res) => {
   }
 
   if (!admin) {
-    return res.status(404).json({ error: 'No site found for this account', signup: true });
+    const signupsEnabled = process.env.SIGNUPS_ENABLED !== 'false';
+    return res.status(404).json({
+      error: signupsEnabled ? 'No site found for this account' : 'Access denied. Contact your administrator.',
+      signup: signupsEnabled,
+    });
   }
 
   // Auto-provision local user record if missing (backfill for OAuth tenant owners)
