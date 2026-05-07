@@ -1299,6 +1299,16 @@ async function initDb() {
        WHERE event_type = 'pitched'
          AND is_public  = false
          AND (payload->>'angle_summary' IS NOT NULL OR payload->>'source_title' IS NOT NULL)`,
+    `UPDATE newsroom_events ne
+   SET headline        = 'New investigation: ' || LEFT(sp.headline, 180),
+       actor_writer_id = COALESCE(ne.actor_writer_id, sp.writer_id)
+   FROM story_pitches sp
+   WHERE ne.event_type      = 'pitched'
+     AND ne.target_pitch_id = sp.id
+     AND sp.headline        IS NOT NULL
+     AND sp.headline        <> ''
+     AND (ne.headline LIKE 'New investigation: Cover%'
+          OR ne.actor_writer_id IS NULL)`,
     // Editor thumbs-up/down feedback on individual briefs + digests. Used
     // immediately to show the user their prior vote; will later feed into
     // the brief prompt so Maxwell can adjust tone based on trailing feedback.
@@ -1994,6 +2004,20 @@ async function initDb() {
       console.log('✅ Seeded default voice');
     }
   }
+
+  // newsroom_watches — public users opting in to "notify me when this publishes"
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS newsroom_watches (
+      id                SERIAL PRIMARY KEY,
+      tenant_id         INTEGER NOT NULL,
+      user_id           INTEGER NOT NULL,
+      target_article_id INTEGER NOT NULL,
+      created_at        TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, user_id, target_article_id)
+    )
+  `);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_newsroom_watches_article ON newsroom_watches(tenant_id, target_article_id)`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_newsroom_watches_user ON newsroom_watches(tenant_id, user_id)`);
 
   _dbReady = true;
   console.log('✅ Postgres database initialized');

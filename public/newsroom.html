@@ -375,12 +375,163 @@
 .nr-ev-editorial   { background: var(--warn); }
 .nr-ev-brief       { background: #a78bfa; }
 .nr-ev-default     { background: var(--muted); }
+.nr-ev-synthesis   { background: #0ea5e9; }
+.nr-ev-standup     { background: #f59e0b; }
+.nr-ev-wire-cluster { background: #a78bfa; }
+.nr-ev-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.nr-ev-avatar--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0;
+}
+.nr-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 500;
+  margin: 0 3px;
+}
+.nr-badge--cat { background: rgba(255,255,255,.08); color: var(--muted); }
+.nr-badge--sources { background: rgba(var(--accent-rgb, 139,92,246),.15); color: var(--accent); }
+.nr-activity-meta { font-size: 11px; color: var(--muted); }
+
+/* ── Presence row ──────────────────────────────────────────── */
+.nr-presence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 6px 10px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.nr-presence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nr-presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.nr-presence-dot--active  { background: #22c55e; }
+.nr-presence-dot--busy    { background: #f59e0b; }
+.nr-presence-dot--idle    { background: rgba(255,255,255,.2); }
+.nr-presence-name { font-weight: 500; color: var(--text); }
+.nr-presence-state { font-size: 10px; }
+
+/* ── Activity threads ──────────────────────────────────────── */
+.nr-activity-thread {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
+}
+.nr-activity-thread:last-child { border-bottom: none; }
+.nr-activity-thread-lead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  padding: 0 10px;
+}
+.nr-activity-thread-lead:hover { background: rgba(255,255,255,.025); }
+.nr-activity-thread-chevron {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+  padding-top: 1px;
+  transition: transform .15s;
+}
+.nr-activity-thread.expanded .nr-activity-thread-chevron { transform: rotate(90deg); }
+.nr-activity-thread-history {
+  display: none;
+  padding: 2px 10px 0 40px;
+}
+.nr-activity-thread.expanded .nr-activity-thread-history { display: block; }
+.nr-activity-thread-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  opacity: .75;
+  font-size: 11px;
+}
+.nr-activity-thread-toggle {
+  font-size: 10px;
+  color: var(--accent);
+  padding: 1px 10px 3px 40px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  display: block;
+}
+.nr-activity-thread-toggle:hover { text-decoration: underline; }
+
+/* ── Standup card ──────────────────────────────────────────── */
+.nr-standup-card {
+  margin: 4px 8px;
+  padding: 7px 10px;
+  background: rgba(245, 158, 11, .07);
+  border-left: 2px solid #f59e0b;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.nr-standup-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.nr-standup-card-text {
+  color: var(--muted);
+  line-height: 1.45;
+}
+.nr-standup-time { font-size: 10px; color: var(--muted); margin-left: auto; }
 
 .nr-activity-body { flex: 1; min-width: 0; }
 .nr-activity-text { font-size: 12px; line-height: 1.45; }
 .nr-activity-text strong { font-weight: 600; }
 .nr-activity-article { color: var(--muted); font-style: italic; }
 .nr-activity-time { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+/* Reaction bar on activity cards */
+.nr-reaction-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.nr-react-pill {
+  font-size: 11px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 10px;
+  padding: 1px 6px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background .12s, border-color .12s;
+  line-height: 1.4;
+}
+.nr-react-pill:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.2); }
+.nr-react-pill--active { background: rgba(99,102,241,.18); border-color: var(--accent); }
+.nr-react-cnt { font-size: 10px; color: var(--muted); margin-left: 2px; }
+.nr-reply-count { font-size: 10px; color: var(--muted); margin-left: 2px; }
 
 /* pitch queue */
 .floor-queue {
@@ -460,6 +611,40 @@
 .nr-assign-btn:hover { background: rgba(0,217,255,.18); }
 
 /* ── Scheduled queue ────────────────────────────── */
+/* Drop countdown strip */
+#nr-drop-countdown {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  background: rgba(99,102,241,.10);
+  border: 1px solid rgba(99,102,241,.25);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.nr-drop-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+}
+.nr-drop-timer {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.nr-drop-queued {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.nr-drop-queued strong { color: var(--text); }
 .nr-sched-group { margin-bottom: 8px; }
 .nr-sched-window-header {
   display: flex;
@@ -2353,6 +2538,7 @@ section.nr-expanded {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
           </button>
         </div>
+        <div class="nr-presence-row" id="nr-presence-row" style="display:none"></div>
         <div class="nr-activity-list" id="nr-activity-list">
           <div class="nr-loading">Loading activity…</div>
         </div>
@@ -2386,6 +2572,9 @@ section.nr-expanded {
           <div class="nr-loading">Loading editorial queue…</div>
         </div>
       </section>
+
+      <!-- Drop countdown strip — only shown when publish_mode=scheduled -->
+      <div id="nr-drop-countdown" style="display:none"></div>
 
       <section class="floor-editorial" id="nr-scheduled-section" style="display:none">
         <div class="nr-col-header">

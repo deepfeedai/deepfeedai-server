@@ -46,6 +46,28 @@
     return avColourCache[id];
   }
 
+  function renderPresenceRow(writers) {
+    var el = document.getElementById('nr-presence-row');
+    if (!el) return;
+    var active = writers.filter(function(w) { return !w.is_system; });
+    if (!active.length) { el.style.display = 'none'; return; }
+    var html = '';
+    active.forEach(function(w) {
+      var st   = w.presence_state || 'idle';
+      var dotCls = (st === 'drafting' || st === 'researching') ? 'nr-presence-dot--active'
+                 : st === 'chatting' ? 'nr-presence-dot--busy'
+                 : 'nr-presence-dot--idle';
+      var stLabel = st === 'waiting-on-editor' ? 'waiting' : st === 'idle' ? '' : st;
+      html += '<span class="nr-presence-chip">'
+        + '<span class="nr-presence-dot ' + esc(dotCls) + '"></span>'
+        + '<span class="nr-presence-name">' + esc((w.name || '').split(' ')[0]) + '</span>'
+        + (stLabel ? '<span class="nr-presence-state">· ' + esc(stLabel) + '</span>' : '')
+        + '</span>';
+    });
+    el.innerHTML = html;
+    el.style.display = 'flex';
+  }
+
   // ── HTML helpers ──────────────────────────────────────────────────────────
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -304,62 +326,212 @@
       return;
     }
 
-    var html = '';
+    // Group by target_article_id; events without one stay as standalone rows.
+    var groups = [];
+    var byArticle = {};
     events.forEach(function(ev) {
-      var dotCls = activityDotClass(ev.event_type);
-      var text   = activityText(ev);
-      html += '<div class="nr-activity-item">'
-        + '<div class="nr-ev-dot ' + dotCls + '"></div>'
-        + '<div class="nr-activity-body">'
-        + '<div class="nr-activity-text">' + text + '</div>'
-        + '<div class="nr-activity-time">' + esc(relTime(ev.created_at)) + '</div>'
-        + '</div>'
+      if (ev.event_type === 'standup') {
+        groups.push({ type: 'standup', ev: ev });
+        return;
+      }
+      var key = ev.target_article_id ? 'a' + ev.target_article_id : null;
+      if (key && byArticle[key]) {
+        byArticle[key].events.push(ev);
+      } else if (key) {
+        var g = { type: 'thread', key: key, events: [ev] };
+        byArticle[key] = g;
+        groups.push(g);
+      } else {
+        groups.push({ type: 'single', ev: ev });
+      }
+    });
+
+    var html = '';
+    groups.forEach(function(g) {
+      if (g.type === 'standup') {
+        html += renderStandupCard(g.ev);
+        return;
+      }
+      if (g.type === 'single') {
+        html += renderActivityRow(g.ev, '');
+        return;
+      }
+      // thread with 2+ events
+      var evts = g.events.slice().sort(function(a, b) {
+        if (a.is_terminal && !b.is_terminal) return -1;
+        if (!a.is_terminal && b.is_terminal) return 1;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+      var lead = evts[0];
+      var rest = evts.slice(1);
+      if (!rest.length) { html += renderActivityRow(lead, ''); return; }
+      var histHtml = '';
+      rest.forEach(function(ev) {
+        histHtml += '<div class="nr-activity-thread-item">' + renderActivityRowInner(ev) + '</div>';
+      });
+      var toggleLabel = rest.length + ' earlier event' + (rest.length !== 1 ? 's' : '');
+      html += '<div class="nr-activity-thread">'
+        + '<div class="nr-activity-thread-lead">' + renderActivityRowInner(lead)
+        + '<span class="nr-activity-thread-chevron">›</span></div>'
+        + '<button class="nr-activity-thread-toggle" type="button">↳ ' + esc(toggleLabel) + '</button>'
+        + '<div class="nr-activity-thread-history">' + histHtml + '</div>'
         + '</div>';
     });
     el.innerHTML = html;
+
+    // Wire up thread expand/collapse
+    el.querySelectorAll('.nr-activity-thread').forEach(function(thread) {
+      thread.addEventListener('click', function(e) {
+        if (e.target.closest('a') || e.target.closest('.nr-react-pill')) return;
+        thread.classList.toggle('expanded');
+      });
+    });
+
+    // Wire up reaction pills
+    el.querySelectorAll('.nr-react-pill').forEach(function(pill) {
+      pill.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var eventId = pill.dataset.eventId;
+        var emoji   = pill.dataset.emoji;
+        if (!eventId || !emoji) return;
+        apiFetch('/newsroom-feed/' + eventId + '/react', { method: 'POST', body: { emoji: emoji } })
+          .then(function(res) {
+            if (!res) return;
+            var cnt = pill.querySelector('.nr-react-cnt');
+            var cur = cnt ? parseInt(cnt.textContent, 10) || 0 : 0;
+            if (res.action === 'added') {
+              var next = cur + 1;
+              pill.innerHTML = emoji + ' <span class="nr-react-cnt">' + next + '</span>';
+              pill.classList.add('nr-react-pill--active');
+            } else {
+              var next2 = Math.max(0, cur - 1);
+              pill.innerHTML = next2 > 0 ? emoji + ' <span class="nr-react-cnt">' + next2 + '</span>' : emoji;
+              pill.classList.remove('nr-react-pill--active');
+            }
+          }).catch(function() {});
+      });
+    });
+  }
+
+  function renderActivityRow(ev, extraClass) {
+    return '<div class="nr-activity-item' + (extraClass ? ' ' + extraClass : '') + '">'
+      + renderActivityRowInner(ev)
+      + '</div>';
+  }
+
+  var REACTION_EMOJIS = ['👍', '🔥', '⚡', '👀', '❤️'];
+
+  function renderReactionBar(ev) {
+    var reactions = ev.reactions || {};
+    var replyCount = ev.reply_count || 0;
+    var pills = '';
+    REACTION_EMOJIS.forEach(function(emoji) {
+      var cnt = reactions[emoji] || 0;
+      pills += '<button class="nr-react-pill" data-event-id="' + ev.id + '" data-emoji="' + esc(emoji) + '" title="React ' + esc(emoji) + '">'
+        + emoji + (cnt > 0 ? ' <span class="nr-react-cnt">' + cnt + '</span>' : '')
+        + '</button>';
+    });
+    if (replyCount > 0) {
+      pills += '<span class="nr-reply-count">💬 ' + replyCount + '</span>';
+    }
+    return '<div class="nr-reaction-bar">' + pills + '</div>';
+  }
+
+  function renderActivityRowInner(ev) {
+    var dotCls  = activityDotClass(ev.event_type);
+    var text    = activityText(ev);
+    var avatarHtml = '';
+    if (ev.actor_writer_avatar_url) {
+      avatarHtml = '<img class="nr-ev-avatar" src="' + esc(ev.actor_writer_avatar_url) + '" alt="" loading="lazy">';
+    } else if (ev.actor_writer_name || ev.actor_writer_avatar) {
+      var writerName = ev.actor_writer_name || '';
+      var initials = writerName.split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
+      var colour   = ev.actor_writer_accent_color || writerColour(ev.actor_writer_id);
+      avatarHtml   = '<div class="nr-ev-avatar nr-ev-avatar--initials" style="background:' + esc(colour) + '">' + esc(initials) + '</div>';
+    } else {
+      avatarHtml = '<div class="nr-ev-dot ' + esc(dotCls) + '"></div>';
+    }
+    return avatarHtml
+      + '<div class="nr-activity-body">'
+      + '<div class="nr-activity-text">' + text + '</div>'
+      + '<div class="nr-activity-time">' + esc(relTime(ev.created_at)) + '</div>'
+      + renderReactionBar(ev)
+      + '</div>';
+  }
+
+  function renderStandupCard(ev) {
+    var actor = ev.actor_writer_name || (ev.actor_writer_id ? 'Writer' : 'Maxwell');
+    var text  = (ev.payload && ev.payload.text) || '';
+    return '<div class="nr-standup-card">'
+      + '<div class="nr-standup-card-header">'
+      + esc(actor) + ' standup'
+      + '<span class="nr-standup-time">' + esc(relTime(ev.created_at)) + '</span>'
+      + '</div>'
+      + (text ? '<div class="nr-standup-card-text">' + esc(text.slice(0, 160)) + (text.length > 160 ? '…' : '') + '</div>' : '')
+      + '</div>';
   }
 
   function activityDotClass(type) {
     if (!type) return 'nr-ev-default';
-    if (type === 'published')              return 'nr-ev-published';
-    if (type.startsWith('pitch') || type === 'pitched') return 'nr-ev-pitched';
-    if (type === 'daily_brief' || type === 'weekly_digest') return 'nr-ev-brief';
+    if (type === 'published')                                      return 'nr-ev-published';
+    if (type === 'synthesis_started')                              return 'nr-ev-synthesis';
+    if (type === 'pitched' || type.startsWith('pitch'))            return 'nr-ev-pitched';
+    if (type === 'daily_brief' || type === 'weekly_digest')        return 'nr-ev-brief';
+    if (type === 'standup')                                        return 'nr-ev-standup';
     if (type.includes('editorial') || type.includes('budget') || type.includes('slot')) return 'nr-ev-editorial';
     return 'nr-ev-default';
   }
 
   function activityText(ev) {
-    var actor = ev.actor_writer_name || 'System';
-    var type  = ev.event_type || '';
+    var actor   = ev.actor_writer_name || (ev.actor_writer_id ? 'Writer' : 'System');
+    var type    = ev.event_type || '';
     var payload = ev.payload || {};
+    var hl      = ev.headline || '';
 
     if (type === 'published') {
-      var title = (payload.title || payload.generated_title || '');
+      var title = payload.title || payload.generated_title || hl.replace(/^Published:\s*/i, '') || '';
+      var cat   = payload.category ? ' <span class="nr-badge nr-badge--cat">' + esc(payload.category) + '</span>' : '';
       return '<strong>' + esc(actor) + '</strong> published'
+        + cat
         + (title ? ' <span class="nr-activity-article">"' + esc(title.slice(0,70)) + (title.length > 70 ? '…' : '') + '"</span>' : '');
     }
     if (type === 'pitched' || type === 'pitch_proposed') {
-      var headline = payload.headline || '';
+      var topic  = hl.replace(/^New investigation:\s*/i, '').replace(/^[^:]+:\s+is investigating:\s*/i, '') || payload.angle_summary || '';
+      var srcs   = payload.source_count ? ' <span class="nr-badge nr-badge--sources">' + payload.source_count + ' sources</span>' : '';
       return '<strong>' + esc(actor) + '</strong> pitched'
-        + (headline ? ' <span class="nr-activity-article">"' + esc(headline.slice(0,60)) + (headline.length > 60 ? '…' : '') + '"</span>' : '');
+        + srcs
+        + (topic ? ' <span class="nr-activity-article">"' + esc(topic.slice(0,65)) + (topic.length > 65 ? '…' : '') + '"</span>' : '');
+    }
+    if (type === 'synthesis_started') {
+      var topic2 = payload.topic || (hl.replace(/^[^:]+:\s+is writing\s*(on\s*)?/i, '')) || '';
+      return '<strong>' + esc(actor) + '</strong> started writing'
+        + (topic2 ? ' <span class="nr-activity-article">"' + esc(topic2.slice(0,65)) + (topic2.length > 65 ? '…' : '') + '"</span>' : '');
+    }
+    if (type === 'editorial_review') {
+      var art = payload.title || hl || '';
+      return '<strong>Editorial</strong> reviewing'
+        + (art ? ' <span class="nr-activity-article">"' + esc(art.replace(/^Story under editorial review[^—]*—?\s*/i,'').slice(0,55)) + '…"</span>' : ' an article');
     }
     if (type === 'budget_published') {
       return '<strong>' + esc(actor) + '</strong> published today\'s runsheet';
     }
     if (type === 'budget_slot_approved') {
       var h = payload.headline || '';
-      return '<strong>' + esc(actor) + '</strong> approved slot'
-        + (h ? ': <span class="nr-activity-article">"' + esc(h.slice(0,55)) + (h.length > 55 ? '…' : '') + '"</span>' : '');
+      return '<strong>' + esc(actor) + '</strong> approved'
+        + (h ? ' <span class="nr-activity-article">"' + esc(h.slice(0,55)) + (h.length > 55 ? '…' : '') + '"</span>' : ' a slot');
     }
-    if (type === 'daily_brief') {
-      return '<strong>' + esc(actor) + '</strong> received daily brief';
+    if (type === 'pitch_rejected') {
+      return '<strong>' + esc(actor) + '</strong> <span style="color:var(--muted)">spiked a pitch</span>';
     }
-    if (type === 'editorial_review') {
-      var art = payload.title || '';
-      return '<strong>Editorial</strong> reviewed'
-        + (art ? ' <span class="nr-activity-article">"' + esc(art.slice(0,55)) + (art.length > 55 ? '…' : '') + '"</span>' : ' an article');
+    if (type === 'standup') {
+      var txt = payload.text || '';
+      return '<strong>' + esc(actor) + '</strong> standup'
+        + (txt ? ' — <span class="nr-activity-meta">' + esc(txt.slice(0,80)) + (txt.length > 80 ? '…' : '') + '</span>' : '');
     }
-    // fallback: humanise the event type
+    if (type === 'daily_brief' || type === 'weekly_digest') {
+      var label2 = type === 'weekly_digest' ? 'weekly digest' : 'daily brief';
+      return '<strong>' + esc(actor) + '</strong> posted ' + label2;
+    }
     var label = type.replace(/_/g, ' ');
     return '<strong>' + esc(actor) + '</strong> · ' + esc(label);
   }
@@ -594,6 +766,59 @@
       showAlert('Failed to reject: ' + err.message, 'error');
       if (rejectBtn)  { rejectBtn.disabled = false; rejectBtn.textContent = 'Send Back to Draft'; }
       if (approveBtn) approveBtn.disabled = false;
+    }
+  }
+
+  // ── Drop countdown widget ─────────────────────────────────────────────────
+  var _dropTarget = null;   // Date of next drop
+  var _dropQueued = 0;
+  var _dropLabel  = 'Next drop';
+  var _dropTimer  = null;
+
+  function _fmtCountdown(ms) {
+    if (ms <= 0) return '00:00:00';
+    var s = Math.floor(ms / 1000);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    return (h > 0 ? pad(h) + ':' : '') + pad(m) + ':' + pad(sec);
+  }
+
+  function _tickDropCountdown() {
+    var el = document.getElementById('nr-drop-countdown');
+    if (!el || !_dropTarget) return;
+    var ms = _dropTarget - Date.now();
+    var timerEl = el.querySelector('.nr-drop-timer');
+    if (timerEl) timerEl.textContent = _fmtCountdown(ms);
+    if (ms <= 0 && _dropTimer) {
+      // Window arrived — reload next drop info and scheduled queue
+      clearInterval(_dropTimer);
+      _dropTimer = null;
+      loadNextDrop();
+      loadScheduledQueue();
+    }
+  }
+
+  async function loadNextDrop() {
+    var el = document.getElementById('nr-drop-countdown');
+    if (!el) return;
+    try {
+      var data = await apiFetch('/news/next-drop');
+      if (!data || !data.enabled) { el.style.display = 'none'; return; }
+      _dropTarget = new Date(data.next_drop_at);
+      _dropQueued = data.articles_queued || 0;
+      _dropLabel  = data.drop_label || 'Next drop';
+
+      el.style.display = '';
+      el.innerHTML = '<span class="nr-drop-label">' + esc(_dropLabel) + '</span>'
+        + '<span class="nr-drop-timer">' + _fmtCountdown(_dropTarget - Date.now()) + '</span>'
+        + '<span class="nr-drop-queued"><strong>' + _dropQueued + '</strong> article' + (_dropQueued !== 1 ? 's' : '') + ' queued</span>';
+
+      if (_dropTimer) clearInterval(_dropTimer);
+      _dropTimer = setInterval(_tickDropCountdown, 1000);
+    } catch (err) {
+      el.style.display = 'none';
     }
   }
 
@@ -908,6 +1133,7 @@
         state.writers = writers;
         state.writersMap = {};
         writers.forEach(function(w) { state.writersMap[w.id] = w; });
+        renderPresenceRow(state.writers);
       }
     } catch (err) {
       // Non-critical — editorial queue will just omit writer chips
@@ -1541,6 +1767,7 @@
         loadEditorialQueue();
         loadScheduledQueue();
       });
+      loadNextDrop();
       loadBudget();
       loadActivity();
       loadPitches();
@@ -1557,11 +1784,15 @@
       if (pollTick % 2 === 0) {   // every 2nd tick = 120s
         loadPitches();
         loadEditorialQueue();
+        loadNextDrop();
       }
     }, 60000);
 
     // Clean up on page hide
-    window.addEventListener('pagehide', function() { clearInterval(pollTimer); }, { once: true });
+    window.addEventListener('pagehide', function() {
+      clearInterval(pollTimer);
+      if (_dropTimer) clearInterval(_dropTimer);
+    }, { once: true });
   }
 
   window.NRFloor = { init: init, refreshPitches: loadPitches };

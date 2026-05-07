@@ -858,6 +858,46 @@ router.get('/next-drop', asyncHandler(async (req, res) => {
   });
 }));
 
+// POST /api/news/watch/:articleId — toggle "notify me when this publishes"
+// Requires Bearer user JWT. Idempotent toggle: watch → unwatch on second call.
+router.post('/watch/:articleId', asyncHandler(async (req, res) => {
+  const requireUser = require('../middleware/user-jwt');
+  await new Promise((resolve, reject) =>
+    requireUser(req, res, err => (err ? reject(err) : resolve()))
+  );
+  if (!req.user) return res.status(401).json({ error: 'Login required' });
+
+  const articleId = parseInt(req.params.articleId, 10);
+  if (!articleId) return res.status(400).json({ error: 'Invalid article ID' });
+
+  const userId = req.user.sub || req.user.id;
+  if (!userId) return res.status(401).json({ error: 'Invalid token' });
+
+  const article = await db.prepare(
+    `SELECT id, status, is_published FROM articles WHERE id = $1 AND tenant_id = $2`
+  ).get(articleId, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_published || article.status === 'published') {
+    return res.json({ ok: true, watching: false, already_published: true });
+  }
+
+  const existing = await db.prepare(
+    `SELECT id FROM newsroom_watches WHERE tenant_id = $1 AND user_id = $2 AND target_article_id = $3`
+  ).get(req.tenantId, userId, articleId);
+
+  if (existing) {
+    await db.prepare(
+      `DELETE FROM newsroom_watches WHERE tenant_id = $1 AND user_id = $2 AND target_article_id = $3`
+    ).run(req.tenantId, userId, articleId);
+    return res.json({ ok: true, watching: false });
+  }
+
+  await db.prepare(
+    `INSERT INTO newsroom_watches (tenant_id, user_id, target_article_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`
+  ).run(req.tenantId, userId, articleId);
+  res.json({ ok: true, watching: true });
+}));
+
 // GET /api/news/live-events — public Newsroom Glass feed
 // Returns recent public newsroom events for the live feed widget.
 // Default window: 48h. Falls back to the latest 20 events if the window
@@ -871,19 +911,25 @@ router.get('/live-events', asyncHandler(async (req, res) => {
   const before = parseInt(req.query.before) || null;
 
   const params = [req.tenantId, limit];
-  const beforeClause = before ? `AND id < $${params.push(before) && params.length}` : '';
-  const windowClause = `AND created_at > NOW() - ($${params.push(hours + ' hours') && params.length})::interval`;
+  const beforeClause = before ? `AND ne.id < $${params.push(before) && params.length}` : '';
+  const windowClause = `AND ne.created_at > NOW() - ($${params.push(hours + ' hours') && params.length})::interval`;
 
   let rows = await db.prepare(`
-    SELECT id, event_type, headline, entity_slug, is_terminal,
-           actor_writer_id, target_article_id, target_pitch_id,
-           payload, created_at
-    FROM newsroom_events
-    WHERE tenant_id = $1
-      AND is_public = true
+    SELECT ne.id, ne.event_type, ne.headline, ne.entity_slug, ne.is_terminal,
+           ne.actor_writer_id, ne.target_article_id, ne.target_pitch_id,
+           ne.payload, ne.created_at,
+           w.name AS actor_writer_name,
+           w.avatar_url AS actor_writer_avatar_url,
+           w.accent_color AS actor_writer_accent_color,
+           a.importance AS article_importance
+    FROM newsroom_events ne
+    LEFT JOIN writers w ON w.id = ne.actor_writer_id AND w.tenant_id = ne.tenant_id
+    LEFT JOIN articles a ON a.id = ne.target_article_id AND a.tenant_id = ne.tenant_id
+    WHERE ne.tenant_id = $1
+      AND ne.is_public = true
       ${windowClause}
       ${beforeClause}
-    ORDER BY created_at DESC
+    ORDER BY ne.created_at DESC
     LIMIT $2
   `).all(...params);
 
@@ -891,13 +937,19 @@ router.get('/live-events', asyncHandler(async (req, res) => {
   // so the feed isn't empty on quiet days.
   if (rows.length < 5 && !before) {
     rows = await db.prepare(`
-      SELECT id, event_type, headline, entity_slug, is_terminal,
-             actor_writer_id, target_article_id, target_pitch_id,
-             payload, created_at
-      FROM newsroom_events
-      WHERE tenant_id = $1
-        AND is_public = true
-      ORDER BY created_at DESC
+      SELECT ne.id, ne.event_type, ne.headline, ne.entity_slug, ne.is_terminal,
+             ne.actor_writer_id, ne.target_article_id, ne.target_pitch_id,
+             ne.payload, ne.created_at,
+             w.name AS actor_writer_name,
+             w.avatar_url AS actor_writer_avatar_url,
+             w.accent_color AS actor_writer_accent_color,
+             a.importance AS article_importance
+      FROM newsroom_events ne
+      LEFT JOIN writers w ON w.id = ne.actor_writer_id AND w.tenant_id = ne.tenant_id
+      LEFT JOIN articles a ON a.id = ne.target_article_id AND a.tenant_id = ne.tenant_id
+      WHERE ne.tenant_id = $1
+        AND ne.is_public = true
+      ORDER BY ne.created_at DESC
       LIMIT $2
     `).all(req.tenantId, limit);
   }
