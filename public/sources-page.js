@@ -277,6 +277,13 @@ let sources = [];
       byCategory[f.category].push(f);
     }
 
+    const unadded = SUGGESTED_FEEDS.filter(f => !existing.has(f.url));
+    const addAllBtn = document.getElementById('addAllBtn');
+    if (addAllBtn) {
+      addAllBtn.textContent = unadded.length > 0 ? `Add All (${unadded.length})` : 'Add All';
+      addAllBtn.disabled = unadded.length === 0;
+    }
+
     let html = '';
     for (const [cat, feeds] of Object.entries(byCategory)) {
       html += `<div style="padding:12px 20px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);">${escHtml(cat)}</div>`;
@@ -296,6 +303,55 @@ let sources = [];
       }
     }
     document.getElementById('suggestedList').innerHTML = html;
+  }
+
+  async function addAllSuggested() {
+    const existing = new Set(sources.map(s => s.url));
+    const toAdd = SUGGESTED_FEEDS.filter(f => !existing.has(f.url));
+    if (toAdd.length === 0) return;
+
+    const addAllBtn = document.getElementById('addAllBtn');
+    addAllBtn.disabled = true;
+    addAllBtn.textContent = 'Adding…';
+
+    try {
+      const result = await apiFetch('/sources/bulk-add', {
+        method: 'POST',
+        body: JSON.stringify({ sources: toAdd }),
+      });
+      closeModal('suggestedModal');
+      await loadSources();
+      showAlert(`✓ Added ${result.added} source${result.added !== 1 ? 's' : ''}${result.skipped ? ` · ${result.skipped} already existed` : ''}`);
+    } catch (err) {
+      showAlert('Bulk add failed: ' + err.message, 'error');
+      addAllBtn.disabled = false;
+      addAllBtn.textContent = `Add All (${toAdd.length})`;
+    }
+  }
+
+  async function importOpml(file) {
+    const importBtn = document.getElementById('import-opml-btn');
+    importBtn.disabled = true;
+    importBtn.textContent = 'Importing…';
+
+    try {
+      const content = await file.text();
+      const result = await apiFetch('/sources/import-opml', {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      });
+      await loadSources();
+      const msg = `✓ Imported ${result.added} source${result.added !== 1 ? 's' : ''} from ${result.total} in file`
+        + (result.skipped ? ` · ${result.skipped} already existed` : '')
+        + (result.errors?.length ? ` · ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : '');
+      showAlert(msg);
+    } catch (err) {
+      showAlert('OPML import failed: ' + err.message, 'error');
+    } finally {
+      importBtn.disabled = false;
+      importBtn.textContent = '📥 Import OPML';
+      document.getElementById('opml-file-input').value = '';
+    }
   }
 
   function prefillFromSuggested(name, url) {
@@ -326,6 +382,16 @@ let sources = [];
     document.getElementById('suggested-btn').addEventListener('click', () => {
       renderSuggestedFeeds();
       openModal('suggestedModal');
+    });
+
+    document.getElementById('addAllBtn').addEventListener('click', addAllSuggested);
+
+    // OPML import
+    document.getElementById('import-opml-btn').addEventListener('click', () => {
+      document.getElementById('opml-file-input').click();
+    });
+    document.getElementById('opml-file-input').addEventListener('change', function () {
+      if (this.files && this.files[0]) importOpml(this.files[0]);
     });
 
     // Auto-fetch feed title when URL is entered

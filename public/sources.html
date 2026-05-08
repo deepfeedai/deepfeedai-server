@@ -22,6 +22,8 @@
         <div class="section-title">RSS Sources</div>
         <div class="btn-group">
           <button class="btn btn-outline" id="suggested-btn">💡 Suggested Feeds</button>
+          <button class="btn btn-outline" id="import-opml-btn">📥 Import OPML</button>
+          <input type="file" id="opml-file-input" accept=".opml,.xml" style="display:none">
           <button class="btn btn-outline" id="fetch-btn">🔄 Fetch All Sources</button>
           <button class="btn btn-primary" id="addSourceBtn">＋ Add Source</button>
         </div>
@@ -120,6 +122,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-outline" data-close-modal>Close</button>
+      <button class="btn btn-primary" id="addAllBtn" disabled>Add All</button>
     </div>
   </div>
 </div>

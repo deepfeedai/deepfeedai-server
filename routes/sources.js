@@ -148,4 +148,86 @@ router.put('/:id/toggle', auth, requirePermission('sources.update'), asyncHandle
   res.json({ id: source.id, is_active: newVal });
 }));
 
+// ── Bulk helpers ──────────────────────────────────────────────────────────────
+
+async function _bulkInsertSources(items, tenantId, planLimit) {
+  const currentCount = planLimit.max != null
+    ? ((await db.prepare('SELECT COUNT(*)::int AS n FROM sources WHERE tenant_id = $1').get(tenantId))?.n ?? 0)
+    : 0;
+
+  let added = 0, skipped = 0, runningCount = currentCount;
+  const errors = [];
+
+  for (const item of items.slice(0, 500)) {
+    const name = String(item.name || '').trim().slice(0, 200);
+    const url  = String(item.url  || '').trim();
+    if (!name || !url) { errors.push({ url: url || '(empty)', reason: 'missing name or url' }); continue; }
+
+    if (planLimit.max != null && runningCount >= planLimit.max) {
+      errors.push({ url, reason: 'plan limit reached' });
+      continue;
+    }
+
+    try {
+      const row = await db.prepare(
+        `INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max, tenant_id)
+         VALUES ($1, $2, 1, 1, 0, 5, $3)
+         ON CONFLICT (tenant_id, url) DO NOTHING
+         RETURNING id`
+      ).get(name, url, tenantId);
+
+      if (row?.id) { added++; runningCount++; }
+      else skipped++;
+    } catch (err) {
+      errors.push({ url, reason: err.message });
+    }
+  }
+
+  return { added, skipped, total: items.length, errors: errors.slice(0, 20) };
+}
+
+// POST /api/sources/bulk-add — batch-insert sources (used by "Add All" in the suggested panel)
+router.post('/bulk-add', auth, requirePermission('sources.create'), asyncHandler(async (req, res) => {
+  const { sources: items } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'sources array is required' });
+  }
+  const limit = await checkPlanLimit(req.tenantId, 'sources');
+  const result = await _bulkInsertSources(items, req.tenantId, limit);
+  if (result.added > 0) logAudit(req, 'source.bulk_add', 'source', null, { added: result.added });
+  res.json(result);
+}));
+
+// POST /api/sources/import-opml — parse OPML XML and bulk-insert all RSS feeds found
+router.post('/import-opml', auth, requirePermission('sources.create'), asyncHandler(async (req, res) => {
+  const content = req.body?.content;
+  if (!content || typeof content !== 'string') {
+    return res.status(400).json({ error: 'content (OPML XML string) is required' });
+  }
+  if (content.length > 500_000) {
+    return res.status(400).json({ error: 'OPML file too large (max 500 KB)' });
+  }
+
+  // Extract <outline> elements that carry an xmlUrl (RSS feed entries)
+  const items = [];
+  const outlineRe = /<outline\s([^>]*?)(?:\/>|>)/gi;
+  let m;
+  while ((m = outlineRe.exec(content)) !== null) {
+    const attrs = m[1];
+    const urlMatch  = attrs.match(/xmlUrl="([^"]+)"/i);
+    if (!urlMatch) continue;
+    const nameMatch = attrs.match(/title="([^"]+)"/i) || attrs.match(/text="([^"]+)"/i);
+    items.push({ url: urlMatch[1], name: nameMatch ? nameMatch[1] : urlMatch[1] });
+  }
+
+  if (items.length === 0) {
+    return res.status(422).json({ error: 'No RSS feeds found in OPML file' });
+  }
+
+  const limit = await checkPlanLimit(req.tenantId, 'sources');
+  const result = await _bulkInsertSources(items, req.tenantId, limit);
+  if (result.added > 0) logAudit(req, 'source.import_opml', 'source', null, { added: result.added, total: result.total });
+  res.json(result);
+}));
+
 module.exports = router;
