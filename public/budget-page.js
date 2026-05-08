@@ -430,9 +430,18 @@
   // ── Update the generate button ─────────────────────────────────────────────
   function updateGenerateBtn(budgetExists) {
     var btn = document.getElementById('generateBudgetBtn');
-    if (btn) {
-      btn.disabled = budgetExists;
-      btn.title = budgetExists ? 'Runsheet already generated for this date' : 'Generate runsheet for selected date';
+    if (!btn) return;
+    btn.disabled = false;
+    btn.dataset.force = budgetExists ? 'true' : '';
+    var label = btn.querySelector('.gen-label') || btn;
+    if (budgetExists) {
+      btn.title = 'Delete and regenerate today\'s runsheet from scratch';
+      if (label !== btn) label.textContent = 'Regenerate';
+      else btn.innerHTML = btn.innerHTML.replace(/Generate Runsheet|Regenerate/, 'Regenerate');
+    } else {
+      btn.title = 'Generate runsheet for selected date';
+      if (label !== btn) label.textContent = 'Generate Runsheet';
+      else btn.innerHTML = btn.innerHTML.replace(/Generate Runsheet|Regenerate/, 'Generate Runsheet');
     }
   }
 
@@ -485,12 +494,14 @@
   // ── Generate budget ────────────────────────────────────────────────────────
   async function generateBudget() {
     var btn = document.getElementById('generateBudgetBtn');
+    var force = btn && btn.dataset.force === 'true';
     if (btn) btn.disabled = true;
     try {
-      var data = await apiFetch('/admin/budget/generate', { method: 'POST', body: JSON.stringify({ date: currentDate }) });
+      var url = '/admin/budget/generate' + (force ? '?force=true' : '');
+      var data = await apiFetch(url, { method: 'POST', body: JSON.stringify({ date: currentDate }) });
       if (data.budget) {
         currentBudget = data.budget;
-        toast('Runsheet generated!', 'success');
+        toast(force ? 'Runsheet regenerated!' : 'Runsheet generated!', 'success');
         await loadBudget(currentDate);
       }
     } catch (err) {
