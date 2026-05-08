@@ -9,6 +9,25 @@
  * Requires: admin.js (escHtml, apiFetch, openModal)
  */
 
+/* ── Rundown renderer (prose + bullets from markdown-style "- " lines) ── */
+function renderRundown(text) {
+  if (!text) return '';
+  var html = '', bullets = [], prose = [];
+  text.split('\n').forEach(function(line) {
+    var t = line.trim();
+    if (t.startsWith('- ')) {
+      if (prose.length) { html += '<p style="margin:0 0 6px;font-size:0.95rem;line-height:1.6;">' + escHtml(prose.join(' ').trim()) + '</p>'; prose = []; }
+      bullets.push(t.slice(2));
+    } else if (t) {
+      if (bullets.length) { html += '<ul style="margin:0 0 6px;padding-left:18px;">' + bullets.map(function(b) { return '<li style="font-size:0.9rem;line-height:1.5;margin-bottom:3px;">' + escHtml(b) + '</li>'; }).join('') + '</ul>'; bullets = []; }
+      prose.push(t);
+    }
+  });
+  if (prose.length)   html += '<p style="margin:0 0 6px;font-size:0.95rem;line-height:1.6;">'  + escHtml(prose.join(' ').trim()) + '</p>';
+  if (bullets.length) html += '<ul style="margin:0 0 6px;padding-left:18px;">' + bullets.map(function(b) { return '<li style="font-size:0.9rem;line-height:1.5;margin-bottom:3px;">' + escHtml(b) + '</li>'; }).join('') + '</ul>';
+  return html;
+}
+
 /* ── Modal HTML injection ──────────────────────────────── */
 function renderArticlePreviewModal() {
   if (document.getElementById('articlePreviewModal')) return;
@@ -270,8 +289,8 @@ function showArticlePreview(a, writer) {
 
   // TLDR
   if (a.tldr_overview) {
-    html += '<div class="ap-tldr"><span class="ap-tldr-badge">✨ AI Summary</span>';
-    html += '<div class="ap-tldr-text">' + escHtml(a.tldr_overview) + '</div></div>';
+    html += '<div class="ap-tldr"><span class="ap-tldr-badge">Rundown</span>';
+    html += '<div class="ap-tldr-text">' + renderRundown(a.tldr_overview) + '</div></div>';
   }
 
   // Content based on type — block content takes priority

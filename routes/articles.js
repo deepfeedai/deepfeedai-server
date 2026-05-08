@@ -1412,6 +1412,55 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
+// POST /api/articles/:id/generate-tldr — generate or regenerate tldr_overview (admin JWT)
+router.post('/:id/generate-tldr', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article.summary && !article.full_content) return res.status(400).json({ error: 'Article has no content to summarise' });
+
+  const { generateWriterTldr } = require('../lib/writer-assign');
+  const { aiComplete } = require('../lib/ai-router');
+  const { canSpend } = require('../lib/budget');
+
+  const budget = await canSpend('writer-tldr', req.tenantId);
+  if (!budget.allowed) return res.status(429).json({ error: 'AI budget exhausted for TLDR generation' });
+
+  let tldr = null;
+
+  if (article.writer_id) {
+    const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(article.writer_id, req.tenantId);
+    if (writer) {
+      const artObj = { id: article.id, title: article.title, summary: article.summary, category: article.category, source: article.source, slug: article.slug };
+      tldr = await generateWriterTldr(artObj, writer, req.tenantId);
+    }
+  }
+
+  // Fallback: neutral summarisation if no writer assigned or writer-voice generation failed
+  if (!tldr) {
+    const text = (article.summary || article.full_content || '').replace(/<[^>]+>/g, '').slice(0, 800);
+    const result = await aiComplete({
+      tier: 'fast',
+      operation: 'writer-tldr',
+      tenantId: req.tenantId,
+      trigger: 'admin-action',
+      articleSlug: article.slug,
+      messages: [{
+        role: 'user',
+        content: `Write a 2-3 sentence AI summary of this article.\n\nTitle: ${article.title}\nSummary: ${text}\n\nAI Summary:`,
+      }],
+    });
+    tldr = (result?.content || '').trim() || null;
+  }
+
+  if (!tldr) return res.status(500).json({ error: 'TLDR generation returned empty result' });
+
+  await db.prepare('UPDATE articles SET tldr_overview = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
+    .run(tldr, article.id, req.tenantId);
+  logAudit(req, 'article.generate_tldr', 'article', parseInt(req.params.id), { title: article.title });
+
+  res.json({ tldr_overview: tldr });
+}));
+
 // POST /api/articles/:id/final-thoughts — regenerate writer's final thoughts (admin JWT)
 router.post('/:id/final-thoughts', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const { regenerateFinalThoughts } = require('../lib/final-thoughts');
