@@ -52,6 +52,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const commentCount = parseInt(countRow?.cnt ?? 0, 10);
 
   res.json({
+    id:                     match.id,
     title:                  match.title,
     summary:                match.summary,
     category:               match.category,
