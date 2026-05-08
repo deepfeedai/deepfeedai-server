@@ -1412,8 +1412,8 @@ router.post('/:id/regenerate', auth, requirePermission('articles.update'), async
   res.json({ ok: true, title: result.title, summary: result.summary });
 }));
 
-// POST /api/articles/:id/generate-tldr — generate or regenerate tldr_overview (admin JWT)
-router.post('/:id/generate-tldr', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+// POST /api/articles/:id/generate-tldr — generate or regenerate tldr_overview (user JWT)
+router.post('/:id/generate-tldr', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (!article.summary && !article.full_content) return res.status(400).json({ error: 'Article has no content to summarise' });
