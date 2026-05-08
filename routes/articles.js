@@ -1608,6 +1608,32 @@ router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(as
   res.json({ ok: true, is_published: newPublished });
 }));
 
+// GET /api/articles/youtube-search?q= — proxy YouTube Data API search (user JWT)
+router.get('/youtube-search', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q param required' });
+
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'YouTube API key not configured — add YOUTUBE_API_KEY to environment' });
+
+  const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5'
+    + '&q=' + encodeURIComponent(q) + '&key=' + apiKey;
+
+  const ytRes = await fetch(url);
+  const data  = await ytRes.json();
+
+  if (!ytRes.ok) return res.status(502).json({ error: data.error?.message || 'YouTube API error' });
+
+  const results = (data.items || []).map(item => ({
+    videoId:   item.id.videoId,
+    title:     item.snippet.title,
+    channel:   item.snippet.channelTitle,
+    thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
+  }));
+
+  res.json({ results });
+}));
+
 // POST /api/articles/set-embed?slug= — attach or clear a YouTube video embed
 router.post('/set-embed', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
   const slug = req.query.slug;
