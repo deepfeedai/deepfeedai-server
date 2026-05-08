@@ -86,6 +86,7 @@ router.get('/', asyncHandler(async (req, res) => {
     disable_summary:        match.disable_summary        || 0,
     generated_title:        match.generated_title        || null,
     topic_tag:              match.topic_tag              || null,
+    tldr_overview:          match.tldr_overview          || null,
     tldr_context:           match.tldr_context           || null,
     pull_quote:             match.pull_quote             || null,
     followups:              match.followups              ?? null,

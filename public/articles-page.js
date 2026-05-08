@@ -36,6 +36,24 @@ let articles = [];
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function renderRundown(text) {
+    if (!text) return '';
+    var html = '', bullets = [], prose = [];
+    text.split('\n').forEach(function(line) {
+      var t = line.trim();
+      if (t.startsWith('- ')) {
+        if (prose.length) { html += '<p style="margin:0 0 6px;font-size:0.95rem;line-height:1.6;">' + escHtml(prose.join(' ').trim()) + '</p>'; prose = []; }
+        bullets.push(t.slice(2));
+      } else if (t) {
+        if (bullets.length) { html += '<ul style="margin:0 0 6px;padding-left:18px;">' + bullets.map(function(b) { return '<li style="font-size:0.9rem;line-height:1.5;margin-bottom:3px;">' + escHtml(b) + '</li>'; }).join('') + '</ul>'; bullets = []; }
+        prose.push(t);
+      }
+    });
+    if (prose.length)   html += '<p style="margin:0 0 6px;font-size:0.95rem;line-height:1.6;">'  + escHtml(prose.join(' ').trim()) + '</p>';
+    if (bullets.length) html += '<ul style="margin:0 0 6px;padding-left:18px;">' + bullets.map(function(b) { return '<li style="font-size:0.9rem;line-height:1.5;margin-bottom:3px;">' + escHtml(b) + '</li>'; }).join('') + '</ul>';
+    return html;
+  }
+
   function sortArticles(col) {
     if (sortCol === col) {
       sortDir = sortDir === 'asc' ? 'desc' : 'asc';
@@ -396,6 +414,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" title="${a.followups ? 'Regenerate follow-ups' : 'Generate follow-ups'}" onclick="generateFollowups(${a.id})">💬 ${a.followups ? 'Redo' : ''} Q&A</button>` : ''}
+            ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" id="tldr-btn-${a.id}" title="${a.tldr_overview ? 'Regenerate AI summary' : 'Generate AI summary'}" onclick="generateTldr(${a.id})">✨ ${a.tldr_overview ? 'Redo' : ''} TLDR</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
             <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
           `}
@@ -927,8 +946,8 @@ let articles = [];
     // TLDR overview
     if (a.tldr_overview) {
       html += `<div class="ap-tldr">`;
-      html += `<span class="ap-tldr-badge">✨ AI Summary</span>`;
-      html += `<div class="ap-tldr-text">${escHtml(a.tldr_overview)}</div>`;
+      html += `<span class="ap-tldr-badge">Rundown</span>`;
+      html += `<div class="ap-tldr-text">${renderRundown(a.tldr_overview)}</div>`;
       html += `</div>`;
     }
 
@@ -1230,6 +1249,38 @@ let articles = [];
       await loadArticles({ preservePage: true });
     } catch (err) {
       showAlert('Follow-up generation failed: ' + (err.message || 'Unknown error'), 'error');
+    }
+  }
+
+  async function generateTldr(id) {
+    const btn = document.getElementById('tldr-btn-' + id);
+    const origText = btn ? btn.innerHTML : null;
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating…'; }
+    try {
+      const data = await apiFetch(`/articles/${id}/generate-tldr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      showAlert('TLDR generated ✓', 'success');
+      // Update preview panel TLDR block if it's open
+      const tldrEl = document.querySelector('.ap-tldr .ap-tldr-text');
+      if (tldrEl && data.tldr_overview) tldrEl.innerHTML = renderRundown(data.tldr_overview);
+      if (!tldrEl && data.tldr_overview) {
+        // Preview panel open but TLDR block didn't exist yet — full re-render needed
+        const previewContainer = document.getElementById('articlePreviewBody');
+        if (previewContainer) {
+          const tldrBlock = document.createElement('div');
+          tldrBlock.className = 'ap-tldr';
+          tldrBlock.innerHTML = '<span class="ap-tldr-badge">Rundown</span><div class="ap-tldr-text"></div>';
+          tldrBlock.querySelector('.ap-tldr-text').innerHTML = renderRundown(data.tldr_overview);
+          previewContainer.prepend(tldrBlock);
+        }
+      }
+      if (btn) { btn.innerHTML = '✨ Redo TLDR'; btn.disabled = false; }
+      await loadArticles({ preservePage: true });
+    } catch (err) {
+      showAlert('TLDR generation failed: ' + (err.message || 'Unknown error'), 'error');
+      if (btn) { btn.innerHTML = origText; btn.disabled = false; }
     }
   }
 
