@@ -1613,8 +1613,10 @@ router.get('/youtube-search', require('../middleware/user-jwt'), asyncHandler(as
   const q = (req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'q param required' });
 
-  const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'YouTube API key not configured — add YOUTUBE_API_KEY to environment' });
+  const { getAppConfig } = require('../lib/app-config');
+  const config = await getAppConfig(req.tenantId);
+  const apiKey = config.youtube_api_key;
+  if (!apiKey) return res.status(503).json({ error: 'YouTube API key not configured in tenant settings' });
 
   const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5'
     + '&q=' + encodeURIComponent(q) + '&key=' + apiKey;
