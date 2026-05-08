@@ -560,6 +560,34 @@ router.patch('/:id/importance', auth, requirePermission('articles.update'), asyn
   res.json({ ok: true, importance, locked: true });
 }));
 
+// GET /api/articles/youtube-search?q= — proxy YouTube Data API search (user JWT)
+// NOTE: must be registered before GET /:id so Express doesn't consume this path as an id param.
+router.get('/youtube-search', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'q param required' });
+
+  const config = await getAppConfig(req.tenantId);
+  const apiKey = config.youtube_api_key;
+  if (!apiKey) return res.status(503).json({ error: 'YouTube API key not configured in tenant settings' });
+
+  const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5'
+    + '&q=' + encodeURIComponent(q) + '&key=' + apiKey;
+
+  const ytRes = await fetch(url);
+  const data  = await ytRes.json();
+
+  if (!ytRes.ok) return res.status(502).json({ error: data.error?.message || 'YouTube API error' });
+
+  const results = (data.items || []).map(item => ({
+    videoId:   item.id.videoId,
+    title:     item.snippet.title,
+    channel:   item.snippet.channelTitle,
+    thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
+  }));
+
+  res.json({ results });
+}));
+
 // GET /api/articles/quick-stories?slug= — list active/dormant stories for story picker (public user JWT)
 // NOTE: must be registered before GET /:id so Express doesn't consume this path as an id param.
 router.get('/quick-stories', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
@@ -1608,34 +1636,6 @@ router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(as
   res.json({ ok: true, is_published: newPublished });
 }));
 
-// GET /api/articles/youtube-search?q= — proxy YouTube Data API search (user JWT)
-router.get('/youtube-search', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
-  const q = (req.query.q || '').trim();
-  if (!q) return res.status(400).json({ error: 'q param required' });
-
-  const { getAppConfig } = require('../lib/app-config');
-  const config = await getAppConfig(req.tenantId);
-  const apiKey = config.youtube_api_key;
-  if (!apiKey) return res.status(503).json({ error: 'YouTube API key not configured in tenant settings' });
-
-  const url = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=5'
-    + '&q=' + encodeURIComponent(q) + '&key=' + apiKey;
-
-  const ytRes = await fetch(url);
-  const data  = await ytRes.json();
-
-  if (!ytRes.ok) return res.status(502).json({ error: data.error?.message || 'YouTube API error' });
-
-  const results = (data.items || []).map(item => ({
-    videoId:   item.id.videoId,
-    title:     item.snippet.title,
-    channel:   item.snippet.channelTitle,
-    thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
-  }));
-
-  res.json({ results });
-}));
-
 // POST /api/articles/set-embed?slug= — attach or clear a YouTube video embed
 router.post('/set-embed', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
   const slug = req.query.slug;
@@ -1664,7 +1664,7 @@ router.post('/set-embed', require('../middleware/user-jwt'), asyncHandler(async 
   }
 
   const article = await db.prepare(
-    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+    'SELECT id, tenant_id, content_type FROM articles WHERE slug = $1'
   ).get(slug);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
@@ -1673,9 +1673,13 @@ router.post('/set-embed', require('../middleware/user-jwt'), asyncHandler(async 
   ).get(req.user.email, article.tenant_id);
   if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
 
+  // When clearing a video embed, reset content_type from 'video' to 'curated' so it
+  // doesn't fall through to a broken render state with no embed and no article content.
+  const contentTypeReset = (!normalised && article.content_type === 'video') ? 'curated' : article.content_type;
+
   await db.prepare(
-    'UPDATE articles SET embed_url = $1, embed_type = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
-  ).run(normalised, normalised ? 'youtube' : null, article.id, article.tenant_id);
+    'UPDATE articles SET embed_url = $1, embed_type = $2, content_type = $3, updated_at = NOW() WHERE id = $4 AND tenant_id = $5'
+  ).run(normalised, normalised ? 'youtube' : null, contentTypeReset, article.id, article.tenant_id);
 
   res.json({ ok: true, embed_url: normalised });
 }));
