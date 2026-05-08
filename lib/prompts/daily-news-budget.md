@@ -25,6 +25,9 @@ BEAT GAPS (writers who haven't published recently):
 ACTIVE STORY THREADS (ongoing stories that may need an update):
 {{activeThreads}}
 
+RECENT WIRE (latest source articles available — use these IDs in source_ids):
+{{recentWire}}
+
 Respond with ONLY valid JSON (no markdown, no code fences):
 {
   "editorial_note": "1-2 sentence take on today's news landscape and editorial priority",
