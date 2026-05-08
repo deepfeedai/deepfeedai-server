@@ -98,6 +98,30 @@
     return '<div class="card-writer-placeholder">' + esc(initial) + '</div>';
   }
 
+  // ── Missed window badge ────────────────────────────────────────────────────
+  function missedWindowHtml(slot) {
+    if (!slot.target_publish_at) return '';
+    var t = new Date(slot.target_publish_at).getTime();
+    if (isNaN(t) || t > Date.now()) return '';
+    if (slot.status === 'pending') {
+      return '<div class="card-missed-badge">&#9888; Window passed — approve or reassign</div>';
+    }
+    return '';
+  }
+
+  // ── Drop window ISO times (based on currently-viewed date) ────────────────
+  // Default windows: 07:00, 12:00, 18:00 in local time.
+  var DROP_WINDOWS = [
+    { label: '7 AM',   hhmm: '07:00' },
+    { label: '12 PM',  hhmm: '12:00' },
+    { label: '6 PM',   hhmm: '18:00' },
+  ];
+
+  function dropWindowAt(hhmm) {
+    // Construct a local-time datetime for currentDate at HH:MM
+    return new Date(currentDate + 'T' + hhmm + ':00').toISOString();
+  }
+
   // ── Countdown HTML ─────────────────────────────────────────────────────────
   function countdownHtml(slotId, autoPromoteAt) {
     if (!autoPromoteAt) return '';
@@ -142,22 +166,36 @@
     var displayName = slot.assigned_writer_name || slot.recommended_writer_name || '';
     var priority    = slot.priority || 'standard';
     var status      = slot.status || 'pending';
+    var sid         = esc(String(slot.id));
 
     // Action buttons — only show contextually appropriate ones
     var approveBtn = status !== 'approved'
-      ? '<button class="card-btn cb-approve" data-action="approve" data-id="' + slot.id + '" title="Approve slot">&#10003; <span class="cb-label">Approve</span></button>'
+      ? '<button class="card-btn cb-approve" data-action="approve" data-id="' + sid + '" title="Approve slot">&#10003; <span class="cb-label">Approve</span></button>'
       : '';
     var rejectBtn  = status !== 'rejected'
-      ? '<button class="card-btn cb-reject" data-action="reject" data-id="' + slot.id + '" title="Reject slot">&#10005; <span class="cb-label">Reject</span></button>'
+      ? '<button class="card-btn cb-reject" data-action="reject" data-id="' + sid + '" title="Reject slot">&#10005; <span class="cb-label">Reject</span></button>'
       : '';
-    var reassignBtn = '<button class="card-btn cb-reassign" data-action="reassign" data-id="' + slot.id + '" title="Reassign writer">&#8635; <span class="cb-label">Reassign</span></button>';
-    var editBtn     = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + slot.id + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
+    var reassignBtn = '<button class="card-btn cb-reassign" data-action="reassign" data-id="' + sid + '" title="Reassign writer">&#8635; <span class="cb-label">Reassign</span></button>';
+    var editBtn     = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + sid + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
+
+    // Reschedule / Publish Now buttons
+    var publishNowBtn = '';
+    var rescheduleBtn2 = '';
+    if (status !== 'rejected') {
+      if ((status === 'approved' || status === 'auto_promoted') && slot.spawned_article_id) {
+        publishNowBtn = '<button class="card-btn cb-publish-now" data-action="publish-now" data-id="' + sid + '" data-article-id="' + esc(String(slot.spawned_article_id)) + '" title="Publish this article immediately">&#8593; <span class="cb-label">Now</span></button>';
+      }
+      rescheduleBtn2 = '<button class="card-btn cb-reschedule" data-action="open-reschedule" data-id="' + sid + '" title="Change drop window">&#128336; <span class="cb-label">Reschedule</span></button>';
+    }
 
     // Countdown (if slot is pending and has auto_promote_at)
     var cdown = (status === 'pending' && slot.auto_promote_at) ? countdownHtml(slot.id, slot.auto_promote_at) : '';
 
+    // Missed window warning
+    var missed = missedWindowHtml(slot);
+
     return [
-      '<div class="budget-card bc-' + esc(status) + '" id="bcard-' + esc(String(slot.id)) + '" data-slot-id="' + esc(String(slot.id)) + '">',
+      '<div class="budget-card bc-' + esc(status) + '" id="bcard-' + esc(String(slot.id)) + '" data-slot-id="' + sid + '">',
         '<div class="card-top">',
           '<div class="card-headline">' + esc(slot.headline_suggestion || 'Untitled') + '</div>',
           '<div class="card-status-badge">' + statusBadge(status) + '</div>',
@@ -173,12 +211,15 @@
           '</div>',
           slot.target_publish_at ? '<span class="card-publish-time">' + esc(formatTime(slot.target_publish_at)) + '</span>' : '',
         '</div>',
+        missed,
         cdown,
         '<div class="card-actions">',
           approveBtn,
           rejectBtn,
           reassignBtn,
           editBtn,
+          publishNowBtn,
+          rescheduleBtn2,
         '</div>',
       '</div>',
     ].join('');
@@ -508,6 +549,128 @@
     }
   }
 
+  // ── Reschedule inline ──────────────────────────────────────────────────────
+  function openRescheduleInline(slotId) {
+    var card = document.getElementById('bcard-' + slotId);
+    if (!card) return;
+    var btn = card.querySelector('[data-action="open-reschedule"]');
+    if (!btn) return;
+
+    var sid = esc(String(slotId));
+    var windowBtns = DROP_WINDOWS.map(function (w) {
+      return '<button class="card-btn cb-reschedule-opt" data-action="reschedule-window" data-id="' + sid + '" data-time="' + esc(dropWindowAt(w.hhmm)) + '">' + esc(w.label) + '</button>';
+    }).join('');
+
+    var wrap = document.createElement('div');
+    wrap.className = 'card-reschedule-picker';
+    wrap.id = 'reschedule-picker-' + slotId;
+    wrap.innerHTML = [
+      '<span class="card-reschedule-label">Move to:</span>',
+      windowBtns,
+      '<button class="card-btn cb-reschedule-opt" data-action="reschedule-custom" data-id="' + sid + '">Custom&#8230;</button>',
+      '<button class="card-btn cb-cancel" data-action="reschedule-cancel" data-id="' + sid + '">&#10005;</button>',
+    ].join('');
+
+    btn.parentNode.replaceChild(wrap, btn);
+  }
+
+  function closeRescheduleInline(slotId) {
+    var card = document.getElementById('bcard-' + slotId);
+    if (!card) return;
+    var picker = document.getElementById('reschedule-picker-' + slotId);
+    if (!picker) return;
+    var btn = document.createElement('button');
+    btn.className = 'card-btn cb-reschedule';
+    btn.dataset.action = 'open-reschedule';
+    btn.dataset.id = String(slotId);
+    btn.title = 'Change drop window';
+    btn.innerHTML = '&#128336; <span class="cb-label">Reschedule</span>';
+    picker.parentNode.replaceChild(btn, picker);
+  }
+
+  async function rescheduleSlot(slotId, isoTime) {
+    var card = document.getElementById('bcard-' + slotId);
+    if (card) card.style.opacity = '0.5';
+    closeRescheduleInline(slotId);
+
+    var slot = currentBudget && currentBudget.slots
+      ? currentBudget.slots.find(function (s) { return s.id === slotId; })
+      : null;
+
+    try {
+      // Update budget slot target_publish_at
+      var data = await apiFetch('/admin/budget/slots/' + slotId, {
+        method: 'PATCH',
+        body: JSON.stringify({ target_publish_at: isoTime }),
+      });
+      if (data.slot) {
+        updateCardStatus(slotId, data.slot);
+        // Also reschedule the spawned article if it exists
+        if (slot && slot.spawned_article_id) {
+          await apiFetch('/articles/' + slot.spawned_article_id + '/reschedule', {
+            method: 'PUT',
+            body: JSON.stringify({ action: 'window', publish_at: isoTime }),
+          }).catch(function () { /* article may already be published, ignore */ });
+        }
+        toast('Rescheduled to ' + formatTime(isoTime), 'success');
+      }
+    } catch (err) {
+      toast('Reschedule failed: ' + err.message, 'error');
+      if (card) card.style.opacity = '';
+    }
+  }
+
+  function openCustomReschedule(slotId) {
+    var card = document.getElementById('bcard-' + slotId);
+    if (!card) return;
+    var picker = document.getElementById('reschedule-picker-' + slotId);
+    if (!picker) return;
+
+    var sid = esc(String(slotId));
+    // Replace picker row with a time input + confirm
+    picker.innerHTML = [
+      '<input type="time" class="card-time-input" id="custom-time-' + sid + '" value="07:00" />',
+      '<button class="card-btn cb-save" data-action="reschedule-custom-confirm" data-id="' + sid + '">Set</button>',
+      '<button class="card-btn cb-cancel" data-action="reschedule-cancel" data-id="' + sid + '">&#10005;</button>',
+    ].join('');
+    var input = document.getElementById('custom-time-' + slotId);
+    if (input) {
+      input.focus();
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmCustomReschedule(slotId);
+        }
+        if (e.key === 'Escape') closeRescheduleInline(slotId);
+      });
+    }
+  }
+
+  function confirmCustomReschedule(slotId) {
+    var input = document.getElementById('custom-time-' + slotId);
+    if (!input || !input.value) return;
+    var isoTime = new Date(currentDate + 'T' + input.value + ':00').toISOString();
+    rescheduleSlot(slotId, isoTime);
+  }
+
+  // ── Publish Now ────────────────────────────────────────────────────────────
+  async function publishNowSlot(articleId, slotId) {
+    var card = document.getElementById('bcard-' + slotId);
+    if (card) card.style.opacity = '0.5';
+    try {
+      await apiFetch('/articles/' + articleId + '/reschedule', {
+        method: 'PUT',
+        body: JSON.stringify({ action: 'now' }),
+      });
+      toast('Article published immediately', 'success');
+      // Reload the budget to get fresh slot state
+      await loadBudget(currentDate);
+    } catch (err) {
+      toast('Publish failed: ' + err.message, 'error');
+      if (card) card.style.opacity = '';
+    }
+  }
+
   // Update a single card in the DOM after a status change
   function updateCardStatus(slotId, updatedSlot) {
     // Find and update in currentBudget.slots
@@ -761,7 +924,13 @@
       var hl = card2 && card2.querySelector('.card-headline');
       cancelHeadlineEdit(slotId, hl ? hl.textContent : '');
     }
-    if (action === 'reassign')         { openReassignModal(slotId); }
+    if (action === 'reassign')               { openReassignModal(slotId); }
+    if (action === 'open-reschedule')        { openRescheduleInline(slotId); }
+    if (action === 'reschedule-cancel')      { closeRescheduleInline(slotId); }
+    if (action === 'reschedule-window')      { rescheduleSlot(slotId, btn.dataset.time); }
+    if (action === 'reschedule-custom')      { openCustomReschedule(slotId); }
+    if (action === 'reschedule-custom-confirm') { confirmCustomReschedule(slotId); }
+    if (action === 'publish-now')            { publishNowSlot(parseInt(btn.dataset.articleId, 10), slotId); }
   });
 
   // ── View toggle ────────────────────────────────────────────────────────────
