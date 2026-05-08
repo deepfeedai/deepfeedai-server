@@ -120,6 +120,10 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
             await db.prepare(
               "UPDATE story_pitches SET status = 'synthesized' WHERE id = $1"
             ).run(pitch.id);
+            // Backlink article to budget slot if this pitch came from one
+            db.prepare(
+              "UPDATE news_budget_slots SET spawned_article_id = $1, updated_at = NOW() WHERE spawned_pitch_id = $2 AND tenant_id = $3"
+            ).run(synthesized.id, pitch.id, req.tenantId).catch(() => {});
           } else {
             synthesisSkipReason = 'synthesizeCluster returned null (check AI budget or quality gate)';
             console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
