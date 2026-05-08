@@ -493,24 +493,25 @@
       var cat   = payload.category ? ' <span class="nr-badge nr-badge--cat">' + esc(payload.category) + '</span>' : '';
       return '<strong>' + esc(actor) + '</strong> published'
         + cat
-        + (title ? ' <span class="nr-activity-article">"' + esc(title.slice(0,70)) + (title.length > 70 ? '…' : '') + '"</span>' : '');
+        + (title ? ' <span class="nr-activity-article">' + esc(title) + '</span>' : '');
     }
     if (type === 'pitched' || type === 'pitch_proposed') {
       var topic  = hl.replace(/^New investigation:\s*/i, '').replace(/^[^:]+:\s+is investigating:\s*/i, '') || payload.angle_summary || '';
       var srcs   = payload.source_count ? ' <span class="nr-badge nr-badge--sources">' + payload.source_count + ' sources</span>' : '';
       return '<strong>' + esc(actor) + '</strong> pitched'
         + srcs
-        + (topic ? ' <span class="nr-activity-article">"' + esc(topic.slice(0,65)) + (topic.length > 65 ? '…' : '') + '"</span>' : '');
+        + (topic ? ' <span class="nr-activity-article">' + esc(topic) + '</span>' : '');
     }
     if (type === 'synthesis_started') {
       var topic2 = payload.topic || (hl.replace(/^[^:]+:\s+is writing\s*(on\s*)?/i, '')) || '';
       return '<strong>' + esc(actor) + '</strong> started writing'
-        + (topic2 ? ' <span class="nr-activity-article">"' + esc(topic2.slice(0,65)) + (topic2.length > 65 ? '…' : '') + '"</span>' : '');
+        + (topic2 ? ' <span class="nr-activity-article">' + esc(topic2) + '</span>' : '');
     }
     if (type === 'editorial_review') {
       var art = payload.title || hl || '';
+      var artClean = art.replace(/^Story under editorial review[^—]*—?\s*/i, '');
       return '<strong>Editorial</strong> reviewing'
-        + (art ? ' <span class="nr-activity-article">"' + esc(art.replace(/^Story under editorial review[^—]*—?\s*/i,'').slice(0,55)) + '…"</span>' : ' an article');
+        + (artClean ? ' <span class="nr-activity-article">' + esc(artClean) + '</span>' : ' an article');
     }
     if (type === 'budget_published') {
       return '<strong>' + esc(actor) + '</strong> published today\'s runsheet';
@@ -518,7 +519,7 @@
     if (type === 'budget_slot_approved') {
       var h = payload.headline || '';
       return '<strong>' + esc(actor) + '</strong> approved'
-        + (h ? ' <span class="nr-activity-article">"' + esc(h.slice(0,55)) + (h.length > 55 ? '…' : '') + '"</span>' : ' a slot');
+        + (h ? ' <span class="nr-activity-article">' + esc(h) + '</span>' : ' a slot');
     }
     if (type === 'pitch_rejected') {
       return '<strong>' + esc(actor) + '</strong> <span style="color:var(--muted)">spiked a pitch</span>';
