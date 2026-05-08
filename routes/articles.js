@@ -1608,6 +1608,50 @@ router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(as
   res.json({ ok: true, is_published: newPublished });
 }));
 
+// POST /api/articles/set-embed?slug= — attach or clear a YouTube video embed
+router.post('/set-embed', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
+  const slug = req.query.slug;
+  if (!slug) return res.status(400).json({ error: 'slug required' });
+
+  const { embed_url } = req.body || {};
+
+  // Validate and normalise to embed format, or clear if empty
+  let normalised = null;
+  if (embed_url && embed_url.trim()) {
+    try {
+      const u = new URL(embed_url.trim());
+      let videoId = null;
+      if ((u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') && u.searchParams.get('v')) {
+        videoId = u.searchParams.get('v');
+      } else if (u.hostname === 'youtu.be') {
+        videoId = u.pathname.slice(1).split('?')[0];
+      } else if ((u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') && u.pathname.startsWith('/embed/')) {
+        videoId = u.pathname.split('/embed/')[1].split('/')[0];
+      }
+      if (!videoId) return res.status(400).json({ error: 'Not a valid YouTube URL' });
+      normalised = 'https://www.youtube.com/embed/' + videoId;
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+  }
+
+  const article = await db.prepare(
+    'SELECT id, tenant_id FROM articles WHERE slug = $1'
+  ).get(slug);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const adminRow = await db.prepare(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
+  ).get(req.user.email, article.tenant_id);
+  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+
+  await db.prepare(
+    'UPDATE articles SET embed_url = $1, embed_type = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
+  ).run(normalised, normalised ? 'youtube' : null, article.id, article.tenant_id);
+
+  res.json({ ok: true, embed_url: normalised });
+}));
+
 // POST /api/articles/quick-archive?slug= — soft-archive article
 router.post('/quick-archive', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
   const slug = req.query.slug;
