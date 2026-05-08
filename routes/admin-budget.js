@@ -8,7 +8,8 @@ const { getPool } = require('../db');
 const db = require('../db');
 const { auth } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
-const { generateDailyBudget } = require('../lib/news-budget');
+const { generateDailyBudget, todayInTz } = require('../lib/news-budget');
+const { getAppConfig } = require('../lib/app-config');
 const { recordEvent } = require('../lib/newsroom-events');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,7 +86,8 @@ async function _createPitchFromSlot(slot, tenantId) {
 
 // GET /api/admin/budget/today — return today's budget (no slots — light check)
 router.get('/today', auth, asyncHandler(async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const appCfg = await getAppConfig(req.tenantId);
+  const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
   const budget = await _getBudgetByDate(req.tenantId, today);
   if (!budget) return res.json({ budget: null });
   const full = await _getBudgetWithSlots(budget.id, req.tenantId);
@@ -95,7 +97,8 @@ router.get('/today', auth, asyncHandler(async (req, res) => {
 // POST /api/admin/budget/generate — on-demand generation (idempotent)
 // ?force=true deletes today's existing budget and regenerates from scratch
 router.post('/generate', auth, asyncHandler(async (req, res) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const appCfg = await getAppConfig(req.tenantId);
+  const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
   const force = req.query.force === 'true';
 
   const existing = await _getBudgetByDate(req.tenantId, today);
@@ -120,7 +123,8 @@ router.post('/generate', auth, asyncHandler(async (req, res) => {
 
 // GET /api/admin/budget — return budget for a date (defaults to today), with all slots
 router.get('/', auth, asyncHandler(async (req, res) => {
-  const dateStr = req.query.date || new Date().toISOString().slice(0, 10);
+  const appCfg = await getAppConfig(req.tenantId);
+  const dateStr = req.query.date || todayInTz(appCfg.newsroom_timezone || 'UTC');
 
   // Validate date format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {

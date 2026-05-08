@@ -45,12 +45,12 @@ Respond with ONLY valid JSON (no markdown, no code fences):
 }
 
 Rules:
-- Generate 6–12 slots total. Lead: 1–2. Standard: 3–6. Brief: 2–4.
-- Only include slots with at least 2 source articles supporting them.
+- Generate 6–12 slots total. Lead: 1–2. Standard: 3–6. Brief: 2–4. ALWAYS generate at least 6 slots — never return an empty slots array.
+- Prefer slots backed by 2+ source articles. If coverage is thin, generate brief/hold slots with source_ids: [] — do not skip generating slots entirely.
 - headline_suggestion must be specific — name companies, people, numbers. No "Tech Giants React to..." generics.
 - pitch_type values: breaking | analysis | deep_dive | follow_up | roundup | explainer
 - priority values: lead | standard | brief | hold
-- target_publish_window: "HH:MM-HH:MM" UTC format
-- source_ids: array of article IDs from the pulse/pending data provided
+- target_publish_window: "HH:MM-HH:MM" in the newsroom's local timezone
+- source_ids: array of article IDs from the pulse/pending data provided. Use [] when no specific sources are available.
 - coverage_gaps: topics with signal you are intentionally NOT covering today (max 3)
 - Do NOT invent source_ids not present in the input data
