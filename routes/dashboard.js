@@ -107,6 +107,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
         ON a.writer_id = w.id
         AND a.tenant_id = $1
         AND a.is_published = 1
+        AND a.content_type IN ('original', 'deep-dive')
         AND a.published_at >= NOW() - INTERVAL '7 days'
       WHERE w.tenant_id = $1
       GROUP BY w.id

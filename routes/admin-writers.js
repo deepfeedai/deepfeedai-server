@@ -53,7 +53,7 @@ router.get('/', requirePermission('writers.read'), asyncHandler(async (req, res)
              FILTER (WHERE c.id IS NOT NULL), '[]'
            ) AS beats
     FROM writers w
-    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1
+    LEFT JOIN articles a ON a.writer_id = w.id AND a.tenant_id = $1 AND a.content_type IN ('original', 'deep-dive')
     LEFT JOIN writer_follows wf ON wf.writer_id = w.id AND wf.tenant_id = $1
     LEFT JOIN writer_beats wb ON wb.writer_id = w.id AND wb.tenant_id = $1
     LEFT JOIN categories c ON c.id = wb.category_id AND c.tenant_id = $1
@@ -646,6 +646,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM articles
       WHERE writer_id IS NOT NULL
         AND tenant_id = $2
+        AND content_type IN ('original', 'deep-dive')
         AND created_at > NOW() - make_interval(days => $1)
       GROUP BY writer_id
     ),
@@ -654,6 +655,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM article_reactions r
       JOIN articles a ON a.slug = r.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
+        AND a.content_type IN ('original', 'deep-dive')
         AND r.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
     ),
@@ -662,6 +664,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM comments cm
       JOIN articles a ON a.slug = cm.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
+        AND a.content_type IN ('original', 'deep-dive')
         AND cm.is_deleted = 0
         AND cm.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
@@ -673,6 +676,7 @@ router.get('/performance', requirePermission('writers.read'), asyncHandler(async
       FROM analytics_events e
       JOIN articles a ON a.slug = e.article_slug AND a.tenant_id = $2
       WHERE a.writer_id IS NOT NULL
+        AND a.content_type IN ('original', 'deep-dive')
         AND e.created_at > NOW() - make_interval(days => $1)
       GROUP BY a.writer_id
     ),
