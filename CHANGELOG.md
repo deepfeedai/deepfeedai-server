@@ -8,6 +8,27 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.5-beta] — 2026-05-10
+
+**Runsheet actuals layer, daily audio briefing, and audio quality improvements.**
+
+### Added
+
+- **Runsheet actuals layer** — the budget board now shows everything published or scheduled today alongside planned slots. Cap gauge (published / daily cap) with progress bar at the top. Drop window pills (✓ fired / upcoming). Unplanned swimlane for articles published outside the formal slot workflow. Timeline view shows actuals sub-sections per window with fired badges.
+- **Daily Audio Briefing** — anchor-style 2-minute TTS briefing covering today's top stories, available on-demand or auto-generated at 8 AM. Anchor is the writer with the most articles published today who has an ElevenLabs voice (rotates naturally by coverage). Time-of-day greeting (morning / afternoon / evening) reflects when the briefing was generated. Admin generate button with inline audio preview on the runsheet page. Feature-flagged under `daily_briefing`.
+- **"Today's Briefing" public button** — Morning Brief button renamed and wired to the daily audio briefing. Button glows when audio is ready. Modal shows audio player strip with anchor avatar and Listen button routing to the mini-player.
+
+### Changed
+
+- **Per-article audio** — switched from `audio-clean` (title + summary repeat) to `audio-intro` (writer-voiced hook, stakes, and substantive angle). Writer `beat` and `tone` now fetched and passed to the prompt for proper persona context.
+
+### Fixed
+
+- **Daily cap overcounting** — `publish-gate.js` and the actuals route were counting `content_type = 'curated'` (wire/feed inbox rows) against the daily cap and in actuals totals. All count queries now scoped to `content_type IN ('original', 'deep-dive')`. Cap gauge and unplanned counts now match the dashboard.
+- **Unplanned swimlane horizontal scroll** — cards now wrap to multiple rows instead of overflowing horizontally.
+
+---
+
 ## [1.0.0-beta.2] — 2026-05-07
 Newsroom timezone support + budget auto-promote wiring (PR #740)
 
