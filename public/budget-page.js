@@ -1130,9 +1130,56 @@
   document.getElementById('viewSwimlanes').addEventListener('click', function () { showView('swimlanes'); });
   document.getElementById('viewTimeline').addEventListener('click',  function () { showView('timeline'); });
 
-  // ── Generate button ────────────────────────────────────────────────────────
+  // ── Generate budget button ─────────────────────────────────────────────────
   document.getElementById('generateBudgetBtn').addEventListener('click', generateBudget);
   document.getElementById('generateBudgetEmptyBtn').addEventListener('click', generateBudget);
+
+  // ── Audio Briefing button ──────────────────────────────────────────────────
+  (function () {
+    var btn       = document.getElementById('generateBriefingBtn');
+    var label     = document.getElementById('briefingBtnLabel');
+    if (!btn) return;
+
+    // Check if a briefing already exists for today and update button label
+    apiFetch('/admin/budget/briefing').then(function (data) {
+      if (data.briefing) {
+        var s = data.briefing.status;
+        if (s === 'ready')   { label.textContent = '✓ Briefing Ready'; btn.classList.add('btn-success-muted'); }
+        if (s === 'pending') { label.textContent = 'Briefing Generating…'; btn.disabled = true; }
+        if (s === 'error')   { label.textContent = 'Briefing Failed — Retry'; }
+      }
+    }).catch(function () {});
+
+    btn.addEventListener('click', async function () {
+      btn.disabled = true;
+      label.textContent = 'Generating…';
+      try {
+        var data = await apiFetch('/admin/budget/briefing/generate', {
+          method: 'POST',
+          body: JSON.stringify({ force: btn.classList.contains('btn-success-muted') }),
+        });
+        if (data.ok) {
+          label.textContent = '✓ Briefing Ready';
+          btn.classList.add('btn-success-muted');
+          btn.disabled = false;
+          if (data.audio_url) {
+            // Show a quick toast
+            var toast = document.createElement('div');
+            toast.className = 'toast toast-success';
+            toast.textContent = 'Audio briefing generated — plays on the public feed Morning Brief button.';
+            document.body.appendChild(toast);
+            setTimeout(function () { toast.remove(); }, 4000);
+          }
+        } else {
+          label.textContent = 'Briefing Failed — Retry';
+          btn.disabled = false;
+        }
+      } catch (err) {
+        label.textContent = 'Briefing Failed — Retry';
+        btn.disabled = false;
+      }
+    });
+  })();
 
   // ── Date picker ────────────────────────────────────────────────────────────
   var datePicker = document.getElementById('budgetDatePicker');

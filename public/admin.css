@@ -476,6 +476,7 @@ code {
 }
 
 .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+.btn-success-muted { border-color: var(--success) !important; color: var(--success) !important; }
 
 .btn-danger {
   background: var(--danger-dim);
