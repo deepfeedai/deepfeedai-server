@@ -25,6 +25,7 @@
   var writers         = [];            // [{id, name, avatar_url}]
   var writersLoaded   = false;
   var reassignSlotId  = null;          // slot id pending reassign
+  var currentActuals   = null;          // data from /admin/budget/actuals
   var countdownTimers = [];            // setInterval handles for auto-promote timers
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -225,6 +226,46 @@
     ].join('');
   }
 
+  // ── Render an actual published/scheduled article card ─────────────────────
+  function renderActualCard(article) {
+    var name    = article.writer_name || '';
+    var initial = (name || '?').charAt(0).toUpperCase();
+    var avatarHtml = article.writer_avatar
+      ? '<img class="card-writer-avatar" src="' + esc(article.writer_avatar) + '" alt="" />'
+      : '<div class="card-writer-placeholder">' + esc(initial) + '</div>';
+    var time      = article.published_at || article.publish_at;
+    var isPublished = !!article.is_published;
+    var statusCls   = isPublished ? 'bc-approved' : 'bc-pending';
+    var badgeCls    = isPublished ? 'badge-success' : 'badge-muted';
+    var badgeLabel  = isPublished ? 'Published' : 'Scheduled';
+    var typeLabel   = article.content_type === 'deep-dive' ? 'Deep Dive'
+                    : article.content_type === 'original'  ? 'Original'
+                    : esc(article.content_type || '');
+
+    return [
+      '<div class="budget-card actual-card ' + esc(statusCls) + '">',
+        '<div class="card-top">',
+          '<div class="card-headline">',
+            '<a href="/articles.html" class="actual-link" title="' + esc(article.title || '') + '">',
+              esc(article.title || 'Untitled'),
+            '</a>',
+          '</div>',
+          '<span class="badge ' + esc(badgeCls) + '">' + badgeLabel + '</span>',
+        '</div>',
+        '<div class="card-meta-row">',
+          typeLabel ? '<span class="actual-tag">' + typeLabel + '</span>' : '',
+        '</div>',
+        '<div class="card-meta-row">',
+          '<div class="card-writer">',
+            avatarHtml,
+            '<span>' + esc(name || 'Unassigned') + '</span>',
+          '</div>',
+          time ? '<span class="card-publish-time">' + esc(formatTime(time)) + '</span>' : '',
+        '</div>',
+      '</div>',
+    ].join('');
+  }
+
   // ── Render skeleton cards ──────────────────────────────────────────────────
   function renderSkeletonCards(count) {
     var html = '';
@@ -258,7 +299,7 @@
   var PRIORITY_LABELS = { lead: 'Lead', standard: 'Standard', brief: 'Brief', hold: 'Hold' };
   var PRIORITY_CSS    = { lead: 'sl-lead', standard: 'sl-standard', brief: 'sl-brief', hold: 'sl-hold' };
 
-  function renderSwimlanes(slots) {
+  function renderSwimlanes(slots, actuals) {
     var board = document.getElementById('boardSwimlanes');
     if (!board) return;
 
@@ -294,6 +335,25 @@
       ].join('');
     });
 
+    // Unplanned lane — articles with no slot linkage
+    if (actuals) {
+      var allArticles = (actuals.published || []).concat(actuals.scheduled || []);
+      var unplanned   = allArticles.filter(function (a) { return !a.slot_id; });
+      if (unplanned.length) {
+        html += [
+          '<div class="swimlane" data-priority="unplanned">',
+            '<div class="swimlane-header">',
+              '<span class="swimlane-label sl-unplanned">Unplanned</span>',
+              '<span class="swimlane-count">' + unplanned.length + '</span>',
+            '</div>',
+            '<div class="swimlane-track">',
+              unplanned.map(renderActualCard).join(''),
+            '</div>',
+          '</div>',
+        ].join('');
+      }
+    }
+
     board.innerHTML = html;
     startCountdownTimers();
   }
@@ -307,33 +367,76 @@
     { key: 'Unscheduled',   label: 'Unscheduled', time: 'No time set',  test: function (iso) { return !iso; } },
   ];
 
-  function renderTimeline(slots) {
+  function renderTimeline(slots, actuals) {
     var board = document.getElementById('boardTimeline');
     if (!board) return;
 
+    // Group actual articles by window key
+    var actualsByWindow = {};
+    WINDOWS.forEach(function (w) { actualsByWindow[w.key] = []; });
+    if (actuals) {
+      var allArticles = (actuals.published || []).concat(actuals.scheduled || []);
+      allArticles.forEach(function (a) {
+        var t = a.published_at || a.publish_at;
+        WINDOWS.forEach(function (w) {
+          if (w.test(t)) actualsByWindow[w.key].push(a);
+        });
+      });
+    }
+
+    // Build a fired-window lookup keyed by broad time bucket
+    var firedKeys = {};
+    if (actuals && actuals.drop_windows) {
+      actuals.drop_windows.forEach(function (dw) {
+        if (!dw.fired) return;
+        var h = new Date(dw.iso).getHours();
+        if (h < 6)       firedKeys['Early Morning'] = true;
+        else if (h < 12) firedKeys['Morning']       = true;
+        else if (h < 18) firedKeys['Afternoon']     = true;
+        else             firedKeys['Evening']        = true;
+      });
+    }
+
     var html = '';
     WINDOWS.forEach(function (win) {
-      var inWindow = (slots || []).filter(function (s) { return win.test(s.target_publish_at); });
-      if (!inWindow.length) return; // skip empty windows
+      var inWindow       = (slots || []).filter(function (s) { return win.test(s.target_publish_at); });
+      var actualArticles = actualsByWindow[win.key] || [];
+      if (!inWindow.length && !actualArticles.length) return;
 
-      var cardsHtml = inWindow.map(renderCard).join('');
+      var firedBadge = firedKeys[win.key]
+        ? '<span class="timeline-fired-badge">&#10003; Fired</span>'
+        : '';
+
+      var slotsHtml   = inWindow.length
+        ? '<div class="timeline-card-grid">' + inWindow.map(renderCard).join('') + '</div>'
+        : '';
+      var actualsHtml = actualArticles.length
+        ? [
+            '<div class="timeline-actuals-section">',
+              '<div class="timeline-actuals-label">Actuals (' + actualArticles.length + ')</div>',
+              '<div class="timeline-actuals-grid">',
+                actualArticles.map(renderActualCard).join(''),
+              '</div>',
+            '</div>',
+          ].join('')
+        : '';
 
       html += [
         '<div class="timeline-section">',
           '<div class="timeline-section-header">',
             '<span class="timeline-section-label">' + esc(win.label) + '</span>',
             '<span class="timeline-section-time">' + esc(win.time) + '</span>',
-            '<span class="swimlane-count" style="margin-left:4px;">' + inWindow.length + '</span>',
+            inWindow.length ? '<span class="swimlane-count" style="margin-left:4px;">' + inWindow.length + '</span>' : '',
+            firedBadge,
           '</div>',
-          '<div class="timeline-card-grid">',
-            cardsHtml,
-          '</div>',
+          slotsHtml,
+          actualsHtml,
         '</div>',
       ].join('');
     });
 
     if (!html) {
-      html = '<div class="budget-empty"><div class="budget-empty-icon">📅</div><h2>No slots with times</h2><p>Assign target publish times to see them in the timeline view.</p></div>';
+      html = '<div class="budget-empty"><div class="budget-empty-icon">&#128197;</div><h2>No slots with times</h2><p>Assign target publish times to see them in the timeline view.</p></div>';
     }
 
     board.innerHTML = html;
@@ -358,6 +461,60 @@
     if (r) r.textContent = rejected + ' rejected';
   }
 
+  // ── Render actuals strip ──────────────────────────────────────────────────
+  function renderActualsStrip(actuals) {
+    var strip = document.getElementById('actualsStrip');
+    if (!strip) return;
+
+    if (!actuals) {
+      strip.innerHTML = '';
+      strip.className = '';
+      return;
+    }
+
+    var cap   = actuals.cap;
+    var pub   = actuals.published.length;
+    var sched = actuals.scheduled.length;
+
+    var capHtml = '';
+    if (cap.effective > 0) {
+      var pct       = Math.min(100, Math.round((pub / cap.effective) * 100));
+      var isFull    = pub >= cap.effective;
+      var fillClr   = isFull ? 'var(--success)' : 'var(--accent)';
+      var valCls    = isFull ? ' actuals-cap-full' : '';
+      capHtml = [
+        '<div class="actuals-cap">',
+          '<span class="actuals-cap-label">Published</span>',
+          '<span class="actuals-cap-val' + valCls + '">' + pub + ' / ' + cap.effective + '</span>',
+          '<div class="actuals-cap-bar">',
+            '<div class="actuals-cap-fill" style="width:' + pct + '%;background:' + fillClr + '"></div>',
+          '</div>',
+        '</div>',
+      ].join('');
+    } else {
+      capHtml = '<div class="actuals-cap"><span class="actuals-cap-label">Published</span><span class="actuals-cap-val">' + pub + ' (no cap)</span></div>';
+    }
+
+    var windowsHtml = (actuals.drop_windows || []).map(function (w) {
+      var icon = w.fired ? '&#10003;' : '&#9675;';
+      var cls  = w.fired ? 'actuals-win-fired' : 'actuals-win-upcoming';
+      return '<span class="actuals-window ' + cls + '">' + icon + ' ' + esc(w.label) + '</span>';
+    }).join('');
+
+    var schedHtml = sched > 0
+      ? '<span class="actuals-queued">&#9654; ' + sched + ' queued</span>'
+      : '';
+
+    strip.className = 'actuals-strip';
+    strip.innerHTML = [
+      '<div class="actuals-strip-inner">',
+        capHtml,
+        windowsHtml ? '<div class="actuals-windows">' + windowsHtml + '</div>' : '',
+        schedHtml   ? '<div class="actuals-queue">'   + schedHtml   + '</div>' : '',
+      '</div>',
+    ].join('');
+  }
+
   // ── Show/hide views ────────────────────────────────────────────────────────
   function showView(view) {
     currentView = view;
@@ -369,6 +526,10 @@
 
   // ── Load budget ────────────────────────────────────────────────────────────
   async function loadBudget(date) {
+    // Reset actuals strip for the new date
+    currentActuals = null;
+    renderActualsStrip(null);
+
     // Show loading skeletons
     document.getElementById('boardLoading').style.display  = '';
     document.getElementById('boardEmpty').style.display    = 'none';
@@ -382,6 +543,9 @@
       var el = document.getElementById(id);
       if (el) el.innerHTML = renderSkeletonCards(3);
     });
+
+    // Load actuals concurrently — will re-render strip + boards when ready
+    loadActuals(date);
 
     try {
       var data = await apiFetch('/admin/budget?date=' + date);
@@ -415,15 +579,33 @@
       // Stats
       updateStats(budget.slots || []);
 
-      // Render board
-      renderSwimlanes(budget.slots || []);
-      renderTimeline(budget.slots || []);
+      // Render board (include actuals if they arrived before the budget fetch completed)
+      renderSwimlanes(budget.slots || [], currentActuals);
+      renderTimeline(budget.slots || [], currentActuals);
       showView(currentView);
 
     } catch (err) {
       document.getElementById('boardLoading').style.display = 'none';
       document.getElementById('boardEmpty').style.display = '';
       toast('Failed to load runsheet: ' + err.message, 'error');
+    }
+  }
+
+  // ── Load actuals (concurrent with loadBudget) ──────────────────────────────
+  async function loadActuals(date) {
+    try {
+      var data = await apiFetch('/admin/budget/actuals?date=' + date);
+      if (date !== currentDate) return; // stale — date changed while fetching
+      currentActuals = data;
+      renderActualsStrip(data);
+      // If budget is already rendered, re-render boards with actuals
+      if (currentBudget) {
+        renderSwimlanes(currentBudget.slots || [], currentActuals);
+        renderTimeline(currentBudget.slots || [], currentActuals);
+        showView(currentView);
+      }
+    } catch (_) {
+      // Actuals are additive — fail silently
     }
   }
 
@@ -898,8 +1080,8 @@
         if (currentBudget) {
           currentBudget.slots = currentBudget.slots || [];
           currentBudget.slots.push(data.slot);
-          renderSwimlanes(currentBudget.slots);
-          renderTimeline(currentBudget.slots);
+          renderSwimlanes(currentBudget.slots, currentActuals);
+          renderTimeline(currentBudget.slots, currentActuals);
           showView(currentView);
           updateStats(currentBudget.slots);
         }

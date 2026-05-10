@@ -121,6 +121,95 @@ router.post('/generate', auth, asyncHandler(async (req, res) => {
   res.json({ budget: full });
 }));
 
+// GET /api/admin/budget/actuals — published + scheduled articles for a date with slot linkage
+router.get('/actuals', auth, asyncHandler(async (req, res) => {
+  const appCfg = await getAppConfig(req.tenantId);
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const dateStr = req.query.date || todayInTz(tz);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' });
+  }
+
+  const [pubResult, schedResult] = await Promise.all([
+    getPool().query(`
+      SELECT
+        a.id, a.title, a.slug, a.is_published, a.published_at, a.content_type,
+        a.writer_id, w.name AS writer_name, w.avatar_url AS writer_avatar,
+        nbs.id AS slot_id, nbs.priority AS slot_priority
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      LEFT JOIN news_budget_slots nbs
+        ON nbs.spawned_article_id = a.id AND nbs.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1
+        AND a.is_published = 1
+        AND a.published_at >= $2::date
+        AND a.published_at < $2::date + INTERVAL '1 day'
+      ORDER BY a.published_at ASC
+    `, [req.tenantId, dateStr]),
+
+    getPool().query(`
+      SELECT
+        a.id, a.title, a.slug, a.is_published, a.publish_at, a.content_type,
+        a.writer_id, w.name AS writer_name, w.avatar_url AS writer_avatar,
+        nbs.id AS slot_id, nbs.priority AS slot_priority
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      LEFT JOIN news_budget_slots nbs
+        ON nbs.spawned_article_id = a.id AND nbs.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1
+        AND a.status = 'scheduled'
+        AND a.is_published = 0
+        AND a.publish_at >= $2::date
+        AND a.publish_at < $2::date + INTERVAL '1 day'
+      ORDER BY a.publish_at ASC
+    `, [req.tenantId, dateStr]),
+  ]);
+
+  const cap    = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6;
+  const burst  = parseInt(appCfg.daily_publish_burst, 10) || 0;
+  const effectiveCap = cap > 0 ? cap + burst : 0;
+  const todayCount   = pubResult.rows.length;
+
+  // Parse drop windows from config (same defaults as frontend)
+  let windowList = [
+    { label: '7 AM',  hhmm: '07:00' },
+    { label: '12 PM', hhmm: '12:00' },
+    { label: '6 PM',  hhmm: '18:00' },
+  ];
+  if (appCfg.drop_windows) {
+    try {
+      const arr = typeof appCfg.drop_windows === 'string'
+        ? JSON.parse(appCfg.drop_windows)
+        : appCfg.drop_windows;
+      if (Array.isArray(arr) && arr.length) {
+        windowList = arr.map(w => typeof w === 'string'
+          ? { label: w, hhmm: w }
+          : { label: w.label || w.hhmm || String(w), hhmm: w.hhmm || String(w) });
+      }
+    } catch (_) {}
+  }
+
+  const now = new Date();
+  const dropWindows = windowList.map(w => {
+    const iso = new Date(dateStr + 'T' + w.hhmm + ':00').toISOString();
+    return { label: w.label, hhmm: w.hhmm, iso, fired: new Date(iso) < now };
+  });
+
+  res.json({
+    published:    pubResult.rows,
+    scheduled:    schedResult.rows,
+    cap: {
+      cap,
+      burst,
+      effective: effectiveCap,
+      today:     todayCount,
+      remaining: effectiveCap > 0 ? Math.max(0, effectiveCap - todayCount) : null,
+    },
+    drop_windows: dropWindows,
+  });
+}));
+
 // GET /api/admin/budget — return budget for a date (defaults to today), with all slots
 router.get('/', auth, asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
