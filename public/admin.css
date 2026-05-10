@@ -1,5 +1,6 @@
-/* ===== Google Fonts — Inter ===== */
+/* ===== Google Fonts — Inter (default) + skin font families ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;500;600&family=Playfair+Display:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
 
 /* ===== DeepFeedAI Admin — Dark Theme ===== */
 /*
@@ -3079,3 +3080,118 @@ tr:hover .td-edit-btn { opacity: 1; }
   /* Writers card grid: single column under 480px */
   .writer-card-grid { grid-template-columns: 1fr !important; }
 }
+
+/* ══════════════════════════════════════════════════
+   GLOBAL THEME (skin + font) — applied via [data-skin] / [data-font]
+   on <html>. Set by /theme-init.js from per-user prefs. Mirrors the
+   newsroom appearance system so a skin chosen anywhere applies across
+   the entire admin.
+══════════════════════════════════════════════════ */
+
+/* Font pairings */
+html[data-font="system"]    { --font-head: 'Inter', sans-serif;          --font-body: 'Inter', sans-serif; }
+html[data-font="newsprint"] { --font-head: 'Playfair Display', serif;    --font-body: 'Source Serif 4', serif; }
+html[data-font="modern"]    { --font-head: 'DM Sans', sans-serif;        --font-body: 'DM Sans', sans-serif; }
+html[data-font="terminal"]  { --font-head: 'JetBrains Mono', monospace;  --font-body: 'JetBrains Mono', monospace; }
+html[data-font="classic"]   { --font-head: 'Merriweather', serif;        --font-body: 'Open Sans', sans-serif; }
+
+html[data-font] body { font-family: var(--font-body, 'Inter', -apple-system, sans-serif); }
+html[data-font] h1, html[data-font] h2, html[data-font] h3,
+html[data-font] .topbar-title, html[data-font] .settings-topbar-title,
+html[data-font] .stat-label, html[data-font] .dash-section-label {
+  font-family: var(--font-head, 'Inter', sans-serif);
+}
+
+/* Skin: Daylight — clean light */
+html[data-skin="daylight"] {
+  --bg: #f8f9fa; --bg-card: #fff; --bg-sidebar: #f1f3f5;
+  --border: #dee2e6; --text: #1a1a1a; --muted: #6c757d;
+  --accent: #0077cc; --accent-dim: rgba(0,119,204,.1);
+  --danger: #dc3545; --danger-dim: rgba(220,53,69,.1);
+  --success: #198754; --success-dim: rgba(25,135,84,.1);
+}
+
+/* Skin: Wire — terminal green */
+html[data-skin="wire"] {
+  --bg: #000; --bg-card: #080808; --bg-sidebar: #040404;
+  --border: #1a1a1a; --text: #33ff57; --muted: #1a7a28;
+  --accent: #33ff57; --accent-dim: rgba(51,255,87,.07);
+  --danger: #ff3333; --danger-dim: rgba(255,51,51,.1);
+  --success: #33ff57; --success-dim: rgba(51,255,87,.1);
+}
+
+/* Skin: Broadsheet — newspaper */
+html[data-skin="broadsheet"] {
+  --bg: #f4efe6; --bg-card: #faf8f3; --bg-sidebar: #ece7dc;
+  --border: #d4cab8; --text: #1e1810; --muted: #7a6e5c;
+  --accent: #8b1a1a; --accent-dim: rgba(139,26,26,.1);
+  --danger: #c0392b; --danger-dim: rgba(192,57,43,.1);
+  --success: #27ae60; --success-dim: rgba(39,174,96,.1);
+}
+
+/* Skin: Tabloid — bold red */
+html[data-skin="tabloid"] {
+  --bg: #09090f; --bg-card: #111118; --bg-sidebar: #0c0c14;
+  --border: #1c1c2e; --text: #f0f0ff; --muted: #6060aa;
+  --accent: #ff2244; --accent-dim: rgba(255,34,68,.12);
+  --danger: #ff4466; --danger-dim: rgba(255,68,102,.12);
+  --success: #22dd88; --success-dim: rgba(34,221,136,.1);
+}
+
+/* Skin: Ink — explicit reset to default dark */
+html[data-skin="ink"] {
+  --bg: #0d0d0d; --bg-card: #161616; --bg-sidebar: #111;
+  --border: #222; --text: #f0f0f0; --muted: #888;
+  --accent: #00d9ff; --accent-dim: rgba(0,217,255,.12);
+  --danger: #f87171; --danger-dim: rgba(248,113,113,.12);
+  --success: #4ade80; --success-dim: rgba(74,222,128,.12);
+}
+
+/* ══════════════════════════════════════════════════
+   THEME PICKER (injected into .topbar by /theme-init.js)
+══════════════════════════════════════════════════ */
+.theme-picker-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; padding: 0; margin: 0 8px;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.theme-picker-btn:hover { border-color: var(--accent); color: var(--text); background: var(--bg-card); }
+.theme-picker-panel {
+  position: fixed; z-index: 900;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 11px;
+  box-shadow: 0 10px 32px rgba(0,0,0,.5);
+  padding: 14px 16px; min-width: 230px;
+  font-family: var(--font-body, 'Inter', sans-serif);
+}
+.theme-picker-section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px;
+}
+.theme-picker-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.theme-picker-row + .theme-picker-section-label { margin-top: 14px; }
+.theme-picker-skin {
+  width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent;
+  cursor: pointer; padding: 0; transition: transform .15s, border-color .15s;
+}
+.theme-picker-skin:hover { transform: scale(1.08); }
+.theme-picker-skin[data-skin="ink"]        { background: radial-gradient(circle at 35% 35%, #2a2a2a, #0d0d0d); border-color: #444; }
+.theme-picker-skin[data-skin="daylight"]   { background: radial-gradient(circle at 35% 35%, #fff, #c8d6e0); border-color: #ccc; }
+.theme-picker-skin[data-skin="wire"]       { background: radial-gradient(circle at 35% 35%, #0f3318, #000); border-color: #1a3320; }
+.theme-picker-skin[data-skin="broadsheet"] { background: radial-gradient(circle at 35% 35%, #faf0dc, #b89870); border-color: #c4a882; }
+.theme-picker-skin[data-skin="tabloid"]    { background: radial-gradient(circle at 35% 35%, #ff2244, #09090f); border-color: #3a0010; }
+.theme-picker-skin.is-active { box-shadow: 0 0 0 2px var(--accent); }
+.theme-picker-fonts { flex-direction: column; gap: 4px; }
+.theme-picker-font {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+  padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer;
+  text-align: left; transition: border-color .15s, background .15s;
+}
+.theme-picker-font:hover { border-color: var(--accent); background: var(--bg); }
+.theme-picker-font.is-active { border-color: var(--accent); background: var(--accent-dim); }
+.theme-picker-font[data-font="system"]    { font-family: 'Inter', sans-serif; }
+.theme-picker-font[data-font="newsprint"] { font-family: 'Playfair Display', serif; }
+.theme-picker-font[data-font="modern"]    { font-family: 'DM Sans', sans-serif; }
+.theme-picker-font[data-font="terminal"]  { font-family: 'JetBrains Mono', monospace; }
+.theme-picker-font[data-font="classic"]   { font-family: 'Merriweather', serif; }
