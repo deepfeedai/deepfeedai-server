@@ -703,6 +703,56 @@ let apiKeyVisible = false;
     }
   }
 
+  // ── Publishing Settings ───────────────────────────────────────────
+  function loadPublishingSettings(settings) {
+    var modeEl  = document.getElementById('publishMode');
+    var capEl   = document.getElementById('dailyPublishCap');
+    var burstEl = document.getElementById('dailyPublishBurst');
+    var winEl   = document.getElementById('dropWindows');
+    if (modeEl)  modeEl.value  = settings.publish_mode || 'continuous';
+    if (capEl)   capEl.value   = settings.daily_publish_cap  != null ? settings.daily_publish_cap  : '6';
+    if (burstEl) burstEl.value = settings.daily_publish_burst != null ? settings.daily_publish_burst : '0';
+    if (winEl)   winEl.value   = settings.drop_windows || '["07:00","12:00","18:00"]';
+    toggleDropWindowsRow();
+  }
+
+  function toggleDropWindowsRow() {
+    var row = document.getElementById('dropWindowsRow');
+    var mode = document.getElementById('publishMode');
+    if (row && mode) row.style.display = mode.value === 'scheduled' ? '' : 'none';
+  }
+
+  var publishModeEl = document.getElementById('publishMode');
+  if (publishModeEl) publishModeEl.addEventListener('change', toggleDropWindowsRow);
+
+  document.getElementById('savePublishingBtn').addEventListener('click', async function () {
+    var mode  = document.getElementById('publishMode').value;
+    var cap   = Math.max(0, parseInt(document.getElementById('dailyPublishCap').value)  || 0);
+    var burst = Math.max(0, parseInt(document.getElementById('dailyPublishBurst').value) || 0);
+    var wins  = document.getElementById('dropWindows').value.trim();
+    if (wins) {
+      try { JSON.parse(wins); } catch (e) {
+        document.getElementById('publishingStatus').textContent = '❌ Drop Windows must be valid JSON (e.g. ["07:00","12:00"])';
+        return;
+      }
+    }
+    var payload = {
+      publish_mode:        mode,
+      daily_publish_cap:   String(cap),
+      daily_publish_burst: String(burst),
+    };
+    if (wins) payload.drop_windows = wins;
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      document.getElementById('publishingStatus').textContent = '✅ Publishing settings saved';
+    } catch (err) {
+      document.getElementById('publishingStatus').textContent = '❌ Save failed: ' + err.message;
+    } finally {
+      this.disabled = false; this.textContent = 'Save Publishing Settings';
+    }
+  });
+
   // ── Content Lifecycle / Purge ─────────────────────────────────────
   function loadPurgeSettings(settings) {
     document.getElementById('purgeEnabled').checked              = settings.purge_enabled === '1';
@@ -1468,6 +1518,7 @@ let apiKeyVisible = false;
       loadImageProviderSettings(settings);
       loadAiProviders(settings);
       loadChatAgentEngine(settings);
+      loadPublishingSettings(settings);
       loadPurgeSettings(settings);
       loadSpamSettings(settings);
       loadModQueueSettings(settings);

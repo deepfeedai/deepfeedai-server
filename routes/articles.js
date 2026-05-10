@@ -377,6 +377,15 @@ router.put('/:id/reschedule', auth, requirePermission('articles.update'), asyncH
   if (!action) return res.status(400).json({ error: 'action required: "now" or "window"' });
 
   if (action === 'now') {
+    const { evaluatePublish: _evalNow } = require('../lib/publish-gate');
+    const forceNow = req.body?.force_publish === true;
+    const nowGate  = await _evalNow(req.tenantId, { force: forceNow });
+    if (nowGate.action === 'cap_reached') {
+      return res.status(429).json({
+        error: `Daily publish cap reached (${nowGate.count}/${nowGate.cap})`,
+        hint:  'Pass force_publish: true to override',
+      });
+    }
     const updated = await db.prepare(`
       UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
         publish_at = NULL, published_at = NOW(), updated_at = NOW()
@@ -933,15 +942,34 @@ function syncStatusFields(status) {
 router.put('/:id/publish', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!article) return res.status(404).json({ error: 'Article not found' });
-  const newVal = article.is_published ? 0 : 1;
-  const newStatus = newVal ? 'published' : 'draft';
-  const sync = syncStatusFields(newStatus);
+
+  // Unpublish path — no gate needed
+  if (article.is_published) {
+    await db.prepare(
+      "UPDATE articles SET is_published = 0, is_archived = 0, status = 'draft', updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
+    ).run(req.params.id, req.tenantId);
+    logAudit(req, 'article.unpublish', 'article', parseInt(req.params.id));
+    return res.json({ id: article.id, is_published: 0, status: 'draft' });
+  }
+
+  // Publish path — check daily cap (force_publish bypasses it)
+  const { evaluatePublish } = require('../lib/publish-gate');
+  const force = req.body?.force_publish === true;
+  const gate  = await evaluatePublish(req.tenantId, { force });
+
+  if (gate.action === 'cap_reached') {
+    return res.status(429).json({
+      error: `Daily publish cap reached (${gate.count}/${gate.cap})`,
+      hint:  'Pass force_publish: true to override',
+    });
+  }
+
   await db.prepare(
-    'UPDATE articles SET is_published = $1, is_archived = $2, status = $3, updated_at = NOW() WHERE id = $4 AND tenant_id = $5'
-  ).run(sync.is_published, sync.is_archived, newStatus, req.params.id, req.tenantId);
-  if (newVal === 1) onArticlePublished(article.id, req.tenantId).catch(() => {});
-  logAudit(req, newVal ? 'article.publish' : 'article.unpublish', 'article', parseInt(req.params.id));
-  res.json({ id: article.id, is_published: newVal, status: newStatus });
+    "UPDATE articles SET is_published = 1, is_archived = 0, status = 'published', updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
+  ).run(req.params.id, req.tenantId);
+  onArticlePublished(article.id, req.tenantId).catch(() => {});
+  logAudit(req, 'article.publish', 'article', parseInt(req.params.id));
+  res.json({ id: article.id, is_published: 1, status: 'published' });
 }));
 
 // PUT /api/articles/:id/submit-review
@@ -1011,34 +1039,75 @@ router.put('/:id/approve', auth, requirePermission('articles.update'), asyncHand
       })();
     });
   } else {
-    updated = await db.prepare(`
-      UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
-        reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
-      WHERE id = $2 AND tenant_id = $3 RETURNING *
-    `).get(req.user?.sub || null, req.params.id, req.tenantId);
-    onArticlePublished(article.id, req.tenantId).catch(() => {});
-    logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
+    // Continuous mode — check daily cap before publishing immediately
+    const { evaluatePublish: _evalPub } = require('../lib/publish-gate');
+    const forcePub = req.body?.force_publish === true;
+    const pubGate  = await _evalPub(req.tenantId, { force: forcePub, appCfg });
 
-    setImmediate(() => {
-      (async () => {
-        try {
-          const { notify } = require('../lib/notifications');
-          const editors = await db.prepare(
-            `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
-          ).all(req.tenantId);
-          for (const ed of editors) {
-            notify({
-              tenantId: req.tenantId,
-              userId:   ed.id,
-              kind:     'article_published',
-              title:    'Article published',
-              body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
-              payload:  { article_id: article.id, title: article.title, score: article.editorial_score ?? null },
-            }).catch(() => {});
-          }
-        } catch { /* non-fatal */ }
-      })();
-    });
+    if (pubGate.action === 'cap_reached') {
+      // Cap hit — route to next drop window even though publish_mode is continuous
+      const tz       = appCfg.newsroom_timezone || 'UTC';
+      const publishAt = pubGate.scheduleAt.toISOString();
+      updated = await db.prepare(`
+        UPDATE articles SET status = 'scheduled', is_published = 0, is_archived = 0,
+          reviewed_by = $1, reviewed_at = NOW(), publish_at = $2, updated_at = NOW()
+        WHERE id = $3 AND tenant_id = $4 RETURNING *
+      `).get(req.user?.sub || null, publishAt, req.params.id, req.tenantId);
+      logAudit(req, 'article.approve_cap_scheduled', 'article', parseInt(req.params.id), {
+        title: article.title, publish_at: publishAt, cap: pubGate.cap, count: pubGate.count,
+      });
+
+      setImmediate(() => {
+        (async () => {
+          try {
+            const { notify } = require('../lib/notifications');
+            const editors = await db.prepare(
+              `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
+            ).all(req.tenantId);
+            const dropLabel = new Date(publishAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: appCfg.newsroom_timezone || 'UTC' });
+            for (const ed of editors) {
+              notify({
+                tenantId: req.tenantId,
+                userId:   ed.id,
+                kind:     'article_cap_scheduled',
+                title:    'Daily cap reached — article scheduled',
+                body:     `"${article.title}" approved but daily cap (${pubGate.count}/${pubGate.cap}) reached — drops at ${dropLabel}.`,
+                payload:  { article_id: article.id, title: article.title, publish_at: publishAt, cap: pubGate.cap },
+              }).catch(() => {});
+            }
+          } catch { /* non-fatal */ }
+        })();
+      });
+    } else {
+      updated = await db.prepare(`
+        UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
+          reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
+        WHERE id = $2 AND tenant_id = $3 RETURNING *
+      `).get(req.user?.sub || null, req.params.id, req.tenantId);
+      onArticlePublished(article.id, req.tenantId).catch(() => {});
+      logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
+
+      setImmediate(() => {
+        (async () => {
+          try {
+            const { notify } = require('../lib/notifications');
+            const editors = await db.prepare(
+              `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
+            ).all(req.tenantId);
+            for (const ed of editors) {
+              notify({
+                tenantId: req.tenantId,
+                userId:   ed.id,
+                kind:     'article_published',
+                title:    'Article published',
+                body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
+                payload:  { article_id: article.id, title: article.title, score: article.editorial_score ?? null },
+              }).catch(() => {});
+            }
+          } catch { /* non-fatal */ }
+        })();
+      });
+    }
   }
 
   res.json(updated);

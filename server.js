@@ -780,10 +780,34 @@ registerJob({
     const appCfg = await getAppConfig(tenantId);
     if (appCfg.publish_mode !== 'scheduled') return { skipped: 'publish_mode is continuous' };
 
+    // Enforce daily cap: only publish up to remaining capacity
+    // Default to 6 when unconfigured; set to '0' explicitly to disable the cap.
+    const cap   = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap,   10) || 0) : 6;
+    const burst = parseInt(appCfg.daily_publish_burst, 10) || 0;
+    const effectiveCap = cap > 0 ? cap + burst : 0;
+
+    let remaining = Infinity;
+    if (effectiveCap > 0) {
+      const { rows: countRows } = await db.getPool().query(
+        `SELECT COUNT(*) AS cnt FROM articles
+         WHERE tenant_id = $1 AND is_published = 1
+           AND published_at >= CURRENT_DATE AND published_at < CURRENT_DATE + INTERVAL '1 day'`,
+        [tenantId]
+      );
+      const todayCount = parseInt(countRows[0]?.cnt ?? 0, 10);
+      remaining = effectiveCap - todayCount;
+      if (remaining <= 0) {
+        console.log(`[article-publisher] tenant ${tenantId}: daily cap reached (${todayCount}/${effectiveCap}) — skipping drop`);
+        return { skipped: 'daily_cap_reached', published: 0, count: todayCount, cap: effectiveCap };
+      }
+    }
+
     const { rows: due } = await db.getPool().query(
       `SELECT id, title, editorial_score FROM articles
-       WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0 AND publish_at <= NOW()`,
-      [tenantId]
+       WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0 AND publish_at <= NOW()
+       ORDER BY publish_at ASC
+       LIMIT $2`,
+      [tenantId, remaining === Infinity ? 1000 : remaining]
     );
     if (!due.length) return { published: 0 };
 

@@ -926,6 +926,56 @@
       <!-- ═══ Automation ═══ -->
       <div class="tab-panel" data-tab="automation">
 
+        <!-- Publishing -->
+        <div class="settings-card" style="margin-bottom:var(--space-5);">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">📰</div>
+            <div>
+              <div class="settings-card-title">Publishing</div>
+              <div class="settings-card-subtitle">Control how and when articles are released to the public</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <div class="form-group" style="margin-bottom:16px;">
+              <label class="form-label" for="publishMode">Publish Mode</label>
+              <select class="form-control" id="publishMode" style="max-width:400px;">
+                <option value="continuous">Continuous — publish immediately when approved</option>
+                <option value="scheduled">Scheduled — hold for drop windows</option>
+              </select>
+              <p class="form-help">Scheduled mode queues approved articles until the next configured drop window.</p>
+            </div>
+            <div id="dropWindowsRow" style="margin-bottom:16px;display:none;">
+              <div class="form-group">
+                <label class="form-label" for="dropWindows">Drop Windows</label>
+                <input type="text" class="form-control" id="dropWindows" placeholder='["07:00","12:00","18:00"]' style="max-width:400px;" />
+                <p class="form-help">JSON array of HH:MM times in your newsroom timezone. E.g. <code>["07:00","12:00","18:00"]</code></p>
+              </div>
+            </div>
+            <div class="form-grid-2" style="margin-bottom:16px;">
+              <div class="form-group">
+                <label class="form-label" for="dailyPublishCap">Daily Publish Cap</label>
+                <div class="input-row">
+                  <input type="number" class="form-control" id="dailyPublishCap" min="0" max="200" value="6" style="width:90px;" />
+                  <span class="text-muted text-sm">articles / day &nbsp;(0 = unlimited)</span>
+                </div>
+                <p class="form-help">Max articles published per calendar day across all automated and manual paths. Automated paths (synthesis, orchestrator) are held at the cap; admins can exceed it using the burst allowance below.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="dailyPublishBurst">Admin Burst Allowance</label>
+                <div class="input-row">
+                  <input type="number" class="form-control" id="dailyPublishBurst" min="0" max="50" value="0" style="width:90px;" />
+                  <span class="text-muted text-sm">extra slots</span>
+                </div>
+                <p class="form-help">Additional articles admins can force-publish beyond the daily cap using <code>force_publish: true</code>.</p>
+              </div>
+            </div>
+            <div class="btn-group mt-5">
+              <button class="btn btn-primary" id="savePublishingBtn">Save Publishing Settings</button>
+            </div>
+            <div id="publishingStatus" class="settings-status"></div>
+          </div>
+        </div>
+
         <div class="settings-card" id="autopilotCard" style="margin-bottom:var(--space-5);">
           <div class="settings-card-header" style="display:flex;align-items:center;justify-content:space-between;">
             <div style="display:flex;align-items:center;gap:12px;">
