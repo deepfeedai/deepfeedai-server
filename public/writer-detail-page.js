@@ -167,7 +167,7 @@
     html += '</div>';
     html += '<div class="wd-card"><div class="wd-section-title">Automation</div>';
     html += '<div style="margin-bottom:6px;"><strong>Mode:</strong> ' + (w.is_auto ? 'Auto' : 'Manual') + ' &middot; ' + esc(w.synthesis_schedule || 'daily') + '</div>';
-    html += '<div style="margin-bottom:6px;"><strong>Lookback:</strong> ' + (w.synthesis_lookback_hours || 168) + 'h &middot; Min cluster: ' + (w.min_cluster_size || 2) + '</div>';
+    html += '<div style="margin-bottom:6px;"><strong>Lookback:</strong> ' + (w.synthesis_lookback_hours || 168) + 'h &middot; Min cluster: ' + (w.min_cluster_size || 2) + ' &middot; Daily budget: ' + (w.daily_article_budget != null ? w.daily_article_budget : 'default') + '</div>';
     html += '<div><strong>Voice:</strong> ' + (w.elevenlabs_voice_id ? 'Configured' : 'None') + '</div>';
     html += '</div>';
     html += '</div>';
@@ -349,10 +349,11 @@
     html += field('ElevenLabs Voice ID', '<input type="text" class="form-control" id="fVoiceId" value="' + esc(w.elevenlabs_voice_id || '') + '" placeholder="e.g. pNInz6obpgDQGcFmaJgB" />');
     if (!w.is_system) {
       html += '<div style="margin-bottom:12px;"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="fIsAuto"' + (w.is_auto ? ' checked' : '') + ' style="width:16px;height:16px;" /> Auto mode</label></div>';
-      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;">';
       html += field('Schedule', '<select class="form-control" id="fSchedule"><option value="daily"' + sel(w.synthesis_schedule, 'daily') + '>Daily</option><option value="weekly"' + sel(w.synthesis_schedule, 'weekly') + '>Weekly</option><option value="manual"' + sel(w.synthesis_schedule, 'manual') + '>Manual</option></select>');
       html += field('Lookback Hours', '<input type="number" class="form-control" id="fLookback" value="' + (w.synthesis_lookback_hours != null ? w.synthesis_lookback_hours : 168) + '" min="1" max="8760" />');
       html += field('Min Cluster', '<input type="number" class="form-control" id="fMinCluster" value="' + (w.min_cluster_size != null ? w.min_cluster_size : 2) + '" min="1" max="100" />');
+      html += field('Daily Budget', '<input type="number" class="form-control" id="fDailyBudget" value="' + (w.daily_article_budget != null ? w.daily_article_budget : '') + '" min="0" max="100" placeholder="default" /><div class="form-help" style="font-size:11px;margin-top:3px;">0 = unlimited. Blank = use global default.</div>');
       html += '</div>';
     }
     html += '</div>';
@@ -448,6 +449,7 @@
       synthesis_schedule: document.getElementById('fSchedule') ? document.getElementById('fSchedule').value : (writerData.synthesis_schedule || 'daily'),
       synthesis_lookback_hours: document.getElementById('fLookback') ? (parseInt(document.getElementById('fLookback').value) || 168) : (writerData.synthesis_lookback_hours || 168),
       min_cluster_size: document.getElementById('fMinCluster') ? (parseInt(document.getElementById('fMinCluster').value) || 2) : (writerData.min_cluster_size || 2),
+      daily_article_budget: (function() { var el = document.getElementById('fDailyBudget'); if (!el || el.value.trim() === '') return null; var v = parseInt(el.value); return isNaN(v) ? null : Math.max(0, v); })(),
       elevenlabs_voice_id: document.getElementById('fVoiceId').value.trim() || null,
       gender: document.getElementById('fGender').value || null,
       ethnicity: document.getElementById('fEthnicity').value || null,

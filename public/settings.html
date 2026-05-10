@@ -993,7 +993,7 @@
                   <input type="number" class="form-control" id="dailyPublishCap" min="0" max="200" value="6" style="width:90px;" />
                   <span class="text-muted text-sm">articles / day &nbsp;(0 = unlimited)</span>
                 </div>
-                <p class="form-help">Max articles published per calendar day across all automated and manual paths. Automated paths (synthesis, orchestrator) are held at the cap; admins can exceed it using the burst allowance below.</p>
+                <p class="form-help">Max articles published per calendar day across all paths. Admins can exceed it using the burst allowance.</p>
               </div>
               <div class="form-group">
                 <label class="form-label" for="dailyPublishBurst">Admin Burst Allowance</label>
@@ -1001,7 +1001,15 @@
                   <input type="number" class="form-control" id="dailyPublishBurst" min="0" max="50" value="0" style="width:90px;" />
                   <span class="text-muted text-sm">extra slots</span>
                 </div>
-                <p class="form-help">Additional articles admins can force-publish beyond the daily cap using <code>force_publish: true</code>.</p>
+                <p class="form-help">Additional articles admins can force-publish beyond the daily cap.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="writerDailyBudget">Writer Daily Budget</label>
+                <div class="input-row">
+                  <input type="number" class="form-control" id="writerDailyBudget" min="0" max="100" value="2" style="width:90px;" />
+                  <span class="text-muted text-sm">articles / writer / day &nbsp;(0 = unlimited)</span>
+                </div>
+                <p class="form-help">Global default. Max articles each writer can produce per calendar day. Override per-writer on the writer detail page.</p>
               </div>
             </div>
             <div class="btn-group mt-5">

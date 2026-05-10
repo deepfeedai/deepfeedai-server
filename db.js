@@ -2019,6 +2019,9 @@ async function initDb() {
   await p.query(`CREATE INDEX IF NOT EXISTS idx_newsroom_watches_article ON newsroom_watches(tenant_id, target_article_id)`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_newsroom_watches_user ON newsroom_watches(tenant_id, user_id)`);
 
+  // Per-writer daily article budget — null means use the global writer_daily_budget setting
+  await p.query(`ALTER TABLE writers ADD COLUMN IF NOT EXISTS daily_article_budget INTEGER DEFAULT NULL`);
+
   _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;

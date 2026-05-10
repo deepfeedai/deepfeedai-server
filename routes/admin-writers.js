@@ -204,7 +204,7 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
           signature_phrases, contrarian_level, beat_angle, role, team_id, is_system,
-          style_id } = body;
+          style_id, daily_article_budget } = body;
 
   const resolvedSlug = (slug || toSlug(name)).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -212,8 +212,9 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     INSERT INTO writers (name, slug, bio, beat, keywords, system_prompt, chat_prompt, is_auto,
       synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
       tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
-      signature_phrases, contrarian_level, beat_angle, role, team_id, is_system, tenant_id, style_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+      signature_phrases, contrarian_level, beat_angle, role, team_id, is_system, tenant_id, style_id,
+      daily_article_budget)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
     RETURNING *
   `).get(
     name, resolvedSlug, bio || null, beat || null,
@@ -226,7 +227,8 @@ router.post('/', requirePermission('writers.create'), asyncHandler(async (req, r
     gender || null, ethnicity || null,
     signature_phrases || null, contrarian_level ?? 0.5, beat_angle || null,
     role || 'writer', team_id || null, is_system || false,
-    req.tenantId, style_id || null
+    req.tenantId, style_id || null,
+    daily_article_budget != null ? daily_article_budget : null
   );
 
   if (beats.length) await syncBeats(writer.id, beats, req.tenantId);
@@ -249,7 +251,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
           synthesis_schedule, synthesis_lookback_hours, min_cluster_size, elevenlabs_voice_id,
           tone, expertise_level, style_guide, few_shot_examples, gender, ethnicity,
           signature_phrases, contrarian_level, beat_angle, team_id,
-          accent_color, avatar_style_family, avatar_style_notes, style_id } = body;
+          accent_color, avatar_style_family, avatar_style_notes, style_id,
+          daily_article_budget } = body;
 
   // System agents have their role and is_system locked — UI cannot change them.
   const role      = existing.is_system ? existing.role      : (body.role      ?? existing.role      ?? 'writer');
@@ -269,7 +272,8 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
       accent_color = $27,
       avatar_style_family = $28,
       avatar_style_notes = $29,
-      style_id = $30
+      style_id = $30,
+      daily_article_budget = $31
     WHERE id = $25 AND tenant_id = $26
     RETURNING *
   `).get(
@@ -303,6 +307,7 @@ router.put('/:id', requirePermission('writers.update'), asyncHandler(async (req,
     avatar_style_family !== undefined ? (avatar_style_family || null) : (existing.avatar_style_family || null),
     avatar_style_notes !== undefined ? (avatar_style_notes || null) : (existing.avatar_style_notes || null),
     style_id !== undefined ? (style_id || null) : (existing.style_id || null),
+    daily_article_budget !== undefined ? (daily_article_budget != null ? daily_article_budget : null) : existing.daily_article_budget,
   );
 
   if (beats !== undefined) await syncBeats(id, beats, req.tenantId);
