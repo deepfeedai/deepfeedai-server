@@ -946,9 +946,10 @@
             </div>
             <div id="dropWindowsRow" style="margin-bottom:16px;display:none;">
               <div class="form-group">
-                <label class="form-label" for="dropWindows">Drop Windows</label>
-                <input type="text" class="form-control" id="dropWindows" placeholder='["07:00","12:00","18:00"]' style="max-width:400px;" />
-                <p class="form-help">JSON array of HH:MM times in your newsroom timezone. E.g. <code>["07:00","12:00","18:00"]</code></p>
+                <label class="form-label">Drop Windows</label>
+                <p class="form-help" style="margin-bottom:10px;">Times in your newsroom timezone when scheduled articles go live. Sorted automatically on save.</p>
+                <div id="dropWindowsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+                <button type="button" class="btn btn-outline btn-sm" id="addDropWindowBtn">+ Add Window</button>
               </div>
             </div>
             <div class="form-grid-2" style="margin-bottom:16px;">

@@ -361,7 +361,7 @@ let articles = [];
       </td>
       <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
         : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
-        : a.status === 'scheduled' ? `<span class="badge badge-accent" title="Drops at ${a.publish_at ? new Date(a.publish_at).toLocaleString() : '—'}">⏱ Scheduled</span>`
+        : a.status === 'scheduled' ? `<span class="badge badge-accent">⏱ Scheduled</span>${a.publish_at ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;" title="${new Date(a.publish_at).toLocaleString()}">Drops ${relativeTime(a.publish_at)}</div>` : ''}`
         : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
       </td>
       <td class="td-importance">${renderImportanceCell(a)}</td>
@@ -444,7 +444,9 @@ let articles = [];
           ? '<span class="badge badge-archived">Archived</span>'
           : a.status === 'review'
             ? '<span class="badge badge-warning">In Review</span>'
-            : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
+            : a.status === 'scheduled'
+              ? `<span class="badge badge-accent">⏱ Scheduled</span>${a.publish_at ? `<span class="text-muted text-sm" style="margin-left:6px;" title="${new Date(a.publish_at).toLocaleString()}">Drops ${relativeTime(a.publish_at)}</span>` : ''}`
+              : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
         <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
         ${writer ? `<span class="text-muted text-sm">${escHtml(writer.name)}</span>` : ''}
         <span class="text-muted text-sm">${relativeTime(a.published_at || a.created_at)}</span>
@@ -1713,18 +1715,20 @@ let articles = [];
   }
 
   async function approveArticle(id) {
-    const rollback = updateArticleRow(id, { status: 'published', is_published: 1, is_archived: 0 });
-    // If on review tab, article will leave the filtered view
-    if (activeTab === 'review') {
-      removeArticleRow(id);
-    }
+    // Optimistically remove from review tab — article leaves review either way
+    if (activeTab === 'review') removeArticleRow(id);
     try {
       const result = await apiFetch(`/articles/${id}/approve`, { method: 'PUT' });
       const idx = allArticles.findIndex(x => x.id === id);
       if (idx !== -1) Object.assign(allArticles[idx], result);
-      showAlert('Article approved and published', 'success');
+      rerenderRow(id);
+      if (result.status === 'scheduled' && result.publish_at) {
+        const dropTime = new Date(result.publish_at).toLocaleString();
+        showAlert(`Article approved — drops at ${dropTime}`, 'success');
+      } else {
+        showAlert('Article approved and published', 'success');
+      }
     } catch (err) {
-      rollback();
       if (activeTab === 'review') applyFilters({ preservePage: true });
       showAlert('Error: ' + err.message, 'error');
     }

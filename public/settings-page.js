@@ -704,15 +704,58 @@ let apiKeyVisible = false;
   }
 
   // ── Publishing Settings ───────────────────────────────────────────
+  function _dropWindowRowHtml(time) {
+    return `<div class="drop-window-row" style="display:flex;align-items:center;gap:8px;">
+      <input type="time" class="form-control drop-window-time" value="${time || ''}" style="width:130px;" />
+      <button type="button" class="btn btn-ghost btn-sm remove-drop-window" title="Remove" style="padding:4px 8px;line-height:1;">✕</button>
+    </div>`;
+  }
+
+  function _wireRemoveDropWindowBtns() {
+    document.querySelectorAll('.remove-drop-window').forEach(function(btn) {
+      btn.onclick = function() { btn.closest('.drop-window-row').remove(); };
+    });
+  }
+
+  function _loadDropWindowsList(windowsSetting) {
+    var list = document.getElementById('dropWindowsList');
+    if (!list) return;
+    var windows = ['07:00', '12:00', '18:00'];
+    if (windowsSetting) {
+      try { windows = JSON.parse(windowsSetting); } catch { /* keep defaults */ }
+    }
+    list.innerHTML = windows.map(_dropWindowRowHtml).join('');
+    _wireRemoveDropWindowBtns();
+  }
+
+  function _getDropWindowsJson() {
+    var times = Array.from(document.querySelectorAll('.drop-window-time'))
+      .map(function(el) { return el.value; })
+      .filter(Boolean)
+      .sort();
+    return JSON.stringify(times);
+  }
+
+  var _addDropWindowBtn = document.getElementById('addDropWindowBtn');
+  if (_addDropWindowBtn) {
+    _addDropWindowBtn.addEventListener('click', function() {
+      var list = document.getElementById('dropWindowsList');
+      if (!list) return;
+      var div = document.createElement('div');
+      div.innerHTML = _dropWindowRowHtml('');
+      list.appendChild(div.firstElementChild);
+      _wireRemoveDropWindowBtns();
+    });
+  }
+
   function loadPublishingSettings(settings) {
     var modeEl  = document.getElementById('publishMode');
     var capEl   = document.getElementById('dailyPublishCap');
     var burstEl = document.getElementById('dailyPublishBurst');
-    var winEl   = document.getElementById('dropWindows');
     if (modeEl)  modeEl.value  = settings.publish_mode || 'continuous';
     if (capEl)   capEl.value   = settings.daily_publish_cap  != null ? settings.daily_publish_cap  : '6';
     if (burstEl) burstEl.value = settings.daily_publish_burst != null ? settings.daily_publish_burst : '0';
-    if (winEl)   winEl.value   = settings.drop_windows || '["07:00","12:00","18:00"]';
+    _loadDropWindowsList(settings.drop_windows);
     toggleDropWindowsRow();
   }
 
@@ -729,19 +772,12 @@ let apiKeyVisible = false;
     var mode  = document.getElementById('publishMode').value;
     var cap   = Math.max(0, parseInt(document.getElementById('dailyPublishCap').value)  || 0);
     var burst = Math.max(0, parseInt(document.getElementById('dailyPublishBurst').value) || 0);
-    var wins  = document.getElementById('dropWindows').value.trim();
-    if (wins) {
-      try { JSON.parse(wins); } catch (e) {
-        document.getElementById('publishingStatus').textContent = '❌ Drop Windows must be valid JSON (e.g. ["07:00","12:00"])';
-        return;
-      }
-    }
     var payload = {
       publish_mode:        mode,
       daily_publish_cap:   String(cap),
       daily_publish_burst: String(burst),
+      drop_windows:        _getDropWindowsJson(),
     };
-    if (wins) payload.drop_windows = wins;
     try {
       this.disabled = true; this.textContent = 'Saving…';
       await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
