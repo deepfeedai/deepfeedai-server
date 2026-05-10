@@ -797,7 +797,17 @@ registerJob({
       const todayCount = parseInt(countRows[0]?.cnt ?? 0, 10);
       remaining = effectiveCap - todayCount;
       if (remaining <= 0) {
-        console.log(`[article-publisher] tenant ${tenantId}: daily cap reached (${todayCount}/${effectiveCap}) — skipping drop`);
+        // Push any overdue scheduled articles to tomorrow so their countdown
+        // stays honest (they won't release today regardless).
+        const { nextDropWindowTomorrow: _ndwt } = require('./lib/news-budget');
+        const tomorrowWindow = _ndwt(appCfg.newsroom_timezone || 'UTC', appCfg.drop_windows);
+        await db.getPool().query(
+          `UPDATE articles SET publish_at = $2, updated_at = NOW()
+           WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0
+             AND publish_at <= NOW()`,
+          [tenantId, tomorrowWindow.toISOString()]
+        );
+        console.log(`[article-publisher] tenant ${tenantId}: daily cap reached (${todayCount}/${effectiveCap}) — rescheduled overdue articles to ${tomorrowWindow.toISOString()}`);
         return { skipped: 'daily_cap_reached', published: 0, count: todayCount, cap: effectiveCap };
       }
     }

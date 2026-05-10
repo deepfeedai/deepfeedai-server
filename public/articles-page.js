@@ -405,6 +405,8 @@ let articles = [];
               <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
               <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+            ` : a.status === 'scheduled' ? `
+              <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Force publish now (bypasses daily cap)" onclick="forcePublishNow(${a.id})">⚡ Publish Now</button>
             ` : ''}
             ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
@@ -463,6 +465,8 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
           ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
             <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
+          ` : a.status === 'scheduled' ? `
+            <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Force publish now (bypasses daily cap)" onclick="forcePublishNow(${a.id})">⚡ Publish Now</button>
           ` : ''}
           ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
@@ -1764,6 +1768,24 @@ let articles = [];
     } catch (err) {
       rollback();
       if (activeTab === 'drafts') applyFilters({ preservePage: true });
+      showAlert('Error: ' + err.message, 'error');
+    }
+  }
+
+  async function forcePublishNow(id) {
+    if (!confirm('Force publish this article now? This bypasses the daily cap.')) return;
+    const rollback = updateArticleRow(id, { status: 'published', is_published: 1 });
+    try {
+      await apiFetch(`/articles/${id}/reschedule`, {
+        method: 'PUT',
+        body: JSON.stringify({ action: 'now', force_publish: true }),
+      });
+      const idx = allArticles.findIndex(x => x.id === id);
+      if (idx !== -1) Object.assign(allArticles[idx], { status: 'published', is_published: 1 });
+      showAlert('Article published.', 'success');
+      applyFilters({ preservePage: true });
+    } catch (err) {
+      rollback();
       showAlert('Error: ' + err.message, 'error');
     }
   }
