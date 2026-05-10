@@ -988,6 +988,26 @@ registerJob({
 });
 
 registerJob({
+  name: 'daily-briefing',
+  description: 'Daily audio news briefing — anchor-style 2-minute audio summary of top stories',
+  category: 'Media',
+  defaultSchedule: '0 * * * *', // runs hourly; fires at 8AM in newsroom timezone
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'daily_briefing').catch(() => false);
+    if (!enabled) return { skipped: 'daily_briefing feature not enabled' };
+
+    const { currentHourInTz } = require('./lib/news-budget');
+    const appCfg = await getAppConfig(tenantId);
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    if (currentHourInTz(tz) !== 8) return { skipped: 'not yet 08:00 in ' + tz };
+
+    const { generateDailyBriefing } = require('./lib/daily-briefing');
+    return generateDailyBriefing(tenantId);
+  },
+});
+
+registerJob({
   name: 'newsletter',
   description: 'Weekly newsletter',
   category: 'Notifications',
