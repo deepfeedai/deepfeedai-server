@@ -2198,6 +2198,7 @@ tr:hover .td-edit-btn { opacity: 1; }
 }
 .dash-pulse-active { font-size: 10px; color: var(--success); }
 .dash-pulse-idle   { font-size: 10px; color: var(--muted); }
+.dash-pulse-week   { font-size: 10px; color: var(--muted); }
 .dash-pulse-skeleton {
   min-width: 90px; height: 88px;
   background: var(--border); border-radius: 10px;

@@ -197,11 +197,13 @@ function renderNewsroomPulse(stats) {
       dotCls = 'dash-pulse-dot-idle';   dotTitle = 'Idle today';
     }
 
-    const activityLabel = atBudget
-      ? '<span class="dash-pulse-budget">Budget reached</span>'
-      : weekCount > 0
-        ? '<span class="dash-pulse-active">' + weekCount + ' this week</span>'
-        : '<span class="dash-pulse-idle">Idle</span>';
+    const todayStr  = atBudget
+      ? '<span class="dash-pulse-budget">' + todayCount + '/' + budget + ' today</span>'
+      : todayCount > 0
+        ? '<span class="dash-pulse-active">' + todayCount + ' today</span>'
+        : '<span class="dash-pulse-idle">Idle today</span>';
+    const weekStr   = '<span class="dash-pulse-week"> · ' + weekCount + ' this week</span>';
+    const activityLabel = todayStr + weekStr;
 
     return '<a href="/writer-detail.html?id=' + w.id + '" class="dash-pulse-card">'
       + '<div class="dash-pulse-avatar-wrap">'
