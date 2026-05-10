@@ -750,9 +750,11 @@ let apiKeyVisible = false;
 
   function loadPublishingSettings(settings) {
     var modeEl  = document.getElementById('publishMode');
+    var tzEl    = document.getElementById('newsroomTimezone');
     var capEl   = document.getElementById('dailyPublishCap');
     var burstEl = document.getElementById('dailyPublishBurst');
     if (modeEl)  modeEl.value  = settings.publish_mode || 'continuous';
+    if (tzEl)    tzEl.value    = settings.newsroom_timezone || 'UTC';
     if (capEl)   capEl.value   = settings.daily_publish_cap  != null ? settings.daily_publish_cap  : '6';
     if (burstEl) burstEl.value = settings.daily_publish_burst != null ? settings.daily_publish_burst : '0';
     _loadDropWindowsList(settings.drop_windows);
@@ -772,8 +774,10 @@ let apiKeyVisible = false;
     var mode  = document.getElementById('publishMode').value;
     var cap   = Math.max(0, parseInt(document.getElementById('dailyPublishCap').value)  || 0);
     var burst = Math.max(0, parseInt(document.getElementById('dailyPublishBurst').value) || 0);
+    var tz = document.getElementById('newsroomTimezone').value;
     var payload = {
       publish_mode:        mode,
+      newsroom_timezone:   tz,
       daily_publish_cap:   String(cap),
       daily_publish_burst: String(burst),
       drop_windows:        _getDropWindowsJson(),

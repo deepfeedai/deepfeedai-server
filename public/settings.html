@@ -936,13 +936,47 @@
             </div>
           </div>
           <div style="padding:0 20px 20px;">
-            <div class="form-group" style="margin-bottom:16px;">
-              <label class="form-label" for="publishMode">Publish Mode</label>
-              <select class="form-control" id="publishMode" style="max-width:400px;">
-                <option value="continuous">Continuous — publish immediately when approved</option>
-                <option value="scheduled">Scheduled — hold for drop windows</option>
-              </select>
-              <p class="form-help">Scheduled mode queues approved articles until the next configured drop window.</p>
+            <div class="form-grid-2" style="margin-bottom:16px;">
+              <div class="form-group">
+                <label class="form-label" for="publishMode">Publish Mode</label>
+                <select class="form-control" id="publishMode">
+                  <option value="continuous">Continuous — publish immediately when approved</option>
+                  <option value="scheduled">Scheduled — hold for drop windows</option>
+                </select>
+                <p class="form-help">Scheduled mode queues approved articles until the next configured drop window.</p>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="newsroomTimezone">Newsroom Timezone</label>
+                <select class="form-control" id="newsroomTimezone">
+                  <option value="UTC">UTC</option>
+                  <option value="America/New_York">Eastern (ET)</option>
+                  <option value="America/Chicago">Central (CT)</option>
+                  <option value="America/Denver">Mountain (MT)</option>
+                  <option value="America/Los_Angeles">Pacific (PT)</option>
+                  <option value="America/Anchorage">Alaska (AKT)</option>
+                  <option value="Pacific/Honolulu">Hawaii (HT)</option>
+                  <option value="America/Toronto">Toronto (ET)</option>
+                  <option value="America/Vancouver">Vancouver (PT)</option>
+                  <option value="America/Sao_Paulo">São Paulo (BRT)</option>
+                  <option value="Europe/London">London (GMT/BST)</option>
+                  <option value="Europe/Paris">Paris (CET/CEST)</option>
+                  <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                  <option value="Europe/Amsterdam">Amsterdam (CET/CEST)</option>
+                  <option value="Europe/Stockholm">Stockholm (CET/CEST)</option>
+                  <option value="Europe/Warsaw">Warsaw (CET/CEST)</option>
+                  <option value="Europe/Kiev">Kyiv (EET/EEST)</option>
+                  <option value="Asia/Dubai">Dubai (GST)</option>
+                  <option value="Asia/Kolkata">India (IST)</option>
+                  <option value="Asia/Singapore">Singapore (SGT)</option>
+                  <option value="Asia/Tokyo">Tokyo (JST)</option>
+                  <option value="Asia/Seoul">Seoul (KST)</option>
+                  <option value="Asia/Shanghai">Shanghai (CST)</option>
+                  <option value="Australia/Sydney">Sydney (AEST/AEDT)</option>
+                  <option value="Australia/Melbourne">Melbourne (AEST/AEDT)</option>
+                  <option value="Pacific/Auckland">Auckland (NZST/NZDT)</option>
+                </select>
+                <p class="form-help">Drop window times and daily cap reset are interpreted in this timezone.</p>
+              </div>
             </div>
             <div id="dropWindowsRow" style="margin-bottom:16px;display:none;">
               <div class="form-group">
