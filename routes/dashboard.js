@@ -9,6 +9,7 @@ const { getPool } = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
+const { getAppConfig } = require('../lib/app-config');
 
 router.use(auth);
 
@@ -16,6 +17,8 @@ router.use(auth);
 router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const tid  = req.tenantId;
+
+  const appCfg = await getAppConfig(tid).catch(() => ({}));
 
   const [
     articleRow,
@@ -31,6 +34,10 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
     recentRows,
     catRows,
     queueRow,
+    scheduledRow,
+    feedBacklogRow,
+    topStoryRow,
+    engagementRow,
   ] = await Promise.all([
 
     // ── Article stats (editorial: original/deep-dive) ────────────────────
@@ -97,20 +104,29 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       WHERE tenant_id = $1 AND status = 'proposed'
     `, [tid]).catch(() => ({ rows: [{ proposed: 0 }] })),
 
-    // ── Writers with 7-day article count ────────────────────────────────
+    // ── Writers with 7-day article count + today count + budget ─────────
     pool.query(`
       SELECT
         w.id, w.name, w.avatar_url, w.beat, w.is_auto,
-        COUNT(a.id)::int AS article_count_7d
+        w.daily_article_budget,
+        COUNT(a7.id)::int AS article_count_7d,
+        COUNT(at.id)::int AS article_count_today
       FROM writers w
-      LEFT JOIN articles a
-        ON a.writer_id = w.id
-        AND a.tenant_id = $1
-        AND a.is_published = 1
-        AND a.content_type IN ('original', 'deep-dive')
-        AND a.published_at >= NOW() - INTERVAL '7 days'
+      LEFT JOIN articles a7
+        ON a7.writer_id = w.id
+        AND a7.tenant_id = $1
+        AND a7.is_published = 1
+        AND a7.content_type IN ('original', 'deep-dive')
+        AND a7.published_at >= NOW() - INTERVAL '7 days'
+      LEFT JOIN articles at
+        ON at.writer_id = w.id
+        AND at.tenant_id = $1
+        AND at.content_type IN ('original', 'deep-dive')
+        AND (at.is_published = 1 OR at.status = 'scheduled')
+        AND at.created_at >= CURRENT_DATE
+        AND at.created_at < CURRENT_DATE + INTERVAL '1 day'
       WHERE w.tenant_id = $1
-      GROUP BY w.id
+      GROUP BY w.id, w.daily_article_budget
       ORDER BY w.name ASC
     `, [tid]),
 
@@ -195,6 +211,68 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
         AND is_deleted = 0
         AND (is_approved IS NULL OR is_approved = 0)
     `, [tid]).catch(() => ({ rows: [{ pending: 0 }] })),
+
+    // ── Scheduled queue (articles queued for future drop) ────────────────
+    pool.query(`
+      SELECT
+        COUNT(*)::int          AS count,
+        MIN(publish_at)        AS next_at
+      FROM articles
+      WHERE tenant_id = $1
+        AND status = 'scheduled'
+        AND is_archived = 0
+    `, [tid]).catch(() => ({ rows: [{ count: 0, next_at: null }] })),
+
+    // ── Feed inbox backlog (raw unprocessed feed articles) ───────────────
+    pool.query(`
+      SELECT COUNT(*)::int AS count
+      FROM articles
+      WHERE tenant_id = $1
+        AND is_archived = 0
+        AND (content_type IS NULL OR content_type = 'curated')
+        AND status = 'source'
+    `, [tid]).catch(() => ({ rows: [{ count: 0 }] })),
+
+    // ── Top story this week (by views + reactions) ───────────────────────
+    pool.query(`
+      SELECT
+        a.id, a.title, a.slug, a.image_url, a.published_at,
+        w.name AS writer_name,
+        COALESCE(v.views, 0)      AS views,
+        COALESCE(r.reactions, 0)  AS reactions
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = $1
+      LEFT JOIN (
+        SELECT article_slug, COUNT(*)::int AS views
+        FROM analytics_events
+        WHERE event_type = 'view' AND tenant_id = $1
+          AND created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY article_slug
+      ) v ON v.article_slug = a.slug
+      LEFT JOIN (
+        SELECT article_slug, COUNT(*)::int AS reactions
+        FROM article_reactions
+        WHERE tenant_id = $1
+          AND created_at >= NOW() - INTERVAL '7 days'
+        GROUP BY article_slug
+      ) r ON r.article_slug = a.slug
+      WHERE a.tenant_id = $1
+        AND a.is_published = 1
+        AND a.is_archived = 0
+        AND a.content_type IN ('original', 'deep-dive')
+        AND a.published_at >= NOW() - INTERVAL '7 days'
+      ORDER BY (COALESCE(v.views, 0) + COALESCE(r.reactions, 0) * 3) DESC
+      LIMIT 1
+    `, [tid]).catch(() => ({ rows: [] })),
+
+    // ── Engagement snapshot (reactions + comments today & this week) ─────
+    pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE r.created_at >= NOW() - INTERVAL '1 day')  AS reactions_today,
+        COUNT(*) FILTER (WHERE r.created_at >= NOW() - INTERVAL '7 days') AS reactions_week
+      FROM article_reactions r
+      WHERE r.tenant_id = $1
+    `, [tid]).catch(() => ({ rows: [{ reactions_today: 0, reactions_week: 0 }] })),
   ]);
 
   const a = articleRow.rows[0];
@@ -247,12 +325,14 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       proposed: Number(commissionRow.rows[0]?.proposed || 0),
     },
     writers: writerRows.rows.map(w => ({
-      id:              w.id,
-      name:            w.name,
-      avatar_url:      w.avatar_url,
-      beat:            w.beat,
-      is_auto:         w.is_auto,
-      article_count_7d: w.article_count_7d,
+      id:                  w.id,
+      name:                w.name,
+      avatar_url:          w.avatar_url,
+      beat:                w.beat,
+      is_auto:             w.is_auto,
+      article_count_7d:    w.article_count_7d,
+      article_count_today: w.article_count_today,
+      daily_article_budget: w.daily_article_budget,
     })),
     ai_spend: {
       week_total: aiSpendRows.rows.reduce((sum, r) => sum + Number(r.cost), 0),
@@ -275,7 +355,22 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       : null,
     categories: catRows.rows,
     recent_articles: recentRows.rows,
-    settings_incomplete: false, // reserved for future setup check
+    scheduled: {
+      count:   Number(scheduledRow.rows[0]?.count  || 0),
+      next_at: scheduledRow.rows[0]?.next_at || null,
+    },
+    feed_backlog: Number(feedBacklogRow.rows[0]?.count || 0),
+    top_story: topStoryRow.rows[0] || null,
+    engagement: {
+      reactions_today: Number(engagementRow.rows[0]?.reactions_today || 0),
+      reactions_week:  Number(engagementRow.rows[0]?.reactions_week  || 0),
+    },
+    publish_cap: {
+      cap:       appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6,
+      burst:     parseInt(appCfg.daily_publish_burst, 10) || 0,
+      today:     Number(a.today),
+    },
+    settings_incomplete: false,
   });
 }));
 

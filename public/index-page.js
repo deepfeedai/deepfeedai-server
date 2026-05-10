@@ -18,15 +18,11 @@ onReady(async () => {
   } catch (e) { /* ignore */ }
 
   // Redirect to wizard only if explicitly incomplete (value '0' or empty string).
-  // Missing/null means a pre-wizard tenant — treat as complete to avoid trapping live sites.
   apiFetch('/settings').then(settings => {
     const v = settings.wizard_completed;
-    if (v === '0' || v === '') {
-      window.location.href = '/wizard.html';
-    }
+    if (v === '0' || v === '') window.location.href = '/wizard.html';
   }).catch(() => {});
 
-  // Main data load
   async function loadDashboard() {
     let stats;
     try {
@@ -35,12 +31,14 @@ onReady(async () => {
       showAlert('Failed to load dashboard: ' + err.message, 'error');
       return;
     }
+    renderGlance(stats);
     renderKPIs(stats);
     renderNewsroomPulse(stats);
     renderSparkline(stats);
     renderAISpend(stats);
     renderCategories(stats);
     renderAttention(stats);
+    renderTopStory(stats);
     renderRecentArticles(stats);
   }
 
@@ -59,6 +57,60 @@ function deltaBadge(current, previous, suffix) {
   return '<span class="' + cls + '">' + sign + diff + label + '</span>';
 }
 
+// ── Today at a Glance ──────────────────────────────────────
+function renderGlance(stats) {
+  const cap      = stats.publish_cap || {};
+  const effectiveCap = (cap.cap || 0) > 0 ? (cap.cap + (cap.burst || 0)) : 0;
+  const today    = cap.today || 0;
+  const remaining = effectiveCap > 0 ? Math.max(0, effectiveCap - today) : null;
+  const sched    = stats.scheduled || {};
+  const backlog  = stats.feed_backlog || 0;
+  const eng      = stats.engagement  || {};
+
+  // Published today
+  setGlance('glancePublished', today,
+    deltaBadge(today, stats.articles?.yesterday, ' vs yesterday'));
+
+  // Cap remaining
+  if (remaining === null) {
+    setGlance('glanceCap', '∞', '<span class="stat-delta-neutral">no cap set</span>');
+  } else {
+    const cls = remaining === 0 ? 'stat-delta-down' : remaining <= 2 ? 'stat-delta-neutral' : 'stat-delta-up';
+    setGlance('glanceCap', remaining,
+      '<span class="' + cls + '">' + (effectiveCap ? 'of ' + effectiveCap + ' cap' : '') + '</span>');
+  }
+
+  // Scheduled queue
+  const schedLabel = sched.count > 0 && sched.next_at
+    ? '<span class="stat-delta-neutral">next ' + relativeTime(sched.next_at) + '</span>'
+    : (sched.count === 0 ? '<span class="stat-delta-neutral">queue empty</span>' : '');
+  setGlance('glanceScheduled', sched.count || 0, schedLabel);
+
+  // Feed backlog
+  const backlogCls = backlog > 50 ? 'stat-delta-down' : backlog > 10 ? 'stat-delta-neutral' : 'stat-delta-up';
+  setGlance('glanceBacklog', backlog,
+    '<span class="' + backlogCls + '">' + (backlog === 0 ? 'all clear' : 'unprocessed') + '</span>');
+
+  // Engagement today
+  setGlance('glanceEngagement', eng.reactions_today || 0,
+    deltaBadge(eng.reactions_today || 0, Math.round((eng.reactions_week || 0) / 7), '/day avg'));
+}
+
+function setGlance(id, value, subHtml) {
+  const item = el(id);
+  if (!item) return;
+  const valEl = item.querySelector('.dash-glance-value');
+  const subEl = item.querySelector('.dash-glance-sub');
+  if (valEl) valEl.textContent = value;
+  if (subEl && subHtml !== undefined) subEl.innerHTML = subHtml;
+  else if (subHtml !== undefined) {
+    const s = document.createElement('div');
+    s.className = 'dash-glance-sub';
+    s.innerHTML = subHtml;
+    item.appendChild(s);
+  }
+}
+
 // ── KPI stat cards ─────────────────────────────────────────
 function renderKPIs(stats) {
   const a = stats.articles;
@@ -75,12 +127,23 @@ function renderKPIs(stats) {
   setText('statFeedWeek',  f.this_week);
   setText('statSources',   s.active);
 
-  // Deltas
+  // Audio coverage %
+  const audioPctEl = el('statAudioPct');
+  if (audioPctEl) {
+    const total = a.published || 0;
+    const withAudio = (a.audio_ready || 0);
+    const pct = total > 0 ? Math.round((withAudio / total) * 100) : 0;
+    audioPctEl.textContent = pct + '%';
+    const card = el('statAudioCard');
+    if (card) {
+      if (pct < 50) card.classList.add('stat-card-warn');
+    }
+  }
+
   setHtml('deltaPublished', deltaBadge(a.today, a.yesterday, ' vs yesterday'));
   setHtml('deltaToday',     deltaBadge(a.today, a.yesterday, ' vs yesterday'));
   setHtml('deltaWeek',      deltaBadge(a.this_week, a.last_week, ' vs last week'));
 
-  // Warn cards
   if (a.in_review > 0) el('statReviewCard')?.classList.add('stat-card-warn');
   if (a.drafts    > 0) el('statDraftsCard')?.classList.add('stat-card-warn');
 }
@@ -93,14 +156,16 @@ function renderNewsroomPulse(stats) {
   // Synthesis status in header
   const synthEl = el('synthStatus');
   if (synthEl && stats.synthesis) {
-    const ran = stats.synthesis.last_run_at;
+    const ran    = stats.synthesis.last_run_at;
     const status = stats.synthesis.status;
-    const cls = status === 'success' ? 'badge-accent' : status === 'failed' ? 'badge-danger' : 'badge-muted';
+    const cls    = status === 'success' ? 'badge-accent' : status === 'failed' ? 'badge-danger' : 'badge-muted';
     synthEl.innerHTML = '<span class="badge ' + cls + '" title="Last synthesis run">'
       + 'Synthesis: ' + (ran ? relativeTime(ran) : 'never') + '</span>';
   } else if (synthEl) {
     synthEl.innerHTML = '<span class="badge badge-muted">Synthesis: never run</span>';
   }
+
+  const globalBudget = stats.publish_cap?.writer_daily_budget || 2;
 
   // Pending pitches card
   const pitchCount = stats.pitches?.pending || 0;
@@ -109,21 +174,42 @@ function renderNewsroomPulse(stats) {
     + '<div class="dash-pulse-card-label">Pending Pitches</div>'
     + '</a>';
 
-  // Writer cards
+  // Writer cards — linked to detail page, with status dot
   const writers = stats.writers || [];
   const writerCards = writers.map(w => {
-    const initial = (w.name || '?')[0].toUpperCase();
-    const avatar  = w.avatar_url
+    const initial  = (w.name || '?')[0].toUpperCase();
+    const avatar   = w.avatar_url
       ? '<img src="' + escHtml(w.avatar_url) + '" alt="" class="dash-pulse-avatar" />'
       : '<div class="dash-pulse-avatar-initials">' + escHtml(initial) + '</div>';
-    const count = w.article_count_7d || 0;
-    const activity = count > 0
-      ? '<span class="dash-pulse-active">' + count + ' this week</span>'
-      : '<span class="dash-pulse-idle">Idle</span>';
-    return '<a href="/writers.html" class="dash-pulse-card">'
-      + '<div class="dash-pulse-avatar-wrap">' + avatar + '</div>'
+
+    const budget    = w.daily_article_budget != null ? w.daily_article_budget : globalBudget;
+    const todayCount = w.article_count_today || 0;
+    const weekCount  = w.article_count_7d    || 0;
+    const atBudget   = budget > 0 && todayCount >= budget;
+    const activeToday = todayCount > 0;
+
+    let dotCls, dotTitle;
+    if (atBudget) {
+      dotCls = 'dash-pulse-dot-budget'; dotTitle = 'At daily budget (' + todayCount + '/' + budget + ')';
+    } else if (activeToday) {
+      dotCls = 'dash-pulse-dot-active'; dotTitle = todayCount + ' articles today';
+    } else {
+      dotCls = 'dash-pulse-dot-idle';   dotTitle = 'Idle today';
+    }
+
+    const activityLabel = atBudget
+      ? '<span class="dash-pulse-budget">Budget reached</span>'
+      : weekCount > 0
+        ? '<span class="dash-pulse-active">' + weekCount + ' this week</span>'
+        : '<span class="dash-pulse-idle">Idle</span>';
+
+    return '<a href="/writer-detail.html?id=' + w.id + '" class="dash-pulse-card">'
+      + '<div class="dash-pulse-avatar-wrap">'
+      + avatar
+      + '<span class="dash-pulse-dot ' + dotCls + '" title="' + dotTitle + '"></span>'
+      + '</div>'
       + '<div class="dash-pulse-card-name">' + escHtml(w.name) + '</div>'
-      + activity
+      + activityLabel
       + '</a>';
   }).join('');
 
@@ -149,12 +235,12 @@ function renderSparkline(stats) {
   const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   const bars = days.map((d, i) => {
-    const barH  = Math.max(2, Math.round(((d.value / maxVal) * (H - 24))));
-    const x     = pad + i * (barW + 2);
-    const y     = H - 16 - barH;
+    const barH   = Math.max(2, Math.round(((d.value / maxVal) * (H - 24))));
+    const x      = pad + i * (barW + 2);
+    const y      = H - 16 - barH;
     const isToday = d.day === today;
-    const fill  = isToday ? 'var(--accent)' : 'var(--border)';
-    const dow   = dayLabels[new Date(d.day + 'T12:00:00Z').getUTCDay()];
+    const fill   = isToday ? 'var(--accent)' : 'var(--border)';
+    const dow    = dayLabels[new Date(d.day + 'T12:00:00Z').getUTCDay()];
     return '<rect x="' + x + '" y="' + y + '" width="' + barW + '" height="' + barH + '" rx="2" fill="' + fill + '">'
       + '<title>' + d.day + ': ' + d.value + ' published</title></rect>'
       + '<text x="' + (x + barW / 2) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="9" fill="var(--muted)">' + dow + '</text>'
@@ -175,7 +261,7 @@ function renderAISpend(stats) {
 
   const days   = spend.by_day || [];
   const maxVal = Math.max(...days.map(d => d.value), 0.0001);
-  const W = 200, H = 40;
+  const W = 200, H = 56;
   const barW = Math.floor((W - 8) / days.length) - 2;
 
   const bars = days.map((d, i) => {
@@ -226,20 +312,19 @@ function renderAttention(stats) {
   const attEl = el('attentionList');
   if (!attEl) return;
 
-  const a = stats.articles;
-  const f = stats.feed;
-  const s = stats.sources;
-  const c = stats.comments;
+  const a   = stats.articles;
+  const f   = stats.feed;
+  const s   = stats.sources;
+  const c   = stats.comments;
+  const cap = stats.publish_cap || {};
   const items = [];
 
-  // In review — highest priority
   if (a.in_review > 0) {
     items.push({ icon: '👁', level: 'warn', priority: 10,
       text: a.in_review + ' article' + (a.in_review > 1 ? 's' : '') + ' waiting for editorial review',
       link: '/editorial.html', linkText: 'Review Now' });
   }
 
-  // Pending pitches
   if (stats.pitches?.pending > 0) {
     const n = stats.pitches.pending;
     items.push({ icon: '💡', level: 'warn', priority: 9,
@@ -247,7 +332,6 @@ function renderAttention(stats) {
       link: '/pitches.html', linkText: 'Review Pitches' });
   }
 
-  // Comment moderation
   if (c.queue > 0) {
     items.push({ icon: '⏳', level: 'warn', priority: 8,
       text: c.queue + ' comment' + (c.queue > 1 ? 's' : '') + ' pending moderation',
@@ -260,29 +344,46 @@ function renderAttention(stats) {
       link: '/comments.html?filter=reported', linkText: 'Review Comments' });
   }
 
-  // Missing images
+  // Daily cap warning
+  if ((cap.cap || 0) > 0) {
+    const effective = (cap.cap || 0) + (cap.burst || 0);
+    const remaining = effective - (cap.today || 0);
+    if (remaining === 0) {
+      items.push({ icon: '🛑', level: 'warn', priority: 8,
+        text: 'Daily publish cap reached (' + (cap.today || 0) + '/' + effective + ') — new articles will be scheduled',
+        link: '/articles.html', linkText: 'View Scheduled' });
+    } else if (remaining <= 2) {
+      items.push({ icon: '⚠️', level: 'info', priority: 6,
+        text: 'Only ' + remaining + ' publish slot' + (remaining === 1 ? '' : 's') + ' remaining today',
+        link: '/runsheet.html', linkText: 'View Runsheet' });
+    }
+  }
+
+  // Feed backlog
+  if ((stats.feed_backlog || 0) > 20) {
+    items.push({ icon: '📥', level: 'info', priority: 5,
+      text: (stats.feed_backlog) + ' unprocessed articles in feed inbox',
+      link: '/feed-inbox.html', linkText: 'Review Inbox' });
+  }
+
   if (a.missing_image_published > 0) {
     items.push({ icon: '🖼️', level: 'info', priority: 5,
       text: a.missing_image_published + ' published article' + (a.missing_image_published > 1 ? 's' : '') + ' missing an image',
       link: '/articles.html', linkText: 'Fix in Articles' });
   }
 
-  // No audio
   if (a.no_audio_published > 0) {
     items.push({ icon: '🎵', level: 'info', priority: 4,
       text: a.no_audio_published + ' published article' + (a.no_audio_published > 1 ? 's' : '') + ' without audio',
-      link: '/articles.html', linkText: 'Generate Audio',
-      action: { label: 'Run Audio', fn: 'triggerAudio' } });
+      link: '/articles.html', linkText: 'Generate Audio' });
   }
 
-  // Synthesis hasn't run
   if (!stats.synthesis || !stats.synthesis.last_run_at) {
     items.push({ icon: '⚡', level: 'info', priority: 6,
       text: 'Synthesis has never run — trigger it to generate original articles',
       link: '/synthesis.html', linkText: 'Go to Synthesis' });
   } else {
-    const lastRun = new Date(stats.synthesis.last_run_at).getTime();
-    const hoursAgo = (Date.now() - lastRun) / 3600000;
+    const hoursAgo = (Date.now() - new Date(stats.synthesis.last_run_at).getTime()) / 3600000;
     if (hoursAgo > 48) {
       items.push({ icon: '⚡', level: 'info', priority: 5,
         text: 'Synthesis last ran ' + Math.round(hoursAgo / 24) + ' days ago',
@@ -290,14 +391,12 @@ function renderAttention(stats) {
     }
   }
 
-  // Stale drafts
   if (a.drafts > 0) {
     items.push({ icon: '📝', level: 'info', priority: 3,
       text: a.drafts + ' unpublished draft' + (a.drafts > 1 ? 's' : '') + ' waiting',
       link: '/articles.html', linkText: 'View Drafts' });
   }
 
-  // Inactive sources
   if (s.inactive > 0) {
     items.push({ icon: '📡', level: 'muted', priority: 1,
       text: s.inactive + ' source' + (s.inactive > 1 ? 's' : '') + ' inactive',
@@ -320,6 +419,35 @@ function renderAttention(stats) {
     + '</div>'
     + '</div>'
   ).join('');
+}
+
+// ── Top Story this week ────────────────────────────────────
+function renderTopStory(stats) {
+  const widget = el('topStoryWidget');
+  if (!widget) return;
+
+  const story = stats.top_story;
+  if (!story) {
+    widget.innerHTML = '<div class="text-muted text-sm" style="padding:16px 0;">No published articles this week yet.</div>';
+    return;
+  }
+
+  const img = story.image_url
+    ? '<img src="' + escHtml(story.image_url) + '" style="width:100%;height:120px;object-fit:cover;border-radius:6px;margin-bottom:10px;" onerror="this.style.display=\'none\'" />'
+    : '';
+
+  const engagement = (story.views || 0) + (story.reactions || 0);
+
+  widget.innerHTML = '<a href="/articles.html" style="text-decoration:none;color:inherit;">'
+    + img
+    + '<div style="font-weight:600;font-size:13px;line-height:1.4;margin-bottom:6px;">' + escHtml(story.title) + '</div>'
+    + '<div style="display:flex;gap:12px;font-size:11px;color:var(--text-muted);">'
+    + (story.writer_name ? '<span>✍ ' + escHtml(story.writer_name) + '</span>' : '')
+    + '<span>👁 ' + (story.views || 0) + ' views</span>'
+    + '<span>❤️ ' + (story.reactions || 0) + ' reactions</span>'
+    + '</div>'
+    + (story.published_at ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">' + relativeTime(story.published_at) + '</div>' : '')
+    + '</a>';
 }
 
 // ── Recent articles (card grid) ────────────────────────────
@@ -363,7 +491,6 @@ function renderRecentArticles(stats) {
       + '</div>';
   }).join('');
 
-  // Wire click → article preview
   grid.querySelectorAll('.dash-article-card').forEach(card => {
     card.addEventListener('click', () => {
       const article = stats.recent_articles.find(x => x.id === parseInt(card.dataset.id));
@@ -384,7 +511,7 @@ function escHtml(str) {
 
 function relativeTime(dateStr) {
   if (!dateStr) return '—';
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const diff  = Date.now() - new Date(dateStr).getTime();
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);

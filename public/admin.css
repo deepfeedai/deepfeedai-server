@@ -1618,6 +1618,9 @@ kbd {
   .modal { max-height: 85vh; }
 
   .dash-two-col { grid-template-columns: 1fr; }
+  .dash-main-grid { grid-template-columns: 1fr; }
+  .dash-glance-row { grid-template-columns: repeat(3, 1fr); }
+  .dash-chart-row  { grid-template-columns: 1fr; }
 
   /* ── Articles page responsive ── */
   .section-header { flex-direction: column; align-items: stretch; }
@@ -1655,6 +1658,7 @@ kbd {
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .login-card { padding: 28px var(--space-5); }
   .autofill-row { flex-direction: column; align-items: stretch; }
+  .dash-glance-row { grid-template-columns: 1fr 1fr; }
 }
 
 /* ── Auto-fill from URL ── */
@@ -1977,6 +1981,101 @@ tr:hover .td-edit-btn { opacity: 1; }
   gap: var(--space-5);
   margin-bottom: var(--space-2);
 }
+
+/* ── Dashboard: Quick Actions bar ─────────────────────────── */
+.dash-quick-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+.dash-qa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.dash-qa-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+}
+.dash-qa-icon { font-size: 14px; }
+
+/* ── Dashboard: Today at a Glance row ─────────────────────── */
+.dash-glance-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.dash-glance-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px var(--space-4);
+}
+.dash-glance-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.dash-glance-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+.dash-glance-sub {
+  font-size: 11px;
+  margin-top: 3px;
+  min-height: 14px;
+}
+
+/* ── Dashboard: two-column main body ──────────────────────── */
+.dash-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--space-5);
+  align-items: start;
+}
+.dash-main-left  { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.dash-main-right { display: flex; flex-direction: column; gap: 0; }
+
+/* ── Dashboard: sparkline + AI spend side by side ──────────── */
+.dash-chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+  margin-top: var(--space-4);
+}
+.dash-chart-panel { min-width: 0; }
+
+/* ── Dashboard: writer status dot ─────────────────────────── */
+.dash-pulse-dot {
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+}
+.dash-pulse-dot-active { background: var(--success, #34d399); }
+.dash-pulse-dot-budget { background: #fbbf24; }
+.dash-pulse-dot-idle   { background: var(--border); }
+.dash-pulse-budget { font-size: 10px; color: #fbbf24; }
 
 /* Panel */
 .dash-panel {
