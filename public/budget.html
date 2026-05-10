@@ -674,6 +674,10 @@
 
     /* ── Unplanned swimlane ──────────────────────── */
     .sl-unplanned { color: var(--muted); }
+    .swimlane[data-priority="unplanned"] .swimlane-track {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
 
     /* ── Actual article card ─────────────────────── */
     .actual-card { border-style: dashed; }
