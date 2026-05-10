@@ -413,10 +413,37 @@
   function longTextCard(text, label) {
     if (!text) return label ? '<div class="feed-snippet">' + esc(label) + '</div>' : '';
     var id = 'lt-' + Math.random().toString(36).slice(2);
-    var short = text.length > 400;
-    return (label ? '<div class="feed-snippet" style="color:var(--muted);font-size:11px;margin-bottom:4px;">' + esc(label) + '</div>' : '')
-      + '<div class="feed-long-text' + (short ? ' collapsed' : '') + '" id="' + id + '">' + esc(text) + '</div>'
-      + (short ? '<button class="feed-expand-btn" data-expand="' + id + '">Show more</button>' : '');
+    var labelHtml = label ? '<div class="feed-snippet" style="color:var(--muted);font-size:11px;margin-bottom:4px;">' + esc(label) + '</div>' : '';
+    if (text.length <= 400) {
+      return labelHtml + '<div class="feed-long-text" id="' + id + '">' + esc(text) + '</div>';
+    }
+    // Long text: render a sentence-bounded preview so the visible portion
+    // ends on a complete sentence rather than mid-word (line-clamp used to
+    // do this in CSS). Full text is stashed on the element for "Show more".
+    var preview = previewToSentence(text, 280);
+    var fullEncoded = encodeURIComponent(text);
+    return labelHtml
+      + '<div class="feed-long-text" id="' + id + '" data-full="' + fullEncoded + '">'
+      + esc(preview) + (preview.length < text.length ? '…' : '')
+      + '</div>'
+      + '<button class="feed-expand-btn" data-expand="' + id + '">Show more</button>';
+  }
+
+  // Trim text to maxLen, preferring the last sentence-ending punctuation.
+  // Falls back to the last word boundary if no sentence break is available
+  // in the second half of the slice.
+  function previewToSentence(text, maxLen) {
+    if (text.length <= maxLen) return text.trim();
+    var slice = text.slice(0, maxLen);
+    var lastEnd = -1;
+    [/\.\s/g, /!\s/g, /\?\s/g, /\.\n/g, /!\n/g, /\?\n/g].forEach(function (re) {
+      var m, last = -1;
+      while ((m = re.exec(slice)) !== null) last = m.index;
+      if (last > lastEnd) lastEnd = last;
+    });
+    if (lastEnd > maxLen * 0.4) return slice.slice(0, lastEnd + 1).trim();
+    var lastSpace = slice.lastIndexOf(' ');
+    return (lastSpace > 0 ? slice.slice(0, lastSpace) : slice).trim();
   }
 
   // Wire reaction + reply handlers (event-delegated on stream container)
@@ -491,7 +518,12 @@
     if (t.dataset && t.dataset.expand) {
       var el = document.getElementById(t.dataset.expand);
       if (el) {
-        el.classList.remove('collapsed');
+        if (el.dataset.full) {
+          el.textContent = decodeURIComponent(el.dataset.full);
+          delete el.dataset.full;
+        } else {
+          el.classList.remove('collapsed');
+        }
         t.style.display = 'none';
       }
       return;
