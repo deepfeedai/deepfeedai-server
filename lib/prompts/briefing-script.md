@@ -1,7 +1,7 @@
 ---
 operation: briefing-script
 tier: fast
-maxTokens: 800
+maxTokens: 1500
 temperature: 0.7
 version: 1
 ---
