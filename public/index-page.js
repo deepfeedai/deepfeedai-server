@@ -74,10 +74,13 @@ function renderGlance(stats) {
   // Cap remaining
   if (remaining === null) {
     setGlance('glanceCap', '∞', '<span class="stat-delta-neutral">no cap set</span>');
+  } else if (remaining === 0) {
+    setGlance('glanceCap', 'Full',
+      '<span class="stat-delta-down">' + today + '/' + effectiveCap + ' published</span>');
   } else {
-    const cls = remaining === 0 ? 'stat-delta-down' : remaining <= 2 ? 'stat-delta-neutral' : 'stat-delta-up';
+    const cls = remaining <= 2 ? 'stat-delta-neutral' : 'stat-delta-up';
     setGlance('glanceCap', remaining,
-      '<span class="' + cls + '">' + (effectiveCap ? 'of ' + effectiveCap + ' cap' : '') + '</span>');
+      '<span class="' + cls + '">of ' + effectiveCap + ' cap</span>');
   }
 
   // Scheduled queue
@@ -348,15 +351,15 @@ function renderAttention(stats) {
 
   // Daily cap warning
   if ((cap.cap || 0) > 0) {
-    const effective = (cap.cap || 0) + (cap.burst || 0);
-    const remaining = effective - (cap.today || 0);
-    if (remaining === 0) {
+    const effective  = (cap.cap || 0) + (cap.burst || 0);
+    const slotsLeft  = Math.max(0, effective - (cap.today || 0));
+    if (slotsLeft === 0) {
       items.push({ icon: '🛑', level: 'warn', priority: 8,
-        text: 'Daily publish cap reached (' + (cap.today || 0) + '/' + effective + ') — new articles will be scheduled',
+        text: 'Daily publish cap reached (' + (cap.today || 0) + '/' + effective + ') — new articles will be scheduled for tomorrow',
         link: '/articles.html', linkText: 'View Scheduled' });
-    } else if (remaining <= 2) {
+    } else if (slotsLeft <= 2) {
       items.push({ icon: '⚠️', level: 'info', priority: 6,
-        text: 'Only ' + remaining + ' publish slot' + (remaining === 1 ? '' : 's') + ' remaining today',
+        text: 'Only ' + slotsLeft + ' publish slot' + (slotsLeft === 1 ? '' : 's') + ' remaining today',
         link: '/runsheet.html', linkText: 'View Runsheet' });
     }
   }
