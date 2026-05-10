@@ -109,24 +109,21 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       SELECT
         w.id, w.name, w.avatar_url, w.beat, w.is_auto,
         w.daily_article_budget,
-        COUNT(a7.id)::int AS article_count_7d,
-        COUNT(at.id)::int AS article_count_today
+        (SELECT COUNT(*) FROM articles
+         WHERE writer_id = w.id AND tenant_id = $1
+           AND is_published = 1
+           AND content_type IN ('original', 'deep-dive')
+           AND published_at >= NOW() - INTERVAL '7 days'
+        )::int AS article_count_7d,
+        (SELECT COUNT(*) FROM articles
+         WHERE writer_id = w.id AND tenant_id = $1
+           AND content_type IN ('original', 'deep-dive')
+           AND (is_published = 1 OR status = 'scheduled')
+           AND created_at >= CURRENT_DATE
+           AND created_at < CURRENT_DATE + INTERVAL '1 day'
+        )::int AS article_count_today
       FROM writers w
-      LEFT JOIN articles a7
-        ON a7.writer_id = w.id
-        AND a7.tenant_id = $1
-        AND a7.is_published = 1
-        AND a7.content_type IN ('original', 'deep-dive')
-        AND a7.published_at >= NOW() - INTERVAL '7 days'
-      LEFT JOIN articles at
-        ON at.writer_id = w.id
-        AND at.tenant_id = $1
-        AND at.content_type IN ('original', 'deep-dive')
-        AND (at.is_published = 1 OR at.status = 'scheduled')
-        AND at.created_at >= CURRENT_DATE
-        AND at.created_at < CURRENT_DATE + INTERVAL '1 day'
       WHERE w.tenant_id = $1
-      GROUP BY w.id, w.daily_article_budget
       ORDER BY w.name ASC
     `, [tid]),
 
