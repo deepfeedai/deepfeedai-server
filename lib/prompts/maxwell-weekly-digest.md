@@ -21,7 +21,7 @@ Return ONLY valid JSON with this exact shape — no code fences, no commentary:
   ],
   "gaps": [{ "beat": "Markets", "note": "optional — why this gap matters" }],
   "action_items": [{ "label": "...", "link": "/..." }],
-  "prose": "4-6 paragraph first-person plural editorial memo. Name specifics (topics, writers, numbers). Direct and honest — call out what worked and what didn't. No bullet points. No headers."
+  "prose": "4-6 paragraph first-person plural editorial memo. Plain text only — NO markdown, NO asterisks, NO bullet points, NO headers, NO bold/italic markers. Separate paragraphs with a single blank line (\\n\\n in JSON). Name specifics (topics, writers, numbers). Direct and honest — call out what worked and what didn't."
 }
 
 Rules:
