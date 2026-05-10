@@ -686,6 +686,7 @@ ${articleBlurbs}`,
 
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
 router.get('/brief', asyncHandler(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const tenantId = req.tenantId;
 
   // Top 5 articles by editorial_score from last 24h

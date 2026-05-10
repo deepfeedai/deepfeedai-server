@@ -1140,11 +1140,27 @@
     var label     = document.getElementById('briefingBtnLabel');
     if (!btn) return;
 
-    // Check if a briefing already exists for today and update button label
+    var previewWrap = document.createElement('div');
+    previewWrap.id = 'briefingPreviewWrap';
+    previewWrap.style.cssText = 'display:none;align-items:center;gap:8px;margin-left:4px;';
+    btn.parentNode.insertBefore(previewWrap, btn.nextSibling);
+
+    function showBriefingPreview(audioUrl) {
+      previewWrap.innerHTML = ''
+        + '<audio id="briefingAudio" src="' + audioUrl + '" preload="none" controls style="height:28px;max-width:220px;"></audio>'
+        + '<a href="' + audioUrl + '" target="_blank" title="Open audio file" style="color:var(--muted);font-size:11px;white-space:nowrap;">↗ Open</a>';
+      previewWrap.style.display = 'flex';
+    }
+
+    // Check if a briefing already exists for today
     apiFetch('/admin/budget/briefing').then(function (data) {
       if (data.briefing) {
         var s = data.briefing.status;
-        if (s === 'ready')   { label.textContent = '✓ Briefing Ready'; btn.classList.add('btn-success-muted'); }
+        if (s === 'ready') {
+          label.textContent = '✓ Briefing Ready';
+          btn.classList.add('btn-success-muted');
+          if (data.briefing.audio_url) showBriefingPreview(data.briefing.audio_url);
+        }
         if (s === 'pending') { label.textContent = 'Briefing Generating…'; btn.disabled = true; }
         if (s === 'error')   { label.textContent = 'Briefing Failed — Retry'; }
       }
@@ -1153,23 +1169,17 @@
     btn.addEventListener('click', async function () {
       btn.disabled = true;
       label.textContent = 'Generating…';
+      previewWrap.style.display = 'none';
       try {
         var data = await apiFetch('/admin/budget/briefing/generate', {
           method: 'POST',
-          body: JSON.stringify({ force: btn.classList.contains('btn-success-muted') }),
+          body: JSON.stringify({ force: true }),
         });
         if (data.ok) {
           label.textContent = '✓ Briefing Ready';
           btn.classList.add('btn-success-muted');
           btn.disabled = false;
-          if (data.audio_url) {
-            // Show a quick toast
-            var toast = document.createElement('div');
-            toast.className = 'toast toast-success';
-            toast.textContent = 'Audio briefing generated — plays on the public feed Morning Brief button.';
-            document.body.appendChild(toast);
-            setTimeout(function () { toast.remove(); }, 4000);
-          }
+          if (data.audio_url) showBriefingPreview(data.audio_url);
         } else {
           label.textContent = 'Briefing Failed — Retry';
           btn.disabled = false;
