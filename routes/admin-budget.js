@@ -96,7 +96,7 @@ router.get('/today', auth, requirePermission('articles.read'), asyncHandler(asyn
 }));
 
 // POST /api/admin/budget/generate — on-demand generation (idempotent)
-// ?force=true deletes today's existing budget and regenerates from scratch
+// ?force=true regenerates the runsheet but preserves approved/rejected slots
 router.post('/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
@@ -108,8 +108,44 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
       const full = await _getBudgetWithSlots(existing.id, req.tenantId);
       return res.json({ budget: full, skipped: true, reason: 'already_exists' });
     }
-    // Force: delete budget (slots cascade) so generateDailyBudget can recreate
+    // Preserve non-pending slots so approved/rejected decisions survive the regen
+    const preserved = await db.prepare(`
+      SELECT priority, pitch_type, topic_tag, headline_suggestion, rationale,
+             assigned_writer_id, recommended_writer_id, target_publish_at,
+             source_article_ids, sort_order, status, spawned_article_id
+      FROM news_budget_slots
+      WHERE budget_id = $1 AND tenant_id = $2 AND status NOT IN ('pending')
+    `).all(existing.id, req.tenantId);
+
+    // Delete budget (slots cascade)
     await db.prepare('DELETE FROM news_budgets WHERE id = $1 AND tenant_id = $2').run(existing.id, req.tenantId);
+
+    const result = await generateDailyBudget(req.tenantId);
+    if (!result?.ok && !result?.budget_id) {
+      return res.status(500).json({ error: result?.error || 'Budget generation failed' });
+    }
+
+    // Re-insert preserved slots into the new budget
+    const newBudgetId = result.budget_id;
+    for (const s of preserved) {
+      await db.prepare(`
+        INSERT INTO news_budget_slots
+          (budget_id, tenant_id, priority, pitch_type, topic_tag, headline_suggestion,
+           rationale, assigned_writer_id, recommended_writer_id, target_publish_at,
+           source_article_ids, sort_order, status, spawned_article_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
+      `).run(
+        newBudgetId, req.tenantId,
+        s.priority, s.pitch_type, s.topic_tag, s.headline_suggestion,
+        s.rationale, s.assigned_writer_id, s.recommended_writer_id,
+        s.target_publish_at,
+        typeof s.source_article_ids === 'string' ? s.source_article_ids : JSON.stringify(s.source_article_ids || []),
+        s.sort_order, s.status, s.spawned_article_id,
+      );
+    }
+
+    const full = await _getBudgetWithSlots(newBudgetId, req.tenantId);
+    return res.json({ budget: full });
   }
 
   const result = await generateDailyBudget(req.tenantId);
@@ -189,12 +225,12 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
   const cap    = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6;
   const burst  = parseInt(appCfg.daily_publish_burst, 10) || 0;
   const effectiveCap = cap > 0 ? cap + burst : 0;
-  // Count deep dives published on the selected date only (not the full 7-day window).
-  // Matches what publish-gate.js enforces: content_type IN ('original','deep-dive') for the calendar day.
+  // Count deep dives published on the selected calendar day using the newsroom timezone
+  // (not UTC) so late-night articles don't bleed into the next day's cap.
   const todayDeepDiveCount = deepDiveResult.rows.filter(a => {
     if (!a.published_at) return false;
     const d = a.published_at instanceof Date ? a.published_at : new Date(a.published_at);
-    return d.toISOString().slice(0, 10) === dateStr;
+    return d.toLocaleDateString('en-CA', { timeZone: tz }) === dateStr;
   }).length;
   const todayCount = pubResult.rows.length + todayDeepDiveCount;
 
