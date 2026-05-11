@@ -203,6 +203,7 @@
         '<div class="card-meta-row">',
           pitchTypeBadge(slot.pitch_type),
           slot.topic_tag ? '<span class="topic-tag" title="' + esc(slot.topic_tag) + '">' + esc(slot.topic_tag) + '</span>' : '',
+          slot.has_wire_sources ? '<span class="slot-wire-badge" title="Sourced from feed inbox — synthesis will draw from wire content">&#127350; Wire source</span>' : '',
         '</div>',
         '<div class="card-meta-row">',
           '<div class="card-writer">',

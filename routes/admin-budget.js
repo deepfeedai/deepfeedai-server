@@ -39,7 +39,38 @@ async function _getBudgetWithSlots(budgetId, tenantId) {
     ORDER BY nbs.sort_order ASC, nbs.id ASC
   `, [budgetId, tenantId]);
 
-  return { ...budget, slots: slots.rows };
+  // Annotate each slot with whether its sources are wire/curated so the UI
+  // can show a badge before the editor approves.
+  const rows = slots.rows;
+  const allIds = [];
+  rows.forEach(s => {
+    const ids = Array.isArray(s.source_article_ids)
+      ? s.source_article_ids
+      : (typeof s.source_article_ids === 'string' ? JSON.parse(s.source_article_ids || '[]') : []);
+    ids.forEach(id => { if (id) allIds.push(Number(id)); });
+  });
+
+  let sourceTypeMap = {};
+  if (allIds.length) {
+    const srcRes = await getPool().query(
+      'SELECT id, content_type FROM articles WHERE id = ANY($1) AND tenant_id = $2',
+      [allIds, tenantId]
+    );
+    srcRes.rows.forEach(r => { sourceTypeMap[r.id] = r.content_type; });
+  }
+
+  const annotated = rows.map(s => {
+    const ids = Array.isArray(s.source_article_ids)
+      ? s.source_article_ids
+      : (typeof s.source_article_ids === 'string' ? JSON.parse(s.source_article_ids || '[]') : []);
+    const hasWire = ids.some(id => {
+      const ct = sourceTypeMap[Number(id)];
+      return !ct || ct === 'curated' || ct === 'wire';
+    });
+    return { ...s, has_wire_sources: hasWire };
+  });
+
+  return { ...budget, slots: annotated };
 }
 
 /**
