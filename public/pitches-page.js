@@ -319,9 +319,11 @@
         + '</div>';
       return '<div class="swimlane-group">'
         + '<div class="swimlane-header">'
-        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-writer-id="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-wid="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + '<span data-writer-id="' + wid + '" style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="View writer profile">'
         + avatar
         + '<div><div class="swimlane-writer-name">' + esc(group.name) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
+        + '</span>'
         + '</div>'
         + hdr
         + group.pitches.map(makeSwimlanRow).join('')
@@ -331,7 +333,7 @@
     // Wire swimlane select-all checkboxes
     grid.querySelectorAll('.swimlane-cb-all').forEach(function (cb) {
       cb.addEventListener('change', function () {
-        var wid = cb.dataset.writerId;
+        var wid = cb.dataset.wid;
         grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb').forEach(function (rowCb) {
           rowCb.checked = cb.checked;
           var id = parseInt(rowCb.dataset.pitchId, 10);
@@ -354,7 +356,7 @@
         if (wid) {
           var groupCbs = grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb');
           var groupChecked = grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb:checked').length;
-          var groupAll = grid.querySelector('.swimlane-cb-all[data-writer-id="' + wid + '"]');
+          var groupAll = grid.querySelector('.swimlane-cb-all[data-wid="' + wid + '"]');
           if (groupAll) {
             groupAll.indeterminate = groupChecked > 0 && groupChecked < groupCbs.length;
             groupAll.checked = groupCbs.length > 0 && groupChecked === groupCbs.length;
