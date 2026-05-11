@@ -761,6 +761,12 @@ let apiKeyVisible = false;
     if (budgetEl) budgetEl.value = settings.writer_daily_budget != null ? settings.writer_daily_budget : '2';
     _loadDropWindowsList(settings.drop_windows);
     toggleDropWindowsRow();
+
+    // BYOK rate limits
+    var byokDailyEl   = document.getElementById('byokDailyTokenLimit');
+    var byokMonthlyEl = document.getElementById('byokMonthlyTokenLimit');
+    if (byokDailyEl)   byokDailyEl.value   = settings.byok_daily_token_limit   || '0';
+    if (byokMonthlyEl) byokMonthlyEl.value = settings.byok_monthly_token_limit  || '0';
   }
 
   function toggleDropWindowsRow() {
@@ -794,6 +800,25 @@ let apiKeyVisible = false;
       document.getElementById('publishingStatus').textContent = '❌ Save failed: ' + err.message;
     } finally {
       this.disabled = false; this.textContent = 'Save Publishing Settings';
+    }
+  });
+
+  // ── BYOK Rate Limits ──────────────────────────────────────────────
+  document.getElementById('saveByokLimitsBtn').addEventListener('click', async function () {
+    var daily   = Math.max(0, parseInt(document.getElementById('byokDailyTokenLimit').value)   || 0);
+    var monthly = Math.max(0, parseInt(document.getElementById('byokMonthlyTokenLimit').value)  || 0);
+    var statusEl = document.getElementById('byokLimitsStatus');
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({
+        byok_daily_token_limit:   String(daily),
+        byok_monthly_token_limit: String(monthly),
+      })});
+      statusEl.textContent = '✅ BYOK limits saved';
+    } catch (err) {
+      statusEl.textContent = '❌ Save failed: ' + err.message;
+    } finally {
+      this.disabled = false; this.textContent = 'Save BYOK Limits';
     }
   });
 
