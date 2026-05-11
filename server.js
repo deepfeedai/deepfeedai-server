@@ -522,8 +522,17 @@ registerJob({
   defaultSchedule: '0 */2 * * *',
   handler: async (tenantId) => {
     const { runSynthesisForWriter } = require('./lib/synthesis');
+    const { evaluatePublish } = require('./lib/publish-gate');
     const hour = new Date().getUTCHours();
     const dow  = new Date().getUTCDay();
+
+    // Skip synthesis entirely if the daily publish cap is already met — avoids
+    // burning tokens on articles that will only ever queue for tomorrow.
+    const capCheck = await evaluatePublish(tenantId).catch(() => ({ action: 'publish' }));
+    if (capCheck.action === 'cap_reached') {
+      console.log(`[Cron] Synthesis skipped (tenant ${tenantId}): daily cap reached (${capCheck.count}/${capCheck.cap})`);
+      return { writers: 0, results: [], skipped: 'cap_reached' };
+    }
 
     const writers = await db.prepare('SELECT id, name, synthesis_schedule FROM writers WHERE tenant_id = $1 AND is_auto = true').all(tenantId);
     const results = [];
@@ -558,6 +567,17 @@ registerJob({
   defaultSchedule: '0 20 * * 0,3',  // Sunday + Wednesday 8 PM UTC
   handler: async (tenantId) => {
     const { runWeeklyDeepDives } = require('./lib/synthesis');
+    const { evaluatePublish } = require('./lib/publish-gate');
+
+    // Skip deep dives if the daily cap is already met — deep dives are long-form
+    // and expensive; queuing them for tomorrow is handled inside generateDeepDive,
+    // but if cap is reached we save the full generation cost.
+    const capCheck = await evaluatePublish(tenantId).catch(() => ({ action: 'publish' }));
+    if (capCheck.action === 'cap_reached') {
+      console.log(`[Cron] Deep dives skipped (tenant ${tenantId}): daily cap reached (${capCheck.count}/${capCheck.cap})`);
+      return { generated: 0, skipped: 'cap_reached', categories: [] };
+    }
+
     const result = await runWeeklyDeepDives(tenantId);
     if (result.generated > 0) {
       console.log(`[Cron] Deep dives (tenant ${tenantId}): generated ${result.generated} for ${result.categories.join(', ')}`);
