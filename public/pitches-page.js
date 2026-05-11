@@ -108,9 +108,9 @@
     var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
     var actions = '';
     if (p.status === 'pending') {
-      actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve & Write</button>'
+      actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve & Write</button>'
         + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>';
+        + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
     } else {
       actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
         : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
@@ -182,8 +182,8 @@
       if (p.status === 'pending') {
         var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
         var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
-        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve</button>'
-          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>'
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>'
           + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
       } else {
         actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
@@ -271,8 +271,8 @@
       if (p.status === 'pending') {
         var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
         var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
-        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve</button>'
-          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>'
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>'
           + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
       } else {
         actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
@@ -704,8 +704,8 @@
       + '<div class="review-suggestion"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>' + esc(p.angle_summary || '') + '</div>'
       + '<div class="review-actions">';
     if (p.status === 'proposed') {
-      html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>'
-        + '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>'
+      html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+        + '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">Enrich sources</button>';
       if (sc === 2) html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
     } else if (p.status === 'approved') {
@@ -764,8 +764,8 @@
       var actions = '';
       var isProposed = p.status === 'proposed';
       if (isProposed) {
-        actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>'
-          + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>'
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
           + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">+src</button>';
         if (!p.pitched_by_writer_id) {
           actions += '<button class="btn btn-ghost btn-sm" style="padding:3px 7px;" title="Auto-assign writer" onclick="autoAssignCommission(' + p.id + ')">&#127919;</button>';
@@ -844,8 +844,8 @@
     var isProposed = p.status === 'proposed';
     var actions = '';
     if (isProposed) {
-      actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>'
+      actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
         + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">+src</button>';
       if (!p.pitched_by_writer_id) actions += '<button class="btn btn-ghost btn-sm" style="padding:3px 7px;" title="Auto-assign" onclick="autoAssignCommission(' + p.id + ')">&#127919;</button>';
     } else if (p.status === 'approved') {
