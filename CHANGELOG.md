@@ -10,7 +10,11 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ## [1.0.10-beta] — 2026-05-11
 
-**YouTube video repositioned inline for original and deep-dive articles.**
+**Inline video positioning and AI image sentiment awareness.**
+
+### Added
+
+- **Content sentiment in AI image generation** — Gemini now outputs a `SENTIMENT` field (urgent / analytical / contemplative / celebratory / cautionary / curious) alongside the visual concept. For standard-tier and untiered articles this drives mood selection instead of random, so a celebratory launch or cautionary controversy gets an emotionally matched image. Breaking/major/trending tier moods remain authoritative. Sentiment is stored in `synthesis_meta.image` for designer-agent review.
 
 ### Changed
 
