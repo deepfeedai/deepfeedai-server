@@ -3400,10 +3400,6 @@ html[data-font] .stat-label, html[data-font] .dash-section-label {
   font-family: var(--font-head, 'Inter', sans-serif);
 }
 
-/* Bulk action bar — default text colors (accent = cyan, so dark text) */
-.pitch-bulk-bar .btn { color: #000; }
-.pitch-bulk-bar .btn-ghost { color: rgba(0,0,0,0.6); }
-
 /* Skin: Daylight — clean light */
 html[data-skin="daylight"] {
   --bg: #f8f9fa; --bg-card: #fff; --bg-sidebar: #f1f3f5;
@@ -3414,8 +3410,6 @@ html[data-skin="daylight"] {
 }
 html[data-skin="daylight"] .btn-primary { color: #fff; }
 html[data-skin="daylight"] .view-toggle-btn.active { color: #fff; }
-html[data-skin="daylight"] .pitch-bulk-bar .btn { color: #fff; }
-html[data-skin="daylight"] .pitch-bulk-bar .btn-ghost { color: rgba(255,255,255,0.7); }
 
 /* Skin: Wire — terminal green */
 html[data-skin="wire"] {
@@ -3427,8 +3421,6 @@ html[data-skin="wire"] {
 }
 html[data-skin="wire"] .btn-primary { color: #000; }
 html[data-skin="wire"] .view-toggle-btn.active { color: #000; }
-html[data-skin="wire"] .pitch-bulk-bar .btn { color: #000; }
-html[data-skin="wire"] .pitch-bulk-bar .btn-ghost { color: rgba(0,0,0,0.6); }
 
 /* Skin: Broadsheet — newspaper */
 html[data-skin="broadsheet"] {
@@ -3440,8 +3432,6 @@ html[data-skin="broadsheet"] {
 }
 html[data-skin="broadsheet"] .btn-primary { color: #fff; }
 html[data-skin="broadsheet"] .view-toggle-btn.active { color: #fff; }
-html[data-skin="broadsheet"] .pitch-bulk-bar .btn { color: #fff; }
-html[data-skin="broadsheet"] .pitch-bulk-bar .btn-ghost { color: rgba(255,255,255,0.7); }
 
 /* Skin: Tabloid — bold red */
 html[data-skin="tabloid"] {
@@ -3453,8 +3443,6 @@ html[data-skin="tabloid"] {
 }
 html[data-skin="tabloid"] .btn-primary { color: #fff; }
 html[data-skin="tabloid"] .view-toggle-btn.active { color: #fff; }
-html[data-skin="tabloid"] .pitch-bulk-bar .btn { color: #fff; }
-html[data-skin="tabloid"] .pitch-bulk-bar .btn-ghost { color: rgba(255,255,255,0.7); }
 
 /* Skin: Ink — explicit reset to default dark */
 html[data-skin="ink"] {
@@ -3466,8 +3454,6 @@ html[data-skin="ink"] {
 }
 html[data-skin="ink"] .btn-primary { color: #000; }
 html[data-skin="ink"] .view-toggle-btn.active { color: #000; }
-html[data-skin="ink"] .pitch-bulk-bar .btn { color: #000; }
-html[data-skin="ink"] .pitch-bulk-bar .btn-ghost { color: rgba(0,0,0,0.6); }
 
 /* ══════════════════════════════════════════════════
    THEME PICKER (injected into .topbar by /theme-init.js)
