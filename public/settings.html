@@ -381,6 +381,39 @@
           <button class="btn btn-primary" id="saveAiProvidersPortalBtn" style="margin-top:16px;">Save AI Provider Settings</button>
         </div>
 
+        <div class="settings-card" id="byokRateLimitsCard">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🔒</div>
+            <div>
+              <div class="settings-card-title">BYOK Rate Limits</div>
+              <div class="settings-card-subtitle">Optional daily and monthly token caps for your own API keys — protection against runaway usage</div>
+            </div>
+          </div>
+          <p class="form-help" style="margin:0 0 16px;">When using your own API keys the platform dollar budget doesn't apply. Set token limits here as a safety ceiling. <strong>0 = unlimited.</strong></p>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="byokDailyTokenLimit">Daily Token Limit</label>
+              <div class="input-row">
+                <input type="number" class="form-control" id="byokDailyTokenLimit" min="0" step="100000" value="0" style="width:140px;" />
+                <span class="text-muted text-sm">tokens / day</span>
+              </div>
+              <p class="form-help">Combined input + output tokens across all LLM calls using your keys. 1M tokens ≈ ~750,000 words.</p>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="byokMonthlyTokenLimit">Monthly Token Limit</label>
+              <div class="input-row">
+                <input type="number" class="form-control" id="byokMonthlyTokenLimit" min="0" step="1000000" value="0" style="width:140px;" />
+                <span class="text-muted text-sm">tokens / month</span>
+              </div>
+              <p class="form-help">Rolling calendar-month cap. Resets on the 1st of each month (UTC).</p>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <button class="btn btn-primary" id="saveByokLimitsBtn">Save BYOK Limits</button>
+            <span id="byokLimitsStatus" class="settings-status"></span>
+          </div>
+        </div>
+
         <div class="settings-card">
           <div class="settings-card-header">
             <div class="settings-card-icon">🎙️</div>
