@@ -8,6 +8,19 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.13-beta] — 2026-05-11
+
+**Newsroom Glass Phase B — live feed widget wired to event stream.**
+
+### Changed
+
+- **Newsroom tab event rendering** — added icon and colour rules for all Phase A event types: `pitch_proposed` (indigo 📋), `pitch_approved` (mint ✓), `pitch_rejected` (red ✕), `thread_updated` (slate ↻), `wire_cluster` (amber ⚡).
+- **Pitch lifecycle threading** — `groupEvents` now threads pitch events by `target_pitch_id` so `pitch_proposed → pitch_approved → synthesis_started` for the same pitch collapses into a single developing thread instead of three separate cards.
+- **Story/thread links** — `thread_updated` and `story_updated` events now link to `/story/` instead of `/article/`, so the card navigates to the correct story page.
+- **Source count badge** — shown on `pitch_proposed` and `wire_cluster` events when `payload.source_count > 1`.
+
+---
+
 ## [1.0.12-beta] — 2026-05-11
 
 **Runsheet pipeline trail + Newsroom Glass Phase A event wiring.**
