@@ -3408,6 +3408,7 @@ html[data-skin="daylight"] {
   --danger: #dc3545; --danger-dim: rgba(220,53,69,.1);
   --success: #198754; --success-dim: rgba(25,135,84,.1);
 }
+html[data-skin="daylight"] .btn-primary { color: #fff; }
 
 /* Skin: Wire — terminal green */
 html[data-skin="wire"] {
@@ -3426,6 +3427,7 @@ html[data-skin="broadsheet"] {
   --danger: #c0392b; --danger-dim: rgba(192,57,43,.1);
   --success: #27ae60; --success-dim: rgba(39,174,96,.1);
 }
+html[data-skin="broadsheet"] .btn-primary { color: #fff; }
 
 /* Skin: Tabloid — bold red */
 html[data-skin="tabloid"] {
