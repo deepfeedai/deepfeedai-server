@@ -144,7 +144,7 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
         ON nbs.spawned_article_id = a.id AND nbs.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1
         AND a.is_published = 1
-        AND a.content_type IN ('original', 'deep-dive')
+        AND a.content_type = 'original'
         AND a.published_at >= $2::date
         AND a.published_at < $2::date + INTERVAL '1 day'
       ORDER BY a.published_at ASC
@@ -162,7 +162,7 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
       WHERE a.tenant_id = $1
         AND a.status = 'scheduled'
         AND a.is_published = 0
-        AND a.content_type IN ('original', 'deep-dive')
+        AND a.content_type = 'original'
         AND a.publish_at >= $2::date
         AND a.publish_at < $2::date + INTERVAL '1 day'
       ORDER BY a.publish_at ASC
