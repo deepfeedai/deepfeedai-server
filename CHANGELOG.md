@@ -8,6 +8,29 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.6-beta] — 2026-05-11
+
+**Dashboard mobile dashboard, grid/list toggle, sources ingest cap, and bug fixes.**
+
+### Added
+
+- **Mobile dashboard** — purpose-built vertical card feed for ≤768px viewports, replacing CSS patches on a desktop layout. Includes a 4-up vitals strip (Published/Cap · Scheduled · Backlog · Pitches), "What's Next" attention panel with inline action links, recent articles as thumbnail rows (tap to open full preview), and collapsible accordions for Content Stats, Feed & Sources, By Category, and AI Spend. Desktop view is completely unchanged.
+- **Recent Articles grid/list toggle** — two-icon toggle in the "Recent Articles" section header switches between card grid and compact list rows. Preference persists via `localStorage`. Both views open the full article preview modal on click.
+- **Sources ingest cap** — replaced the dead auto-publish toggle with a real per-source ingest cap (default 50, max 200). RSS fetch now enforces the cap: once a source has produced `auto_publish_max` new rows in a single fetch cycle it stops, preventing feed floods. Old sources with the legacy default of 5 are automatically migrated to 50 on boot.
+
+### Fixed
+
+- **Dashboard recent articles** — was showing feed inbox items (curated/source rows). Now filters to `is_published = 1` and `content_type IN ('original', 'deep-dive')`, sorted by `published_at DESC` so the newest published articles appear first.
+- **Dashboard article preview** — clicking a recent article card was opening an empty preview (only title/badges visible). The dashboard query now returns `slug`; the click handler calls `showArticlePreviewBySlug(slug)` to fetch the full article — same path as the Articles page Preview button.
+- **Newsroom font preference not persisting** — backend `VALID_FONTS` set contained `broadcast`, `magazine`, `digital` while the frontend sends `modern`, `terminal`, `classic`. Every save returned HTTP 400 (silently swallowed), so `theme-init.js` overwrote localStorage with the server default (`system`) on every page load.
+- **Runsheet article click** — clicking an article title navigated to `articles.html` instead of opening the preview modal. Titles are now `<button data-preview-slug>` elements wired to `showArticlePreviewBySlug`.
+
+### Changed
+
+- **Sources page** — auto-publish UI removed entirely (the feature was never active); "Max items to publish" field relabelled "Max items to ingest per fetch" and always visible (was conditionally hidden). Table column renamed from "Auto-Publish" to "Ingest Cap".
+
+---
+
 ## [1.0.5-beta] — 2026-05-10
 
 **Runsheet actuals layer, daily audio briefing, and audio quality improvements.**
