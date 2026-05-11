@@ -19,6 +19,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
   const tid  = req.tenantId;
 
   const appCfg = await getAppConfig(tid).catch(() => ({}));
+  const tz = appCfg.newsroom_timezone || 'UTC';
 
   const [
     articleRow,
@@ -41,6 +42,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
   ] = await Promise.all([
 
     // ── Article stats (editorial: original/deep-dive) ────────────────────
+    // Date boundaries use the newsroom timezone so counts align with the Runsheet.
     pool.query(`
       SELECT
         COUNT(*)                                                            AS total,
@@ -48,15 +50,15 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
         COUNT(*) FILTER (WHERE is_published = 0 AND (status IS NULL OR status NOT IN ('review'))) AS drafts,
         COUNT(*) FILTER (WHERE status = 'review')                          AS in_review,
         COUNT(*) FILTER (WHERE is_published = 1
-          AND published_at >= NOW() - INTERVAL '1 day')                    AS today,
+          AND published_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2)           AS today,
         COUNT(*) FILTER (WHERE is_published = 1
-          AND published_at >= NOW() - INTERVAL '2 days'
-          AND published_at <  NOW() - INTERVAL '1 day')                    AS yesterday,
+          AND published_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 - INTERVAL '1 day'
+          AND published_at <  date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2)           AS yesterday,
         COUNT(*) FILTER (WHERE is_published = 1
-          AND published_at >= NOW() - INTERVAL '7 days')                   AS this_week,
+          AND published_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 - INTERVAL '7 days')  AS this_week,
         COUNT(*) FILTER (WHERE is_published = 1
-          AND published_at >= NOW() - INTERVAL '14 days'
-          AND published_at <  NOW() - INTERVAL '7 days')                   AS last_week,
+          AND published_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 - INTERVAL '14 days'
+          AND published_at <  date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 - INTERVAL '7 days')  AS last_week,
         COUNT(*) FILTER (WHERE audio_status = 'ready' AND audio_url IS NOT NULL)           AS audio_ready,
         COUNT(*) FILTER (WHERE audio_status = 'ready' AND audio_url IS NOT NULL AND media_enabled = 1) AS audio_live,
         COUNT(*) FILTER (WHERE is_published = 1
@@ -68,19 +70,19 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       WHERE tenant_id = $1
         AND is_archived = 0
         AND content_type IN ('original', 'deep-dive')
-    `, [tid]),
+    `, [tid, tz]),
 
     // ── Feed stats (curated) ─────────────────────────────────────────────
     pool.query(`
       SELECT
-        COUNT(*)                                                            AS total,
-        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')    AS today,
-        COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')   AS this_week
+        COUNT(*)                                                                                    AS total,
+        COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2)  AS today,
+        COUNT(*) FILTER (WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 - INTERVAL '7 days') AS this_week
       FROM articles
       WHERE tenant_id = $1
         AND is_archived = 0
         AND (content_type IS NULL OR content_type = 'curated')
-    `, [tid]),
+    `, [tid, tz]),
 
     // ── Sources ──────────────────────────────────────────────────────────
     pool.query(`
