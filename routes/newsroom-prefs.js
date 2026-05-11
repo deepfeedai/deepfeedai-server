@@ -9,7 +9,7 @@ const { auth } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/utils');
 
 const VALID_SKINS = new Set(['ink', 'daylight', 'wire', 'broadsheet', 'tabloid']);
-const VALID_FONTS = new Set(['system', 'newsprint', 'broadcast', 'magazine', 'digital']);
+const VALID_FONTS = new Set(['system', 'newsprint', 'modern', 'terminal', 'classic']);
 
 // GET /api/newsroom-prefs — return current user's prefs (defaults if none saved)
 router.get('/', auth, asyncHandler(async (req, res) => {

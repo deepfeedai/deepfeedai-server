@@ -493,7 +493,7 @@ registerJob({
   defaultSchedule: '*/30 * * * *',
   handler: async (tenantId) => {
     console.log(`[Cron] Auto-fetching RSS sources (tenant ${tenantId})...`);
-    const result = await fetchAllSources(false, tenantId);
+    const result = await fetchAllSources(tenantId);
     if (result.inserted > 0) console.log(`[Cron] RSS fetch (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
     return { inserted: result.inserted, skipped: result.skipped };
   },
@@ -508,7 +508,7 @@ registerJob({
     const appCfg = await getAppConfig(tenantId);
     if (!appCfg.news_api_key && !appCfg.brave_api_key) return { skipped: 'No API keys configured' };
     console.log(`[Cron] Auto-fetching live news sources (tenant ${tenantId})...`);
-    const result = await fetchLiveSources(false, tenantId);
+    const result = await fetchLiveSources(tenantId);
     if (result.inserted > 0) console.log(`[Cron] Live news (tenant ${tenantId}) — ${result.inserted} new, ${result.skipped} skipped`);
     if (result.errors.length) console.warn(`[Cron] Live news errors (tenant ${tenantId}):`, result.errors);
     return { inserted: result.inserted, skipped: result.skipped, errors: result.errors.length };

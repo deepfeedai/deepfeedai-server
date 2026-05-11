@@ -1622,6 +1622,8 @@ kbd {
   .dash-main-grid { grid-template-columns: 1fr; }
   .dash-glance-row { grid-template-columns: repeat(3, 1fr); }
   .dash-chart-row  { grid-template-columns: 1fr; }
+  .dash-article-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-kpi-grid { grid-template-columns: 1fr 1fr; }
 
   /* ── Articles page responsive ── */
   .section-header { flex-direction: column; align-items: stretch; }
@@ -1653,6 +1655,13 @@ kbd {
 
   .article-card { padding: var(--space-2) var(--space-3); }
   .article-card-title { font-size: 13px; }
+
+  /* ── Dashboard mobile (≤ 480px) ── */
+  .dash-article-grid { grid-template-columns: 1fr; }
+  .dash-kpi-grid { grid-template-columns: 1fr; }
+  .dash-qa-btn { padding: 6px 10px; font-size: 12px; }
+  .dash-glance-value { font-size: 18px; }
+  .dash-panel { padding: var(--space-3); }
 }
 
 @media (max-width: 420px) {

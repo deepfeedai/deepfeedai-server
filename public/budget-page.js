@@ -246,9 +246,9 @@
       '<div class="budget-card actual-card ' + esc(statusCls) + '">',
         '<div class="card-top">',
           '<div class="card-headline">',
-            '<a href="/articles.html" class="actual-link" title="' + esc(article.title || '') + '">',
+            '<button class="actual-link" data-preview-slug="' + esc(article.slug || '') + '" title="' + esc(article.title || '') + '">',
               esc(article.title || 'Untitled'),
-            '</a>',
+            '</button>',
           '</div>',
           '<span class="badge ' + esc(badgeCls) + '">' + badgeLabel + '</span>',
         '</div>',
@@ -1097,6 +1097,15 @@
 
   // ── Delegated click handler for card action buttons ────────────────────────
   document.addEventListener('click', function (e) {
+    var previewBtn = e.target.closest('[data-preview-slug]');
+    if (previewBtn) {
+      var slug = previewBtn.dataset.previewSlug;
+      if (slug && typeof showArticlePreviewBySlug === 'function') {
+        showArticlePreviewBySlug(slug);
+      }
+      return;
+    }
+
     var btn = e.target.closest('[data-action]');
     if (!btn) return;
 

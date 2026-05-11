@@ -1652,12 +1652,20 @@ async function initDb() {
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {
-      // Log unexpected errors (not just "already exists" / "duplicate" noise)
       if (!/already exists|duplicate|cannot alter/i.test(err.message)) {
         console.error('[DB migration]', err.message, '—', sql.slice(0, 80));
       }
     }
   }
+
+  // Data migration: bump legacy auto_publish_max=5 (old unused default) to 50 for sources
+  // that never had auto-publish enabled, so the new ingest cap doesn't throttle them.
+  try {
+    const r = await p.query(
+      "UPDATE sources SET auto_publish_max = 50 WHERE auto_publish = 0 AND auto_publish_max = 5"
+    );
+    if (r.rowCount > 0) console.log(`[DB] Bumped ingest cap from 5→50 for ${r.rowCount} sources`);
+  } catch (err) { console.warn('[DB] ingest-cap migration skipped:', err.message); }
 
   // Backfill: populate slug column for articles that don't have one
   try {

@@ -185,6 +185,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
       WHERE a.tenant_id = $1
         AND a.is_archived = 0
         AND a.content_type IN ('original', 'deep-dive')
+        AND (a.status IS NULL OR a.status != 'source')
       ORDER BY a.created_at DESC
       LIMIT 12
     `, [tid]),

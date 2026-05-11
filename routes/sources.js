@@ -84,10 +84,10 @@ router.post('/', auth, requirePermission('sources.create'), asyncHandler(async (
     return res.status(403).json({ error: 'Plan limit reached', resource: 'sources', current: limit.current, max: limit.max });
   }
 
-  const { name, url, priority, is_active, auto_publish, auto_publish_max, default_category } = body;
+  const { name, url, priority, is_active, auto_publish_max, default_category } = body;
   const source = await db.prepare(
-    'INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max, default_category, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *'
-  ).get(name, url, priority, is_active ? 1 : 0, auto_publish ? 1 : 0, auto_publish_max, default_category || null, req.tenantId);
+    'INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max, default_category, tenant_id) VALUES ($1, $2, $3, $4, 0, $5, $6, $7) RETURNING *'
+  ).get(name, url, priority, is_active ? 1 : 0, auto_publish_max ?? 50, default_category || null, req.tenantId);
   logAudit(req, 'source.create', 'source', source.id, { name: source.name });
   res.status(201).json(source);
 }));
@@ -100,15 +100,14 @@ router.put('/:id', auth, requirePermission('sources.update'), asyncHandler(async
   const body = validate(sourceUpdate, req.body, res);
   if (!body) return;
 
-  const { name, url, priority, is_active, auto_publish, auto_publish_max, default_category } = body;
+  const { name, url, priority, is_active, auto_publish_max, default_category } = body;
   const updated = await db.prepare(
-    'UPDATE sources SET name = $1, url = $2, priority = $3, is_active = $4, auto_publish = $5, auto_publish_max = $6, default_category = $7 WHERE id = $8 AND tenant_id = $9 RETURNING *'
+    'UPDATE sources SET name = $1, url = $2, priority = $3, is_active = $4, auto_publish_max = $5, default_category = $6 WHERE id = $7 AND tenant_id = $8 RETURNING *'
   ).get(
     name             ?? existing.name,
     url              ?? existing.url,
     priority         ?? existing.priority,
     is_active        !== undefined ? (is_active ? 1 : 0) : existing.is_active,
-    auto_publish     !== undefined ? (auto_publish ? 1 : 0) : existing.auto_publish,
     auto_publish_max ?? existing.auto_publish_max,
     default_category !== undefined ? (default_category || null) : existing.default_category,
     req.params.id,
@@ -171,7 +170,7 @@ async function _bulkInsertSources(items, tenantId, planLimit) {
     try {
       const row = await db.prepare(
         `INSERT INTO sources (name, url, priority, is_active, auto_publish, auto_publish_max, tenant_id)
-         VALUES ($1, $2, 1, 1, 0, 5, $3)
+         VALUES ($1, $2, 1, 1, 0, 50, $3)
          ON CONFLICT (tenant_id, url) DO NOTHING
          RETURNING id`
       ).get(name, url, tenantId);

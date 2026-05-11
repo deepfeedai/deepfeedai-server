@@ -126,10 +126,7 @@ let sources = [];
           </button>
         </td>
         <td>
-          ${s.auto_publish
-            ? `<span class="badge badge-success" title="Auto-publishes up to ${s.auto_publish_max || 5} articles per fetch">✓ Max ${s.auto_publish_max || 5}</span>`
-            : `<span class="text-muted text-sm">Draft only</span>`
-          }
+          <span class="text-muted text-sm">${s.auto_publish_max || 50} / fetch</span>
         </td>
         <td>${s.default_category ? `<span class="badge">${escHtml(s.default_category)}</span>` : `<span class="text-muted text-sm">Auto</span>`}</td>
         <td>${fmtLastFetched(s.last_fetched)}</td>
@@ -157,9 +154,7 @@ let sources = [];
     document.getElementById('fSUrl').value      = prefill ? prefill.url  : '';
     document.getElementById('fSPriority').value = '1';
     document.getElementById('fSActive').checked        = true;
-    document.getElementById('fSAutoPublish').checked   = false;
-    document.getElementById('fSAutoPublishMax').value  = '5';
-    document.getElementById('maxPublishGroup').style.display = 'none';
+    document.getElementById('fSAutoPublishMax').value  = '50';
     document.getElementById('fSDefaultCategory').value = '';
     document.getElementById('feedStatus').innerHTML = '';
     _autoFilledName = '';
@@ -177,9 +172,7 @@ let sources = [];
     document.getElementById('fSUrl').value                  = s.url  || '';
     document.getElementById('fSPriority').value             = s.priority || 1;
     document.getElementById('fSActive').checked             = !!s.is_active;
-    document.getElementById('fSAutoPublish').checked        = !!s.auto_publish;
-    document.getElementById('fSAutoPublishMax').value       = s.auto_publish_max || 5;
-    document.getElementById('maxPublishGroup').style.display = s.auto_publish ? '' : 'none';
+    document.getElementById('fSAutoPublishMax').value       = s.auto_publish_max || 50;
     document.getElementById('fSDefaultCategory').value      = s.default_category || '';
     document.getElementById('feedStatus').innerHTML = '';
     _autoFilledName = '';
@@ -204,8 +197,7 @@ let sources = [];
       url,
       priority         : parseInt(document.getElementById('fSPriority').value) || 1,
       is_active        : document.getElementById('fSActive').checked,
-      auto_publish     : document.getElementById('fSAutoPublish').checked,
-      auto_publish_max : parseInt(document.getElementById('fSAutoPublishMax').value) || 5,
+      auto_publish_max : parseInt(document.getElementById('fSAutoPublishMax').value) || 50,
       default_category : document.getElementById('fSDefaultCategory').value || null,
     };
 
@@ -372,11 +364,6 @@ let sources = [];
     document.getElementById('addSourceBtn').addEventListener('click', () => openAddSource());
     document.getElementById('saveSourceBtn').addEventListener('click', saveSource);
     document.getElementById('confirmDeleteSourceBtn').addEventListener('click', confirmDeleteSource);
-
-    // Show/hide max input when auto-publish toggled
-    document.getElementById('fSAutoPublish').addEventListener('change', function() {
-      document.getElementById('maxPublishGroup').style.display = this.checked ? '' : 'none';
-    });
 
     // Suggested feeds modal
     document.getElementById('suggested-btn').addEventListener('click', () => {

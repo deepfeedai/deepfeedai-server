@@ -38,7 +38,7 @@
               <th>URL</th>
               <th>Priority</th>
               <th>Active</th>
-              <th>Auto-Publish</th>
+              <th>Ingest Cap</th>
               <th>Category</th>
               <th>Last Fetched</th>
               <th>Actions</th>
@@ -83,18 +83,11 @@
           </label>
           <span class="form-check-label">Active</span>
         </div>
-        <div class="form-check">
-          <label class="toggle">
-            <input type="checkbox" id="fSAutoPublish" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="form-check-label">Auto-Publish</span>
-        </div>
       </div>
-      <div class="form-group mt-3" id="maxPublishGroup" style="display:none;">
-        <label class="form-label" for="fSAutoPublishMax">Max articles to auto-publish per fetch</label>
-        <input class="form-control input-narrow" type="number" id="fSAutoPublishMax" min="1" max="50" value="5" />
-        <small class="form-help">Newest articles up to this limit will be published automatically. The rest are saved as drafts.</small>
+      <div class="form-group mt-3">
+        <label class="form-label" for="fSAutoPublishMax">Max items to ingest per fetch</label>
+        <input class="form-control input-narrow" type="number" id="fSAutoPublishMax" min="1" max="200" value="50" />
+        <small class="form-help">Caps how many new articles are pulled in per fetch cycle. Useful for throttling high-volume sources. Set higher (50–200) to capture all recent articles.</small>
       </div>
       <div class="form-group mt-3">
         <label class="form-label" for="fSDefaultCategory">Default Category</label>

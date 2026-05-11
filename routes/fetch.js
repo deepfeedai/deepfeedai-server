@@ -23,16 +23,15 @@ const parser = new RSSParser({
   },
 });
 
-async function fetchAllSources(autoPublish = false, tenantId = 1) {
+async function fetchAllSources(tenantId = 1) {
   const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1 AND tenant_id = $1').all(tenantId);
   let inserted = 0, skipped = 0;
   const errors = [];
   const needsImage = []; // { id, source_url } — newly inserted articles without an RSS image
 
   for (const source of sources) {
-    const shouldAutoPublish = source.auto_publish ? true : autoPublish;
-    const maxToPublish      = parseInt(source.auto_publish_max, 10) || 5;
-    let autoPublishedForSource = 0;
+    const maxToIngest      = parseInt(source.auto_publish_max, 10) || 50;
+    let insertedForSource  = 0;
 
     try {
       const feed  = await parser.parseURL(source.url);
@@ -51,6 +50,9 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
         const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
         if (existing) { skipped++; continue; }
 
+        // Respect per-source ingest cap
+        if (insertedForSource >= maxToIngest) { skipped++; continue; }
+
         const category = await detectCategory(item, { defaultCategory: source.default_category, tenantId });
         if (!category || category === 'Uncategorized') { skipped++; continue; }
 
@@ -65,15 +67,13 @@ async function fetchAllSources(autoPublish = false, tenantId = 1) {
         const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
         const author   = item.creator || item.author || null;
 
-        const wantPublish = shouldAutoPublish && autoPublishedForSource < maxToPublish;
-        if (wantPublish) autoPublishedForSource++;
-
         // Insert as source material — synthesis pipeline is the path to publication
         await db.prepare(
           `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'source', $10)`
         ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), summary, category, source.name, url, image, author, pubDate, tenantId);
         inserted++;
+        insertedForSource++;
 
         // Fire-and-forget: writer assignment + quality gate auto-publish
         try {
@@ -223,7 +223,7 @@ function resolveAge(age) {
   return new Date(Date.now() - parseInt(m[1]) * ms).toISOString();
 }
 
-async function fetchLiveSources(autoPublish = false, tenantId = 1) {
+async function fetchLiveSources(tenantId = 1) {
   const appCfg     = await getAppConfig(tenantId);
   const newsApiKey = appCfg.news_api_key;
   const braveKey   = appCfg.brave_api_key;
@@ -313,7 +313,7 @@ async function fetchLiveSources(autoPublish = false, tenantId = 1) {
 
 // POST /api/fetch
 router.post('/', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
-  const result = await fetchAllSources(req.body.autoPublish === true, req.tenantId);
+  const result = await fetchAllSources(req.tenantId);
   res.json({ status: 'ok', ...result });
 }));
 
@@ -428,7 +428,7 @@ router.post('/decode-titles', auth, requirePermission('fetch.execute'), asyncHan
 
 // POST /api/fetch/live — fetch from NewsAPI + Brave Search
 router.post('/live', auth, requirePermission('fetch.execute'), asyncHandler(async (req, res) => {
-  const result = await fetchLiveSources(req.body.autoPublish === true, req.tenantId);
+  const result = await fetchLiveSources(req.tenantId);
   res.json({ status: 'ok', ...result });
 }));
 
