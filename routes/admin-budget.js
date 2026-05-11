@@ -132,7 +132,8 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
     return res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' });
   }
 
-  const [pubResult, schedResult] = await Promise.all([
+  const [pubResult, schedResult, deepDiveResult] = await Promise.all([
+    // Published originals for the selected calendar day
     getPool().query(`
       SELECT
         a.id, a.title, a.slug, a.is_published, a.published_at, a.content_type,
@@ -144,12 +145,13 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
         ON nbs.spawned_article_id = a.id AND nbs.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1
         AND a.is_published = 1
-        AND a.content_type IN ('original', 'deep-dive')
+        AND a.content_type = 'original'
         AND a.published_at >= $2::date
         AND a.published_at < $2::date + INTERVAL '1 day'
       ORDER BY a.published_at ASC
     `, [req.tenantId, dateStr]),
 
+    // Scheduled originals for the selected calendar day
     getPool().query(`
       SELECT
         a.id, a.title, a.slug, a.is_published, a.publish_at, a.content_type,
@@ -162,11 +164,26 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
       WHERE a.tenant_id = $1
         AND a.status = 'scheduled'
         AND a.is_published = 0
-        AND a.content_type IN ('original', 'deep-dive')
+        AND a.content_type = 'original'
         AND a.publish_at >= $2::date
         AND a.publish_at < $2::date + INTERVAL '1 day'
       ORDER BY a.publish_at ASC
     `, [req.tenantId, dateStr]),
+
+    // Deep dives published in the last 7 days — shown independently of the daily plan
+    getPool().query(`
+      SELECT
+        a.id, a.title, a.slug, a.is_published, a.published_at, a.content_type,
+        a.writer_id, a.category,
+        w.name AS writer_name, w.avatar_url AS writer_avatar
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1
+        AND a.is_published = 1
+        AND a.content_type = 'deep-dive'
+        AND a.published_at >= NOW() - INTERVAL '7 days'
+      ORDER BY a.published_at DESC
+    `, [req.tenantId]),
   ]);
 
   const cap    = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6;
@@ -202,6 +219,7 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
   res.json({
     published:    pubResult.rows,
     scheduled:    schedResult.rows,
+    deep_dives:   deepDiveResult.rows,
     cap: {
       cap,
       burst,

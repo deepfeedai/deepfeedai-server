@@ -335,7 +335,7 @@
       ].join('');
     });
 
-    // Unplanned lane — articles with no slot linkage
+    // Unplanned lane — originals with no slot linkage
     if (actuals) {
       var allArticles = (actuals.published || []).concat(actuals.scheduled || []);
       var unplanned   = allArticles.filter(function (a) { return !a.slot_id; });
@@ -348,6 +348,23 @@
             '</div>',
             '<div class="swimlane-track">',
               unplanned.map(renderActualCard).join(''),
+            '</div>',
+          '</div>',
+        ].join('');
+      }
+
+      // Deep Dives — rolling 7-day window, independent of the daily plan
+      var deepDives = actuals.deep_dives || [];
+      if (deepDives.length) {
+        html += [
+          '<div class="swimlane" data-priority="deep-dives">',
+            '<div class="swimlane-header">',
+              '<span class="swimlane-label sl-deepdive">Deep Dives</span>',
+              '<span class="swimlane-count">' + deepDives.length + '</span>',
+              '<span class="swimlane-sublabel">Last 7 days</span>',
+            '</div>',
+            '<div class="swimlane-track">',
+              deepDives.map(renderActualCard).join(''),
             '</div>',
           '</div>',
         ].join('');
@@ -434,6 +451,25 @@
         '</div>',
       ].join('');
     });
+
+    // Deep Dives section — rolling 7-day window, appended below the daily timeline
+    var deepDivesTimeline = actuals && actuals.deep_dives || [];
+    if (deepDivesTimeline.length) {
+      html += [
+        '<div class="timeline-section">',
+          '<div class="timeline-section-header">',
+            '<span class="timeline-section-label">Deep Dives</span>',
+            '<span class="timeline-section-time">Last 7 days</span>',
+            '<span class="swimlane-count" style="margin-left:4px;">' + deepDivesTimeline.length + '</span>',
+          '</div>',
+          '<div class="timeline-actuals-section">',
+            '<div class="timeline-actuals-grid">',
+              deepDivesTimeline.map(renderActualCard).join(''),
+            '</div>',
+          '</div>',
+        '</div>',
+      ].join('');
+    }
 
     if (!html) {
       html = '<div class="budget-empty"><div class="budget-empty-icon">&#128197;</div><h2>No slots with times</h2><p>Assign target publish times to see them in the timeline view.</p></div>';

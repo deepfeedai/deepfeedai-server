@@ -679,6 +679,19 @@
       overflow-x: visible;
     }
 
+    /* ── Deep Dives swimlane ─────────────────────── */
+    .sl-deepdive { color: #8b5cf6; }
+    .swimlane[data-priority="deep-dives"] .swimlane-track {
+      flex-wrap: wrap;
+      overflow-x: visible;
+    }
+    .swimlane-sublabel {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 6px;
+      font-weight: 400;
+    }
+
     /* ── Actual article card ─────────────────────── */
     .actual-card { border-style: dashed; }
     .actual-link { color: inherit; text-decoration: none; background: none; border: none; padding: 0; font: inherit; text-align: left; cursor: pointer; }
