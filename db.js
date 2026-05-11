@@ -2048,6 +2048,10 @@ async function initDb() {
     )
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_daily_briefings_tenant_date ON daily_briefings(tenant_id, briefing_date DESC)`);
+  // Multi-edition migration: add edition column and migrate unique constraint
+  await p.query(`ALTER TABLE daily_briefings ADD COLUMN IF NOT EXISTS edition TEXT NOT NULL DEFAULT 'evening'`);
+  await p.query(`DO $$ BEGIN ALTER TABLE daily_briefings DROP CONSTRAINT daily_briefings_tenant_id_briefing_date_key; EXCEPTION WHEN undefined_object THEN NULL; END $$`);
+  await p.query(`DO $$ BEGIN ALTER TABLE daily_briefings ADD CONSTRAINT daily_briefings_tenant_date_edition_key UNIQUE (tenant_id, briefing_date, edition); EXCEPTION WHEN duplicate_table THEN NULL; END $$`);
 
   // billing_status tracks Stripe payment health: 'active' | 'payment_failed' | 'suspended'
   await p.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'active'`);

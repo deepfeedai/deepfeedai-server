@@ -1015,9 +1015,9 @@ registerJob({
 
 registerJob({
   name: 'daily-briefing',
-  description: 'Daily audio news briefing — anchor-style 2-minute audio summary of top stories',
+  description: 'Multi-edition audio briefing — Morning (8AM), Afternoon (1PM), Evening (6PM)',
   category: 'Media',
-  defaultSchedule: '0 * * * *', // runs hourly; fires at 8AM in newsroom timezone
+  defaultSchedule: '0 * * * *', // runs hourly; fires at edition hours in newsroom timezone
   handler: async (tenantId) => {
     const { isFeatureEnabled } = require('./lib/feature-registry');
     const enabled = await isFeatureEnabled(tenantId, 'daily_briefing').catch(() => false);
@@ -1026,10 +1026,13 @@ registerJob({
     const { currentHourInTz } = require('./lib/news-budget');
     const appCfg = await getAppConfig(tenantId);
     const tz = appCfg.newsroom_timezone || 'UTC';
-    if (currentHourInTz(tz) !== 8) return { skipped: 'not yet 08:00 in ' + tz };
+    const hour = currentHourInTz(tz);
+    const editionMap = { 8: 'morning', 13: 'afternoon', 18: 'evening' };
+    const edition = editionMap[hour];
+    if (!edition) return { skipped: 'not a briefing hour in ' + tz };
 
     const { generateDailyBriefing } = require('./lib/daily-briefing');
-    return generateDailyBriefing(tenantId);
+    return generateDailyBriefing(tenantId, { edition });
   },
 });
 

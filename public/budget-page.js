@@ -1179,58 +1179,99 @@
   document.getElementById('generateBudgetBtn').addEventListener('click', generateBudget);
   document.getElementById('generateBudgetEmptyBtn').addEventListener('click', generateBudget);
 
-  // ── Audio Briefing button ──────────────────────────────────────────────────
+  // ── Audio Briefing panel (multi-edition) ──────────────────────────────────
   (function () {
-    var btn       = document.getElementById('generateBriefingBtn');
-    var label     = document.getElementById('briefingBtnLabel');
-    if (!btn) return;
+    var EDITIONS = [
+      { key: 'morning',   label: 'Morning Edition',  time: '8:00 AM',  color: '#f59e0b' },
+      { key: 'afternoon', label: 'Afternoon Update', time: '1:00 PM',  color: '#3b82f6' },
+      { key: 'evening',   label: 'Evening Report',   time: '6:00 PM',  color: '#8b5cf6' },
+    ];
 
-    var previewWrap = document.createElement('div');
-    previewWrap.id = 'briefingPreviewWrap';
-    previewWrap.style.cssText = 'display:none;align-items:center;gap:8px;margin-left:4px;';
-    btn.parentNode.insertBefore(previewWrap, btn.nextSibling);
+    var container = document.getElementById('briefingPanelContainer');
+    if (!container) return;
 
-    function showBriefingPreview(audioUrl) {
-      previewWrap.innerHTML = ''
-        + '<audio id="briefingAudio" src="' + audioUrl + '" preload="none" controls style="height:28px;max-width:220px;"></audio>'
-        + '<a href="' + audioUrl + '" target="_blank" title="Open audio file" style="color:var(--muted);font-size:11px;white-space:nowrap;">↗ Open</a>';
-      previewWrap.style.display = 'flex';
+    function buildEditionRow(ed) {
+      var row = document.createElement('div');
+      row.className = 'briefing-edition-row';
+      row.id = 'brief-row-' + ed.key;
+      row.innerHTML = '<div class="brief-ed-info">'
+        + '<span class="brief-ed-dot" style="background:' + ed.color + ';"></span>'
+        + '<span class="brief-ed-label">' + ed.label + '</span>'
+        + '<span class="brief-ed-time">' + ed.time + '</span>'
+        + '</div>'
+        + '<div class="brief-ed-controls" id="brief-ctrl-' + ed.key + '">'
+        + '<button class="btn btn-outline btn-sm brief-gen-btn" id="brief-btn-' + ed.key + '" data-edition="' + ed.key + '">'
+        + '<svg style="width:12px;height:12px;flex-shrink:0;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53L6.75 15.75H4.5a.75.75 0 01-.75-.75v-6a.75.75 0 01.75-.75H6.75z" /></svg>'
+        + ' <span class="brief-btn-label-' + ed.key + '">Generate</span>'
+        + '</button>'
+        + '</div>';
+      return row;
     }
 
-    // Check if a briefing already exists for today
-    apiFetch('/admin/budget/briefing').then(function (data) {
-      if (data.briefing) {
-        var s = data.briefing.status;
-        if (s === 'ready') {
-          label.textContent = '✓ Briefing Ready';
-          btn.classList.add('btn-success-muted');
-          if (data.briefing.audio_url) showBriefingPreview(data.briefing.audio_url);
+    EDITIONS.forEach(function (ed) { container.appendChild(buildEditionRow(ed)); });
+
+    function applyBriefingState(edKey, briefing) {
+      var btn   = document.getElementById('brief-btn-' + edKey);
+      var ctrl  = document.getElementById('brief-ctrl-' + edKey);
+      var label = btn && btn.querySelector('.brief-btn-label-' + edKey);
+      if (!btn || !label) return;
+
+      if (!briefing) return; // not yet generated — default "Generate" state is fine
+
+      if (briefing.status === 'ready') {
+        label.textContent = '✓ Ready';
+        btn.classList.add('btn-success-muted');
+        if (briefing.audio_url) {
+          // Insert inline audio player
+          var existing = ctrl.querySelector('.brief-audio-wrap');
+          if (!existing) {
+            var wrap = document.createElement('div');
+            wrap.className = 'brief-audio-wrap';
+            wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;';
+            wrap.innerHTML = '<audio src="' + briefing.audio_url + '" preload="none" controls style="height:26px;max-width:180px;"></audio>'
+              + '<a href="' + briefing.audio_url + '" target="_blank" style="color:var(--muted);font-size:11px;">↗</a>';
+            ctrl.appendChild(wrap);
+          }
         }
-        if (s === 'pending') { label.textContent = 'Briefing Generating…'; btn.disabled = true; }
-        if (s === 'error')   { label.textContent = 'Briefing Failed — Retry'; }
+      } else if (briefing.status === 'pending') {
+        label.textContent = 'Generating…';
+        btn.disabled = true;
+      } else if (briefing.status === 'error') {
+        label.textContent = 'Failed — Retry';
       }
+    }
+
+    // Load today's briefings
+    apiFetch('/admin/budget/briefing').then(function (data) {
+      var briefings = data.briefings || [];
+      var byEdition = {};
+      briefings.forEach(function (b) { byEdition[b.edition] = b; });
+      EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
     }).catch(function () {});
 
-    btn.addEventListener('click', async function () {
+    // Wire generate buttons
+    container.addEventListener('click', async function (e) {
+      var btn = e.target.closest('.brief-gen-btn');
+      if (!btn) return;
+      var edition = btn.dataset.edition;
+      var label   = btn.querySelector('.brief-btn-label-' + edition);
+      if (!label) return;
       btn.disabled = true;
       label.textContent = 'Generating…';
-      previewWrap.style.display = 'none';
       try {
         var data = await apiFetch('/admin/budget/briefing/generate', {
           method: 'POST',
-          body: JSON.stringify({ force: true }),
+          body: JSON.stringify({ force: true, edition }),
         });
         if (data.ok) {
-          label.textContent = '✓ Briefing Ready';
-          btn.classList.add('btn-success-muted');
+          applyBriefingState(edition, { status: 'ready', audio_url: data.audio_url });
           btn.disabled = false;
-          if (data.audio_url) showBriefingPreview(data.audio_url);
         } else {
-          label.textContent = 'Briefing Failed — Retry';
+          label.textContent = 'Failed — Retry';
           btn.disabled = false;
         }
       } catch (err) {
-        label.textContent = 'Briefing Failed — Retry';
+        label.textContent = 'Failed — Retry';
         btn.disabled = false;
       }
     });

@@ -468,27 +468,26 @@ router.post('/slots/:id/reassign', auth, requirePermission('articles.write'), as
   res.json({ slot: updatedSlot });
 }));
 
-// POST /api/admin/budget/briefing/generate — manually trigger today's audio briefing
+// POST /api/admin/budget/briefing/generate — manually trigger an edition
 router.post('/briefing/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
-  const { generateDailyBriefing } = require('../lib/daily-briefing');
-  const force = req.body?.force === true;
-  const result = await generateDailyBriefing(req.tenantId, { force });
+  const { generateDailyBriefing, EDITION_CONFIG } = require('../lib/daily-briefing');
+  const force   = req.body?.force === true;
+  const edition = EDITION_CONFIG[req.body?.edition] ? req.body.edition : 'evening';
+  const result  = await generateDailyBriefing(req.tenantId, { force, edition });
   if (!result.ok && result.reason !== 'already_exists') {
     return res.status(500).json({ error: result.reason || 'generation_failed' });
   }
   res.json(result);
 }));
 
-// GET /api/admin/budget/briefing — today's briefing status for the admin UI
+// GET /api/admin/budget/briefing — today's all-edition briefing status for the admin UI
 router.get('/briefing', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const { getAppConfig: _cfg } = require('../lib/app-config');
+  const { getTodayBriefings }  = require('../lib/daily-briefing');
   const appCfg = await _cfg(req.tenantId).catch(() => ({}));
   const tz = appCfg.newsroom_timezone || 'UTC';
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: tz });
-  const row = await db.prepare(
-    'SELECT id, status, audio_url, voice_name, voice_avatar_url, briefing_date, article_ids, created_at FROM daily_briefings WHERE tenant_id = $1 AND briefing_date = $2'
-  ).get(req.tenantId, todayStr);
-  res.json({ briefing: row || null });
+  const briefings = await getTodayBriefings(req.tenantId, tz);
+  res.json({ briefings });
 }));
 
 module.exports = router;

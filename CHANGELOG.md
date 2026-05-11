@@ -8,6 +8,21 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.8-beta] — 2026-05-11
+
+**Multi-edition audio briefings — Morning, Afternoon, and Evening.**
+
+### Added
+
+- **Three daily briefing editions** — Morning Edition (8 AM, 14-hour lookback, 3 stories), Afternoon Update (1 PM, 5-hour lookback, 3 stories), and Evening Report (6 PM flagship, 18-hour lookback, 5 stories). Each edition has a dedicated context note in the AI prompt so the script reflects the right arc of the day.
+- **Edition column in `daily_briefings`** — schema migration adds `edition TEXT NOT NULL DEFAULT 'evening'`, drops the old `(tenant_id, briefing_date)` unique constraint, and adds a new `(tenant_id, briefing_date, edition)` constraint so all three editions can coexist per day.
+- **Edition-aware admin briefing panel** — the single "Audio Briefing" button on the Runsheet is replaced by a three-row panel showing Morning / Afternoon / Evening, each with its own generate button and inline audio player. Rows load current status on page open.
+- **Edition switcher in public "Today's Briefing" modal** — when multiple editions are ready, edition tabs appear above the player. Clicking a tab swaps the audio track and label without closing the modal.
+- **`{{editionLabel}}` and `{{editionContext}}` variables in briefing-script prompt** — version 5. The prompt opening now reads "this is the Deep Feed AI {{editionLabel}} for {{date}}" so TTS announces the correct edition.
+- **`getTodayBriefings()` function** — returns all of today's ready editions as an array; used by admin UI and public `/api/news/brief` endpoint (new `briefings` field alongside the existing `briefing` field for backwards compat).
+
+---
+
 ## [1.0.7-beta] — 2026-05-11
 
 **Runsheet deep dive visibility, publish cap enforcement, and dashboard date consistency.**

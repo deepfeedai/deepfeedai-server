@@ -727,12 +727,13 @@ router.get('/brief', asyncHandler(async (req, res) => {
     [tenantId]
   );
 
-  // Today's audio briefing
-  const { getTodayBriefing } = require('../lib/daily-briefing');
+  // Today's audio briefings (all editions)
+  const { getTodayBriefing, getTodayBriefings } = require('../lib/daily-briefing');
   const { getAppConfig: _getAppCfg } = require('../lib/app-config');
-  const _appCfg   = await _getAppCfg(tenantId).catch(() => ({}));
-  const _tz       = _appCfg.newsroom_timezone || 'UTC';
-  const briefing  = await getTodayBriefing(tenantId, _tz).catch(() => null);
+  const _appCfg    = await _getAppCfg(tenantId).catch(() => ({}));
+  const _tz        = _appCfg.newsroom_timezone || 'UTC';
+  const briefing   = await getTodayBriefing(tenantId, _tz).catch(() => null);
+  const allBriefings = await getTodayBriefings(tenantId, _tz).catch(() => []);
 
   // Top trending keyword from trends_cache
   let topKeyword = null;
@@ -785,7 +786,19 @@ router.get('/brief', asyncHandler(async (req, res) => {
       voice_name:       briefing.voice_name       || null,
       voice_avatar_url: briefing.voice_avatar_url || null,
       briefing_date:    briefing.briefing_date,
+      edition:          briefing.edition           || 'evening',
     } : null,
+    briefings: allBriefings.filter(b => b.status === 'ready').map(b => {
+      let url = b.audio_url || null;
+      if (url && url.startsWith('/')) url = `${req.protocol}://${req.get('host')}${url}`;
+      return {
+        edition:          b.edition,
+        audio_url:        url,
+        voice_name:       b.voice_name       || null,
+        voice_avatar_url: b.voice_avatar_url || null,
+        briefing_date:    b.briefing_date,
+      };
+    }),
   });
 }));
 

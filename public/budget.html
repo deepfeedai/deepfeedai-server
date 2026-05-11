@@ -692,6 +692,30 @@
       font-weight: 400;
     }
 
+    /* ── Multi-edition briefing panel ───────────── */
+    #briefingPanelContainer {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-left: 4px;
+    }
+    .briefing-edition-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 5px 8px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .brief-ed-info { display: flex; align-items: center; gap: 7px; min-width: 180px; }
+    .brief-ed-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .brief-ed-label { font-size: 12px; font-weight: 600; }
+    .brief-ed-time  { font-size: 11px; color: var(--muted); }
+    .brief-ed-controls { display: flex; align-items: center; gap: 6px; }
+    .brief-gen-btn  { font-size: 11px; padding: 3px 9px; }
+
     /* ── Actual article card ─────────────────────── */
     .actual-card { border-style: dashed; }
     .actual-link { color: inherit; text-decoration: none; background: none; border: none; padding: 0; font: inherit; text-align: left; cursor: pointer; }
@@ -807,10 +831,7 @@
           <button id="viewTimeline" title="Timeline by publish window">Timeline</button>
         </div>
 
-        <button class="btn btn-outline btn-sm" id="generateBriefingBtn" title="Generate today's audio briefing">
-          <svg style="width:14px;height:14px;flex-shrink:0;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53L6.75 15.75H4.5a.75.75 0 01-.75-.75v-6a.75.75 0 01.75-.75H6.75z" /></svg>
-          <span id="briefingBtnLabel">Audio Briefing</span>
-        </button>
+        <div id="briefingPanelContainer" title="Audio Briefings — Morning, Afternoon, Evening editions"></div>
 
         <button class="btn btn-outline btn-sm sidebar-toggle-btn" id="sidebarToggleBtn" title="Show coverage gaps &amp; alerts">
           <svg style="width:14px;height:14px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" /></svg>
