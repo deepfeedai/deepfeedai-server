@@ -74,7 +74,8 @@
     _allPitchesCache = pitches;
     selectedPitchIds.clear();
     updateBulkBar();
-    if (viewMode === 'list') { renderPitchesList(pitches); return; }
+    if (viewMode === 'list')   { renderPitchesList(pitches); return; }
+    if (viewMode === 'writer') { renderPitchesByWriter(pitches); return; }
     renderPitchesGrid(pitches);
   }
 
@@ -248,6 +249,122 @@
     });
   }
 
+  function renderPitchesByWriter(pitches) {
+    var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-swimlane';
+    if (!pitches.length) {
+      grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No pitches found.</div>';
+      return;
+    }
+
+    var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Pred. Check' };
+
+    // Group by writer, preserving priority-sort order within each group
+    var writerMap = {};
+    var writerOrder = [];
+    pitches.forEach(function (p) {
+      var wid = String(p.writer_id || 0);
+      if (!writerMap[wid]) {
+        writerMap[wid] = { name: p.writer_name || 'Unknown', avatar: p.writer_avatar_url || null, pitches: [] };
+        writerOrder.push(wid);
+      }
+      writerMap[wid].pitches.push(p);
+    });
+
+    function makeSwimlanRow(p) {
+      var sc = (p.source_article_ids || []).length || 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+      var pri = p.priority || 5;
+      var priClass = pri >= 8 ? 'pri-high' : pri >= 5 ? 'pri-mid' : 'pri-low';
+      var priBadge = '<span class="pri-badge ' + priClass + '">' + pri + '</span>';
+      var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
+      var actions = '';
+      if (p.status === 'pending') {
+        var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+        var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
+      } else {
+        actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
+          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+          : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
+      }
+      var isPending = p.status === 'pending';
+      return '<div class="swimlane-list-row" data-pitch="' + p.id + '" data-writer="' + esc(String(p.writer_id || 0)) + '">'
+        + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
+        + '<div>' + typeBadge + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div>' + priBadge + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div class="pitch-list-actions">' + actions + '</div>'
+        + '</div>';
+    }
+
+    grid.innerHTML = writerOrder.map(function (wid) {
+      var group = writerMap[wid];
+      var pendingCount = group.pitches.filter(function (p) { return p.status === 'pending'; }).length;
+      var countLabel = group.pitches.length + ' pitch' + (group.pitches.length !== 1 ? 'es' : '')
+        + (pendingCount !== group.pitches.length ? ' · ' + pendingCount + ' pending' : '');
+      var avatar = group.avatar
+        ? '<img src="' + esc(group.avatar) + '" class="swimlane-avatar" />'
+        : '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>';
+      var hdr = '<div class="swimlane-list-hdr"><div></div>'
+        + '<div>Headline</div><div>Type</div><div>Sources</div><div>Priority</div><div>Age</div><div>Actions</div>'
+        + '</div>';
+      return '<div class="swimlane-group">'
+        + '<div class="swimlane-header">'
+        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-writer-id="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + avatar
+        + '<div><div class="swimlane-writer-name">' + esc(group.name) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
+        + '</div>'
+        + hdr
+        + group.pitches.map(makeSwimlanRow).join('')
+        + '</div>';
+    }).join('');
+
+    // Wire swimlane select-all checkboxes
+    grid.querySelectorAll('.swimlane-cb-all').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var wid = cb.dataset.writerId;
+        grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb').forEach(function (rowCb) {
+          rowCb.checked = cb.checked;
+          var id = parseInt(rowCb.dataset.pitchId, 10);
+          if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+          rowCb.closest('.swimlane-list-row').classList.toggle('selected', cb.checked);
+        });
+        updateBulkBar();
+      });
+    });
+
+    // Wire individual checkboxes
+    grid.querySelectorAll('.pitch-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+        cb.closest('.swimlane-list-row').classList.toggle('selected', cb.checked);
+        // Sync this writer's group header checkbox
+        var row = cb.closest('.swimlane-list-row');
+        var wid = row ? row.dataset.writer : null;
+        if (wid) {
+          var groupCbs = grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb');
+          var groupChecked = grid.querySelectorAll('.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb:checked').length;
+          var groupAll = grid.querySelector('.swimlane-cb-all[data-writer-id="' + wid + '"]');
+          if (groupAll) {
+            groupAll.indeterminate = groupChecked > 0 && groupChecked < groupCbs.length;
+            groupAll.checked = groupCbs.length > 0 && groupChecked === groupCbs.length;
+          }
+        }
+        updateBulkBar();
+      });
+    });
+  }
+
   function updateBulkBar() {
     var bar = document.getElementById('pitchBulkBar');
     var countEl = document.getElementById('pitchBulkCount');
@@ -303,7 +420,7 @@
   };
 
   function optimisticRemovePitchCard(pitchId) {
-    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"], .pitch-list-row[data-pitch="' + pitchId + '"]');
+    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"], .pitch-list-row[data-pitch="' + pitchId + '"], .swimlane-list-row[data-pitch="' + pitchId + '"]');
     if (!card) return function () {};
     selectedPitchIds.delete(pitchId);
     updateBulkBar();

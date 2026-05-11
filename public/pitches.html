@@ -69,6 +69,22 @@
     .commission-list-row:hover { background:var(--surface2); }
     .commission-list-row.selected { background:rgba(59,130,246,.07); }
     .commission-list-row.optimistic-removing { opacity:.4; transition:opacity .15s; pointer-events:none; }
+    /* Writer swimlane view */
+    .pitch-swimlane { display:flex; flex-direction:column; gap:14px; }
+    .swimlane-group { border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .swimlane-header { display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--surface2); border-bottom:1px solid var(--border); }
+    .swimlane-avatar { width:28px; height:28px; border-radius:50%; object-fit:cover; flex-shrink:0; }
+    .swimlane-avatar-ph { width:28px; height:28px; border-radius:50%; background:var(--bg-card); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+    .swimlane-writer-name { font-weight:700; font-size:13px; }
+    .swimlane-pitch-count { font-size:11px; color:var(--muted); }
+    .swimlane-list-hdr,
+    .swimlane-list-row { display:grid; grid-template-columns:28px 1fr 84px 68px 52px 54px 168px; gap:8px; padding:8px 12px; align-items:center; }
+    .swimlane-list-hdr { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); border-bottom:1px solid var(--border); background:var(--bg-card); }
+    .swimlane-list-row { border-bottom:1px solid var(--border); font-size:13px; transition:background .1s; }
+    .swimlane-list-row:last-child { border-bottom:none; }
+    .swimlane-list-row:hover { background:var(--surface2); }
+    .swimlane-list-row.selected { background:rgba(59,130,246,.07); }
+    .swimlane-list-row.optimistic-removing { opacity:.4; transition:opacity .15s; pointer-events:none; }
     /* View toggle */
     .view-toggle { display:flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
     .view-toggle-btn { padding:5px 10px; background:none; border:none; cursor:pointer; color:var(--muted); font-size:13px; font-weight:600; }
@@ -108,6 +124,7 @@
             </select>
             <div class="view-toggle" id="pitchViewToggle">
               <button class="view-toggle-btn" data-view="list" title="List view">List</button>
+              <button class="view-toggle-btn" data-view="writer" title="Group by writer">By Writer</button>
               <button class="view-toggle-btn" data-view="grid" title="Grid view">Grid</button>
             </div>
           </div>
