@@ -8,6 +8,16 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.9-beta] — 2026-05-11
+
+**Briefing stuck-pending recovery.**
+
+### Fixed
+
+- **Stuck pending briefings** — if a briefing edition stays in `pending` for more than 5 minutes (e.g. server crash mid-TTS), the Generate button now shows "Stuck — Retry" and re-enables instead of staying permanently disabled. `updated_at` is now returned by the briefings API so the frontend can compute staleness.
+
+---
+
 ## [1.0.8-beta] — 2026-05-11
 
 **Multi-edition audio briefings — Morning, Afternoon, and Evening.**
