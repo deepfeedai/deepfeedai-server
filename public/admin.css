@@ -1667,23 +1667,47 @@ kbd {
   .article-card-title { font-size: 13px; }
 
   /* ── Dashboard mobile (≤ 480px) ── */
-  .dash-article-grid { grid-template-columns: 1fr; }
-  /* KPI groups stack — each takes full width */
-  .dash-kpi-grid { grid-template-columns: 1fr; }
-  /* Stat cards inside KPI groups: always 2-col so they don't stretch too wide */
-  .dash-kpi-group .stat-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
 
-  /* Glance row: 3-col so 5 items show as 3+2 (no orphan issues) */
-  .dash-glance-row { grid-template-columns: repeat(3, 1fr); }
+  /* Recent articles: always list view, no grid cards */
+  .dash-article-grid { display: flex; flex-direction: column; gap: 6px; }
+  .dash-article-card {
+    flex-direction: row; align-items: center;
+    border-radius: 8px;
+  }
+  .dash-card-thumb, .dash-card-thumb-empty {
+    width: 56px; height: 56px; flex-shrink: 0;
+    border-radius: 6px 0 0 6px;
+  }
+  .dash-card-body { padding: 8px 10px; gap: 3px; }
+  .dash-card-title { font-size: 12px; -webkit-line-clamp: 2; }
+  .dash-card-footer { margin-top: 2px; padding-top: 2px; }
+
+  /* KPI groups stack to single column */
+  .dash-kpi-grid { grid-template-columns: 1fr; }
+  /* Stat cards become compact horizontal rows */
+  .dash-kpi-group .stat-grid { grid-template-columns: 1fr; gap: var(--space-2); margin-bottom: 0; }
+  .dash-kpi-group .stat-card {
+    flex-direction: row; align-items: center;
+    padding: 10px 14px; gap: 12px; border-radius: 8px;
+  }
+  .dash-kpi-group .stat-card .stat-icon { font-size: 18px; margin-bottom: 0; flex-shrink: 0; width: 24px; text-align: center; }
+  .dash-kpi-group .stat-card .stat-label { font-size: 11px; flex: 1; margin: 0; }
+  .dash-kpi-group .stat-card .stat-value { font-size: 20px; line-height: 1; }
+  .dash-kpi-group .stat-card .stat-delta { display: none; }
+
+  /* Glance row: 2-col at 480px */
+  .dash-glance-row { grid-template-columns: repeat(2, 1fr); }
   .dash-glance-item { padding: 10px 12px; }
   .dash-glance-value { font-size: 20px; }
   .dash-glance-label { font-size: 9px; }
 
-  /* Quick actions: 3-col grid so buttons size evenly */
+  /* Quick actions: 3-col grid */
   .dash-quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); }
-  .dash-qa-btn { padding: 8px 6px; font-size: 12px; justify-content: center; white-space: normal; text-align: center; }
+  .dash-qa-btn { padding: 8px 6px; font-size: 12px; justify-content: center; white-space: normal; text-align: center; line-height: 1.3; }
+  .dash-qa-icon { font-size: 13px; }
 
   .dash-panel { padding: var(--space-3); }
+  .dash-panel-title { font-size: 13px; }
   .dash-spend-card { min-width: 0; }
 }
 
@@ -1691,10 +1715,10 @@ kbd {
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .login-card { padding: 28px var(--space-5); }
   .autofill-row { flex-direction: column; align-items: stretch; }
-  /* Glance drops to 2-col at very small widths */
-  .dash-glance-row { grid-template-columns: repeat(2, 1fr); }
   .dash-glance-item { padding: 8px 10px; }
   .dash-glance-value { font-size: 18px; }
+  /* Quick actions: drop to 2-col at very small screens */
+  .dash-quick-actions { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ── Auto-fill from URL ── */

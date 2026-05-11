@@ -544,7 +544,12 @@ function _applyRecentView(mode) {
   container.querySelectorAll('[data-id]').forEach(row => {
     row.addEventListener('click', () => {
       const article = _recentArticlesData.find(x => x.id === parseInt(row.dataset.id));
-      if (article && typeof showArticlePreview === 'function') showArticlePreview(article, null);
+      if (!article) return;
+      if (article.slug && typeof showArticlePreviewBySlug === 'function') {
+        showArticlePreviewBySlug(article.slug);
+      } else if (typeof showArticlePreview === 'function') {
+        showArticlePreview(article, null);
+      }
     });
   });
 }

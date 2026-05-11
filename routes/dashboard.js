@@ -176,7 +176,7 @@ router.get('/stats', requirePermission('articles.read'), asyncHandler(async (req
     // ── Recent articles (12, editorial) ──────────────────────────────────
     pool.query(`
       SELECT
-        a.id, a.title, a.category, a.status, a.is_published, a.is_featured,
+        a.id, a.slug, a.title, a.category, a.status, a.is_published, a.is_featured,
         a.image_url, a.audio_url, a.audio_status, a.media_enabled,
         a.created_at, a.published_at, a.content_type,
         w.name AS writer_name, w.avatar_url AS writer_avatar
