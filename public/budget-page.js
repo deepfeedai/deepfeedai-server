@@ -177,7 +177,6 @@
       ? '<button class="card-btn cb-reject" data-action="reject" data-id="' + sid + '" title="Reject slot">&#10005; <span class="cb-label">Reject</span></button>'
       : '';
     var reassignBtn = '<button class="card-btn cb-reassign" data-action="reassign" data-id="' + sid + '" title="Reassign writer">&#8635; <span class="cb-label">Reassign</span></button>';
-    var editBtn     = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + sid + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
 
     // Reschedule / Publish Now buttons
     var publishNowBtn = '';
@@ -218,7 +217,6 @@
           approveBtn,
           rejectBtn,
           reassignBtn,
-          editBtn,
           publishNowBtn,
           rescheduleBtn2,
         '</div>',
@@ -923,111 +921,6 @@
     }
   }
 
-  // ── Edit headline inline ───────────────────────────────────────────────────
-  function startHeadlineEdit(slotId) {
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-
-    var headlineEl = card.querySelector('.card-headline');
-    if (!headlineEl) return;
-
-    var currentText = headlineEl.textContent;
-
-    // Replace the div with an input
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'card-headline-input';
-    input.value = currentText;
-    headlineEl.parentNode.replaceChild(input, headlineEl);
-    input.focus();
-    input.select();
-
-    // Replace edit button with save/cancel
-    var actionsEl = card.querySelector('.card-actions');
-    var editBtn = actionsEl ? actionsEl.querySelector('[data-action="edit-headline"]') : null;
-    if (editBtn) {
-      editBtn.outerHTML = [
-        '<button class="card-btn cb-save" data-action="save-headline" data-id="' + esc(String(slotId)) + '" title="Save">&#10003; <span class="cb-label">Save</span></button>',
-        '<button class="card-btn cb-cancel" data-action="cancel-headline" data-id="' + esc(String(slotId)) + '" title="Cancel">&#10005;</button>',
-      ].join('');
-    }
-
-    // Save on Enter, cancel on Escape
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); saveHeadline(slotId, input.value); }
-      if (e.key === 'Escape') { cancelHeadlineEdit(slotId, currentText); }
-    });
-    input.addEventListener('blur', function () {
-      // Small delay to allow save/cancel button click to fire first
-      setTimeout(function () {
-        var card2 = document.getElementById('bcard-' + slotId);
-        if (card2 && card2.querySelector('.card-headline-input')) {
-          saveHeadline(slotId, input.value);
-        }
-      }, 200);
-    });
-  }
-
-  function cancelHeadlineEdit(slotId, originalText) {
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-    var input = card.querySelector('.card-headline-input');
-    if (!input) return;
-
-    var div = document.createElement('div');
-    div.className = 'card-headline';
-    div.textContent = originalText;
-    input.parentNode.replaceChild(div, input);
-
-    // Restore edit button
-    var saveBtn = card.querySelector('[data-action="save-headline"]');
-    var cancelBtn = card.querySelector('[data-action="cancel-headline"]');
-    if (saveBtn) {
-      saveBtn.outerHTML = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + esc(String(slotId)) + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
-    }
-    if (cancelBtn) cancelBtn.remove();
-  }
-
-  async function saveHeadline(slotId, newHeadline) {
-    newHeadline = (newHeadline || '').trim();
-    if (!newHeadline) { return; }
-
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-
-    // Restore the headline div immediately (optimistic)
-    var input = card.querySelector('.card-headline-input');
-    if (input) {
-      var div = document.createElement('div');
-      div.className = 'card-headline';
-      div.textContent = newHeadline;
-      input.parentNode.replaceChild(div, input);
-    }
-
-    // Restore edit button
-    var saveBtn = card.querySelector('[data-action="save-headline"]');
-    var cancelBtn = card.querySelector('[data-action="cancel-headline"]');
-    if (saveBtn) {
-      saveBtn.outerHTML = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + esc(String(slotId)) + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
-    }
-    if (cancelBtn) cancelBtn.remove();
-
-    try {
-      await apiFetch('/admin/budget/slots/' + slotId, {
-        method: 'PATCH',
-        body: JSON.stringify({ headline_suggestion: newHeadline }),
-      });
-      // Update in-memory
-      if (currentBudget && currentBudget.slots) {
-        currentBudget.slots = currentBudget.slots.map(function (s) {
-          return s.id === slotId ? Object.assign({}, s, { headline_suggestion: newHeadline }) : s;
-        });
-      }
-    } catch (err) {
-      toast('Failed to save headline: ' + err.message, 'error');
-    }
-  }
-
   // ── Reassign ───────────────────────────────────────────────────────────────
   function openReassignModal(slotId) {
     reassignSlotId = slotId;
@@ -1151,17 +1044,6 @@
 
     if (action === 'approve')          { approveSlot(slotId); }
     if (action === 'reject')           { rejectSlot(slotId); }
-    if (action === 'edit-headline')    { startHeadlineEdit(slotId); }
-    if (action === 'save-headline')    {
-      var card = document.getElementById('bcard-' + slotId);
-      var input = card && card.querySelector('.card-headline-input');
-      if (input) saveHeadline(slotId, input.value);
-    }
-    if (action === 'cancel-headline')  {
-      var card2 = document.getElementById('bcard-' + slotId);
-      var hl = card2 && card2.querySelector('.card-headline');
-      cancelHeadlineEdit(slotId, hl ? hl.textContent : '');
-    }
     if (action === 'reassign')               { openReassignModal(slotId); }
     if (action === 'open-reschedule')        { openRescheduleInline(slotId); }
     if (action === 'reschedule-cancel')      { closeRescheduleInline(slotId); }
