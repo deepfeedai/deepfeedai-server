@@ -509,7 +509,7 @@
     }
 
     var cap   = actuals.cap;
-    var pub   = actuals.published.length + (actuals.deep_dives || []).length;
+    var pub   = cap.today;
     var sched = actuals.scheduled.length;
 
     var capHtml = '';

@@ -189,7 +189,14 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
   const cap    = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6;
   const burst  = parseInt(appCfg.daily_publish_burst, 10) || 0;
   const effectiveCap = cap > 0 ? cap + burst : 0;
-  const todayCount   = pubResult.rows.length;
+  // Count deep dives published on the selected date only (not the full 7-day window).
+  // Matches what publish-gate.js enforces: content_type IN ('original','deep-dive') for the calendar day.
+  const todayDeepDiveCount = deepDiveResult.rows.filter(a => {
+    if (!a.published_at) return false;
+    const d = a.published_at instanceof Date ? a.published_at : new Date(a.published_at);
+    return d.toISOString().slice(0, 10) === dateStr;
+  }).length;
+  const todayCount = pubResult.rows.length + todayDeepDiveCount;
 
   // Parse drop windows from config (same defaults as frontend)
   let windowList = [
