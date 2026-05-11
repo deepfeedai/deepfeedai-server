@@ -56,7 +56,7 @@
     .pri-badge { display:inline-block; min-width:22px; text-align:center; font-size:11px; font-weight:700; padding:2px 5px; border-radius:4px; }
     .pri-high { background:rgba(34,197,94,.2); color:#22c55e; }
     .pri-mid  { background:rgba(251,191,36,.2); color:#fbbf24; }
-    .pri-low  { background:rgba(148,163,184,.15); color:var(--muted); }
+    .pri-low  { background:rgba(148,163,184,.15); color:#aaa; }
     /* Bulk bar */
     .pitch-bulk-bar { display:flex; align-items:center; gap:10px; padding:9px 14px; background:var(--accent); color:#fff; border-radius:8px; margin-bottom:10px; }
     .pitch-bulk-bar .bulk-count { font-weight:700; font-size:13px; }
@@ -131,9 +131,9 @@
         </div>
         <div id="pitchBulkBar" class="pitch-bulk-bar" style="display:none;">
           <span class="bulk-count" id="pitchBulkCount"></span>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);" onclick="bulkApprovePitches()">Approve selected</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);" onclick="bulkDismissPitches()">Dismiss selected</button>
-          <button class="btn btn-ghost btn-sm" style="color:rgba(255,255,255,0.7);margin-left:auto;" onclick="clearPitchSelection()">&#10005; Clear</button>
+          <button class="btn btn-sm" style="background:rgba(0,0,0,0.18);color:#000;border:1px solid rgba(0,0,0,0.25);" onclick="bulkApprovePitches()">Approve selected</button>
+          <button class="btn btn-sm" style="background:rgba(0,0,0,0.28);color:#000;border:1px solid rgba(0,0,0,0.35);" onclick="bulkDismissPitches()">Dismiss selected</button>
+          <button class="btn btn-ghost btn-sm" style="color:rgba(0,0,0,0.65);margin-left:auto;" onclick="clearPitchSelection()">&#10005; Clear</button>
         </div>
         <div id="pitchGrid" class="pitch-grid">
           <div style="text-align:center;padding:40px;grid-column:1/-1;"><span class="spinner"></span></div>
@@ -161,9 +161,9 @@
         </div>
         <div id="commissionBulkBar" class="pitch-bulk-bar" style="display:none;">
           <span class="bulk-count" id="commissionBulkCount"></span>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.3);" onclick="bulkApproveCommissions()">Approve selected</button>
-          <button class="btn btn-sm" style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);" onclick="bulkRejectCommissions()">Reject selected</button>
-          <button class="btn btn-ghost btn-sm" style="color:rgba(255,255,255,0.7);margin-left:auto;" onclick="clearCommissionSelection()">&#10005; Clear</button>
+          <button class="btn btn-sm" style="background:rgba(0,0,0,0.18);color:#000;border:1px solid rgba(0,0,0,0.25);" onclick="bulkApproveCommissions()">Approve selected</button>
+          <button class="btn btn-sm" style="background:rgba(0,0,0,0.28);color:#000;border:1px solid rgba(0,0,0,0.35);" onclick="bulkRejectCommissions()">Reject selected</button>
+          <button class="btn btn-ghost btn-sm" style="color:rgba(0,0,0,0.65);margin-left:auto;" onclick="clearCommissionSelection()">&#10005; Clear</button>
         </div>
         <div class="review-grid" id="commissionsGrid">
           <div class="review-empty">Loading...</div>
