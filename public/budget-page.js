@@ -1218,6 +1218,8 @@
 
       if (!briefing) return; // not yet generated — default "Generate" state is fine
 
+      var STUCK_MS = 5 * 60 * 1000; // 5 minutes
+
       if (briefing.status === 'ready') {
         label.textContent = '✓ Ready';
         btn.classList.add('btn-success-muted');
@@ -1234,8 +1236,14 @@
           }
         }
       } else if (briefing.status === 'pending') {
-        label.textContent = 'Generating…';
-        btn.disabled = true;
+        var age = Date.now() - new Date(briefing.updated_at || briefing.created_at).getTime();
+        if (age > STUCK_MS) {
+          label.textContent = 'Stuck — Retry';
+          btn.title = 'Generation appears stuck (>5 min) — click to force retry';
+        } else {
+          label.textContent = 'Generating…';
+          btn.disabled = true;
+        }
       } else if (briefing.status === 'error') {
         label.textContent = 'Failed — Retry';
       }
