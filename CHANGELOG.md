@@ -8,6 +8,33 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.11-beta] — 2026-05-11
+
+**Pitches page overhaul — bulk triage, orthogonal view/group controls, and full skin polish.**
+
+### Added
+
+- **List view for pitches** — compact 8-column table (headline, writer, type, sources, priority, age, actions) with sticky header and per-row checkboxes, alongside the existing grid card view.
+- **List view for commissions** — compact 7-column table (title/angle, from, category, sources, age, actions) with sticky header and per-row checkboxes.
+- **Orthogonal view × group controls** — view (List / Grid) and grouping are now independent toggles. Pitches support "All" or "By Writer"; commissions support "All", "By Writer", or "By Category". All four pitch combinations and six commission combinations work, including grid cards inside writer swimlanes.
+- **Bulk triage** — select multiple pitches or commissions via header checkbox or per-row checkboxes and approve/dismiss/reject in one action. Swimlane headers include a group select-all. Preferences persist to localStorage.
+- **"Ready to approve" filter** — surfaces only pending pitches with ≥ 3 sources and priority ≥ 7.
+- **Priority sort** — pitches are sorted by priority descending in all views.
+- **Action icons** — ✓ Approve, ✗ Reject, – Dismiss added to all button surfaces (cards, list rows, swimlane rows, and bulk bar).
+
+### Changed
+
+- **Bulk action bar** — switched from accent-coloured background (buttons blended in) to a neutral `surface2` bar with a border. Approve uses `btn-primary`, Dismiss/Reject uses `btn-outline`.
+- **Swimlane group-select checkbox** — moved to `data-wid` attribute to prevent the global writer-drawer delegate from intercepting checkbox clicks. Writer name/avatar retain `data-writer-id` to trigger the drawer on click.
+
+### Fixed
+
+- **`--surface2` CSS variable** — declared in `:root` in `admin.css`; was used throughout the codebase but never defined, causing transparent hover states and avatar placeholders.
+- **`btn-primary` text colour per skin** — all five skins now have explicit text colours: Ink (cyan) and Wire (green) use `#000`; Daylight (blue), Broadsheet (dark red), and Tabloid (red) use `#fff`.
+- **View-toggle active state colours** — same per-skin overrides applied to `.view-toggle-btn.active`.
+
+---
+
 ## [1.0.10-beta] — 2026-05-11
 
 **Inline video positioning and AI image sentiment awareness.**
