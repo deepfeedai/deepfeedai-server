@@ -18,6 +18,15 @@ Rules:
 Respond in exactly this format:
 CONCEPT: [your visual scene description]
 STYLE: [color palette, lighting, mood, art style — max 20 words]
+SENTIMENT: [one word only — choose the single best match from: urgent | analytical | contemplative | celebratory | cautionary | curious]
+
+SENTIMENT guide:
+- urgent: breaking news, crises, time-sensitive events, high-stakes decisions
+- analytical: policy, research, industry analysis, technical explainers
+- contemplative: retrospectives, human interest, long-term trends, reflective pieces
+- celebratory: product launches, achievements, breakthroughs, milestones
+- cautionary: warnings, risks, regulatory concerns, controversies, ethical dilemmas
+- curious: discoveries, emerging trends, "what this means", surprising findings
 
 Article title: {{title}}
 Article summary: {{cleanSummary}}
