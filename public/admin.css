@@ -1619,14 +1619,22 @@ kbd {
   .modal { max-height: 85vh; }
 
   .dash-two-col { grid-template-columns: 1fr; }
+
+  /* ── Dashboard grid: single column, right sidebar floats above left content ── */
   .dash-main-grid { grid-template-columns: 1fr; }
+  .dash-main-right { order: -1; margin-bottom: var(--space-4); }
+
   .dash-glance-row { grid-template-columns: repeat(3, 1fr); }
   .dash-chart-row  { grid-template-columns: 1fr; }
+  /* Tighten article grid before it hits 1-col at 480px */
   .dash-article-grid { grid-template-columns: repeat(2, 1fr); }
   .dash-kpi-grid { grid-template-columns: 1fr 1fr; }
 
+  /* ── Dashboard: keep Recent Articles section-header as a row ── */
+  #recentViewToggle { display: flex !important; }
+
   /* ── Articles page responsive ── */
-  .section-header { flex-direction: column; align-items: stretch; }
+  .section-header { flex-wrap: wrap; gap: 8px; align-items: center; }
   .section-header .btn-group { justify-content: flex-start; }
   .section-header .btn-group > div { flex-wrap: wrap; }
 
@@ -1641,7 +1649,9 @@ kbd {
   /* Swap table for card layout on mobile — always cards */
   .articles-desktop { display: none !important; }
   .articles-mobile { display: block !important; }
-  .view-toggle { display: none; }
+  /* Hide the articles-page view toggle (cards are forced); dashboard toggle overridden above */
+  .articles-toolbar .view-toggle,
+  .section-header > .view-toggle { display: none; }
 }
 
 @media (max-width: 480px) {
@@ -1658,17 +1668,33 @@ kbd {
 
   /* ── Dashboard mobile (≤ 480px) ── */
   .dash-article-grid { grid-template-columns: 1fr; }
+  /* KPI groups stack — each takes full width */
   .dash-kpi-grid { grid-template-columns: 1fr; }
-  .dash-qa-btn { padding: 6px 10px; font-size: 12px; }
-  .dash-glance-value { font-size: 18px; }
+  /* Stat cards inside KPI groups: always 2-col so they don't stretch too wide */
+  .dash-kpi-group .stat-grid { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
+
+  /* Glance row: 3-col so 5 items show as 3+2 (no orphan issues) */
+  .dash-glance-row { grid-template-columns: repeat(3, 1fr); }
+  .dash-glance-item { padding: 10px 12px; }
+  .dash-glance-value { font-size: 20px; }
+  .dash-glance-label { font-size: 9px; }
+
+  /* Quick actions: 3-col grid so buttons size evenly */
+  .dash-quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .dash-qa-btn { padding: 8px 6px; font-size: 12px; justify-content: center; white-space: normal; text-align: center; }
+
   .dash-panel { padding: var(--space-3); }
+  .dash-spend-card { min-width: 0; }
 }
 
 @media (max-width: 420px) {
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .login-card { padding: 28px var(--space-5); }
   .autofill-row { flex-direction: column; align-items: stretch; }
-  .dash-glance-row { grid-template-columns: 1fr 1fr; }
+  /* Glance drops to 2-col at very small widths */
+  .dash-glance-row { grid-template-columns: repeat(2, 1fr); }
+  .dash-glance-item { padding: 8px 10px; }
+  .dash-glance-value { font-size: 18px; }
 }
 
 /* ── Auto-fill from URL ── */
@@ -2341,13 +2367,11 @@ tr:hover .td-edit-btn { opacity: 1; }
 .view-toggle-btn:hover { color: var(--text); }
 .view-toggle-btn.active { background: var(--bg-card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
 
-/* ── Dashboard responsive ──────────────────────────────────── */
+/* ── Dashboard: intermediate breakpoint (900px → 768px) ─────── */
 @media (max-width: 900px) {
-  .dash-kpi-grid { grid-template-columns: 1fr 1fr; }
   .dash-spend-card { min-width: unset; }
-}
-@media (max-width: 640px) {
-  .dash-kpi-grid { grid-template-columns: 1fr; }
+  /* Keep main grid two-col as long as possible; shrink right sidebar */
+  .dash-main-grid { grid-template-columns: 1fr 280px; }
 }
 
 /* ============================================================
