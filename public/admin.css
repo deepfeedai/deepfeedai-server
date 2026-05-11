@@ -3418,6 +3418,7 @@ html[data-skin="wire"] {
   --danger: #ff3333; --danger-dim: rgba(255,51,51,.1);
   --success: #33ff57; --success-dim: rgba(51,255,87,.1);
 }
+html[data-skin="wire"] .btn-primary { color: #000; }
 
 /* Skin: Broadsheet — newspaper */
 html[data-skin="broadsheet"] {
@@ -3437,6 +3438,7 @@ html[data-skin="tabloid"] {
   --danger: #ff4466; --danger-dim: rgba(255,68,102,.12);
   --success: #22dd88; --success-dim: rgba(34,221,136,.1);
 }
+html[data-skin="tabloid"] .btn-primary { color: #fff; }
 
 /* Skin: Ink — explicit reset to default dark */
 html[data-skin="ink"] {
@@ -3446,6 +3448,7 @@ html[data-skin="ink"] {
   --danger: #f87171; --danger-dim: rgba(248,113,113,.12);
   --success: #4ade80; --success-dim: rgba(74,222,128,.12);
 }
+html[data-skin="ink"] .btn-primary { color: #000; }
 
 /* ══════════════════════════════════════════════════
    THEME PICKER (injected into .topbar by /theme-init.js)
