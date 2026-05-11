@@ -8,6 +8,19 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.10-beta] — 2026-05-11
+
+**YouTube video repositioned inline for original and deep-dive articles.**
+
+### Changed
+
+- **Video placement in originals** — YouTube embeds now appear after the first paragraph with ≥ 20 words instead of at the bottom of the article. Falls back to bottom position if no paragraph meets the threshold (e.g. very short lede).
+- **Video placement in deep-dives** — embeds now appear after the first section instead of below all content. Falls back to bottom if sections are not present.
+- Curated (source) articles are unchanged — video remains at the top, above the content.
+- Fully retroactive: all existing articles reposition automatically on next page load — no database changes required.
+
+---
+
 ## [1.0.9-beta] — 2026-05-11
 
 **Briefing stuck-pending recovery.**
