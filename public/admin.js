@@ -234,7 +234,6 @@ function renderSidebar() {
     { id: 'turboNavScript',           src: '/turbo-nav.js' },
     { id: 'articleContextPillScript', src: '/article-context-pill.js' },
     { id: 'maxwellBubbleScript',      src: '/maxwell-bubble.js' },
-    { id: 'writerDrawerScript',       src: '/writer-drawer.js' },
     { id: 'mobileBottomNavScript',    src: '/mobile-bottom-nav.js' },
     { id: 'onboardingHintsScript',    src: '/onboarding-hints.js' },
     { id: 'pitchTypesScript',         src: '/pitch-types.js' },

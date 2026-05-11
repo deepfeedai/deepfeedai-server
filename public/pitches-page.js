@@ -301,7 +301,7 @@
         : '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>';
       var header = '<div class="swimlane-header">'
         + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-wid="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
-        + '<span data-writer-id="' + wid + '" style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="View writer profile">'
+        + '<span style="display:flex;align-items:center;gap:8px;">'
         + avatar
         + '<div><div class="swimlane-writer-name">' + esc(group.name) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
         + '</span>'
@@ -905,10 +905,9 @@
       var avatarHtml = groupKey === 'writer'
         ? '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>'
         : '<div class="swimlane-avatar-ph" style="font-size:10px;font-weight:700;color:var(--accent);">' + esc(group.label.slice(0, 2).toUpperCase()) + '</div>';
-      var writerAttr = (groupKey === 'writer' && group.writerId) ? ' data-writer-id="' + group.writerId + '"' : '';
       var header = '<div class="swimlane-header">'
         + (proposedCount > 0 ? '<input type="checkbox" class="commission-swimlane-cb-all" data-group-key="' + esc(String(key)) + '" title="Select all proposed" />' : '<span style="width:14px;display:inline-block;"></span>')
-        + '<span' + writerAttr + (group.writerId ? ' style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="View writer profile"' : ' style="display:flex;align-items:center;gap:8px;"') + '>'
+        + '<span style="display:flex;align-items:center;gap:8px;">'
         + avatarHtml
         + '<div><div class="swimlane-writer-name">' + esc(group.label) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
         + '</span>'
