@@ -31,15 +31,19 @@ onReady(async () => {
       showAlert('Failed to load dashboard: ' + err.message, 'error');
       return;
     }
-    renderGlance(stats);
-    renderKPIs(stats);
     renderNewsroomPulse(stats);
-    renderSparkline(stats);
-    renderAISpend(stats);
-    renderCategories(stats);
-    renderAttention(stats);
-    renderTopStory(stats);
-    renderRecentArticles(stats);
+    if (window.innerWidth <= 768) {
+      renderMobileDashboard(stats);
+    } else {
+      renderGlance(stats);
+      renderKPIs(stats);
+      renderSparkline(stats);
+      renderAISpend(stats);
+      renderCategories(stats);
+      renderAttention(stats);
+      renderTopStory(stats);
+      renderRecentArticles(stats);
+    }
   }
 
   await loadDashboard();
@@ -552,6 +556,238 @@ function _applyRecentView(mode) {
       }
     });
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+// MOBILE DASHBOARD  (≤ 768px)
+// ══════════════════════════════════════════════════════════════
+
+function renderMobileDashboard(stats) {
+  // Hide desktop-only sections
+  ['glanceRow'].forEach(id => { const e = el(id); if (e) e.style.display = 'none'; });
+  const mainGrid = document.querySelector('.dash-main-grid');
+  if (mainGrid) mainGrid.style.display = 'none';
+
+  // Get or create mobile container (inserted once, cleared on reload)
+  let mob = el('mobileDash');
+  if (!mob) {
+    mob = document.createElement('div');
+    mob.id = 'mobileDash';
+    mob.className = 'mob-dash';
+    const pulseRow = el('pulseRow');
+    if (pulseRow && pulseRow.nextSibling) pulseRow.parentNode.insertBefore(mob, pulseRow.nextSibling);
+    else document.querySelector('.page-body')?.appendChild(mob);
+  }
+  mob.innerHTML = '';
+
+  // 1. Vitals strip
+  mob.insertAdjacentHTML('beforeend', _mobVitals(stats));
+
+  // 2. What's Next
+  mob.insertAdjacentHTML('beforeend',
+    '<div class="mob-section">'
+    + '<div class="mob-section-title">⚡ What\'s Next</div>'
+    + _mobAttentionItems(stats)
+    + '</div>');
+
+  // 3. Recent articles
+  const articles = stats.recent_articles || [];
+  if (articles.length) {
+    mob.insertAdjacentHTML('beforeend',
+      '<div class="mob-section">'
+      + '<div class="mob-section-title-row">'
+      + '<span class="mob-section-title">📰 Recent Articles</span>'
+      + '<a href="/articles.html" class="mob-section-link">View all →</a>'
+      + '</div>'
+      + articles.map(_mobArticleRow).join('')
+      + '</div>');
+    mob.querySelectorAll('[data-mob-slug]').forEach(row => {
+      row.addEventListener('click', () => {
+        const slug = row.dataset.mobSlug;
+        if (slug && typeof showArticlePreviewBySlug === 'function') showArticlePreviewBySlug(slug);
+      });
+    });
+  }
+
+  // 4. Accordions
+  _mobAccordion(mob, '📊 Content Stats',  _mobContentStats(stats));
+  _mobAccordion(mob, '📥 Feed & Sources', _mobFeedStats(stats));
+  _mobAccordion(mob, '🏷️ By Category',   _mobCategoryStats(stats));
+  _mobAccordion(mob, '🤖 AI Spend',       _mobAISpend(stats));
+}
+
+// ── Vitals strip ───────────────────────────────────────────
+
+function _mobVitals(stats) {
+  const cap = stats.publish_cap || {};
+  const eff = (cap.cap || 0) + (cap.burst || 0);
+  const today = cap.today || 0;
+  const sched = stats.scheduled || {};
+  const backlog = stats.feed_backlog || 0;
+  const eng = stats.engagement || {};
+  const pitches = (stats.pitches?.pending || 0) + (stats.pitches?.proposed || 0);
+
+  const pubStr = eff > 0 ? today + '<span class="mob-vital-cap">/' + eff + '</span>' : String(today);
+  const remCls = eff > 0 && today >= eff ? ' mob-vital-warn' : '';
+  const blCls  = backlog > 50 ? ' mob-vital-warn' : backlog > 10 ? ' mob-vital-caution' : '';
+  const pitchCls = pitches > 0 ? ' mob-vital-warn' : '';
+
+  function v(label, valHtml, cls) {
+    return '<div class="mob-vital' + (cls || '') + '">'
+      + '<div class="mob-vital-value">' + valHtml + '</div>'
+      + '<div class="mob-vital-label">' + label + '</div>'
+      + '</div>';
+  }
+
+  return '<div class="mob-vitals">'
+    + v('Published', pubStr, remCls)
+    + v('Scheduled', sched.count || 0, '')
+    + v('Backlog',   backlog, blCls)
+    + (pitches > 0 ? v('Pitches', pitches, pitchCls) : v('Reactions', eng.reactions_today || 0, ''))
+    + '</div>';
+}
+
+// ── What's Next items ──────────────────────────────────────
+
+function _mobAttentionItems(stats) {
+  const a = stats.articles, c = stats.comments, cap = stats.publish_cap || {};
+  const items = [];
+
+  if (a.in_review > 0)
+    items.push({ icon: '👁', level: 'warn', p: 10, text: a.in_review + ' article' + (a.in_review > 1 ? 's' : '') + ' in review', link: '/editorial.html', lt: 'Review' });
+  if (stats.pitches?.pending > 0) {
+    const n = stats.pitches.pending;
+    items.push({ icon: '💡', level: 'warn', p: 9, text: n + ' pitch' + (n > 1 ? 'es' : '') + ' pending', link: '/pitches.html', lt: 'Review' });
+  }
+  if (c.queue > 0)
+    items.push({ icon: '⏳', level: 'warn', p: 8, text: c.queue + ' comment' + (c.queue > 1 ? 's' : '') + ' to moderate', link: '/comments.html?tab=queue', lt: 'Review' });
+  if ((cap.cap || 0) > 0) {
+    const eff = (cap.cap || 0) + (cap.burst || 0);
+    const left = Math.max(0, eff - (cap.today || 0));
+    if (left === 0) items.push({ icon: '🛑', level: 'warn', p: 8, text: 'Daily cap reached (' + (cap.today || 0) + '/' + eff + ')', link: '/runsheet.html', lt: 'Runsheet' });
+    else if (left <= 2) items.push({ icon: '⚠️', level: 'info', p: 6, text: left + ' publish slot' + (left === 1 ? '' : 's') + ' left today', link: '/runsheet.html', lt: 'Runsheet' });
+  }
+  if ((stats.feed_backlog || 0) > 20)
+    items.push({ icon: '📥', level: 'info', p: 5, text: stats.feed_backlog + ' unprocessed in feed inbox', link: '/feed-inbox.html', lt: 'Inbox' });
+  if (a.drafts > 0)
+    items.push({ icon: '📝', level: 'info', p: 3, text: a.drafts + ' draft' + (a.drafts > 1 ? 's' : '') + ' unpublished', link: '/articles.html', lt: 'View' });
+
+  if (!items.length) return '<div class="mob-all-clear">✅ Everything looks good!</div>';
+
+  items.sort((a, b) => b.p - a.p);
+  return items.map(item =>
+    '<div class="mob-attention attention-' + item.level + '">'
+    + '<span class="mob-attention-icon">' + item.icon + '</span>'
+    + '<div class="mob-attention-text">' + item.text
+    + (item.link ? ' <a href="' + escHtml(item.link) + '" class="mob-attention-link">' + item.lt + ' →</a>' : '')
+    + '</div></div>'
+  ).join('');
+}
+
+// ── Recent article row ─────────────────────────────────────
+
+function _mobArticleRow(a) {
+  const thumb = a.image_url
+    ? '<img src="' + escHtml(a.image_url) + '" class="mob-article-thumb" loading="lazy" onerror="this.style.display=\'none\'" />'
+    : '<div class="mob-article-thumb mob-thumb-empty">▭</div>';
+  const meta = [
+    a.writer_name ? escHtml(a.writer_name) : null,
+    relativeTime(a.published_at),
+    a.audio_url ? '🎵' : null,
+  ].filter(Boolean).join(' · ');
+  return '<div class="mob-article-row" data-mob-slug="' + escHtml(a.slug || '') + '">'
+    + thumb
+    + '<div class="mob-article-info">'
+    + '<div class="mob-article-title">' + escHtml(a.title || 'Untitled') + '</div>'
+    + '<div class="mob-article-meta">' + meta + '</div>'
+    + '</div></div>';
+}
+
+// ── Accordion sections ─────────────────────────────────────
+
+function _mobAccordion(container, title, bodyHtml) {
+  const div = document.createElement('div');
+  div.className = 'mob-section mob-accordion';
+  div.innerHTML =
+    '<div class="mob-accordion-hd">'
+    + '<span class="mob-accordion-title">' + title + '</span>'
+    + '<span class="mob-chevron">›</span>'
+    + '</div>'
+    + '<div class="mob-accordion-bd" hidden>' + bodyHtml + '</div>';
+  div.querySelector('.mob-accordion-hd').addEventListener('click', () => {
+    const bd = div.querySelector('.mob-accordion-bd');
+    const ch = div.querySelector('.mob-chevron');
+    const open = bd.hasAttribute('hidden');
+    bd.toggleAttribute('hidden', !open);
+    ch.textContent = open ? '⌄' : '›';
+    ch.classList.toggle('mob-chevron-open', open);
+  });
+  container.appendChild(div);
+}
+
+function _mobStatRows(rows) {
+  return rows.map(r =>
+    '<div class="mob-stat-row">'
+    + '<span class="mob-stat-icon">' + r.icon + '</span>'
+    + '<span class="mob-stat-label">' + r.label + '</span>'
+    + '<span class="mob-stat-value">' + r.value + '</span>'
+    + '</div>'
+  ).join('');
+}
+
+function _mobContentStats(stats) {
+  const a = stats.articles;
+  const pct = a.published > 0 ? Math.round(((a.audio_ready || 0) / a.published) * 100) : 0;
+  return _mobStatRows([
+    { icon: '✅', label: 'Published',  value: a.published },
+    { icon: '📝', label: 'Drafts',     value: a.drafts },
+    { icon: '👁', label: 'In Review',  value: a.in_review },
+    { icon: '🗓️', label: 'Today',      value: a.today },
+    { icon: '📅', label: 'This Week',  value: a.this_week },
+    { icon: '🎵', label: 'Audio',      value: pct + '% (' + (a.audio_ready || 0) + '/' + a.published + ')' },
+  ]);
+}
+
+function _mobFeedStats(stats) {
+  const f = stats.feed, s = stats.sources;
+  return _mobStatRows([
+    { icon: '📥', label: 'Feed Articles',     value: f.total },
+    { icon: '🕐', label: 'Today',             value: f.today },
+    { icon: '📅', label: 'This Week',         value: f.this_week },
+    { icon: '📡', label: 'Active Sources',    value: s.active },
+    { icon: '💤', label: 'Inactive Sources',  value: s.inactive },
+    { icon: '⏳', label: 'Backlog',           value: stats.feed_backlog || 0 },
+  ]);
+}
+
+function _mobCategoryStats(stats) {
+  const cats = stats.categories || [];
+  if (!cats.length) return '<div class="text-muted" style="padding:8px 0;font-size:13px;">No data yet</div>';
+  const total  = cats.reduce((s, c) => s + c.count, 0);
+  const maxCnt = cats[0]?.count || 1;
+  return cats.map(c => {
+    const pct   = Math.round((c.count / maxCnt) * 100);
+    const share = Math.round((c.count / total) * 100);
+    const color = CAT_COLORS[c.category] || 'var(--accent)';
+    return '<div class="cat-row">'
+      + '<div class="cat-label">' + escHtml(c.category || 'Other') + '</div>'
+      + '<div class="cat-bar-wrap"><div class="cat-bar" style="width:' + pct + '%;background:' + color + ';"></div></div>'
+      + '<div class="cat-count">' + c.count + ' <span class="cat-pct">' + share + '%</span></div>'
+      + '</div>';
+  }).join('');
+}
+
+function _mobAISpend(stats) {
+  const spend  = stats.ai_spend || { week_total: 0, by_day: [] };
+  const days   = spend.by_day || [];
+  const maxVal = Math.max(...days.map(d => d.value), 0.0001);
+  const W = 280, H = 56, bw = Math.floor((W - 8) / Math.max(days.length, 1)) - 2;
+  const bars   = days.map((d, i) => {
+    const bh = Math.max(2, Math.round((d.value / maxVal) * (H - 4)));
+    return '<rect x="' + (4 + i * (bw + 2)) + '" y="' + (H - bh) + '" width="' + bw + '" height="' + bh + '" rx="1" fill="var(--accent)" opacity="0.6"><title>' + d.day + ': $' + Number(d.value).toFixed(4) + '</title></rect>';
+  }).join('');
+  return '<div class="mob-spend-total">$' + spend.week_total.toFixed(4) + ' <span class="mob-spend-label">this week</span></div>'
+    + '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="margin-top:8px;">' + bars + '</svg>';
 }
 
 // ── Helpers ────────────────────────────────────────────────
