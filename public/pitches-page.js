@@ -4,6 +4,12 @@
 (function () {
   var writers = [];
   var activeTab = 'pitches';
+  var viewMode = localStorage.getItem('dfai_pitches_view') || 'list';
+  var selectedPitchIds = new Set();
+  var _allPitchesCache = [];
+  var commissionsViewMode = localStorage.getItem('dfai_commissions_view') || 'list';
+  var selectedCommissionIds = new Set();
+  var _allCommissionsCache = [];
 
   function esc(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -35,13 +41,20 @@
   async function loadPitches() {
     var status = document.getElementById('pitchStatusFilter').value;
     var writerId = document.getElementById('pitchWriterFilter').value;
+    var isReady = status === 'ready';
+    var apiStatus = isReady ? 'pending' : status;
 
-    var url = '/admin/pitches?status=' + status + '&_t=' + Date.now();
+    var url = '/admin/pitches?status=' + apiStatus + '&_t=' + Date.now();
     if (writerId !== 'all') url += '&writer_id=' + writerId;
 
     try {
       var data = await apiFetch(url);
       var pitches = data.pitches || [];
+      if (isReady) {
+        pitches = pitches.filter(function (p) {
+          return (p.source_article_ids || []).length >= 3 && (p.priority || 5) >= 7;
+        });
+      }
       renderPitches(pitches);
 
       var countData = await apiFetch('/admin/pitches/count');
@@ -57,7 +70,17 @@
   }
 
   function renderPitches(pitches) {
+    pitches = pitches.slice().sort(function (a, b) { return (b.priority || 5) - (a.priority || 5); });
+    _allPitchesCache = pitches;
+    selectedPitchIds.clear();
+    updateBulkBar();
+    if (viewMode === 'list') { renderPitchesList(pitches); return; }
+    renderPitchesGrid(pitches);
+  }
+
+  function renderPitchesGrid(pitches) {
     var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-grid';
     if (!pitches.length) {
       grid.innerHTML = '<div style="text-align:center;padding:40px;grid-column:1/-1;color:var(--muted);">No pitches found. Writer agents will generate pitches when they spot stories worth covering.</div>';
       return;
@@ -138,9 +161,152 @@
     }).join('');
   }
 
+  function renderPitchesList(pitches) {
+    var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-list';
+    if (!pitches.length) {
+      grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No pitches found.</div>';
+      return;
+    }
+    var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Pred. Check' };
+
+    var hdr = '<div class="pitch-list-hdr">'
+      + '<div><input type="checkbox" id="selectAllPitches" title="Select all" /></div>'
+      + '<div>Headline</div><div>Writer</div><div>Type</div>'
+      + '<div>Sources</div><div>Priority</div><div>Age</div><div>Actions</div>'
+      + '</div>';
+
+    var rows = pitches.map(function (p) {
+      var sc = (p.source_article_ids || []).length || 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+
+      var pri = p.priority || 5;
+      var priClass = pri >= 8 ? 'pri-high' : pri >= 5 ? 'pri-mid' : 'pri-low';
+      var priBadge = '<span class="pri-badge ' + priClass + '">' + pri + '</span>';
+
+      var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
+
+      var actions = '';
+      if (p.status === 'pending') {
+        var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+        var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
+      } else {
+        actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
+          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+          : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
+      }
+
+      var isPending = p.status === 'pending';
+      return '<div class="pitch-list-row" data-pitch="' + p.id + '">'
+        + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
+        + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.writer_name || '') + '">' + esc(p.writer_name || '') + '</div>'
+        + '<div>' + typeBadge + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div>' + priBadge + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div class="pitch-list-actions">' + actions + '</div>'
+        + '</div>';
+    }).join('');
+
+    grid.innerHTML = hdr + rows;
+
+    var selectAll = document.getElementById('selectAllPitches');
+    function syncSelectAll() {
+      if (!selectAll) return;
+      var cbs = grid.querySelectorAll('.pitch-cb');
+      var checked = grid.querySelectorAll('.pitch-cb:checked').length;
+      selectAll.indeterminate = checked > 0 && checked < cbs.length;
+      selectAll.checked = cbs.length > 0 && checked === cbs.length;
+    }
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        grid.querySelectorAll('.pitch-cb').forEach(function (cb) {
+          cb.checked = selectAll.checked;
+          var id = parseInt(cb.dataset.pitchId, 10);
+          if (selectAll.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+          cb.closest('.pitch-list-row').classList.toggle('selected', selectAll.checked);
+        });
+        updateBulkBar();
+      });
+    }
+    grid.querySelectorAll('.pitch-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+        cb.closest('.pitch-list-row').classList.toggle('selected', cb.checked);
+        syncSelectAll();
+        updateBulkBar();
+      });
+    });
+  }
+
+  function updateBulkBar() {
+    var bar = document.getElementById('pitchBulkBar');
+    var countEl = document.getElementById('pitchBulkCount');
+    if (!bar) return;
+    var n = selectedPitchIds.size;
+    bar.style.display = n > 0 ? 'flex' : 'none';
+    if (countEl) countEl.textContent = n + ' selected';
+  }
+
+  window.clearPitchSelection = function () {
+    selectedPitchIds.clear();
+    document.querySelectorAll('.pitch-cb').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('.pitch-list-row.selected').forEach(function (r) { r.classList.remove('selected'); });
+    var sa = document.getElementById('selectAllPitches');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateBulkBar();
+  };
+
+  window.bulkApprovePitches = async function () {
+    var ids = Array.from(selectedPitchIds);
+    if (!ids.length) return;
+    var weak = ids.filter(function (id) {
+      var p = _allPitchesCache.find(function (p) { return p.id === id; });
+      return p && (p.source_article_ids || []).length < 2;
+    });
+    var msg = 'Approve ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '?';
+    if (weak.length) msg += '\n\n' + weak.length + ' pitch' + (weak.length !== 1 ? 'es have' : ' has') + ' only 1 source and may fail editorial review.';
+    if (!confirm(msg)) return;
+    var bar = document.getElementById('pitchBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/admin/pitches/' + ids[i] + '/approve', { method: 'POST' }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Approved ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadPitches();
+  };
+
+  window.bulkDismissPitches = async function () {
+    var ids = Array.from(selectedPitchIds);
+    if (!ids.length) return;
+    if (!confirm('Dismiss ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '?')) return;
+    var bar = document.getElementById('pitchBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/admin/pitches/' + ids[i] + '/dismiss', { method: 'POST' }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Dismissed ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadPitches();
+  };
+
   function optimisticRemovePitchCard(pitchId) {
-    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"]');
+    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"], .pitch-list-row[data-pitch="' + pitchId + '"]');
     if (!card) return function () {};
+    selectedPitchIds.delete(pitchId);
+    updateBulkBar();
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     card.classList.add('optimistic-removing');
     var removed = false;
@@ -382,7 +548,21 @@
   });
 
   function renderCommissionsGrid(list) {
+    list = list.slice().sort(function (a, b) {
+      var sc = (b.source_count || 1) - (a.source_count || 1);
+      if (sc !== 0) return sc;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+    _allCommissionsCache = list;
+    selectedCommissionIds.clear();
+    updateCommissionsBulkBar();
+    if (commissionsViewMode === 'list') { renderCommissionsList(list); return; }
+    renderCommissionsCards(list);
+  }
+
+  function renderCommissionsCards(list) {
     var grid = document.getElementById('commissionsGrid');
+    grid.className = 'review-grid';
     if (!list.length) {
       grid.innerHTML = '<div class="review-empty">No commissions awaiting review.</div>';
       return;
@@ -425,8 +605,6 @@
       html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>';
       html += esc(p.angle_summary || '');
       html += '</div>';
-      // Status-dependent action buttons. Orphaned / approved views need
-      // different affordances than the default proposed queue.
       html += '<div class="review-actions">';
       if (p.status === 'proposed') {
         html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
@@ -456,9 +634,160 @@
     }).join('');
   }
 
+  function renderCommissionsList(list) {
+    var grid = document.getElementById('commissionsGrid');
+    grid.className = 'commission-list';
+    if (!list.length) {
+      grid.innerHTML = '<div class="review-empty">No commissions awaiting review.</div>';
+      return;
+    }
+
+    var hdr = '<div class="commission-list-hdr">'
+      + '<div><input type="checkbox" id="selectAllCommissions" title="Select all" /></div>'
+      + '<div>Title / Angle</div><div>From</div><div>Category</div>'
+      + '<div>Sources</div><div>Age</div><div>Actions</div>'
+      + '</div>';
+
+    var rows = list.map(function (p) {
+      var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+
+      var initiator = p.pitched_by_writer_name
+        ? esc(p.pitched_by_writer_name)
+        : 'Ed: ' + esc(p.requested_by_editor_name || 'editor');
+      var angle = p.angle_summary ? (p.angle_summary.length > 80 ? p.angle_summary.slice(0, 80) + '…' : p.angle_summary) : '';
+      var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
+
+      var actions = '';
+      var isProposed = p.status === 'proposed';
+      if (isProposed) {
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">+src</button>';
+        if (!p.pitched_by_writer_id) {
+          actions += '<button class="btn btn-ghost btn-sm" style="padding:3px 7px;" title="Auto-assign writer" onclick="autoAssignCommission(' + p.id + ')">&#127919;</button>';
+        }
+      } else if (p.status === 'approved') {
+        actions = '<span class="badge badge-accent">Approved</span>';
+        if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+        if (!p.pitched_by_writer_id) actions += ' <button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
+      } else if (p.status === 'published') {
+        actions = '<span class="badge badge-success">Published</span>';
+        if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+      } else if (!p.pitched_by_writer_id) {
+        actions = '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')">&#127919; Auto-assign</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
+      }
+
+      return '<div class="commission-list-row" data-pitch="' + p.id + '">'
+        + '<div>' + (isProposed ? '<input type="checkbox" class="commission-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div style="overflow:hidden;">'
+        + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.source_title || '') + '">' + esc(p.source_title || 'Untitled') + '</div>'
+        + (angle ? '<div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.angle_summary || '') + '">' + esc(angle) + '</div>' : '')
+        + '</div>'
+        + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + initiator + '">' + initiator + '</div>'
+        + '<div style="font-size:12px;">' + esc(p.source_category || '') + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + '</div>'
+        + '</div>';
+    }).join('');
+
+    grid.innerHTML = hdr + rows;
+
+    var selectAll = document.getElementById('selectAllCommissions');
+    function syncSelectAll() {
+      if (!selectAll) return;
+      var cbs = grid.querySelectorAll('.commission-cb');
+      var checked = grid.querySelectorAll('.commission-cb:checked').length;
+      selectAll.indeterminate = checked > 0 && checked < cbs.length;
+      selectAll.checked = cbs.length > 0 && checked === cbs.length;
+    }
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        grid.querySelectorAll('.commission-cb').forEach(function (cb) {
+          cb.checked = selectAll.checked;
+          var id = parseInt(cb.dataset.pitchId, 10);
+          if (selectAll.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+          cb.closest('.commission-list-row').classList.toggle('selected', selectAll.checked);
+        });
+        updateCommissionsBulkBar();
+      });
+    }
+    grid.querySelectorAll('.commission-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+        cb.closest('.commission-list-row').classList.toggle('selected', cb.checked);
+        syncSelectAll();
+        updateCommissionsBulkBar();
+      });
+    });
+  }
+
+  function updateCommissionsBulkBar() {
+    var bar = document.getElementById('commissionBulkBar');
+    var countEl = document.getElementById('commissionBulkCount');
+    if (!bar) return;
+    var n = selectedCommissionIds.size;
+    bar.style.display = (n > 0 && commissionFilter === 'proposed') ? 'flex' : 'none';
+    if (countEl) countEl.textContent = n + ' selected';
+  }
+
+  window.clearCommissionSelection = function () {
+    selectedCommissionIds.clear();
+    document.querySelectorAll('.commission-cb').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('.commission-list-row.selected').forEach(function (r) { r.classList.remove('selected'); });
+    var sa = document.getElementById('selectAllCommissions');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateCommissionsBulkBar();
+  };
+
+  window.bulkApproveCommissions = async function () {
+    var ids = Array.from(selectedCommissionIds);
+    if (!ids.length) return;
+    var weak = ids.filter(function (id) {
+      var p = _allCommissionsCache.find(function (p) { return p.id === id; });
+      return p && (p.source_count || 1) < 2;
+    });
+    var msg = 'Approve ' + ids.length + ' commission' + (ids.length !== 1 ? 's' : '') + '?';
+    if (weak.length) msg += '\n\n' + weak.length + ' commission' + (weak.length !== 1 ? 's have' : ' has') + ' only 1 source and may fail editorial review.';
+    if (!confirm(msg)) return;
+    var bar = document.getElementById('commissionBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/pitches/' + ids[i] + '/approve', { method: 'POST', body: JSON.stringify({}) }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Approved ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadCommissions();
+  };
+
+  window.bulkRejectCommissions = async function () {
+    var ids = Array.from(selectedCommissionIds);
+    if (!ids.length) return;
+    if (!confirm('Reject ' + ids.length + ' commission' + (ids.length !== 1 ? 's' : '') + '?')) return;
+    var bar = document.getElementById('commissionBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/pitches/' + ids[i] + '/reject', { method: 'POST', body: JSON.stringify({}) }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Rejected ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadCommissions();
+  };
+
   function optimisticRemoveCommissionCard(pitchId) {
-    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
+    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"], .commission-list-row[data-pitch="' + pitchId + '"]');
     if (!card) return function () {};
+    selectedCommissionIds.delete(pitchId);
+    updateCommissionsBulkBar();
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     card.classList.add('optimistic-removing');
     var removed = false;
@@ -892,6 +1221,36 @@
     wireWeakCommissionModal();
     wireOverrideCommissionModal();
     wireNewCommission();
+
+    // Pitch view toggle
+    var toggleBtns = document.querySelectorAll('#pitchViewToggle .view-toggle-btn');
+    function applyViewMode() {
+      toggleBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.view === viewMode); });
+    }
+    toggleBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        viewMode = btn.dataset.view;
+        localStorage.setItem('dfai_pitches_view', viewMode);
+        applyViewMode();
+        loadPitches();
+      });
+    });
+    applyViewMode();
+
+    // Commission view toggle
+    var commToggleBtns = document.querySelectorAll('#commissionViewToggle .view-toggle-btn');
+    function applyCommissionViewMode() {
+      commToggleBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.cview === commissionsViewMode); });
+    }
+    commToggleBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        commissionsViewMode = btn.dataset.cview;
+        localStorage.setItem('dfai_commissions_view', commissionsViewMode);
+        applyCommissionViewMode();
+        if (activeTab === 'commissions') loadCommissions();
+      });
+    });
+    applyCommissionViewMode();
 
     loadPitches();
     loadCommissions(); // populate Commissions tab badge on load (grid is hidden until tab is clicked)
