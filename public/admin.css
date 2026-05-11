@@ -2283,6 +2283,64 @@ tr:hover .td-edit-btn { opacity: 1; }
   font-size: var(--text-xs); color: var(--muted);
 }
 
+/* ── Recent articles list view ──────────────────────────────── */
+.dash-article-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-8);
+}
+.dash-article-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 8px 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.dash-article-list-row:hover { border-color: var(--accent); }
+.dash-list-thumb {
+  width: 64px; height: 46px;
+  object-fit: cover; border-radius: 5px;
+  flex-shrink: 0; background: var(--bg-hover);
+}
+.dash-list-thumb-empty {
+  width: 64px; height: 46px;
+  flex-shrink: 0; border-radius: 5px;
+  background: var(--bg-hover);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--border);
+}
+.dash-list-body { flex: 1; min-width: 0; }
+.dash-list-title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.dash-list-meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dash-list-right {
+  flex-shrink: 0; text-align: right;
+  font-size: var(--text-xs); color: var(--muted);
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+}
+
+/* ── View-mode toggle ────────────────────────────────────────── */
+.view-toggle {
+  display: flex; gap: 2px;
+  background: var(--bg-hover); border-radius: 6px; padding: 2px;
+}
+.view-toggle-btn {
+  background: none; border: none; cursor: pointer;
+  padding: 4px 6px; border-radius: 4px;
+  color: var(--muted); display: flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.view-toggle-btn:hover { color: var(--text); }
+.view-toggle-btn.active { background: var(--bg-card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+
 /* ── Dashboard responsive ──────────────────────────────────── */
 @media (max-width: 900px) {
   .dash-kpi-grid { grid-template-columns: 1fr 1fr; }

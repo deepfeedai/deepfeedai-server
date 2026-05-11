@@ -456,49 +456,94 @@ function renderTopStory(stats) {
 }
 
 // ── Recent articles (card grid) ────────────────────────────
-function renderRecentArticles(stats) {
-  const grid = el('recentGrid');
-  if (!grid) return;
+var _recentArticlesData = [];
+var _recentViewMode = localStorage.getItem('dash_recent_view') || 'grid';
 
-  const articles = stats.recent_articles || [];
+function renderRecentArticles(stats) {
+  _recentArticlesData = stats.recent_articles || [];
+  _applyRecentView(_recentViewMode);
+
+  const toggle = el('recentViewToggle');
+  if (toggle) {
+    toggle.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === _recentViewMode);
+      btn.addEventListener('click', () => {
+        _recentViewMode = btn.dataset.view;
+        localStorage.setItem('dash_recent_view', _recentViewMode);
+        toggle.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === _recentViewMode));
+        _applyRecentView(_recentViewMode);
+      });
+    });
+  }
+}
+
+function _applyRecentView(mode) {
+  const container = el('recentGrid');
+  if (!container) return;
+
+  const articles = _recentArticlesData;
   if (!articles.length) {
-    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">📭</div><p>No articles yet — publish your first one</p></div>';
+    container.className = 'dash-article-grid';
+    container.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">📭</div><p>No articles yet — publish your first one</p></div>';
     return;
   }
 
-  grid.innerHTML = articles.map(a => {
-    const img = a.image_url
-      ? '<img src="' + escHtml(a.image_url) + '" class="dash-card-thumb" onerror="this.style.display=\'none\'" />'
-      : '<div class="dash-card-thumb dash-card-thumb-empty">▭</div>';
+  if (mode === 'list') {
+    container.className = 'dash-article-list';
+    container.innerHTML = articles.map(a => {
+      const thumb = a.image_url
+        ? '<img src="' + escHtml(a.image_url) + '" class="dash-list-thumb" onerror="this.style.display=\'none\'" />'
+        : '<div class="dash-list-thumb-empty">▭</div>';
+      const audioBadge = a.audio_status === 'ready' && a.audio_url
+        ? '<span class="badge badge-accent" style="font-size:10px;">🎵 ' + (a.media_enabled ? 'Live' : 'Hidden') + '</span>'
+        : '';
+      return '<div class="dash-article-list-row" data-id="' + a.id + '">'
+        + thumb
+        + '<div class="dash-list-body">'
+        + '<div class="dash-list-title">' + escHtml(a.title) + '</div>'
+        + '<div class="dash-list-meta">'
+        + '<span class="badge badge-muted" style="font-size:10px;">' + escHtml(a.category || '—') + '</span>'
+        + audioBadge
+        + '</div>'
+        + '</div>'
+        + '<div class="dash-list-right">'
+        + (a.writer_name ? '<span>' + escHtml(a.writer_name) + '</span>' : '')
+        + '<span title="' + fmtDate(a.published_at) + '">' + relativeTime(a.published_at) + '</span>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  } else {
+    container.className = 'dash-article-grid';
+    container.innerHTML = articles.map(a => {
+      const img = a.image_url
+        ? '<img src="' + escHtml(a.image_url) + '" class="dash-card-thumb" onerror="this.style.display=\'none\'" />'
+        : '<div class="dash-card-thumb dash-card-thumb-empty">▭</div>';
+      const audioBadge = a.audio_status === 'ready' && a.audio_url
+        ? '<span class="badge badge-accent" style="font-size:10px;">🎵 ' + (a.media_enabled ? 'Live' : 'Hidden') + '</span>'
+        : '';
+      const writerBit = a.writer_name
+        ? '<span class="text-muted text-xs">' + escHtml(a.writer_name) + '</span>'
+        : '';
+      return '<div class="dash-article-card" data-id="' + a.id + '">'
+        + img
+        + '<div class="dash-card-body">'
+        + '<div class="dash-card-title">' + escHtml(a.title) + '</div>'
+        + '<div class="dash-card-meta">'
+        + '<span class="badge badge-muted">' + escHtml(a.category || '—') + '</span>'
+        + audioBadge
+        + '</div>'
+        + '<div class="dash-card-footer">'
+        + writerBit
+        + '<span class="text-muted text-xs" title="' + fmtDate(a.published_at) + '">' + relativeTime(a.published_at) + '</span>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
 
-    const audioBadge = a.audio_status === 'ready' && a.audio_url
-      ? '<span class="badge badge-accent" style="font-size:10px;">🎵 ' + (a.media_enabled ? 'Live' : 'Hidden') + '</span>'
-      : '';
-
-    const writerBit = a.writer_name
-      ? '<span class="text-muted text-xs">' + escHtml(a.writer_name) + '</span>'
-      : '';
-
-    return '<div class="dash-article-card" data-id="' + a.id + '">'
-      + img
-      + '<div class="dash-card-body">'
-      + '<div class="dash-card-title">' + escHtml(a.title) + '</div>'
-      + '<div class="dash-card-meta">'
-      + '<span class="badge badge-muted">' + escHtml(a.category || '—') + '</span>'
-      + badgePublished(a.is_published)
-      + audioBadge
-      + '</div>'
-      + '<div class="dash-card-footer">'
-      + writerBit
-      + '<span class="text-muted text-xs" title="' + fmtDate(a.created_at) + '">' + relativeTime(a.created_at) + '</span>'
-      + '</div>'
-      + '</div>'
-      + '</div>';
-  }).join('');
-
-  grid.querySelectorAll('.dash-article-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const article = stats.recent_articles.find(x => x.id === parseInt(card.dataset.id));
+  container.querySelectorAll('[data-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const article = _recentArticlesData.find(x => x.id === parseInt(row.dataset.id));
       if (article && typeof showArticlePreview === 'function') showArticlePreview(article, null);
     });
   });
