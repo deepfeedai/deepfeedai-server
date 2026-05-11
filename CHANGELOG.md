@@ -8,6 +8,23 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.7-beta] — 2026-05-11
+
+**Runsheet deep dive visibility, publish cap enforcement, and dashboard date consistency.**
+
+### Added
+
+- **Deep Dives section in Runsheet** — a dedicated "Deep Dives / Last 7 days" swimlane now appears below the daily plan in both board and timeline views. Deep dives run twice-weekly and don't fit the single-day calendar model, so they are shown in a rolling 7-day window independent of the selected date. The published count in the cap gauge includes deep dives.
+
+### Fixed
+
+- **Synthesis and deep dive crons bypass daily publish cap** — the synthesis and deep-dive crons now call `evaluatePublish()` before generation begins. If the daily cap is already met the entire job is skipped, preventing token spend on articles that would only queue for tomorrow.
+- **Deep dives bypassing publish cap at article level** — `synthesizeCluster` and `generateDeepDive` were checking `publish_mode === 'scheduled'` only, never calling `evaluatePublish()`. Both now respect `cap_reached` and `schedule` actions, queueing articles for the next drop window when appropriate.
+- **Deep dives missing from Runsheet actuals** — publish `UPDATE` statements in `synthesizeCluster` and `generateDeepDive` were not setting `published_at = NOW()`. The `INSERT` set `published_at` at creation time; articles synthesised near midnight fell outside the actuals query window. All four publish paths now include `published_at = NOW()`.
+- **Dashboard today/yesterday counts using rolling window** — counts were using `NOW() - INTERVAL '1 day'` (rolling 24 hours) while the Runsheet uses a calendar-day boundary, causing the two views to disagree on how many articles published "today". All dashboard article and feed counts now use `date_trunc('day', NOW() AT TIME ZONE <newsroom_tz>)` so both views are in sync.
+
+---
+
 ## [1.0.6-beta] — 2026-05-11
 
 **Dashboard mobile dashboard, grid/list toggle, sources ingest cap, and bug fixes.**
