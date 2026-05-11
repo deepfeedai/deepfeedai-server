@@ -45,6 +45,9 @@
       <button class="settings-nav-item" data-section="team">
         <span class="settings-nav-icon">👥</span> Access
       </button>
+      <button class="settings-nav-item" data-section="billing">
+        <span class="settings-nav-icon">💳</span> Billing
+      </button>
     </nav>
   </aside>
 
@@ -1314,6 +1317,45 @@
         </div>
 
       </div><!-- /team -->
+
+      <!-- ═══ Billing ═══ -->
+      <div class="tab-panel" data-tab="billing">
+
+        <!-- Plan status card -->
+        <div class="dash-panel mb-6" id="billingStatusCard">
+          <div class="settings-card-header" style="margin-bottom:var(--space-4);">
+            <h3>Current Plan</h3>
+            <span id="billingPlanBadge" class="badge badge-muted">Loading...</span>
+          </div>
+          <div id="billingStatusBody" style="color:var(--text-muted);font-size:var(--text-sm);">Loading billing status...</div>
+        </div>
+
+        <!-- Manage billing / Stripe portal -->
+        <div class="dash-panel mb-6" id="billingPortalCard" style="display:none;">
+          <div class="settings-card-header" style="margin-bottom:var(--space-3);">
+            <h3>Manage Billing</h3>
+          </div>
+          <p style="color:var(--text-muted);font-size:var(--text-sm);margin-bottom:var(--space-4);">
+            Update your payment method, view invoices, or cancel your subscription through the Stripe billing portal.
+          </p>
+          <button class="btn btn-primary" id="openBillingPortalBtn">Open Billing Portal</button>
+          <span id="billingPortalSpinner" style="display:none;margin-left:12px;color:var(--text-muted);font-size:var(--text-sm);">Opening...</span>
+        </div>
+
+        <!-- Plan upgrade -->
+        <div class="dash-panel mb-6" id="billingUpgradeCard" style="display:none;">
+          <div class="settings-card-header" style="margin-bottom:var(--space-4);">
+            <h3>Upgrade Your Plan</h3>
+          </div>
+          <div id="billingPlansGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--space-4);margin-bottom:var(--space-4);">
+            <!-- Populated by JS -->
+          </div>
+          <p id="billingNoStripe" style="display:none;color:var(--text-muted);font-size:var(--text-sm);">
+            Self-hosted billing is not configured. Contact your platform administrator to change your plan.
+          </p>
+        </div>
+
+      </div><!-- /billing -->
 
     </div><!-- /settings-body -->
   </div><!-- /settings-main -->

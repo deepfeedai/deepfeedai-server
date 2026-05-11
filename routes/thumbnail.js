@@ -18,6 +18,7 @@ const { getPool }      = require('../db');
 const { asyncHandler } = require('../lib/utils');
 const { logUsage } = require('../lib/ai-usage');
 const { resolveKey } = require('../lib/ai-key-resolver');
+const { isFeatureEnabled } = require('../lib/feature-registry');
 
 const GEMINI_IMAGE_MODEL = 'gemini-2.0-flash-exp-image-generation';
 const GEMINI_IMAGE_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent`;
@@ -63,11 +64,17 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const key = cacheKey(title, category);
 
-  // Serve from cache if available
+  // Serve from cache if available — always allowed regardless of plan
   const cached = await getCached(key, req.tenantId);
   if (cached) {
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.status(200).json(cached);
+  }
+
+  // Gate generation (not cache serves) behind the image_generation feature flag
+  const canGenerate = await isFeatureEnabled(req.tenantId, 'image_generation').catch(() => true);
+  if (!canGenerate) {
+    return res.status(403).json({ error: 'Image generation is not available on your current plan.' });
   }
 
   const prompt = buildPrompt(title, category);

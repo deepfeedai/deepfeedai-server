@@ -166,7 +166,7 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
 }));
 
 // GET /api/admin/pitches/count — pending count for badge
-router.get('/count', auth, asyncHandler(async (req, res) => {
+router.get('/count', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const row = await db.prepare(
     "SELECT COUNT(*)::int AS cnt FROM story_pitches WHERE tenant_id = $1 AND status = 'pending'"
   ).get(req.tenantId);
@@ -174,7 +174,7 @@ router.get('/count', auth, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/admin/newsroom — recent newsroom messages
-router.get('/newsroom', auth, asyncHandler(async (req, res) => {
+router.get('/newsroom', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 30, 100);
   const messages = await getPool().query(`
     SELECT nm.*,

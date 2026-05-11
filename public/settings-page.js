@@ -3277,3 +3277,125 @@ let apiKeyVisible = false;
       }
     });
   })();
+
+  // ════════════════════════════════════════════════════
+  // BILLING
+  // ════════════════════════════════════════════════════
+  (function () {
+    var billingLoaded = false;
+
+    async function loadBilling() {
+      if (billingLoaded) return;
+      billingLoaded = true;
+
+      var statusBody    = document.getElementById('billingStatusBody');
+      var planBadge     = document.getElementById('billingPlanBadge');
+      var portalCard    = document.getElementById('billingPortalCard');
+      var upgradeCard   = document.getElementById('billingUpgradeCard');
+      var plansGrid     = document.getElementById('billingPlansGrid');
+      var noStripe      = document.getElementById('billingNoStripe');
+      var portalBtn     = document.getElementById('openBillingPortalBtn');
+      var portalSpinner = document.getElementById('billingPortalSpinner');
+
+      var status;
+      try {
+        status = await apiFetch('/billing/status');
+      } catch (err) {
+        if (statusBody) statusBody.textContent = 'Could not load billing status: ' + err.message;
+        return;
+      }
+
+      if (planBadge) {
+        var pName = (status.effectivePlan || status.plan || 'free');
+        planBadge.textContent = pName.charAt(0).toUpperCase() + pName.slice(1);
+        planBadge.className = 'badge ' + (status.plan === 'free' ? 'badge-muted' : 'badge-success');
+      }
+
+      var lines = [];
+      if (status.onTrial && status.trialEndsAt) {
+        lines.push('Trial active — expires ' + new Date(status.trialEndsAt).toLocaleDateString());
+      }
+      if (status.billingStatus === 'payment_failed') {
+        lines.push('<span style="color:var(--danger)">Payment failed — please update your payment method.</span>');
+      }
+      if (status.hasSubscription) {
+        lines.push('Active Stripe subscription.');
+      } else if (status.plan === 'free') {
+        lines.push('You are on the Free plan. Upgrade to unlock AI features.');
+      }
+      if (statusBody) statusBody.innerHTML = lines.join('<br>') || '&nbsp;';
+
+      if (status.hasSubscription && status.hasStripe && portalCard) {
+        portalCard.style.display = '';
+      }
+
+      if (!status.hasSubscription && upgradeCard) {
+        upgradeCard.style.display = '';
+        if (!status.hasStripe) {
+          if (noStripe) noStripe.style.display = '';
+        } else {
+          try {
+            var data = await apiFetch('/billing/plans');
+            if (plansGrid && data.plans && data.plans.length) {
+              plansGrid.innerHTML = data.plans.map(function (p) {
+                var price = p.price_cents ? '$' + (p.price_cents / 100).toFixed(0) + '/mo' : 'Contact us';
+                var feats = [
+                  p.max_sources   ? p.max_sources + ' sources'                                  : 'Unlimited sources',
+                  p.max_writers   ? p.max_writers + ' writers'                                  : 'Unlimited writers',
+                  p.max_credits_month ? (p.max_credits_month / 1000).toFixed(0) + 'K credits/mo' : 'Unlimited credits',
+                ].join(' · ');
+                var pn = p.plan.charAt(0).toUpperCase() + p.plan.slice(1);
+                return '<div class="dash-panel" style="text-align:center;padding:var(--space-5);">'
+                  + '<div style="font-size:var(--text-lg);font-weight:700;margin-bottom:4px;">' + pn + '</div>'
+                  + '<div style="font-size:var(--text-xl);font-weight:800;color:var(--accent);margin-bottom:8px;">' + price + '</div>'
+                  + '<div style="font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-4);">' + feats + '</div>'
+                  + '<button class="btn btn-primary btn-sm" data-plan="' + p.plan + '">Upgrade</button>'
+                  + '</div>';
+              }).join('');
+              plansGrid.querySelectorAll('[data-plan]').forEach(function (upgBtn) {
+                upgBtn.addEventListener('click', async function () {
+                  upgBtn.disabled = true; upgBtn.textContent = 'Loading...';
+                  try {
+                    var r = await apiFetch('/billing/subscribe', { method: 'POST', body: JSON.stringify({ plan: upgBtn.dataset.plan }) });
+                    if (r.usePortal) { openPortal(); }
+                    else if (r.checkout_url) { window.location.href = r.checkout_url; }
+                  } catch (err) {
+                    showAlert('Could not start checkout: ' + err.message, 'error');
+                    upgBtn.disabled = false; upgBtn.textContent = 'Upgrade';
+                  }
+                });
+              });
+            }
+          } catch (err) {
+            if (plansGrid) plansGrid.textContent = 'Could not load plans: ' + err.message;
+          }
+        }
+      }
+
+      if (portalBtn) portalBtn.addEventListener('click', openPortal);
+
+      async function openPortal() {
+        if (portalBtn) portalBtn.style.display = 'none';
+        if (portalSpinner) portalSpinner.style.display = '';
+        try {
+          var r = await apiFetch('/billing/portal', { method: 'POST' });
+          window.location.href = r.url;
+        } catch (err) {
+          showAlert('Could not open billing portal: ' + err.message, 'error');
+          if (portalBtn) portalBtn.style.display = '';
+          if (portalSpinner) portalSpinner.style.display = 'none';
+        }
+      }
+    }
+
+    var billingNavBtn = document.querySelector('.settings-nav-item[data-section="billing"]');
+    if (billingNavBtn) billingNavBtn.addEventListener('click', loadBilling);
+    if (document.querySelector('.tab-panel[data-tab="billing"].active')) {
+      loadBilling();
+    } else {
+      setTimeout(function () {
+        if (document.querySelector('.tab-panel[data-tab="billing"].active')) loadBilling();
+      }, 0);
+    }
+    if (window.location.hash === '#billing') loadBilling();
+  })();

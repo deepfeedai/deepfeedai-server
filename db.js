@@ -2041,6 +2041,9 @@ async function initDb() {
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_daily_briefings_tenant_date ON daily_briefings(tenant_id, briefing_date DESC)`);
 
+  // billing_status tracks Stripe payment health: 'active' | 'payment_failed' | 'suspended'
+  await p.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'active'`);
+
   _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;

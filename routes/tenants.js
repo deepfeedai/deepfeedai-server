@@ -263,6 +263,7 @@ router.post('/', requireUser, asyncHandler(async (req, res) => {
     ['ai_daily_budget', '5.00'],
     ['ai_monthly_budget', '50.00'],
     ['deployment_mode', 'multi'],
+    ['wizard_completed', '0'],
   ];
   for (const [key, value] of DEFAULT_SETTINGS) {
     try {

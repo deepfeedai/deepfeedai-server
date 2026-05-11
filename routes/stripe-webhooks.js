@@ -58,10 +58,11 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
             break;
           }
 
-          // Activate tenant and store subscription info
+          // Activate tenant and store subscription info; clear any prior payment failure
           await db.prepare(`
             UPDATE tenants
             SET status = 'active',
+                billing_status = 'active',
                 stripe_subscription_id = $1,
                 stripe_customer_id = COALESCE(stripe_customer_id, $2)
             WHERE id = $3 AND status = 'pending_payment'
@@ -120,23 +121,28 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       }
 
       case 'customer.subscription.deleted': {
-        // Subscription cancelled — downgrade tenant to free plan
+        // Subscription cancelled — downgrade tenant to free plan and schedule data cleanup
         const sub = event.data.object;
         const affected = await db.prepare(
-          'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
+          'SELECT id, plan FROM tenants WHERE stripe_subscription_id = $1'
         ).get(sub.id);
         const result = await db.prepare(`
-          UPDATE tenants SET plan = 'free', stripe_subscription_id = NULL
+          UPDATE tenants
+          SET plan = 'free',
+              stripe_subscription_id = NULL,
+              status = 'cancelled',
+              deleted_at = NOW() + INTERVAL '30 days'
           WHERE stripe_subscription_id = $1
         `).run(sub.id);
 
         if (result.changes > 0) {
-          bustPlanCache();
-          bustFeatureCache();
+          bustPlanCache(affected?.id);
+          bustFeatureCache(affected?.id);
           auditFromWebhook(affected?.id, event.id, 'stripe.subscription.cancelled', 'tenant', affected?.id, {
             stripe_subscription_id: sub.id,
+            prior_plan: affected?.plan,
           });
-          console.log(`[Stripe Webhook] Subscription ${sub.id} deleted — tenant downgraded to free`);
+          console.log(`[Stripe Webhook] Subscription ${sub.id} deleted — tenant ${affected?.id} cancelled, data purge scheduled in 30 days`);
         }
         break;
       }
@@ -153,7 +159,7 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
               'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
             ).get(sub.id);
             await db.prepare(
-              'UPDATE tenants SET plan = $1 WHERE stripe_subscription_id = $2'
+              "UPDATE tenants SET plan = $1, billing_status = 'active' WHERE stripe_subscription_id = $2"
             ).run(planRow.plan, sub.id);
             bustPlanCache();
             bustFeatureCache();
@@ -174,11 +180,39 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
           const affected = await db.prepare(
             'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
           ).get(invoice.subscription);
+          if (affected?.id) {
+            await db.prepare(
+              "UPDATE tenants SET billing_status = 'payment_failed' WHERE id = $1"
+            ).run(affected.id);
+            bustPlanCache(affected.id);
+          }
           auditFromWebhook(affected?.id, event.id, 'stripe.payment.failed', 'tenant', affected?.id, {
             stripe_subscription_id: invoice.subscription,
             amount_due: invoice.amount_due,
+            attempt_count: invoice.attempt_count,
           });
-          console.warn(`[Stripe Webhook] Payment failed for subscription ${invoice.subscription}`);
+          console.warn(`[Stripe Webhook] Payment failed for subscription ${invoice.subscription} (tenant ${affected?.id}, attempt ${invoice.attempt_count})`);
+        }
+        break;
+      }
+
+      case 'checkout.session.expired': {
+        // Expired checkout — mark pending purchase as abandoned to prevent orphan rows
+        const session = event.data.object;
+        const expired = await db.prepare(
+          "UPDATE credit_purchases SET status = 'abandoned' WHERE stripe_session_id = $1 AND status = 'pending' RETURNING id, tenant_id"
+        ).get(session.id);
+        if (expired) {
+          console.log(`[Stripe Webhook] Checkout session ${session.id} expired — purchase ${expired.id} marked abandoned (tenant ${expired.tenant_id})`);
+        }
+        // Also clean up abandoned pending_payment tenants (subscription checkout expired)
+        if (session.mode === 'subscription' && session.metadata?.tenant_id) {
+          const tenantId = parseInt(session.metadata.tenant_id);
+          if (tenantId) {
+            await db.prepare(
+              "UPDATE tenants SET status = 'cancelled', deleted_at = NOW() + INTERVAL '7 days' WHERE id = $1 AND status = 'pending_payment'"
+            ).run(tenantId);
+          }
         }
         break;
       }

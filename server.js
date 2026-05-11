@@ -165,6 +165,11 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── Health endpoint — no auth, before body parsers ─────────────────
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: Math.floor(process.uptime()) });
+});
+
 // ── Stripe Webhook (raw body — must be BEFORE json parser) ─────────
 app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
 
@@ -377,8 +382,8 @@ app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers',        auth, require('./routes/admin-writers'));
 app.use('/api/admin/writing-styles', auth, require('./routes/admin-writing-styles'));
-app.use('/api/admin/pitches', require('./routes/admin-pitches'));
-app.use('/api/admin/budget',    require('./routes/admin-budget'));
+app.use('/api/admin/pitches', auth, require('./routes/admin-pitches'));
+app.use('/api/admin/budget',  auth, require('./routes/admin-budget'));
 app.use('/api/newsroom-prefs', require('./routes/newsroom-prefs'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/webhooks', require('./routes/webhooks'));
@@ -387,6 +392,7 @@ app.use('/api/features',       require('./routes/features'));          // public
 app.use('/api/ai-usage', auth, require('./routes/ai-usage'));
 app.use('/api/promo',    auth, require('./routes/promo'));
 app.use('/api/credits',  auth, require('./routes/credit-purchases'));
+app.use('/api/billing',  auth, require('./routes/billing'));
 app.use('/api/synthesis',     auth, largeBodyParser, require('./routes/synthesis'));
 app.use('/api/orchestrator', auth, require('./routes/orchestrator'));
 app.use('/api/platform/banners', auth, require('./routes/platform-banners')); // platform admin — global banners
@@ -1270,7 +1276,7 @@ registerJob({
     const RETENTION_DAYS = 30;
     const expired = await db.prepare(`
       SELECT id, slug FROM tenants
-      WHERE status = 'deleted' AND deleted_at IS NOT NULL
+      WHERE status IN ('deleted', 'cancelled') AND deleted_at IS NOT NULL
         AND deleted_at < NOW() - make_interval(days => $1)
       LIMIT 1
     `).get(RETENTION_DAYS);
@@ -1649,3 +1655,31 @@ db.init().then(async () => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
 });
+
+// ── Graceful shutdown ────────────────────────────────────────────────
+process.on('SIGTERM', () => {
+  console.log('[server] SIGTERM received — shutting down gracefully');
+  db.getPool().end().catch(() => {});
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled promise rejection:', reason);
+});
+
+// ── In-memory cache eviction sweep ──────────────────────────────────────────
+// TTL-gated reads prevent stale data, but Maps grow unbounded in long-running
+// processes without an eviction pass. Run every 10 minutes to clear expired
+// entries across all tenant-keyed caches.
+setInterval(() => {
+  try {
+    require('./lib/budget').purgeStaleEntries();
+    require('./lib/plan-limits').purgeStaleEntries();
+    require('./lib/feature-registry').purgeStaleEntries();
+    require('./lib/ai-key-resolver').purgeStaleEntries();
+    require('./lib/app-config').purgeStaleEntries();
+    require('./lib/ai-router').purgeStaleEntries();
+  } catch (err) {
+    console.error('[cache-sweep] Error during eviction pass:', err.message);
+  }
+}, 10 * 60 * 1000).unref(); // .unref() so this timer doesn't prevent process exit

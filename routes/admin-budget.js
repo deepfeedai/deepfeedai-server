@@ -7,6 +7,7 @@ const router = express.Router();
 const { getPool } = require('../db');
 const db = require('../db');
 const { auth } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { generateDailyBudget, todayInTz } = require('../lib/news-budget');
 const { getAppConfig } = require('../lib/app-config');
@@ -85,7 +86,7 @@ async function _createPitchFromSlot(slot, tenantId) {
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 // GET /api/admin/budget/today — return today's budget (no slots — light check)
-router.get('/today', auth, asyncHandler(async (req, res) => {
+router.get('/today', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
   const budget = await _getBudgetByDate(req.tenantId, today);
@@ -96,7 +97,7 @@ router.get('/today', auth, asyncHandler(async (req, res) => {
 
 // POST /api/admin/budget/generate — on-demand generation (idempotent)
 // ?force=true deletes today's existing budget and regenerates from scratch
-router.post('/generate', auth, asyncHandler(async (req, res) => {
+router.post('/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
   const force = req.query.force === 'true';
@@ -122,7 +123,7 @@ router.post('/generate', auth, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/admin/budget/actuals — published + scheduled articles for a date with slot linkage
-router.get('/actuals', auth, asyncHandler(async (req, res) => {
+router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const tz = appCfg.newsroom_timezone || 'UTC';
   const dateStr = req.query.date || todayInTz(tz);
@@ -213,7 +214,7 @@ router.get('/actuals', auth, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/admin/budget — return budget for a date (defaults to today), with all slots
-router.get('/', auth, asyncHandler(async (req, res) => {
+router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const dateStr = req.query.date || todayInTz(appCfg.newsroom_timezone || 'UTC');
 
@@ -230,7 +231,7 @@ router.get('/', auth, asyncHandler(async (req, res) => {
 }));
 
 // PATCH /api/admin/budget/:id — update budget header (editorial_note, status)
-router.patch('/:id', auth, asyncHandler(async (req, res) => {
+router.patch('/:id', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const budgetId = parseInt(req.params.id, 10);
   if (!budgetId) return res.status(400).json({ error: 'Invalid budget id' });
 
@@ -275,7 +276,7 @@ router.patch('/:id', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/slots/:id/approve — approve a slot and create a pitch
-router.post('/slots/:id/approve', auth, asyncHandler(async (req, res) => {
+router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const slot = await db.prepare(
     'SELECT * FROM news_budget_slots WHERE id = $1 AND tenant_id = $2'
   ).get(req.params.id, req.tenantId);
@@ -316,7 +317,7 @@ router.post('/slots/:id/approve', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/slots/:id/reject — reject a slot
-router.post('/slots/:id/reject', auth, asyncHandler(async (req, res) => {
+router.post('/slots/:id/reject', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const { reason } = req.body;
 
   const slot = await db.prepare(
@@ -342,7 +343,7 @@ router.post('/slots/:id/reject', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/:budgetId/slots — manually add a slot to a budget
-router.post('/:budgetId/slots', auth, asyncHandler(async (req, res) => {
+router.post('/:budgetId/slots', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const budgetId = parseInt(req.params.budgetId, 10);
   if (!budgetId) return res.status(400).json({ error: 'Invalid budget id' });
 
@@ -380,7 +381,7 @@ router.post('/:budgetId/slots', auth, asyncHandler(async (req, res) => {
 }));
 
 // PATCH /api/admin/budget/slots/:id — edit slot fields
-router.patch('/slots/:id', auth, asyncHandler(async (req, res) => {
+router.patch('/slots/:id', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const { headline_suggestion, rationale, assigned_writer_id, target_publish_at, priority } = req.body;
 
   const existing = await db.prepare(
@@ -424,7 +425,7 @@ router.patch('/slots/:id', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/slots/:id/reassign — reassign a slot to a different writer
-router.post('/slots/:id/reassign', auth, asyncHandler(async (req, res) => {
+router.post('/slots/:id/reassign', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const { writer_id } = req.body;
   if (!writer_id) return res.status(400).json({ error: 'writer_id is required' });
 
@@ -450,7 +451,7 @@ router.post('/slots/:id/reassign', auth, asyncHandler(async (req, res) => {
 }));
 
 // POST /api/admin/budget/briefing/generate — manually trigger today's audio briefing
-router.post('/briefing/generate', auth, asyncHandler(async (req, res) => {
+router.post('/briefing/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const { generateDailyBriefing } = require('../lib/daily-briefing');
   const force = req.body?.force === true;
   const result = await generateDailyBriefing(req.tenantId, { force });
@@ -461,7 +462,7 @@ router.post('/briefing/generate', auth, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/admin/budget/briefing — today's briefing status for the admin UI
-router.get('/briefing', auth, asyncHandler(async (req, res) => {
+router.get('/briefing', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const { getAppConfig: _cfg } = require('../lib/app-config');
   const appCfg = await _cfg(req.tenantId).catch(() => ({}));
   const tz = appCfg.newsroom_timezone || 'UTC';

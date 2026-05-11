@@ -813,7 +813,14 @@ router.put('/:id', asyncHandler(async (req, res) => {
   }
 
   await logAuditWithDiff(req, 'tenant.update', 'tenants', id, before, tenant);
-  res.json(tenant);
+
+  // Warn when plan is changed manually for a tenant with an active Stripe subscription —
+  // the DB and Stripe will be out of sync until a billing event re-syncs them.
+  const stripeSyncWarning = (plan !== undefined && plan !== before.plan && before.stripe_subscription_id)
+    ? `Plan changed to '${plan}' but tenant has an active Stripe subscription (${before.stripe_subscription_id}). Update the Stripe subscription manually or via the Stripe dashboard to keep billing in sync.`
+    : undefined;
+
+  res.json({ ...tenant, ...(stripeSyncWarning ? { stripe_sync_warning: stripeSyncWarning } : {}) });
 }));
 
 // PUT /:id/autopilot — toggle tenant autopilot
