@@ -1139,6 +1139,14 @@
       EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
     }).catch(function () {});
 
+    var BRIEFING_ERRORS = {
+      no_articles:     'No articles — publish some first',
+      no_voice:        'No voice configured — assign an ElevenLabs voice to a writer',
+      budget_exceeded: 'AI budget exceeded',
+      script_failed:   'Script generation failed — Retry',
+      tts_failed:      'Audio generation failed — Retry',
+    };
+
     // Wire generate buttons
     container.addEventListener('click', async function (e) {
       var btn = e.target.closest('.brief-gen-btn');
@@ -1161,7 +1169,9 @@
           btn.disabled = false;
         }
       } catch (err) {
-        label.textContent = 'Failed — Retry';
+        var reason = err.message || '';
+        label.textContent = BRIEFING_ERRORS[reason] || 'Failed — Retry';
+        btn.title = reason;
         btn.disabled = false;
       }
     });

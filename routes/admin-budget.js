@@ -482,7 +482,10 @@ router.post('/briefing/generate', auth, requirePermission('articles.write'), asy
   const edition = EDITION_CONFIG[req.body?.edition] ? req.body.edition : 'evening';
   const result  = await generateDailyBriefing(req.tenantId, { force, edition });
   if (!result.ok && result.reason !== 'already_exists') {
-    return res.status(500).json({ error: result.reason || 'generation_failed' });
+    // User-fixable conditions → 422; system failures → 500
+    const userFixable = ['no_articles', 'no_voice', 'budget_exceeded'];
+    const status = userFixable.includes(result.reason) ? 422 : 500;
+    return res.status(status).json({ error: result.reason || 'generation_failed' });
   }
   res.json(result);
 }));
