@@ -25,7 +25,9 @@ All notable changes to Deep Feed AI Admin are documented here.
 ### Changed
 
 - **Bulk action bar** — switched from accent-coloured background (buttons blended in) to a neutral `surface2` bar with a border. Approve uses `btn-primary`, Dismiss/Reject uses `btn-outline`.
-- **Swimlane group-select checkbox** — moved to `data-wid` attribute to prevent the global writer-drawer delegate from intercepting checkbox clicks. Writer name/avatar retain `data-writer-id` to trigger the drawer on click.
+- **Swimlane group-select checkbox** — moved to `data-wid` attribute to prevent the global writer-drawer delegate from intercepting checkbox clicks.
+- **Removed writer profile drawer** — `writer-drawer.js` deleted; the side panel was unused. `data-writer-id` attributes and `cursor:pointer` styles removed from pitches swimlane headers.
+- **Removed Runsheet headline edit button** — inline title editing had a bug where cancelling without a change cleared the title until refresh, and the feature had negligible value (headline suggestion is a synthesis seed, not the final title).
 
 ### Fixed
 
