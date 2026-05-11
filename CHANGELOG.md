@@ -8,6 +8,28 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.12-beta] — 2026-05-11
+
+**Runsheet pipeline trail + Newsroom Glass Phase A event wiring.**
+
+### Added
+
+- **Inline pipeline status trail on Runsheet slot cards** — each approved slot card now shows a four-dot progress bar: Plan → Assigned → Writing → Published. Dots fill as each stage is reached. A detail line below shows current state: pitch status label, "In review" when an article is drafted, or a direct link to view/preview the article when published or scheduled.
+- **Wire source badge on Runsheet slots** — slots whose source articles include Feed Inbox (curated/wire) items now show an amber "Wire source" badge, clearly distinguishing them from slots seeded by original coverage.
+- **Newsroom Glass Phase A — public event emission wiring** (foundation for the upcoming live feed):
+  - `emitPitchProposed()` helper in `lib/newsroom-events.js` — fires a public `pitch_proposed` event when a story pitch is created.
+  - Called on slot approval via the admin Runsheet, on auto-promotion via `news-budget.js`, and on writer-agent beat-search pitch creation.
+  - `pitch_approved` event emitted when an editor greenlights a pitch via the Pitches page.
+  - `thread_updated` event emitted when a story thread gains its second article, marking an ongoing investigation for the public live feed.
+
+### Fixed
+
+- **Briefing 500 on no articles** — daily briefing generation now returns HTTP 422 (with a human-readable reason) for user-fixable conditions (`no_articles`, `no_voice`, `budget_exceeded`), reserving 500 for genuine system errors. The frontend surfaces the reason label instead of a raw status code.
+- **Deep-dive cap counted against wrong calendar day** — the timezone-aware cap check used UTC (`toISOString()`) instead of the newsroom's local calendar day, causing yesterday's deep dives to inflate today's count. Fixed with `toLocaleDateString('en-CA', { timeZone: tz })`.
+- **Approved slots lost on budget regeneration** — force-regen deleted the entire budget (cascading to all slots), wiping approved/auto-promoted items. Non-pending slots are now snapshotted before deletion and re-inserted into the freshly generated budget.
+
+---
+
 ## [1.0.11-beta] — 2026-05-11
 
 **Pitches page overhaul — bulk triage, orthogonal view/group controls, and full skin polish.**

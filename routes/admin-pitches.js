@@ -85,6 +85,9 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
     "UPDATE story_pitches SET status = 'approved', resolved_at = NOW() WHERE id = $1"
   ).run(pitch.id);
 
+  const { recordEvent } = require('../lib/newsroom-events');
+  recordEvent({ tenantId: req.tenantId, type: 'pitch_approved', isPublic: true, isTerminal: false, headline: `Investigation greenlit: "${(pitch.headline || '').slice(0, 160)}"`, targetPitchId: pitch.id, payload: { pitch_id: pitch.id } }).catch(() => {});
+
   // Get source articles for synthesis
   const sourceIds = typeof pitch.source_article_ids === 'string'
     ? JSON.parse(pitch.source_article_ids) : (pitch.source_article_ids || []);

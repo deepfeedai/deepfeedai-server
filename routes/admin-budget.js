@@ -11,7 +11,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { generateDailyBudget, todayInTz } = require('../lib/news-budget');
 const { getAppConfig } = require('../lib/app-config');
-const { recordEvent } = require('../lib/newsroom-events');
+const { recordEvent, emitPitchProposed } = require('../lib/newsroom-events');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,13 +28,22 @@ async function _getBudgetWithSlots(budgetId, tenantId) {
   const slots = await getPool().query(`
     SELECT
       nbs.*,
-      rw.name  AS recommended_writer_name,
-      rw.avatar_url AS recommended_writer_avatar,
-      aw.name  AS assigned_writer_name,
-      aw.avatar_url AS assigned_writer_avatar
+      rw.name        AS recommended_writer_name,
+      rw.avatar_url  AS recommended_writer_avatar,
+      aw.name        AS assigned_writer_name,
+      aw.avatar_url  AS assigned_writer_avatar,
+      sp.id          AS pitch_id,
+      sp.status      AS pitch_status,
+      a.id           AS article_id,
+      a.title        AS article_title,
+      a.slug         AS article_slug,
+      a.is_published AS article_is_published,
+      a.status       AS article_status
     FROM news_budget_slots nbs
-    LEFT JOIN writers rw ON rw.id = nbs.recommended_writer_id
-    LEFT JOIN writers aw ON aw.id = nbs.assigned_writer_id
+    LEFT JOIN writers rw       ON rw.id = nbs.recommended_writer_id
+    LEFT JOIN writers aw       ON aw.id = nbs.assigned_writer_id
+    LEFT JOIN story_pitches sp ON sp.id = nbs.spawned_pitch_id  AND sp.tenant_id = nbs.tenant_id
+    LEFT JOIN articles a       ON a.id  = nbs.spawned_article_id AND a.tenant_id  = nbs.tenant_id
     WHERE nbs.budget_id = $1 AND nbs.tenant_id = $2
     ORDER BY nbs.sort_order ASC, nbs.id ASC
   `, [budgetId, tenantId]);
@@ -384,6 +393,7 @@ router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asy
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
+  emitPitchProposed(pitch, req.tenantId).catch(() => {});
 
   const updatedSlot = await db.prepare(`
     UPDATE news_budget_slots
