@@ -576,7 +576,30 @@ router.get('/briefing', auth, requirePermission('articles.read'), asyncHandler(a
   const tz = appCfg.newsroom_timezone || 'UTC';
   const dateParam = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined;
   const briefings = await getTodayBriefings(req.tenantId, tz, dateParam);
-  res.json({ briefings });
+  // Include site_url so the admin can construct shareable public links
+  const siteUrlRow = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'site_url'").get(req.tenantId);
+  res.json({ briefings, site_url: siteUrlRow?.value || null });
+}));
+
+// DELETE /api/admin/budget/briefing/:edition — delete a briefing so it can be regenerated
+router.delete('/briefing/:edition', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
+  const { edition } = req.params;
+  if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+    return res.status(400).json({ error: 'Invalid edition' });
+  }
+  const { getAppConfig: _cfg } = require('../lib/app-config');
+  const appCfg = await _cfg(req.tenantId).catch(() => ({}));
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const dateParam = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+    ? req.query.date
+    : new Date().toLocaleDateString('en-CA', { timeZone: tz });
+
+  const result = await getPool().query(
+    'DELETE FROM daily_briefings WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 RETURNING id',
+    [req.tenantId, dateParam, edition]
+  );
+  if (result.rowCount === 0) return res.status(404).json({ error: 'Briefing not found' });
+  res.json({ ok: true });
 }));
 
 module.exports = router;

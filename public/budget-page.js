@@ -1134,7 +1134,7 @@
 
     EDITIONS.forEach(function (ed) { container.appendChild(buildEditionRow(ed)); });
 
-    function applyBriefingState(edKey, briefing) {
+    function applyBriefingState(edKey, briefing, date, siteUrl) {
       var btn   = document.getElementById('brief-btn-' + edKey);
       var ctrl  = document.getElementById('brief-ctrl-' + edKey);
       var label = btn && btn.querySelector('.brief-btn-label-' + edKey);
@@ -1147,17 +1147,58 @@
       if (briefing.status === 'ready') {
         label.textContent = '✓ Ready';
         btn.classList.add('btn-success-muted');
-        if (briefing.audio_url) {
-          // Insert inline audio player
-          var existing = ctrl.querySelector('.brief-audio-wrap');
-          if (!existing) {
-            var wrap = document.createElement('div');
-            wrap.className = 'brief-audio-wrap';
-            wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;';
-            wrap.innerHTML = '<audio src="' + briefing.audio_url + '" preload="none" controls style="height:26px;max-width:180px;"></audio>'
-              + '<a href="' + briefing.audio_url + '" target="_blank" style="color:var(--muted);font-size:11px;">↗</a>';
-            ctrl.appendChild(wrap);
+        var existing = ctrl.querySelector('.brief-audio-wrap');
+        if (!existing) {
+          var wrap = document.createElement('div');
+          wrap.className = 'brief-audio-wrap';
+          wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap;';
+
+          if (briefing.audio_url) {
+            wrap.innerHTML = '<audio src="' + briefing.audio_url + '" preload="none" controls style="height:26px;max-width:160px;"></audio>';
           }
+
+          // Share link to public briefing page
+          if (siteUrl && briefing.briefing_date) {
+            var briefDate = String(briefing.briefing_date).slice(0, 10);
+            var shareUrl = siteUrl.replace(/\/$/, '') + '/briefing/' + briefDate + '/' + edKey;
+            var shareBtn = document.createElement('button');
+            shareBtn.className = 'btn btn-outline btn-sm';
+            shareBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+            shareBtn.textContent = '↗ Copy link';
+            shareBtn.title = shareUrl;
+            shareBtn.addEventListener('click', function () {
+              navigator.clipboard.writeText(shareUrl).then(function () {
+                shareBtn.textContent = '✓ Copied';
+                setTimeout(function () { shareBtn.textContent = '↗ Copy link'; }, 2000);
+              }).catch(function () {
+                window.prompt('Share this link:', shareUrl);
+              });
+            });
+            wrap.appendChild(shareBtn);
+          }
+
+          // Delete button — resets the briefing so it can be regenerated
+          var delBtn = document.createElement('button');
+          delBtn.className = 'btn btn-outline btn-sm';
+          delBtn.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--muted);';
+          delBtn.textContent = '✕ Delete';
+          delBtn.title = 'Delete this briefing so it can be regenerated';
+          delBtn.addEventListener('click', function () {
+            if (!window.confirm('Delete the ' + edKey + ' briefing? It can be regenerated.')) return;
+            var qDate = date ? '?date=' + date : '';
+            apiFetch('/admin/budget/briefing/' + edKey + qDate, { method: 'DELETE' }).then(function () {
+              // Reset row to "Generate" state
+              label.textContent = 'Generate';
+              btn.classList.remove('btn-success-muted');
+              btn.disabled = false;
+              wrap.remove();
+            }).catch(function (err) {
+              alert('Delete failed: ' + (err.message || err));
+            });
+          });
+          wrap.appendChild(delBtn);
+
+          ctrl.appendChild(wrap);
         }
       } else if (briefing.status === 'pending') {
         var age = Date.now() - new Date(briefing.updated_at || briefing.created_at).getTime();
@@ -1177,9 +1218,10 @@
     function loadBriefingsForDate(date) {
       apiFetch('/admin/budget/briefing?date=' + date).then(function (data) {
         var briefings = data.briefings || [];
+        var siteUrl = data.site_url || null;
         var byEdition = {};
         briefings.forEach(function (b) { byEdition[b.edition] = b; });
-        EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
+        EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key], date, siteUrl); });
       }).catch(function () {});
     }
 
