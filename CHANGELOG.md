@@ -8,6 +8,22 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.0] — 2026-05-12
+
+**Official release — stable for community self-hosting.**
+
+### Fixed
+
+- **Infinite scroll broken after tab switch** — calling `loadLiveNews()` while the client cache was fresh reset `feedOffset` to 0 and disconnected the scroll observer, then returned before `attachFeedObserver()` could re-attach it. Any tab toggle (Hot → All, Following → All) or manual feed refresh within the 5-minute cache window silently killed infinite scroll for the session. Users were left with only the initial 30 articles — no sentinel, no scroll bar, and any newer standard-tier articles below the initial high-tier batch were unreachable. Fixed by restoring `feedOffset`, `feedHasMore`, and re-attaching the observer on the cache-hit path.
+- **Live feed tab order inconsistent** — the Newsroom / Articles / Topics tab order was correct on the homepage but reverted to Articles-first on `story.html`, `stories.html`, and `article.html`. All pages now consistently show Newsroom → Articles → Topics.
+- **"Catch Me Up" card parsing error** — the `writerAvatarHtml()` fallback in `catchup.js` used `JSON.stringify()` to embed an HTML string inside a double-quoted `onerror` attribute. The JSON output opens with `"`, which immediately closes the attribute in the HTML parser — causing `))"> Reported by [name]` to render as visible text at the bottom of every card with a broken avatar image. Fixed by replacing the inline HTML injection with `onerror="this.style.display='none'"`.
+
+### Security
+
+- **YouTube API key removed from source** — hardcoded key removed from `deepfeedai-web/videos-page.js`. Key has been rotated. Self-hosters must supply their own YouTube Data API v3 key (restricted to their domain) in its place.
+
+---
+
 ## [1.0.0-pre-release] — 2026-05-12
 
 **Briefing polish — shareable pages, thumbnails, and social card fixes.**
