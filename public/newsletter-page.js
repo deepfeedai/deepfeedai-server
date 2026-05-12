@@ -52,6 +52,7 @@
         el('subjectInput').value = draft.subject || '';
         el('introInput').value   = draft.intro || '';
         if (el('storyArcInput')) el('storyArcInput').value = draft.story_arc || '';
+        if (el('audienceSelect')) el('audienceSelect').value = draft.audience || 'all';
         if (draft.article_ids && Array.isArray(draft.article_ids)) {
           orderedIds = draft.article_ids.map(Number);
           checkedIds = new Set(orderedIds);
@@ -74,6 +75,7 @@
         subject:     el('subjectInput').value.trim() || null,
         intro:       el('introInput').value.trim() || null,
         format:      currentFormat,
+        audience:    el('audienceSelect')?.value || 'all',
       };
       if (currentFormat === 'weekly') {
         draftBody.story_arc = el('storyArcInput')?.value.trim() || null;
@@ -386,10 +388,12 @@
 
   // ── Send ───────────────────────────────────────────────────────
   async function sendNewsletter() {
-    const ids = getSelectedIds();
+    const ids      = getSelectedIds();
+    const audience = el('audienceSelect')?.value || 'all';
+    const audienceLabel = audience === 'paid' ? 'paid subscribers only' : 'all subscribers';
     const msg = ids.length
-      ? `Send to your entire Resend audience with ${ids.length} selected article${ids.length !== 1 ? 's' : ''}?`
-      : 'No articles selected — send will auto-fetch the latest 8 articles. Continue?';
+      ? `Send to ${audienceLabel} with ${ids.length} selected article${ids.length !== 1 ? 's' : ''}?`
+      : `No articles selected — send will auto-fetch the latest 8 articles to ${audienceLabel}. Continue?`;
     if (!confirm(msg)) return;
 
     const sendBtn  = el('sendBtn');
@@ -404,13 +408,15 @@
         subject:     el('subjectInput').value.trim() || undefined,
         intro:       el('introInput').value.trim() || undefined,
         format:      currentFormat,
+        audience,
       };
       if (currentFormat === 'weekly') {
         body.story_arc = el('storyArcInput')?.value.trim() || undefined;
       }
 
       const data = await apiFetch('/newsletter/send', { method: 'POST', body: JSON.stringify(body) });
-      statusEl.innerHTML = `<div class="alert alert-success">✅ Sent! Broadcast ID: <code>${escHtml(data.broadcastId)}</code> — ${data.articleCount} articles</div>`;
+      const audDesc = data.audience === 'paid' ? ' (paid subscribers)' : '';
+      statusEl.innerHTML = `<div class="alert alert-success">✅ Sent${audDesc}! Broadcast ID: <code>${escHtml(data.broadcastId)}</code> — ${data.articleCount} articles</div>`;
       currentDraft = null;
       renderBanner(null);
       el('nlDraftBanner').style.display = 'none';
@@ -429,25 +435,29 @@
     try {
       const rows = await apiFetch('/newsletter/history');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center" style="padding:24px;">No sends yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:24px;">No sends yet</td></tr>';
         return;
       }
       tbody.innerHTML = rows.map(r => {
         const dotClass = r.status === 'skipped' ? 'history-dot skipped'
                        : r.trigger === 'cron'   ? 'history-dot auto'
                        : 'history-dot';
+        const audBadge = r.audience === 'paid'
+          ? '<span style="font-size:10px;font-weight:700;color:#a855f7;background:rgba(168,85,247,0.15);padding:1px 6px;border-radius:4px;">Paid</span>'
+          : '<span style="font-size:10px;color:var(--text-muted);">All</span>';
         return `<tr>
           <td title="${escHtml(new Date(r.sent_at).toLocaleString())}">
             ${relTime(r.sent_at)}<br><span class="text-muted text-sm">${new Date(r.sent_at).toLocaleDateString()}</span>
           </td>
           <td>${escHtml(r.subject || '—')}</td>
           <td>${r.article_count ?? '—'}</td>
+          <td>${audBadge}</td>
           <td><code class="text-sm">${escHtml(r.broadcast_id || '—')}</code></td>
           <td><span class="${dotClass}"></span>${escHtml(r.status)}</td>
         </tr>`;
       }).join('');
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-muted text-center">Failed to load: ${escHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-muted text-center">Failed to load: ${escHtml(err.message)}</td></tr>`;
     }
   }
 

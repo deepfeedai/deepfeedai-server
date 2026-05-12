@@ -1087,6 +1087,71 @@ registerJob({
 });
 
 registerJob({
+  name: 'newsletter-paid-sync',
+  description: 'Newsletter paid-tier Resend sync — reconciles paid subscribers not in paid audience (runs nightly)',
+  category: 'Notifications',
+  defaultSchedule: '0 3 * * *',
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'newsletter').catch(() => false);
+    if (!enabled) return { skipped: 'newsletter feature not enabled' };
+
+    const { getAppConfig } = require('./lib/app-config');
+    const appCfg = await getAppConfig(tenantId).catch(() => ({}));
+    if (!appCfg.resend_api_key || !appCfg.resend_paid_audience_id) {
+      return { skipped: 'paid audience not configured' };
+    }
+
+    // Find paid subscribers whose Stripe subscription is active
+    const pool = require('./db').getPool();
+    const subs = await pool.query(
+      `SELECT ns.id, ns.stripe_customer_id
+       FROM newsletter_subscriptions ns
+       WHERE ns.tenant_id = $1 AND ns.tier = 'paid' AND ns.stripe_status = 'active' AND ns.stripe_customer_id IS NOT NULL`,
+      [tenantId]
+    ).then(r => r.rows);
+
+    if (!subs.length) return { synced: 0 };
+
+    const { getStripeConfig } = require('./lib/stripe-config');
+    const { secretKey } = await getStripeConfig();
+    if (!secretKey) return { skipped: 'stripe not configured' };
+    const stripe = require('stripe')(secretKey);
+
+    let synced = 0;
+    for (const sub of subs) {
+      try {
+        const customer = await stripe.customers.retrieve(sub.stripe_customer_id).catch(() => null);
+        if (!customer?.email) continue;
+        await fetch(`https://api.resend.com/audiences/${appCfg.resend_paid_audience_id}/contacts`, {
+          method:  'POST',
+          headers: { 'Authorization': `Bearer ${appCfg.resend_api_key}`, 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ email: customer.email, subscribed: true }),
+        });
+        synced++;
+      } catch (e) {
+        console.warn(`[newsletter-paid-sync] failed for customer ${sub.stripe_customer_id}:`, e.message);
+      }
+    }
+
+    console.log(`[newsletter-paid-sync] synced ${synced}/${subs.length} paid subscribers to Resend (tenant ${tenantId})`);
+
+    // Clean up abandoned checkout sessions (pending_checkout > 24h)
+    const cleanup = await pool.query(
+      `UPDATE newsletter_subscriptions SET stripe_status = 'abandoned', updated_at = NOW()
+       WHERE tenant_id = $1 AND stripe_status = 'pending_checkout' AND updated_at < NOW() - INTERVAL '24 hours'
+       RETURNING id`,
+      [tenantId]
+    );
+    if (cleanup.rowCount > 0) {
+      console.log(`[newsletter-paid-sync] cleaned up ${cleanup.rowCount} abandoned checkout rows (tenant ${tenantId})`);
+    }
+
+    return { synced, total: subs.length, abandoned_cleaned: cleanup.rowCount };
+  },
+});
+
+registerJob({
   name: 'featured-rotation',
   description: 'Featured article rotation',
   category: 'Content',

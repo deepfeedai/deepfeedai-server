@@ -3,7 +3,7 @@
  *
  * Draft workflow (v1.1.0):
  *   GET    /draft              — load today's draft (or ?date=YYYY-MM-DD)
- *   POST   /draft              — upsert draft (article_ids, subject, intro, format)
+ *   POST   /draft              — upsert draft (article_ids, subject, intro, format, audience)
  *   PATCH  /draft              — update draft status (skip, cancel)
  *   POST   /draft/suggest-intro   — AI-generated editorial intro
  *   POST   /draft/suggest-subject — AI-generated subject line
@@ -15,7 +15,12 @@
  *   GET    /preview            — cached public preview of latest newsletter
  *   GET    /history            — last 20 sends
  *
- * Auth: admin JWT or cron secret
+ * Reader (public user JWT):
+ *   GET    /reader-status      — current subscription tier for logged-in reader
+ *   POST   /reader-checkout    — create Stripe checkout for paid tier
+ *   POST   /reader-portal      — create Stripe billing portal session
+ *
+ * Auth: admin JWT or cron secret (reader endpoints use public user JWT)
  */
 const express             = require('express');
 const router              = express.Router();
@@ -30,6 +35,8 @@ const { logAudit }        = require('../middleware/audit');
 const { requireFeature }  = require('../middleware/feature-gate');
 const { complete: aiComplete } = require('../lib/ai-router');
 const { loadPrompt }      = require('../lib/prompt-loader');
+const requireUser         = require('../middleware/user-jwt');
+const { getStripeConfig } = require('../lib/stripe-config');
 
 const TOP_N = 8;
 const { timingSafeEqual } = require('crypto');
@@ -140,6 +147,105 @@ async function fetchCandidates(tenantId) {
   return result.rows.map(serializeRow).map(a => articleToEmailItem(a, siteUrl, appCfg));
 }
 
+// ── GET /reader-status — public user's newsletter tier for this tenant ────────
+router.get('/reader-status', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const row = await getPool().query(
+    `SELECT tier, stripe_status FROM newsletter_subscriptions
+     WHERE public_user_id = $1 AND tenant_id = $2`,
+    [req.user.sub, req.tenantId]
+  ).then(r => r.rows[0] || null);
+
+  const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+  const hasPaidConfig = !!(appCfg.newsletter_paid_price_id);
+  return res.json({
+    tier:         row?.tier || 'free',
+    stripeStatus: row?.stripe_status || null,
+    email:        req.user.email || null,
+    paidAvailable: hasPaidConfig,
+  });
+}));
+
+// ── POST /reader-checkout — create Stripe checkout for paid newsletter tier ───
+router.post('/reader-checkout', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const appCfg  = await getAppConfig(req.tenantId);
+  const priceId = appCfg.newsletter_paid_price_id;
+  if (!priceId) return res.status(503).json({ error: 'Paid newsletter not available for this site.' });
+
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return res.status(503).json({ error: 'Billing not configured.' });
+
+  const site    = await getSiteConfig(req.tenantId);
+  const siteUrl = (site.url || appCfg.main_site_url || 'https://deepfeedai.com').replace(/\/$/, '');
+  const stripe  = require('stripe')(secretKey);
+
+  // Atomically claim the (user, tenant) slot before touching Stripe to avoid duplicate customers
+  // on concurrent requests. ON CONFLICT returns the existing stripe_customer_id if already set.
+  const lock = await getPool().query(
+    `INSERT INTO newsletter_subscriptions (public_user_id, tenant_id, tier, stripe_status, updated_at)
+     VALUES ($1, $2, 'free', 'pending_checkout', NOW())
+     ON CONFLICT (public_user_id, tenant_id) DO UPDATE SET updated_at = NOW()
+     RETURNING stripe_customer_id`,
+    [req.user.sub, req.tenantId]
+  );
+
+  let customerId = lock.rows[0]?.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email:    req.user.email || undefined,
+      name:     req.user.displayName || undefined,
+      metadata: { public_user_id: String(req.user.sub), tenant_id: String(req.tenantId) },
+    });
+    customerId = customer.id;
+    // Store the new customer ID so concurrent retries reuse it
+    await getPool().query(
+      `UPDATE newsletter_subscriptions SET stripe_customer_id = $1, updated_at = NOW()
+       WHERE public_user_id = $2 AND tenant_id = $3`,
+      [customerId, req.user.sub, req.tenantId]
+    );
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode:       'subscription',
+    customer:   customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${siteUrl}/newsletter?nl_success=1`,
+    cancel_url:  `${siteUrl}/newsletter`,
+    metadata: {
+      type:           'newsletter_reader',
+      public_user_id: String(req.user.sub),
+      tenant_id:      String(req.tenantId),
+    },
+  });
+
+  return res.json({ url: session.url });
+}));
+
+// ── POST /reader-portal — Stripe customer portal for subscription management ──
+router.post('/reader-portal', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const sub = await getPool().query(
+    `SELECT stripe_customer_id FROM newsletter_subscriptions
+     WHERE public_user_id = $1 AND tenant_id = $2 AND stripe_customer_id IS NOT NULL`,
+    [req.user.sub, req.tenantId]
+  ).then(r => r.rows[0]);
+
+  if (!sub) return res.status(404).json({ error: 'No active subscription found.' });
+
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return res.status(503).json({ error: 'Billing not configured.' });
+
+  const appCfg  = await getAppConfig(req.tenantId).catch(() => ({}));
+  const site    = await getSiteConfig(req.tenantId);
+  const siteUrl = (site.url || appCfg.main_site_url || 'https://deepfeedai.com').replace(/\/$/, '');
+  const stripe  = require('stripe')(secretKey);
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer:   sub.stripe_customer_id,
+    return_url: `${siteUrl}/newsletter`,
+  });
+
+  return res.json({ url: session.url });
+}));
+
 // ── GET /candidates ───────────────────────────────────────────────────────────
 router.get('/candidates', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
   const candidates = await fetchCandidates(req.tenantId);
@@ -156,9 +262,11 @@ router.get('/draft', auth, requirePermission('newsletter.send'), requireFeature(
 
 // ── POST /draft — upsert ──────────────────────────────────────────────────────
 router.post('/draft', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
-  const VALID_FORMATS = ['daily', 'weekly'];
+  const VALID_FORMATS   = ['daily', 'weekly'];
+  const VALID_AUDIENCES = ['all', 'paid'];
   const { article_ids, subject, intro, story_arc, date } = req.body || {};
-  const format  = VALID_FORMATS.includes(req.body?.format) ? req.body.format : 'daily';
+  const format   = VALID_FORMATS.includes(req.body?.format)     ? req.body.format    : 'daily';
+  const audience = VALID_AUDIENCES.includes(req.body?.audience) ? req.body.audience  : 'all';
   const appCfg  = await getAppConfig(req.tenantId).catch(() => ({}));
   const tz      = appCfg.newsroom_timezone || 'UTC';
   const dateStr = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : todayStr(tz);
@@ -168,17 +276,18 @@ router.post('/draft', auth, requirePermission('newsletter.send'), requireFeature
     : null;
 
   const result = await getPool().query(
-    `INSERT INTO newsletter_drafts (tenant_id, send_date, format, article_ids, subject, intro, story_arc, status, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW())
+    `INSERT INTO newsletter_drafts (tenant_id, send_date, format, article_ids, subject, intro, story_arc, audience, status, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
      ON CONFLICT (tenant_id, send_date, format) DO UPDATE
        SET article_ids = COALESCE(EXCLUDED.article_ids, newsletter_drafts.article_ids),
            subject     = COALESCE(EXCLUDED.subject, newsletter_drafts.subject),
            intro       = COALESCE(EXCLUDED.intro, newsletter_drafts.intro),
            story_arc   = COALESCE(EXCLUDED.story_arc, newsletter_drafts.story_arc),
+           audience    = EXCLUDED.audience,
            status      = CASE WHEN newsletter_drafts.status = 'sent' THEN newsletter_drafts.status ELSE 'pending' END,
            updated_at  = NOW()
      RETURNING *`,
-    [req.tenantId, dateStr, format, ids || null, subject || null, intro || null, story_arc || null]
+    [req.tenantId, dateStr, format, ids || null, subject || null, intro || null, story_arc || null, audience]
   );
   return res.json(serializeRow(result.rows[0]));
 }));
@@ -278,18 +387,29 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   const preview    = req.query.preview === 'true' || req.query.preview === '1';
   const appCfg     = await getAppConfig(req.tenantId);
   const resendKey  = appCfg.resend_api_key;
-  const audienceId = appCfg.resend_audience_id;
+
+  // Resolve format, audience, and article selection
+  const VALID_FORMATS   = ['daily', 'weekly'];
+  const VALID_AUDIENCES = ['all', 'paid'];
+  const { article_ids, subject: bodySubject, intro: bodyIntro, story_arc: bodyStoryArc } = req.body || {};
+  const format   = VALID_FORMATS.includes(req.body?.format)     ? req.body.format    : 'daily';
+  const audience = VALID_AUDIENCES.includes(req.body?.audience) ? req.body.audience  : 'all';
+
+  // Fail explicitly when paid audience selected but not configured — avoid silently blasting free list
+  if (!preview && audience === 'paid' && !appCfg.resend_paid_audience_id) {
+    return res.status(400).json({ error: 'Paid newsletter audience is not configured. Set resend_paid_audience_id in settings before sending to paid subscribers.' });
+  }
+
+  const audienceId = audience === 'paid'
+    ? appCfg.resend_paid_audience_id
+    : appCfg.resend_audience_id;
 
   if (!preview && (!resendKey || !audienceId)) {
     return res.status(500).json({ error: 'Missing Resend config (resend_api_key and resend_audience_id required)' });
   }
 
-  // Resolve article selection: prefer explicit article_ids, then today's draft, then auto-fetch
   let articles = [];
   let draftId  = null;
-  const VALID_FORMATS = ['daily', 'weekly'];
-  const { article_ids, subject: bodySubject, intro: bodyIntro, story_arc: bodyStoryArc } = req.body || {};
-  const format = VALID_FORMATS.includes(req.body?.format) ? req.body.format : 'daily';
 
   if (Array.isArray(article_ids) && article_ids.length) {
     articles = await getArticlesByIds(req.tenantId, article_ids.map(Number));
@@ -373,21 +493,20 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
 
   logUsage({ provider: 'resend', operation: 'newsletter', trigger: req.user?.type === 'cron' ? 'cron' : 'manual', emailCount: articles.length, durationMs: Date.now() - _nlStart, tenantId: req.tenantId }).catch(() => {});
 
-  // Mark draft as sent and record broadcast ID
-  const now = new Date();
+  // Mark draft as sent and record broadcast ID + audience
   if (draftId) {
     await getPool().query(
-      `UPDATE newsletter_drafts SET status = 'sent', sent_at = NOW(), sent_broadcast_id = $1, updated_at = NOW() WHERE id = $2`,
-      [broadcastId, draftId]
+      `UPDATE newsletter_drafts SET status = 'sent', sent_at = NOW(), sent_broadcast_id = $1, audience = $2, updated_at = NOW() WHERE id = $3`,
+      [broadcastId, audience, draftId]
     ).catch(e => console.error('[newsletter] draft update failed:', e.message));
   }
 
   // Log to newsletter_sends
   try {
     await getPool().query(
-      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, sent_at)
-       VALUES ($1, $2, $3, $4, 'sent', NOW())`,
-      [req.tenantId, subject, articles.length, broadcastId]
+      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, audience, sent_at)
+       VALUES ($1, $2, $3, $4, 'sent', $5, NOW())`,
+      [req.tenantId, subject, articles.length, broadcastId, audience]
     );
   } catch (e) {
     console.error('[newsletter] failed to log send:', e.message);
@@ -396,9 +515,9 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   // Bust preview cache for this tenant
   _previewCache.delete(req.tenantId);
 
-  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId, format, draftId });
-  console.log(`[newsletter] sent broadcast ${broadcastId} (${format}) with ${articles.length} articles (tenant ${req.tenantId})`);
-  return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
+  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId, format, audience, draftId });
+  console.log(`[newsletter] sent broadcast ${broadcastId} (${format}, audience=${audience}) with ${articles.length} articles (tenant ${req.tenantId})`);
+  return res.status(200).json({ success: true, broadcastId, articleCount: articles.length, audience });
 }));
 
 // ── GET /preview — public cached preview ──────────────────────────────────────
@@ -427,7 +546,7 @@ router.get('/preview', asyncHandler(async (req, res) => {
 // ── GET /history ──────────────────────────────────────────────────────────────
 router.get('/history', auth, requirePermission('newsletter.read'), asyncHandler(async (req, res) => {
   const result = await getPool().query(
-    `SELECT id, sent_at, subject, article_count, broadcast_id, status
+    `SELECT id, sent_at, subject, article_count, broadcast_id, status, audience
      FROM newsletter_sends
      WHERE tenant_id = $1
      ORDER BY sent_at DESC
@@ -496,10 +615,9 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
   const appCfg  = await getAppConfig(tenantId).catch(() => ({}));
   const tz      = appCfg.newsroom_timezone || 'UTC';
   const dateStr = todayStr(tz);
-  const resendKey  = appCfg.resend_api_key;
-  const audienceId = appCfg.resend_audience_id;
+  const resendKey = appCfg.resend_api_key;
 
-  if (!resendKey || !audienceId) return { skipped: true, reason: 'no_resend_config' };
+  if (!resendKey || !appCfg.resend_audience_id) return { skipped: true, reason: 'no_resend_config' };
 
   // Only send if draft is pending AND hasn't been edited in the last 5 minutes
   const draft = await getPool().query(
@@ -526,6 +644,15 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
   const html    = format === 'weekly'
     ? buildWeeklyEmail(articles, site, draft.intro, draft.story_arc || null)
     : buildEmail(articles, site, draft.intro);
+
+  // Resolve audience from draft; fail explicitly rather than silently blasting the free list
+  const draftAudience = draft.audience || 'all';
+  if (draftAudience === 'paid' && !appCfg.resend_paid_audience_id) {
+    return { skipped: true, reason: 'paid_audience_not_configured' };
+  }
+  const audienceId = draftAudience === 'paid'
+    ? appCfg.resend_paid_audience_id
+    : appCfg.resend_audience_id;
 
   const _start = Date.now();
   const createRes = await fetch('https://api.resend.com/broadcasts', {
@@ -580,17 +707,17 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
 
   try {
     await getPool().query(
-      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, sent_at)
-       VALUES ($1, $2, $3, $4, 'sent', NOW())`,
-      [tenantId, subject, articles.length, broadcastId]
+      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, audience, sent_at)
+       VALUES ($1, $2, $3, $4, 'sent', $5, NOW())`,
+      [tenantId, subject, articles.length, broadcastId, draftAudience]
     );
   } catch (e) {
     console.error('[newsletter] failed to log auto-send:', e.message);
   }
 
   _previewCache.delete(tenantId);
-  console.log(`[newsletter] auto-sent broadcast ${broadcastId} (tenant ${tenantId}, ${format}, ${articles.length} articles)`);
-  return { sent: true, broadcastId, articleCount: articles.length };
+  console.log(`[newsletter] auto-sent broadcast ${broadcastId} (tenant ${tenantId}, ${format}, audience=${draftAudience}, ${articles.length} articles)`);
+  return { sent: true, broadcastId, articleCount: articles.length, audience: draftAudience };
 }
 
 // ── Auto-fetch fallback (legacy behaviour) ────────────────────────────────────

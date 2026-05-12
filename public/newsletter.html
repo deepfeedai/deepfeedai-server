@@ -209,6 +209,15 @@
           </div>
         </div>
 
+        <!-- Audience selector -->
+        <div class="form-group" style="margin-bottom:12px;">
+          <label class="form-label">Audience</label>
+          <select id="audienceSelect" class="form-control" style="max-width:260px;">
+            <option value="all">All subscribers</option>
+            <option value="paid">Paid subscribers only</option>
+          </select>
+        </div>
+
         <!-- Action bar -->
         <div class="nl-action-bar">
           <button class="btn btn-outline" id="previewBtn">👁 Preview</button>
@@ -243,6 +252,7 @@
               <th>Sent</th>
               <th>Subject</th>
               <th>Articles</th>
+              <th>Audience</th>
               <th>Broadcast ID</th>
               <th>Status</th>
             </tr>
