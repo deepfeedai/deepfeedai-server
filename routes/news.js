@@ -994,6 +994,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
     script:            row.script || null,
     voice_name:        row.voice_name || null,
     voice_avatar_url:  row.voice_avatar_url || null,
+    thumbnail_url:     row.thumbnail_url || null,
     created_at:        row.created_at,
     articles,
   });

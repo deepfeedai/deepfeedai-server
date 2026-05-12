@@ -1187,11 +1187,12 @@
             if (!window.confirm('Delete the ' + edKey + ' briefing? It can be regenerated.')) return;
             var qDate = date ? '?date=' + date : '';
             apiFetch('/admin/budget/briefing/' + edKey + qDate, { method: 'DELETE' }).then(function () {
-              // Reset row to "Generate" state
               label.textContent = 'Generate';
               btn.classList.remove('btn-success-muted');
               btn.disabled = false;
               wrap.remove();
+              var tw = ctrl.querySelector('.brief-thumb-wrap');
+              if (tw) tw.remove();
             }).catch(function (err) {
               alert('Delete failed: ' + (err.message || err));
             });
@@ -1199,6 +1200,92 @@
           wrap.appendChild(delBtn);
 
           ctrl.appendChild(wrap);
+
+          // ── Thumbnail section ───────────────────────────────────
+          var thumbWrap = document.createElement('div');
+          thumbWrap.className = 'brief-thumb-wrap';
+          thumbWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;margin-top:4px;flex-wrap:wrap;';
+
+          function renderThumbSection(thumbUrl) {
+            thumbWrap.innerHTML = '';
+
+            if (thumbUrl) {
+              var preview = document.createElement('img');
+              preview.src = thumbUrl;
+              preview.alt = '';
+              preview.style.cssText = 'height:40px;width:71px;object-fit:cover;border-radius:4px;border:1px solid var(--border);';
+              thumbWrap.appendChild(preview);
+            }
+
+            // Upload button → hidden file input
+            var fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/png,image/jpeg,image/webp';
+            fileInput.style.display = 'none';
+            thumbWrap.appendChild(fileInput);
+
+            var uploadBtn = document.createElement('button');
+            uploadBtn.className = 'btn btn-outline btn-sm';
+            uploadBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+            uploadBtn.textContent = thumbUrl ? '↑ Replace' : '↑ Upload';
+            uploadBtn.title = 'Upload a thumbnail image (PNG, JPEG, WebP)';
+            uploadBtn.addEventListener('click', function () { fileInput.click(); });
+            thumbWrap.appendChild(uploadBtn);
+
+            fileInput.addEventListener('change', function () {
+              var file = fileInput.files[0];
+              if (!file) return;
+              uploadBtn.textContent = 'Uploading…';
+              uploadBtn.disabled = true;
+              var fd = new FormData();
+              fd.append('thumbnail', file);
+              var qDate = date ? '?date=' + date : '';
+              fetch('/api/admin/budget/briefing/' + edKey + '/thumbnail/upload' + qDate, {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + (localStorage.getItem('deepfeedai_token') || '') },
+                body: fd,
+              }).then(function (r) { return r.json(); }).then(function (d) {
+                if (d.thumbnail_url) renderThumbSection(d.thumbnail_url);
+                else { uploadBtn.textContent = '↑ Upload'; uploadBtn.disabled = false; alert('Upload failed'); }
+              }).catch(function () { uploadBtn.textContent = '↑ Upload'; uploadBtn.disabled = false; alert('Upload failed'); });
+            });
+
+            // AI generate button
+            var genBtn = document.createElement('button');
+            genBtn.className = 'btn btn-outline btn-sm';
+            genBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+            genBtn.textContent = '✨ AI image';
+            genBtn.title = 'Generate a thumbnail using AI';
+            genBtn.addEventListener('click', function () {
+              genBtn.textContent = 'Generating…';
+              genBtn.disabled = true;
+              var qDate = date ? '?date=' + date : '';
+              apiFetch('/admin/budget/briefing/' + edKey + '/thumbnail/generate' + qDate, { method: 'POST' }).then(function (d) {
+                if (d.thumbnail_url) renderThumbSection(d.thumbnail_url);
+                else { genBtn.textContent = '✨ AI image'; genBtn.disabled = false; alert('Generation failed'); }
+              }).catch(function (err) { genBtn.textContent = '✨ AI image'; genBtn.disabled = false; alert('Generation failed: ' + (err.message || err)); });
+            });
+            thumbWrap.appendChild(genBtn);
+
+            // Remove button (only if thumbnail exists)
+            if (thumbUrl) {
+              var removeBtn = document.createElement('button');
+              removeBtn.className = 'btn btn-outline btn-sm';
+              removeBtn.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--muted);';
+              removeBtn.textContent = '✕ Remove';
+              removeBtn.title = 'Remove thumbnail';
+              removeBtn.addEventListener('click', function () {
+                var qDate = date ? '?date=' + date : '';
+                apiFetch('/admin/budget/briefing/' + edKey + '/thumbnail' + qDate, { method: 'DELETE' }).then(function () {
+                  renderThumbSection(null);
+                }).catch(function (err) { alert('Remove failed: ' + (err.message || err)); });
+              });
+              thumbWrap.appendChild(removeBtn);
+            }
+          }
+
+          renderThumbSection(briefing.thumbnail_url || null);
+          ctrl.appendChild(thumbWrap);
         }
       } else if (briefing.status === 'pending') {
         var age = Date.now() - new Date(briefing.updated_at || briefing.created_at).getTime();

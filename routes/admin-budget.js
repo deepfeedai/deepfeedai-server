@@ -602,4 +602,143 @@ router.delete('/briefing/:edition', auth, requirePermission('articles.write'), a
   res.json({ ok: true });
 }));
 
+// ── Briefing thumbnail helpers ────────────────────────────────────────────────
+const multer = require('multer');
+const THUMB_ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const thumbUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, THUMB_ALLOWED_MIMES.has(file.mimetype)),
+});
+
+function resolveEditionDate(req, tz) {
+  return req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+    ? req.query.date
+    : new Date().toLocaleDateString('en-CA', { timeZone: tz });
+}
+
+// POST /api/admin/budget/briefing/:edition/thumbnail/upload — manual image upload
+router.post('/briefing/:edition/thumbnail/upload',
+  auth, requirePermission('articles.write'),
+  thumbUpload.single('thumbnail'),
+  asyncHandler(async (req, res) => {
+    const { edition } = req.params;
+    if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+      return res.status(400).json({ error: 'Invalid edition' });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No image file provided (PNG, JPEG, WebP; max 10MB)' });
+
+    const fileType = require('file-type');
+    const detected = await fileType.fromBuffer(req.file.buffer);
+    if (!detected || !THUMB_ALLOWED_MIMES.has(detected.mime)) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+    req.file.mimetype = detected.mime;
+
+    const storage = require('../lib/storage');
+    const crypto  = require('crypto');
+    const ext = storage.extFromMime(req.file.mimetype);
+    const filename = `briefing-thumb-${crypto.randomBytes(8).toString('hex')}-${Date.now()}.${ext}`;
+    const imageUrl = await storage.upload(req.file.buffer, req.file.mimetype, `images/${filename}`, req.tenantId);
+
+    const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateParam = resolveEditionDate(req, tz);
+
+    const result = await getPool().query(
+      `UPDATE daily_briefings SET thumbnail_url = $1, updated_at = NOW()
+       WHERE tenant_id = $2 AND briefing_date = $3 AND edition = $4 RETURNING id`,
+      [imageUrl, req.tenantId, dateParam, edition]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Briefing not found' });
+    res.json({ ok: true, thumbnail_url: imageUrl });
+  })
+);
+
+// POST /api/admin/budget/briefing/:edition/thumbnail/generate — AI-generate a thumbnail
+router.post('/briefing/:edition/thumbnail/generate',
+  auth, requirePermission('articles.write'),
+  asyncHandler(async (req, res) => {
+    const { edition } = req.params;
+    if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+      return res.status(400).json({ error: 'Invalid edition' });
+    }
+
+    const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateParam = resolveEditionDate(req, tz);
+
+    const row = await db.prepare(
+      `SELECT id, script, edition FROM daily_briefings
+       WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status = 'ready'`
+    ).get(req.tenantId, dateParam, edition);
+    if (!row) return res.status(404).json({ error: 'Briefing not found or not ready' });
+
+    const { getVisualConcept, buildImagePrompt, storeImage, getArtDirection } = require('../lib/media-helpers');
+    const { generateImage } = require('../lib/ai-router');
+    const crypto = require('crypto');
+
+    const EDITION_LABELS = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' };
+    const edLabel = EDITION_LABELS[edition] || edition;
+    const scriptSnippet = (row.script || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    const title = `${edLabel} AI News Briefing — ${dateParam}`;
+
+    const visualResult = await getVisualConcept(title, scriptSnippet, 'News', req.tenantId, 'admin');
+    const tenantArtDirection = await getArtDirection(req.tenantId, 'thumbnails');
+    const fullPrompt = buildImagePrompt(visualResult, title, {
+      category: 'News',
+      tier: 'standard',
+      tenantArtDirection,
+      articleType: 'article',
+    });
+
+    let b64;
+    try {
+      const result = await generateImage({
+        tenantId: req.tenantId,
+        prompt: fullPrompt,
+        operation: 'thumbnail-render',
+        aspectRatio: '16:9',
+        trigger: 'admin',
+      });
+      b64 = result.b64;
+    } catch (err) {
+      return res.status(500).json({ error: 'Image generation failed', detail: err.message });
+    }
+
+    const pngBuf  = Buffer.from(b64, 'base64');
+    const filename = `briefing-thumb-${crypto.randomBytes(8).toString('hex')}-${Date.now()}.png`;
+    const imageUrl = await storeImage(pngBuf, filename, req.tenantId);
+
+    await getPool().query(
+      `UPDATE daily_briefings SET thumbnail_url = $1, updated_at = NOW()
+       WHERE tenant_id = $2 AND briefing_date = $3 AND edition = $4`,
+      [imageUrl, req.tenantId, dateParam, edition]
+    );
+    res.json({ ok: true, thumbnail_url: imageUrl });
+  })
+);
+
+// DELETE /api/admin/budget/briefing/:edition/thumbnail — remove thumbnail
+router.delete('/briefing/:edition/thumbnail',
+  auth, requirePermission('articles.write'),
+  asyncHandler(async (req, res) => {
+    const { edition } = req.params;
+    if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+      return res.status(400).json({ error: 'Invalid edition' });
+    }
+    const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateParam = resolveEditionDate(req, tz);
+
+    const result = await getPool().query(
+      `UPDATE daily_briefings SET thumbnail_url = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 RETURNING id`,
+      [req.tenantId, dateParam, edition]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Briefing not found' });
+    res.json({ ok: true });
+  })
+);
+
 module.exports = router;
