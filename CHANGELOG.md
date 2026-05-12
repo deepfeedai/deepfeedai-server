@@ -4,7 +4,14 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
-## Unreleased
+## [1.1.0-alpha.1] — 2026-05-13
+
+### Fixed
+
+- **`published_at` not refreshed on manual publish** — `PUT /api/articles/:id/publish` was missing `published_at = NOW()` in its UPDATE. The dashboard's "today" count uses a timezone-aware `date_trunc` window; articles synthesized on a prior calendar day and then manually published were not counted in today's total.
+- **Daily cap check used UTC `CURRENT_DATE`** — `evaluatePublish()` in `publish-gate.js` compared `published_at` against PostgreSQL `CURRENT_DATE`, which uses the session timezone (UTC on Railway). Newsrooms in non-UTC timezones saw the UTC day roll over before their local day ended, making the cap appear lower than reality and causing articles to be pushed to tomorrow's drop window even when today still had open slots.
+- **Article-publisher cron had same UTC cap bug** — the capacity check in the `article-publisher` cron (fires every 5 minutes) used the same `CURRENT_DATE` pattern. Both are now fixed to use `date_trunc('day', NOW() AT TIME ZONE $tz) AT TIME ZONE $tz` with the newsroom's configured timezone.
+- **No warning when pitch approval schedules article for a future day** — `POST /api/admin/pitches/:id/approve` now returns `scheduled_for_future_day: true` and the article's `publish_at` when synthesis pushes the result to the next available window in a future calendar day, so the client can surface a clear warning instead of the article silently appearing on tomorrow's runsheet.
 
 ---
 
