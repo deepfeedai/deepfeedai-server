@@ -68,7 +68,9 @@
 
   // ── Draft: save ────────────────────────────────────────────────
   async function saveDraft(silent = false) {
-    const ids = getSelectedIds();
+    const ids     = getSelectedIds();
+    const saveBtn = el('saveDraftBtn');
+    if (!silent && saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '💾 Saving…'; }
     try {
       const draftBody = {
         article_ids: ids,
@@ -86,12 +88,20 @@
       });
       currentDraft = draft;
       if (!silent) {
-        el('nlSaveIndicator').textContent = '✓ Saved';
-        setTimeout(() => { el('nlSaveIndicator').textContent = ''; }, 2000);
+        el('nlSaveIndicator').textContent = '';
+        if (saveBtn) {
+          saveBtn.textContent = '✓ Saved';
+          setTimeout(() => { saveBtn.textContent = '💾 Save Draft'; }, 2000);
+        }
       }
       renderBanner(draft);
     } catch (err) {
-      if (!silent) el('nlSaveIndicator').textContent = 'Save failed';
+      if (!silent) {
+        el('nlSaveIndicator').textContent = 'Save failed';
+        alert('Save failed: ' + escHtml(err.message));
+      }
+    } finally {
+      if (!silent && saveBtn) saveBtn.disabled = false;
     }
   }
 

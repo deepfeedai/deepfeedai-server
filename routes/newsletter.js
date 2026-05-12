@@ -326,12 +326,13 @@ router.post('/draft/suggest-intro', auth, requirePermission('newsletter.send'), 
 
   const site     = await getSiteConfig(req.tenantId);
   const stories  = articles.map((a, i) => `${i + 1}. ${a.title}`).join('\n');
-  const prompt   = await loadPrompt('newsletter-intro', { siteName: site.name || 'Deep Feed AI', stories });
+  const { messages: introMsgs, ...introMeta } = loadPrompt('newsletter-intro').render({ siteName: site.name || 'Deep Feed AI', stories });
 
   const result = await aiComplete({
     operation: 'newsletter-intro',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  introMsgs,
+    ...introMeta,
   });
 
   return res.json({ intro: result.text.trim() });
@@ -348,12 +349,13 @@ router.post('/draft/suggest-subject', auth, requirePermission('newsletter.send')
   if (!articles.length) return res.status(400).json({ error: 'No valid articles found' });
 
   const stories = articles.slice(0, 5).map((a, i) => `${i + 1}. ${a.title}`).join('\n');
-  const prompt  = await loadPrompt('newsletter-subject', { stories });
+  const { messages: subjectMsgs, ...subjectMeta } = loadPrompt('newsletter-subject').render({ stories });
 
   const result = await aiComplete({
     operation: 'newsletter-subject',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  subjectMsgs,
+    ...subjectMeta,
   });
 
   return res.json({ subject: result.text.trim().replace(/^["']|["']$/g, '') });
@@ -371,12 +373,13 @@ router.post('/draft/suggest-story-arc', auth, requirePermission('newsletter.send
 
   const site     = await getSiteConfig(req.tenantId);
   const articleList = articles.map((a, i) => `${i + 1}. ${a.title} (${a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ''})`).join('\n');
-  const prompt   = await loadPrompt('newsletter-story-arc', { siteName: site.name || 'Deep Feed AI', articles: articleList });
+  const { messages: arcMsgs, ...arcMeta } = loadPrompt('newsletter-story-arc').render({ siteName: site.name || 'Deep Feed AI', articles: articleList });
 
   const result = await aiComplete({
     operation: 'newsletter-story-arc',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  arcMsgs,
+    ...arcMeta,
   });
 
   return res.json({ storyArc: result.text.trim() });
@@ -907,7 +910,7 @@ function articleCard(article, siteUrl = 'https://deepfeedai.com', catColors = {}
   const catColor = _safeCssColor(catColors[cat]) || _safeCssColor(fallbackColors[cat]) || '#7c3aed';
   const date     = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
   const summary  = article.description ? _escHtmlEmail(article.description.slice(0, 160) + (article.description.length > 160 ? '…' : '')) : '';
-  const link     = `${siteUrl}/article?u=${encodeURIComponent(article.url)}&t=${encodeURIComponent(article.title)}&s=${encodeURIComponent(article.source || '')}&c=${encodeURIComponent(cat)}`;
+  const link     = _safeUrl(article.url, siteUrl);
   const safeImg  = _safeUrl(article.imageUrl, '');
 
   const thumbRow = safeImg ? `
