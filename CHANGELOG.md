@@ -8,6 +8,32 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.0-pre-release] — 2026-05-12
+
+**Briefing polish — shareable pages, thumbnails, and social card fixes.**
+
+> **Versioning note:** Previous tags v1.0.5-beta through v1.0.14-beta represented alpha-stage development milestones. This release marks the first pre-release candidate with all core briefing features complete and validated end-to-end.
+
+### Added
+
+- **Briefing delete** — editors can delete any ready briefing edition from the budget page to force a clean regeneration. The delete button appears inline next to each ready briefing in the admin UI.
+- **Copy link in admin** — each ready briefing has a "Copy link" button that writes the public share URL to the clipboard without leaving the admin portal.
+- **Optional briefing thumbnails** — upload a custom thumbnail or AI-generate one from the budget page. Thumbnails appear as a hero image on the shareable briefing page (`/briefing/:date/:edition`) and are used as the OG/Twitter Card image for social shares. Supports PNG, JPEG, and WebP up to 10 MB. Stored in R2.
+- **One-click AI thumbnail generation** — generates a thumbnail via the existing image pipeline (visual concept → prompt → image generation → R2 upload) and sets it immediately on the briefing.
+- **OG social card improvements** — added `og:image:url`, `og:image:type`, and `twitter:image:src` to all Vercel Edge OG shells for reliable card rendering on X (Twitter). Briefing OG image priority: thumbnail → writer avatar → site default.
+
+### Fixed
+
+- **"Unable to load this briefing"** — the public briefing share URL returned 400 when the API returned a full ISO datetime (`2026-05-12T00:00:00.000Z`) in the date field. Date is now normalized to `YYYY-MM-DD` at the API source and at every consumer.
+- **"Invalid Date" in briefing social preview title** — the middleware and briefing page appended `T12:00:00Z` to a string that already contained a time component. Fixed by slicing to `YYYY-MM-DD` before constructing the `Date` object.
+- **Writer name and avatar not updating on edition tab switch** — switching between Morning/Afternoon/Evening editions in the Today's Briefing modal now correctly shows the anchor name and avatar for the selected edition.
+- **Play button couldn't pause** — clicking the briefing play button a second time now pauses playback. Previously the button was disabled after the first click, requiring users to close the modal and use the bottom mini-player.
+- **`reader-prefs.js` crash on briefing page** — script accessed `document.body` synchronously in `<head>` before the DOM was ready. Fixed by adding `defer`.
+- **`auth.js` bell crash on briefing page** — notification bell setup tried to insert into a nav element that doesn't exist on the standalone briefing page. Now returns early when the nav anchor is absent.
+- **`thumbnail_url` not absolute in public briefing API** — relative paths for `thumbnail_url` are now normalized to absolute CDN URLs using the same logic as `audio_url`.
+
+---
+
 ## [1.0.14-beta] — 2026-05-12
 
 **Shareable briefings, activity feed polish, and AI usage improvements.**
