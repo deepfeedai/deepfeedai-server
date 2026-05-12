@@ -8,6 +8,67 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.14-beta] — 2026-05-12
+
+**Shareable briefings, activity feed polish, and AI usage improvements.**
+
+### Added
+
+- **Shareable briefing page** — each daily briefing edition now has a permanent URL (`/briefing/:date/:edition`) with an inline audio player, scrollable transcript, and links to every story covered. Shareable from the public site.
+- **`GET /api/news/briefing/:date/:edition`** — public API endpoint to retrieve any briefing by date and edition; used by the new shareable page.
+- **AI Usage: Today tab** — "Today" range tab shows spend and credit usage for the current calendar day alongside the existing 7/30/90-day ranges.
+
+### Fixed
+
+- **Briefing date navigation** — generating or loading briefings for past dates now works correctly; the budget page date picker passes the selected date through to generation and playback.
+- **Activity feed raw JSON cards** — events without a dedicated renderer (`editorial_review`, `article_rewritten`, `synthesis_started`, `thread_updated`, `story_updated`, `pitch_proposed`, `wire_cluster`) previously showed raw JSON in the card body. All now render as readable summaries with relevant links.
+- **Activity feed text cut-off** — writer standups and daily brief prose were truncated mid-sentence by CSS line-clamp. Replaced with a JS sentence-boundary preview (~280 chars) that ends on a complete sentence; a "Show more" button expands the full text.
+- **AI Usage anomaly banner false positives** — anomaly detection now excludes today from the baseline average (today is always incomplete, so including it inflated the ratio). The banner only fires when today's spend genuinely exceeds the historical daily average.
+- **AI Usage credits display** — removed the `cr` abbreviation from all credit counts; numbers now display without a unit suffix.
+- **Default admin view** — post-login now lands on the Classic dashboard. The Newsroom is still accessible from the main nav; it becomes the default once it reaches full feature parity.
+
+### Changed
+
+- **Live feed Newsroom tab** — now the first tab in the public live feed widget (previously third), and the feed panel always opens expanded on page load.
+- **Newsroom Glass on light/sepia themes** — replaced hardcoded white RGBA values in the Newsroom tab CSS with theme variables so headlines, borders, and event cards are readable in all four reader themes.
+
+---
+
+## [1.0.13-beta] — 2026-05-11
+
+**Newsroom Glass Phase B — live feed widget wired to event stream.**
+
+### Changed
+
+- **Newsroom tab event rendering** — added icon and colour rules for all Phase A event types: `pitch_proposed` (indigo 📋), `pitch_approved` (mint ✓), `pitch_rejected` (red ✕), `thread_updated` (slate ↻), `wire_cluster` (amber ⚡).
+- **Pitch lifecycle threading** — `groupEvents` now threads pitch events by `target_pitch_id` so `pitch_proposed → pitch_approved → synthesis_started` for the same pitch collapses into a single developing thread instead of three separate cards.
+- **Story/thread links** — `thread_updated` and `story_updated` events now link to `/story/` instead of `/article/`, so the card navigates to the correct story page.
+- **Source count badge** — shown on `pitch_proposed` and `wire_cluster` events when `payload.source_count > 1`.
+
+---
+
+## [1.0.12-beta] — 2026-05-11
+
+**Runsheet pipeline trail + Newsroom Glass Phase A event wiring.**
+
+### Added
+
+- **Inline pipeline status trail on Runsheet slot cards** — each approved slot card now shows a four-dot progress bar: Plan → Assigned → Writing → Published. Dots fill as each stage is reached. A detail line below shows current state: pitch status label, "In review" when an article is drafted, or a direct link to view/preview the article when published or scheduled.
+- **Wire source badge on Runsheet slots** — slots whose source articles include Feed Inbox (curated/wire) items now show an amber "Wire source" badge, clearly distinguishing them from slots seeded by original coverage.
+- **Newsroom Glass Phase A — public event emission wiring** (foundation for the upcoming live feed):
+  - `emitPitchProposed()` helper in `lib/newsroom-events.js` — fires a public `pitch_proposed` event when a story pitch is created.
+  - Called on slot approval via the admin Runsheet, on auto-promotion via `news-budget.js`, and on writer-agent beat-search pitch creation.
+  - `pitch_approved` event emitted when an editor greenlights a pitch via the Pitches page.
+  - `thread_updated` event emitted when a story thread gains its second article, marking an ongoing investigation for the public live feed.
+
+### Fixed
+
+- **Briefing 500 on no articles** — daily briefing generation now returns HTTP 422 (with a human-readable reason) for user-fixable conditions (`no_articles`, `no_voice`, `budget_exceeded`), reserving 500 for genuine system errors. The frontend surfaces the reason label instead of a raw status code.
+- **Deep-dive cap counted against wrong calendar day** — the timezone-aware cap check used UTC (`toISOString()`) instead of the newsroom's local calendar day, causing yesterday's deep dives to inflate today's count. Fixed with `toLocaleDateString('en-CA', { timeZone: tz })`.
+- **Approved slots lost on budget regeneration** — force-regen deleted the entire budget (cascading to all slots), wiping approved/auto-promoted items. Non-pending slots are now snapshotted before deletion and re-inserted into the freshly generated budget.
+
+---
+
 ## [1.0.11-beta] — 2026-05-11
 
 **Pitches page overhaul — bulk triage, orthogonal view/group controls, and full skin polish.**

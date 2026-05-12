@@ -162,6 +162,46 @@
     });
   }
 
+  // ── Pipeline status trail (slot → pitch → article) ────────────────────────
+  function pipelineTrailHtml(slot) {
+    if ((slot.status || 'pending') === 'rejected') return '';
+
+    var hasPitch      = !!slot.pitch_id;
+    var hasArticle    = !!slot.article_id;
+    var isPublished   = slot.article_is_published == 1;
+    var isScheduled   = slot.article_status === 'scheduled';
+    var hasWriter     = !!(slot.assigned_writer_id || slot.recommended_writer_id);
+
+    var reached = [
+      true,                        // Plan — slot exists
+      hasWriter,                   // Assigned
+      hasPitch || hasArticle,      // Writing — pitch filed
+      isPublished || isScheduled,  // Published / Scheduled
+    ];
+    var labels = ['Plan', 'Assigned', 'Writing', 'Published'];
+
+    var dots = labels.map(function (lbl, i) {
+      return '<span class="pt-dot' + (reached[i] ? ' pt-dot--done' : '') + '" title="' + esc(lbl) + '"></span>';
+    }).join('');
+
+    var detail = '';
+    if (isPublished && slot.article_slug) {
+      detail = '<a class="pt-link" href="/article/' + esc(slot.article_slug) + '" target="_blank" rel="noopener">&#8599; View article</a>';
+    } else if (isScheduled && slot.article_slug) {
+      detail = '<a class="pt-link" href="/article/' + esc(slot.article_slug) + '" target="_blank" rel="noopener">&#8599; Preview draft</a>';
+    } else if (hasArticle && !isPublished) {
+      detail = '<span class="pt-status">In review</span>';
+    } else if (hasPitch) {
+      var pMap = { proposed: 'Pitch filed', approved: 'Approved', synthesized: 'Synthesizing…', dismissed: 'Dismissed' };
+      detail = '<span class="pt-status">' + esc(pMap[slot.pitch_status] || slot.pitch_status || '') + '</span>';
+    }
+
+    return '<div class="pipeline-trail">'
+      + '<div class="pt-dots"><div class="pt-line"></div>' + dots + '</div>'
+      + (detail ? '<div class="pt-detail">' + detail + '</div>' : '')
+      + '</div>';
+  }
+
   // ── Render a single budget card ────────────────────────────────────────────
   function renderCard(slot) {
     var displayName = slot.assigned_writer_name || slot.recommended_writer_name || '';
@@ -221,6 +261,7 @@
           publishNowBtn,
           rescheduleBtn2,
         '</div>',
+        pipelineTrailHtml(slot),
       '</div>',
     ].join('');
   }
@@ -1132,13 +1173,20 @@
       }
     }
 
-    // Load today's briefings
-    apiFetch('/admin/budget/briefing').then(function (data) {
-      var briefings = data.briefings || [];
-      var byEdition = {};
-      briefings.forEach(function (b) { byEdition[b.edition] = b; });
-      EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
-    }).catch(function () {});
+    // Load briefings for the active runsheet date
+    function loadBriefingsForDate(date) {
+      apiFetch('/admin/budget/briefing?date=' + date).then(function (data) {
+        var briefings = data.briefings || [];
+        var byEdition = {};
+        briefings.forEach(function (b) { byEdition[b.edition] = b; });
+        EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
+      }).catch(function () {});
+    }
+
+    loadBriefingsForDate(currentDate);
+
+    // Expose so the date picker can reload briefings when switching dates
+    window._briefingReload = loadBriefingsForDate;
 
     var BRIEFING_ERRORS = {
       no_articles:     'No articles — publish some first',
@@ -1160,7 +1208,7 @@
       try {
         var data = await apiFetch('/admin/budget/briefing/generate', {
           method: 'POST',
-          body: JSON.stringify({ force: true, edition }),
+          body: JSON.stringify({ force: true, edition, date: currentDate }),
         });
         if (data.ok) {
           applyBriefingState(edition, { status: 'ready', audio_url: data.audio_url });
@@ -1184,6 +1232,7 @@
   datePicker.addEventListener('change', function () {
     currentDate = datePicker.value;
     loadBudget(currentDate);
+    if (window._briefingReload) window._briefingReload(currentDate);
   });
 
   // ── Editorial note: auto-save on blur ──────────────────────────────────────

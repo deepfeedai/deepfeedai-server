@@ -222,8 +222,16 @@ router.get('/summary', requirePermission('analytics.read'), asyncHandler(async (
     ? totalCost / (totalInput + (parseInt(cs.total_output_tokens) || 0)) : 0;
   const costSavedEstimate = Math.round(cachedTok * avgCostPerToken * 0.6 * 1000000) / 1000000;
 
-  // Anomaly: today spend vs daily avg over period
-  const avgDailySpend = days > 0 ? monthlySpend / Math.min(dayOfMonth, days) : 0;
+  // Anomaly: compare today's spend against the daily average of prior days in the
+  // selected range (today excluded from the baseline to avoid self-reinforcing ratios).
+  // Use total calendar days in the range minus 1 as the denominator so zero-spend days
+  // are smoothed in — this prevents a spike on the first day of real usage triggering
+  // a false anomaly by comparing against an artificially tiny average.
+  const todayKey   = new Date().toISOString().slice(0, 10);
+  const prevDayRows = byDay.rows.filter(r => r.day && String(r.day).slice(0, 10) !== todayKey);
+  const prevSpend  = prevDayRows.reduce((sum, r) => sum + (parseFloat(r.cost) || 0), 0);
+  const prevDaysCount = Math.max(1, days - 1); // calendar days before today in range
+  const avgDailySpend = prevSpend / prevDaysCount;
   const anomalyFactor = avgDailySpend > 0 ? todaySpend / avgDailySpend : 0;
 
   const bk = byokSplit.rows[0] || {};

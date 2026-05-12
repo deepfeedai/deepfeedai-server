@@ -47,6 +47,7 @@
     .byok-card-platform { border-color:var(--border); }
 
     /* ── Anomaly banner ─── */
+    [hidden] { display:none !important; }
     .anomaly-banner { display:flex; align-items:center; gap:10px; padding:10px 14px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.35); border-radius:8px; margin-bottom:var(--space-5); font-size:13px; }
     .anomaly-banner .anomaly-icon { font-size:18px; flex-shrink:0; }
 
@@ -80,6 +81,7 @@
       <!-- Controls -->
       <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:var(--space-4);gap:8px;">
         <div class="range-tabs" id="rangeTabs">
+          <button class="range-tab" data-range="1d">Today</button>
           <button class="range-tab" data-range="7d">7d</button>
           <button class="range-tab active" data-range="30d">30d</button>
           <button class="range-tab" data-range="90d">90d</button>
@@ -191,8 +193,8 @@
             <div class="budget-fill" id="creditsFill" style="width:0%;background:#22c55e;"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;">
-            <span id="creditsToday">Today: 0 cr</span>
-            <span id="creditsRemaining">Remaining: 0 cr</span>
+            <span id="creditsToday">Today: 0</span>
+            <span id="creditsRemaining">Remaining: 0</span>
           </div>
         </div>
       </div>
