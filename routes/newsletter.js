@@ -107,7 +107,7 @@ function articleToEmailItem(a, siteUrl, appCfg = {}) {
     category:    a.category || 'Industry',
     imageUrl:    a.image_url || null,
     contentType: a.content_type || null,
-    tier:        a.tier || 'standard',
+    tier:        a.importance || 'standard',
   };
 }
 
@@ -136,9 +136,9 @@ async function fetchCandidates(tenantId) {
        AND a.published_at >= NOW() - INTERVAL '48 hours'
        AND ($2::int[] IS NULL OR a.id != ALL($2::int[]))
      ORDER BY
-       CASE WHEN a.tier = 'breaking' THEN 0
-            WHEN a.tier = 'major'    THEN 1
-            WHEN a.tier = 'trending' THEN 2
+       CASE WHEN a.importance = 'breaking' THEN 0
+            WHEN a.importance = 'major'    THEN 1
+            WHEN a.importance = 'trending' THEN 2
             ELSE 3 END,
        a.published_at DESC
      LIMIT 20`,
