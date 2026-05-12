@@ -1038,36 +1038,51 @@ registerJob({
 
 registerJob({
   name: 'newsletter',
-  description: 'Weekly newsletter',
+  description: 'Newsletter auto-draft — curates article selection at 6:30 AM (Mon–Fri)',
   category: 'Notifications',
-  defaultSchedule: '0 14 * * 1',
+  defaultSchedule: '30 6 * * 1-5',
   handler: async (tenantId) => {
-    const appCfg     = await getAppConfig(tenantId);
-    const resendKey  = appCfg.resend_api_key;
-    const audienceId = appCfg.resend_audience_id;
-    if (!resendKey || !audienceId) return { skipped: 'Resend not configured' };
-    console.log(`[Cron] Sending weekly newsletter (tenant ${tenantId})...`);
-    const { cronSecret } = await getSecrets();
-    // Look up tenant UUID for the X-Tenant-Id header
-    const tenantRow = await db.prepare('SELECT uuid FROM tenants WHERE id = $1').get(tenantId);
-    const tenantIdHeader = tenantRow?.uuid || String(tenantId); // grace fallback
-    const res = await fetch(`http://localhost:${PORT}/api/newsletter/send`, {
-      method:  'POST',
-      headers: {
-        'Content-Type':   'application/json',
-        'x-cron-secret':  cronSecret || '',
-        'X-Tenant-Id':    tenantIdHeader,
-      },
-      body: JSON.stringify({}),
-    });
-    const data = await res.json();
-    if (data.success) {
-      console.log(`[Cron] Newsletter (tenant ${tenantId}) sent — broadcast ${data.broadcastId}, ${data.articleCount} articles`);
-      return { broadcastId: data.broadcastId, articleCount: data.articleCount };
-    } else {
-      console.error(`[Cron] Newsletter (tenant ${tenantId}) failed:`, data.error);
-      throw new Error(data.error || 'Newsletter send failed');
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'newsletter').catch(() => false);
+    if (!enabled) return { skipped: 'newsletter feature not enabled' };
+
+    const { createAutoDraft } = require('./routes/newsletter');
+    const results = { daily: await createAutoDraft(tenantId, 'daily') };
+
+    // Also create weekly draft on Thursdays (in newsroom timezone)
+    const appCfg = await getAppConfig(tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
+    if (dayOfWeek === 'Thu') {
+      results.weekly = await createAutoDraft(tenantId, 'weekly');
     }
+
+    return results;
+  },
+});
+
+registerJob({
+  name: 'newsletter-auto-send',
+  description: 'Newsletter auto-send — sends pending drafts at 7:30 AM if editor has not acted (Mon–Fri)',
+  category: 'Notifications',
+  defaultSchedule: '30 7 * * 1-5',
+  handler: async (tenantId) => {
+    const { isFeatureEnabled } = require('./lib/feature-registry');
+    const enabled = await isFeatureEnabled(tenantId, 'newsletter').catch(() => false);
+    if (!enabled) return { skipped: 'newsletter feature not enabled' };
+
+    const { autoSendPendingDraft } = require('./routes/newsletter');
+    const results = { daily: await autoSendPendingDraft(tenantId, 'daily') };
+
+    // Also send weekly draft on Thursdays
+    const appCfg = await getAppConfig(tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
+    if (dayOfWeek === 'Thu') {
+      results.weekly = await autoSendPendingDraft(tenantId, 'weekly');
+    }
+
+    return results;
   },
 });
 

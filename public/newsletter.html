@@ -7,49 +7,132 @@
   <link rel="stylesheet" href="/admin.css" />
   <script src="/theme-init.js"></script>
   <style>
-    .preview-frame-wrap {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-      background: #0d0d1a;
-      position: relative;
-    }
-    .preview-frame-wrap iframe {
-      width: 100%;
-      height: 600px;
-      border: none;
-      display: block;
-    }
-    .preview-placeholder {
-      height: 600px;
+    /* ── Auto-send countdown banner ─────────────────────────────── */
+    .nl-draft-banner {
+      display: none;
+      background: linear-gradient(90deg, rgba(124,58,237,0.12), rgba(14,165,233,0.08));
+      border: 1px solid rgba(124,58,237,0.3);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
       gap: 12px;
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-    .preview-placeholder .big-icon { font-size: 48px; }
-    .send-bar {
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
       flex-wrap: wrap;
     }
-    .send-bar .form-group { flex: 1; min-width: 200px; margin-bottom: 0; }
-    .history-dot {
-      display: inline-block;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--success, #10b981);
-      margin-right: 6px;
+    .nl-draft-banner-left { display: flex; align-items: center; gap: 10px; }
+    .nl-draft-badge {
+      font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 5px;
+      background: rgba(124,58,237,0.2); color: #a855f7;
     }
+    .nl-draft-badge.auto-send-soon { background: rgba(239,68,68,0.15); color: #f87171; }
+    .nl-countdown { font-size: 13px; color: var(--text-muted); }
+    .nl-countdown strong { color: var(--text); }
+    .nl-draft-actions { display: flex; gap: 8px; }
+
+    /* ── Format toggle ───────────────────────────────────────────── */
+    .nl-format-toggle {
+      display: flex; gap: 6px; margin-bottom: 20px;
+    }
+    .nl-format-btn {
+      padding: 6px 16px; border-radius: 6px; font-size: 13px; font-weight: 600;
+      border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+      cursor: pointer; transition: all .15s;
+    }
+    .nl-format-btn.active {
+      background: rgba(124,58,237,0.15); color: #a855f7; border-color: rgba(124,58,237,0.4);
+    }
+    .nl-format-btn:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+
+    /* ── Compose card ────────────────────────────────────────────── */
+    .nl-compose-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;
+    }
+    @media (max-width: 700px) { .nl-compose-grid { grid-template-columns: 1fr; } }
+
+    .nl-suggest-row {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .nl-suggest-row .form-group { flex: 1; margin-bottom: 0; }
+    .nl-suggest-row .btn { flex-shrink: 0; white-space: nowrap; }
+
+    .nl-story-arc-section { display: none; }
+
+    /* ── Article picker ──────────────────────────────────────────── */
+    .nl-picker-wrap {
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 16px;
+    }
+    .nl-picker-header {
+      background: var(--bg-elevated, var(--bg-card));
+      padding: 10px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .nl-picker-header strong { font-weight: 600; }
+    .nl-picker-count { font-size: 12px; color: var(--text-muted); }
+
+    .nl-picker-list { max-height: 420px; overflow-y: auto; }
+    .nl-article-row {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      cursor: grab; transition: background .1s;
+    }
+    .nl-article-row:last-child { border-bottom: none; }
+    .nl-article-row:hover { background: var(--bg-elevated, var(--bg-card)); }
+    .nl-article-row.dragging { opacity: .4; }
+    .nl-article-row.drag-over { border-top: 2px solid var(--accent); }
+
+    .nl-drag-handle {
+      color: var(--text-muted); font-size: 16px; cursor: grab; padding-top: 2px; flex-shrink: 0;
+      user-select: none;
+    }
+    .nl-article-check { flex-shrink: 0; margin-top: 3px; }
+    .nl-article-meta { flex: 1; min-width: 0; }
+    .nl-article-title { font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 3px; }
+    .nl-article-sub { font-size: 11px; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .nl-tier-badge {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      padding: 1px 6px; border-radius: 4px;
+    }
+    .nl-tier-breaking { background: rgba(239,68,68,.15); color: #f87171; }
+    .nl-tier-major    { background: rgba(249,115,22,.15); color: #fb923c; }
+    .nl-tier-trending { background: rgba(234,179,8,.15);  color: #facc15; }
+
+    .nl-picker-empty {
+      text-align: center; padding: 32px 16px; color: var(--text-muted); font-size: 13px;
+    }
+
+    /* ── Preview frame ───────────────────────────────────────────── */
+    .preview-frame-wrap {
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #0d0d1a;
+    }
+    .preview-frame-wrap iframe { width: 100%; height: 600px; border: none; display: block; }
+    .preview-placeholder {
+      height: 600px; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 12px; color: var(--text-muted); font-size: 14px;
+    }
+    .preview-placeholder .big-icon { font-size: 48px; }
+
+    /* ── History ─────────────────────────────────────────────────── */
+    .history-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; background: var(--success, #10b981); margin-right: 6px;
+    }
+    .history-dot.skipped { background: var(--text-muted); }
+    .history-dot.auto    { background: #7c3aed; }
+
+    /* ── Send bar ────────────────────────────────────────────────── */
+    .nl-action-bar {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+    .nl-save-indicator { font-size: 12px; color: var(--text-muted); }
   </style>
 </head>
 <body>
 <div class="admin-layout">
-  <!-- Main -->
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
@@ -58,30 +141,81 @@
 
     <div class="page-body">
 
-      <!-- Send controls -->
+      <!-- Auto-send countdown banner -->
+      <div id="nlDraftBanner" style="display:none;" class="nl-draft-banner">
+        <div class="nl-draft-banner-left">
+          <span class="nl-draft-badge" id="nlDraftBadge">Draft Ready</span>
+          <span class="nl-countdown" id="nlCountdown"></span>
+        </div>
+        <div class="nl-draft-actions">
+          <button class="btn btn-sm btn-outline" id="skipTodayBtn">Skip Today</button>
+        </div>
+      </div>
+
+      <!-- Format toggle -->
+      <div class="nl-format-toggle">
+        <button class="nl-format-btn active" data-format="daily" id="fmtDaily">📧 Daily</button>
+        <button class="nl-format-btn" data-format="weekly" id="fmtWeekly">📊 Weekly Intelligence Report</button>
+      </div>
+
+      <!-- ── Compose & Send ── -->
       <div class="section-header">
-        <div class="section-title">Send Newsletter</div>
+        <div class="section-title">Compose</div>
+        <span class="nl-save-indicator" id="nlSaveIndicator"></span>
       </div>
 
       <div class="settings-card">
-        <div class="settings-card-header">
-          <div class="settings-card-icon">✉️</div>
-          <div>
-            <div class="settings-card-title">Compose &amp; Send</div>
-            <div class="settings-card-subtitle">Builds an email from the latest 8 published articles and sends to your Resend audience</div>
+
+        <div class="nl-compose-grid">
+          <!-- Subject -->
+          <div class="nl-suggest-row">
+            <div class="form-group">
+              <label class="form-label">Subject line</label>
+              <input type="text" id="subjectInput" class="form-control" placeholder="Auto-generated if blank" />
+            </div>
+            <button class="btn btn-outline btn-sm" id="suggestSubjectBtn" title="AI-suggest subject">✨</button>
+          </div>
+
+          <!-- Intro -->
+          <div class="nl-suggest-row">
+            <div class="form-group">
+              <label class="form-label">Editorial intro <span class="text-muted text-sm">(optional)</span></label>
+              <textarea id="introInput" class="form-control" rows="2" placeholder="AI-suggest or write your own intro paragraph…" style="resize:vertical;"></textarea>
+            </div>
+            <button class="btn btn-outline btn-sm" id="suggestIntroBtn" title="AI-suggest intro">✨</button>
           </div>
         </div>
 
-        <div class="send-bar" style="margin-bottom:16px;">
-          <div class="form-group">
-            <label class="form-label">Subject line <span class="text-muted text-sm">(optional — uses site config default if blank)</span></label>
-            <input type="text" id="subjectInput" class="form-control" placeholder="🤖 Deep Feed AI — Your Weekly AI Digest" />
+        <!-- Story Arc (weekly only) -->
+        <div class="nl-story-arc-section" id="storyArcSection">
+          <div class="nl-suggest-row" style="margin-bottom:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Story Arc <span class="text-muted text-sm">(weekly — a developing story we've been tracking)</span></label>
+              <textarea id="storyArcInput" class="form-control" rows="3" placeholder="Select articles below that belong to one story arc, then click ✨ to generate…" style="resize:vertical;"></textarea>
+            </div>
+            <button class="btn btn-outline btn-sm" id="suggestArcBtn" title="AI-suggest story arc">✨</button>
           </div>
+        </div>
+
+        <!-- Article picker -->
+        <div class="form-label" style="margin-bottom:8px;">Article selection <span class="text-muted text-sm" id="selectedCount">(0 selected)</span></div>
+        <div class="nl-picker-wrap">
+          <div class="nl-picker-header">
+            <strong>Candidate pool <span class="text-muted text-sm">(last 48h)</span></strong>
+            <span class="nl-picker-count" id="candidateCount">Loading…</span>
+          </div>
+          <div class="nl-picker-list" id="articlePickerList">
+            <div class="nl-picker-empty">Loading candidates…</div>
+          </div>
+        </div>
+
+        <!-- Action bar -->
+        <div class="nl-action-bar">
           <button class="btn btn-outline" id="previewBtn">👁 Preview</button>
+          <button class="btn btn-outline" id="saveDraftBtn">💾 Save Draft</button>
           <button class="btn btn-primary" id="sendBtn">🚀 Send Now</button>
         </div>
-
-        <div id="sendStatus"></div>
+        <div id="sendStatus" style="margin-top:10px;"></div>
       </div>
 
       <!-- Preview -->
@@ -89,25 +223,24 @@
         <div class="section-title">Email Preview</div>
         <button class="btn btn-outline btn-sm" id="refreshPreviewBtn" style="display:none;">↻ Refresh</button>
       </div>
-
       <div class="preview-frame-wrap" id="previewWrap">
         <div class="preview-placeholder" id="previewPlaceholder">
           <div class="big-icon">📧</div>
           <div>Click <strong>Preview</strong> to render the email</div>
         </div>
-        <iframe id="previewFrame" style="display:none;" title="Newsletter preview" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+        <iframe id="previewFrame" style="display:none;" title="Newsletter preview"
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
       </div>
 
-      <!-- Send history -->
+      <!-- History -->
       <div class="section-header" style="margin-top:32px;">
         <div class="section-title">Send History</div>
       </div>
-
       <div class="table-wrap">
         <table class="data-table" id="historyTable">
           <thead>
             <tr>
-              <th>Sent At</th>
+              <th>Sent</th>
               <th>Subject</th>
               <th>Articles</th>
               <th>Broadcast ID</th>

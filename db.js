@@ -375,6 +375,24 @@ async function initDb() {
       status       TEXT NOT NULL DEFAULT 'sent'
     )`,
     `CREATE INDEX IF NOT EXISTS idx_newsletter_sends_sent_at ON newsletter_sends (sent_at DESC)`,
+    // Newsletter draft workflow — auto-draft + editorial window
+    `CREATE TABLE IF NOT EXISTS newsletter_drafts (
+      id                SERIAL PRIMARY KEY,
+      tenant_id         INTEGER NOT NULL,
+      send_date         DATE NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      format            TEXT NOT NULL DEFAULT 'daily',
+      article_ids       INTEGER[],
+      subject           TEXT,
+      intro             TEXT,
+      story_arc         TEXT,
+      sent_broadcast_id TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at           TIMESTAMPTZ,
+      UNIQUE(tenant_id, send_date, format)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsletter_drafts_tenant_date ON newsletter_drafts(tenant_id, send_date DESC)`,
     // Lifecycle settings: seed defaults if not already present
     `INSERT INTO settings (key, value) VALUES ('purge_grace_hours', '24')         ON CONFLICT (tenant_id, key) DO NOTHING`,
     `INSERT INTO settings (key, value) VALUES ('purge_protect_engaged', 'false')   ON CONFLICT (tenant_id, key) DO NOTHING`,
