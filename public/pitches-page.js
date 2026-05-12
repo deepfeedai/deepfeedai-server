@@ -4,6 +4,14 @@
 (function () {
   var writers = [];
   var activeTab = 'pitches';
+  var viewMode = localStorage.getItem('dfai_pitches_view') || 'list';
+  var groupBy = localStorage.getItem('dfai_pitches_group') || 'none';
+  var selectedPitchIds = new Set();
+  var _allPitchesCache = [];
+  var commissionsViewMode = localStorage.getItem('dfai_commissions_view') || 'list';
+  var commissionsGroupBy = localStorage.getItem('dfai_commissions_group') || 'none';
+  var selectedCommissionIds = new Set();
+  var _allCommissionsCache = [];
 
   function esc(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -35,13 +43,20 @@
   async function loadPitches() {
     var status = document.getElementById('pitchStatusFilter').value;
     var writerId = document.getElementById('pitchWriterFilter').value;
+    var isReady = status === 'ready';
+    var apiStatus = isReady ? 'pending' : status;
 
-    var url = '/admin/pitches?status=' + status + '&_t=' + Date.now();
+    var url = '/admin/pitches?status=' + apiStatus + '&_t=' + Date.now();
     if (writerId !== 'all') url += '&writer_id=' + writerId;
 
     try {
       var data = await apiFetch(url);
       var pitches = data.pitches || [];
+      if (isReady) {
+        pitches = pitches.filter(function (p) {
+          return (p.source_article_ids || []).length >= 3 && (p.priority || 5) >= 7;
+        });
+      }
       renderPitches(pitches);
 
       var countData = await apiFetch('/admin/pitches/count');
@@ -57,90 +72,356 @@
   }
 
   function renderPitches(pitches) {
+    pitches = pitches.slice().sort(function (a, b) { return (b.priority || 5) - (a.priority || 5); });
+    _allPitchesCache = pitches;
+    selectedPitchIds.clear();
+    updateBulkBar();
+    if (groupBy === 'writer') { renderPitchesGrouped(pitches); return; }
+    if (viewMode === 'list')  { renderPitchesList(pitches); return; }
+    renderPitchesGrid(pitches);
+  }
+
+  function makePitchCardHtml(p, withCb) {
+    var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Prediction Check' };
+    var sc = (p.source_article_ids || []).length || 1;
+    var memRefs = p.memory_refs || [];
+    var chipColor, chipLabel;
+    if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 source &#9888;'; }
+    else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2 sources'; }
+    else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' sources &#10003;'; }
+    var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+    var priorityStars = '';
+    for (var i = 0; i < Math.round((p.priority || 5) / 2); i++) priorityStars += '*';
+    var avatar = p.writer_avatar_url
+      ? '<img src="' + esc(p.writer_avatar_url) + '" class="pitch-avatar" />'
+      : '<div class="pitch-avatar-placeholder">&#9997;&#65039;</div>';
+    var sourceArticles = p.source_articles || [];
+    var sourcesHtml = sourceArticles.length
+      ? '<div class="pitch-sources">' + sourceArticles.map(function (a) {
+          return '<div class="pitch-source-row"><span class="pitch-source-dot">&#9679;</span>'
+            + esc(a.title || ('Article #' + a.id))
+            + (a.source ? ' <span style="color:var(--muted);">— ' + esc(a.source) + '</span>' : '')
+            + '</div>';
+        }).join('') + '</div>'
+      : '';
+    var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+    var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+    var actions = '';
+    if (p.status === 'pending') {
+      actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve & Write</button>'
+        + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
+    } else {
+      actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
+        : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+        : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
+    }
+    var isPending = p.status === 'pending';
+    var cbHtml = (withCb && isPending)
+      ? '<input type="checkbox" class="pitch-card-cb" data-pitch-id="' + p.id + '" style="position:absolute;top:10px;left:10px;z-index:2;" />'
+      : '';
+    var writerAttr = withCb ? ' data-writer="' + esc(String(p.writer_id || 0)) + '"' : '';
+    return '<div class="pitch-card" data-pitch="' + p.id + '"' + writerAttr + '>'
+      + cbHtml
+      + '<div class="pitch-priority" title="Priority ' + p.priority + '">' + priorityStars + '</div>'
+      + '<div class="pitch-card-header">' + avatar
+      + '<div><div style="font-weight:600;font-size:13px;">' + esc(p.writer_name || 'Writer') + '</div>'
+      + '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>'
+      + '</div></div>'
+      + '<div class="pitch-headline">' + sourceChip + ' ' + esc(p.headline) + '</div>'
+      + '<div class="pitch-reasoning">' + esc(p.reasoning) + '</div>'
+      + sourcesHtml
+      + '<div class="pitch-meta">'
+      + (memRefs.length ? 'Connects to: ' + memRefs.map(function (r) { return esc(r); }).join(', ') + ' &middot; ' : '')
+      + relativeTime(p.created_at)
+      + '</div>'
+      + '<div class="pitch-actions">' + actions + '</div>'
+      + '</div>';
+  }
+
+  function renderPitchesGrid(pitches) {
     var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-grid';
     if (!pitches.length) {
       grid.innerHTML = '<div style="text-align:center;padding:40px;grid-column:1/-1;color:var(--muted);">No pitches found. Writer agents will generate pitches when they spot stories worth covering.</div>';
       return;
     }
+    grid.innerHTML = pitches.map(function (p) { return makePitchCardHtml(p, false); }).join('');
+  }
 
-    grid.innerHTML = pitches.map(function (p) {
-      var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Prediction Check' };
-      var sourceCount = (p.source_article_ids || []).length;
-      var memRefs = (p.memory_refs || []);
+  function renderPitchesList(pitches) {
+    var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-list';
+    if (!pitches.length) {
+      grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No pitches found.</div>';
+      return;
+    }
+    var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Pred. Check' };
 
-      var sc = sourceCount || 1;
+    var hdr = '<div class="pitch-list-hdr">'
+      + '<div><input type="checkbox" id="selectAllPitches" title="Select all" /></div>'
+      + '<div>Headline</div><div>Writer</div><div>Type</div>'
+      + '<div>Sources</div><div>Priority</div><div>Age</div><div>Actions</div>'
+      + '</div>';
+
+    var rows = pitches.map(function (p) {
+      var sc = (p.source_article_ids || []).length || 1;
       var chipColor, chipLabel;
-      if (sc <= 1) {
-        chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;';
-        chipLabel = '1 source &#9888;';
-      } else if (sc === 2) {
-        chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;';
-        chipLabel = '2 sources';
-      } else {
-        chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;';
-        chipLabel = sc + ' sources &#10003;';
-      }
-      var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
-      var priorityStars = '';
-      for (var i = 0; i < Math.round((p.priority || 5) / 2); i++) priorityStars += '*';
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
 
-      var avatar = p.writer_avatar_url
-        ? '<img src="' + esc(p.writer_avatar_url) + '" class="pitch-avatar" />'
-        : '<div class="pitch-avatar-placeholder">&#9997;&#65039;</div>';
+      var pri = p.priority || 5;
+      var priClass = pri >= 8 ? 'pri-high' : pri >= 5 ? 'pri-mid' : 'pri-low';
+      var priBadge = '<span class="pri-badge ' + priClass + '">' + pri + '</span>';
 
-      var sourceArticles = p.source_articles || [];
-      var sourcesHtml = '';
-      if (sourceArticles.length) {
-        sourcesHtml = '<div class="pitch-sources">'
-          + sourceArticles.map(function (a) {
-            return '<div class="pitch-source-row">'
-              + '<span class="pitch-source-dot">&#9679;</span>'
-              + esc(a.title || ('Article #' + a.id))
-              + (a.source ? ' <span style="color:var(--muted);">— ' + esc(a.source) + '</span>' : '')
-              + '</div>';
-          }).join('')
-          + '</div>';
-      }
-
-      var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
-      var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+      var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
 
       var actions = '';
       if (p.status === 'pending') {
-        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">Approve & Write</button>'
-          + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
-          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">Dismiss</button>';
+        var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+        var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
       } else {
-        var statusBadge = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
+        actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
           : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
-        actions = statusBadge;
       }
 
-      return '<div class="pitch-card" data-pitch="' + p.id + '">'
-        + '<div class="pitch-priority" title="Priority ' + p.priority + '">' + priorityStars + '</div>'
-        + '<div class="pitch-card-header">'
-        + avatar
-        + '<div>'
-        + '<div style="font-weight:600;font-size:13px;">' + esc(p.writer_name || 'Writer') + '</div>'
-        + '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>'
-        + '</div>'
-        + '</div>'
-        + '<div class="pitch-headline">' + sourceChip + ' ' + esc(p.headline) + '</div>'
-        + '<div class="pitch-reasoning">' + esc(p.reasoning) + '</div>'
-        + sourcesHtml
-        + '<div class="pitch-meta">'
-        + (memRefs.length ? 'Connects to: ' + memRefs.map(function (r) { return esc(r); }).join(', ') + ' &middot; ' : '')
-        + relativeTime(p.created_at)
-        + '</div>'
-        + '<div class="pitch-actions">' + actions + '</div>'
+      var isPending = p.status === 'pending';
+      return '<div class="pitch-list-row" data-pitch="' + p.id + '">'
+        + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
+        + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.writer_name || '') + '">' + esc(p.writer_name || '') + '</div>'
+        + '<div>' + typeBadge + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div>' + priBadge + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div class="pitch-list-actions">' + actions + '</div>'
         + '</div>';
     }).join('');
+
+    grid.innerHTML = hdr + rows;
+
+    var selectAll = document.getElementById('selectAllPitches');
+    function syncSelectAll() {
+      if (!selectAll) return;
+      var cbs = grid.querySelectorAll('.pitch-cb');
+      var checked = grid.querySelectorAll('.pitch-cb:checked').length;
+      selectAll.indeterminate = checked > 0 && checked < cbs.length;
+      selectAll.checked = cbs.length > 0 && checked === cbs.length;
+    }
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        grid.querySelectorAll('.pitch-cb').forEach(function (cb) {
+          cb.checked = selectAll.checked;
+          var id = parseInt(cb.dataset.pitchId, 10);
+          if (selectAll.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+          cb.closest('.pitch-list-row').classList.toggle('selected', selectAll.checked);
+        });
+        updateBulkBar();
+      });
+    }
+    grid.querySelectorAll('.pitch-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+        cb.closest('.pitch-list-row').classList.toggle('selected', cb.checked);
+        syncSelectAll();
+        updateBulkBar();
+      });
+    });
   }
 
+  function renderPitchesGrouped(pitches) {
+    var grid = document.getElementById('pitchGrid');
+    grid.className = 'pitch-swimlane';
+    if (!pitches.length) {
+      grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No pitches found.</div>';
+      return;
+    }
+    var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Pred. Check' };
+
+    var writerMap = {};
+    var writerOrder = [];
+    pitches.forEach(function (p) {
+      var wid = String(p.writer_id || 0);
+      if (!writerMap[wid]) {
+        writerMap[wid] = { name: p.writer_name || 'Unknown', avatar: p.writer_avatar_url || null, pitches: [] };
+        writerOrder.push(wid);
+      }
+      writerMap[wid].pitches.push(p);
+    });
+
+    function makeListRow(p) {
+      var sc = (p.source_article_ids || []).length || 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+      var pri = p.priority || 5;
+      var priClass = pri >= 8 ? 'pri-high' : pri >= 5 ? 'pri-mid' : 'pri-low';
+      var priBadge = '<span class="pri-badge ' + priClass + '">' + pri + '</span>';
+      var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
+      var actions = '';
+      if (p.status === 'pending') {
+        var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
+        var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
+      } else {
+        actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
+          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+          : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
+      }
+      var isPending = p.status === 'pending';
+      return '<div class="swimlane-list-row" data-pitch="' + p.id + '" data-writer="' + esc(String(p.writer_id || 0)) + '">'
+        + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
+        + '<div>' + typeBadge + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div>' + priBadge + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div class="pitch-list-actions">' + actions + '</div>'
+        + '</div>';
+    }
+
+    grid.innerHTML = writerOrder.map(function (wid) {
+      var group = writerMap[wid];
+      var pendingCount = group.pitches.filter(function (p) { return p.status === 'pending'; }).length;
+      var countLabel = group.pitches.length + ' pitch' + (group.pitches.length !== 1 ? 'es' : '')
+        + (pendingCount !== group.pitches.length ? ' · ' + pendingCount + ' pending' : '');
+      var avatar = group.avatar
+        ? '<img src="' + esc(group.avatar) + '" class="swimlane-avatar" />'
+        : '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>';
+      var header = '<div class="swimlane-header">'
+        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-wid="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + '<span style="display:flex;align-items:center;gap:8px;">'
+        + avatar
+        + '<div><div class="swimlane-writer-name">' + esc(group.name) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
+        + '</span>'
+        + '</div>';
+      var body = '';
+      if (viewMode === 'grid') {
+        body = '<div style="padding:12px;background:var(--bg-card);">'
+          + '<div class="pitch-grid">' + group.pitches.map(function (p) { return makePitchCardHtml(p, true); }).join('') + '</div>'
+          + '</div>';
+      } else {
+        var listHdr = '<div class="swimlane-list-hdr"><div></div>'
+          + '<div>Headline</div><div>Type</div><div>Sources</div><div>Priority</div><div>Age</div><div>Actions</div>'
+          + '</div>';
+        body = listHdr + group.pitches.map(makeListRow).join('');
+      }
+      return '<div class="swimlane-group">' + header + body + '</div>';
+    }).join('');
+
+    // Wire swimlane select-all (works for both list rows and grid card checkboxes)
+    grid.querySelectorAll('.swimlane-cb-all').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var wid = cb.dataset.wid;
+        var allCbs = grid.querySelectorAll(
+          '.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb, .pitch-card[data-writer="' + wid + '"] .pitch-card-cb'
+        );
+        allCbs.forEach(function (rowCb) {
+          rowCb.checked = cb.checked;
+          var id = parseInt(rowCb.dataset.pitchId, 10);
+          if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+          var row = rowCb.closest('.swimlane-list-row') || rowCb.closest('.pitch-card');
+          if (row) row.classList.toggle('selected', cb.checked);
+        });
+        updateBulkBar();
+      });
+    });
+
+    // Wire individual checkboxes (list rows and grid cards)
+    grid.querySelectorAll('.pitch-cb, .pitch-card-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedPitchIds.add(id); else selectedPitchIds.delete(id);
+        var row = cb.closest('.swimlane-list-row') || cb.closest('.pitch-card');
+        if (row) row.classList.toggle('selected', cb.checked);
+        var wid = row ? (row.dataset.writer || null) : null;
+        if (wid) {
+          var groupCbs = grid.querySelectorAll(
+            '.swimlane-list-row[data-writer="' + wid + '"] .pitch-cb, .pitch-card[data-writer="' + wid + '"] .pitch-card-cb'
+          );
+          var groupChecked = Array.from(groupCbs).filter(function (c) { return c.checked; }).length;
+          var groupAll = grid.querySelector('.swimlane-cb-all[data-wid="' + wid + '"]');
+          if (groupAll) {
+            groupAll.indeterminate = groupChecked > 0 && groupChecked < groupCbs.length;
+            groupAll.checked = groupCbs.length > 0 && groupChecked === groupCbs.length;
+          }
+        }
+        updateBulkBar();
+      });
+    });
+  }
+
+  function updateBulkBar() {
+    var bar = document.getElementById('pitchBulkBar');
+    var countEl = document.getElementById('pitchBulkCount');
+    if (!bar) return;
+    var n = selectedPitchIds.size;
+    bar.style.display = n > 0 ? 'flex' : 'none';
+    if (countEl) countEl.textContent = n + ' selected';
+  }
+
+  window.clearPitchSelection = function () {
+    selectedPitchIds.clear();
+    document.querySelectorAll('.pitch-cb, .pitch-card-cb').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('.pitch-list-row.selected, .swimlane-list-row.selected, .pitch-card.selected').forEach(function (r) { r.classList.remove('selected'); });
+    document.querySelectorAll('.swimlane-cb-all').forEach(function (cb) { cb.checked = false; cb.indeterminate = false; });
+    var sa = document.getElementById('selectAllPitches');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateBulkBar();
+  };
+
+  window.bulkApprovePitches = async function () {
+    var ids = Array.from(selectedPitchIds);
+    if (!ids.length) return;
+    var weak = ids.filter(function (id) {
+      var p = _allPitchesCache.find(function (p) { return p.id === id; });
+      return p && (p.source_article_ids || []).length < 2;
+    });
+    var msg = 'Approve ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '?';
+    if (weak.length) msg += '\n\n' + weak.length + ' pitch' + (weak.length !== 1 ? 'es have' : ' has') + ' only 1 source and may fail editorial review.';
+    if (!confirm(msg)) return;
+    var bar = document.getElementById('pitchBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/admin/pitches/' + ids[i] + '/approve', { method: 'POST' }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Approved ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadPitches();
+  };
+
+  window.bulkDismissPitches = async function () {
+    var ids = Array.from(selectedPitchIds);
+    if (!ids.length) return;
+    if (!confirm('Dismiss ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '?')) return;
+    var bar = document.getElementById('pitchBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/admin/pitches/' + ids[i] + '/dismiss', { method: 'POST' }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Dismissed ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadPitches();
+  };
+
   function optimisticRemovePitchCard(pitchId) {
-    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"]');
+    var card = document.querySelector('.pitch-card[data-pitch="' + pitchId + '"], .pitch-list-row[data-pitch="' + pitchId + '"], .swimlane-list-row[data-pitch="' + pitchId + '"]');
     if (!card) return function () {};
+    selectedPitchIds.delete(pitchId);
+    updateBulkBar();
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     card.classList.add('optimistic-removing');
     var removed = false;
@@ -382,83 +663,364 @@
   });
 
   function renderCommissionsGrid(list) {
+    list = list.slice().sort(function (a, b) {
+      var sc = (b.source_count || 1) - (a.source_count || 1);
+      if (sc !== 0) return sc;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+    _allCommissionsCache = list;
+    selectedCommissionIds.clear();
+    updateCommissionsBulkBar();
+    if (commissionsGroupBy === 'writer')   { renderCommissionsGrouped(list, 'writer');   return; }
+    if (commissionsGroupBy === 'category') { renderCommissionsGrouped(list, 'category'); return; }
+    if (commissionsViewMode === 'list') { renderCommissionsList(list); return; }
+    renderCommissionsCards(list);
+  }
+
+  function makeCommissionCardHtml(p) {
+    var ago = p.created_at ? relativeTime(p.created_at) : '';
+    var initiator = p.pitched_by_writer_name
+      ? 'Pitched by <strong>' + esc(p.pitched_by_writer_name) + '</strong>'
+      : 'Editor tip from <strong>' + esc(p.requested_by_editor_name || 'editor') + '</strong>';
+    var sourceUrl = p.source_url ? '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener" class="text-muted" style="font-size:12px;">↗ ' + esc(p.source_publisher || 'source') + '</a>' : '';
+    var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
+    var chipColor, chipLabel;
+    if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 source &#9888;'; }
+    else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2 sources'; }
+    else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' sources &#10003;'; }
+    var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'margin-right:6px;">' + chipLabel + '</span>';
+    var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
+    var typeBadge = (window.renderPitchTypeBadge && p.pitch_type) ? window.renderPitchTypeBadge(p.pitch_type) : '';
+    var html = '<div class="review-card" data-pitch="' + p.id + '">'
+      + '<div class="review-card-header">'
+      + '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>'
+      + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + typeBadge + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>'
+      + '</div>'
+      + '<div class="review-meta">'
+      + '<span>' + initiator + '</span><span>' + ago + '</span>'
+      + (p.source_category ? '<span>' + esc(p.source_category) + '</span>' : '')
+      + (sourceUrl ? '<span>' + sourceUrl + '</span>' : '')
+      + '</div>'
+      + '<div class="review-suggestion"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>' + esc(p.angle_summary || '') + '</div>'
+      + '<div class="review-actions">';
+    if (p.status === 'proposed') {
+      html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+        + '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">Enrich sources</button>';
+      if (sc === 2) html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
+    } else if (p.status === 'approved') {
+      html += '<span class="badge badge-accent" style="align-self:center;">Approved</span>';
+      if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
+    } else if (p.status === 'published') {
+      html += '<span class="badge badge-success" style="align-self:center;">Published</span>';
+      if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
+    }
+    if (!p.pitched_by_writer_id) {
+      html += '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')" title="Pick the best writer automatically via beat match">&#127919; Auto-assign</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer…</button>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderCommissionsCards(list) {
     var grid = document.getElementById('commissionsGrid');
+    grid.className = 'review-grid';
     if (!list.length) {
       grid.innerHTML = '<div class="review-empty">No commissions awaiting review.</div>';
       return;
     }
-    grid.innerHTML = list.map(function (p) {
-      var ago = p.created_at ? relativeTime(p.created_at) : '';
-      var initiator = p.pitched_by_writer_name
-        ? 'Pitched by <strong>' + esc(p.pitched_by_writer_name) + '</strong>'
-        : 'Editor tip from <strong>' + esc(p.requested_by_editor_name || 'editor') + '</strong>';
-      var sourceUrl = p.source_url ? '<a href="' + esc(p.source_url) + '" target="_blank" rel="noopener" class="text-muted" style="font-size:12px;">↗ ' + esc(p.source_publisher || 'source') + '</a>' : '';
-
-      var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
-      var chipColor, chipLabel;
-      if (sc <= 1) {
-        chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;';
-        chipLabel = '1 source &#9888;';
-      } else if (sc === 2) {
-        chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;';
-        chipLabel = '2 sources';
-      } else {
-        chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;';
-        chipLabel = sc + ' sources &#10003;';
-      }
-      var sourceChip = '<span class="badge badge-muted" title="Attached source count" style="' + chipColor + 'margin-right:6px;">' + chipLabel + '</span>';
-
-      var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
-      var html = '<div class="review-card" data-pitch="' + p.id + '">';
-      html += '<div class="review-card-header">';
-      html += '<div class="review-title">' + esc(p.source_title || 'Untitled source') + '</div>';
-      var typeBadge = (window.renderPitchTypeBadge && p.pitch_type) ? window.renderPitchTypeBadge(p.pitch_type) : '';
-      html += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' + typeBadge + sourceChip + '<span class="badge badge-muted" style="background:rgba(124,58,237,0.15);color:#a78bfa;">COMMISSION</span></div>';
-      html += '</div>';
-      html += '<div class="review-meta">';
-      html += '<span>' + initiator + '</span>';
-      html += '<span>' + ago + '</span>';
-      if (p.source_category) html += '<span>' + esc(p.source_category) + '</span>';
-      if (sourceUrl) html += '<span>' + sourceUrl + '</span>';
-      html += '</div>';
-      html += '<div class="review-suggestion">';
-      html += '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Angle</div>';
-      html += esc(p.angle_summary || '');
-      html += '</div>';
-      // Status-dependent action buttons. Orphaned / approved views need
-      // different affordances than the default proposed queue.
-      html += '<div class="review-actions">';
-      if (p.status === 'proposed') {
-        html += '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">Approve</button>';
-        html += '<button class="btn btn-outline btn-sm" onclick="rejectCommission(' + p.id + ')">Reject</button>';
-        html += '<button class="btn btn-ghost btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">Enrich sources</button>';
-        if (sc === 2) {
-          html += '<span class="text-muted" style="font-size:12px;align-self:center;color:#fbbf24;">Consider enriching &mdash; 2 sources is thin</span>';
-        }
-      } else if (p.status === 'approved') {
-        html += '<span class="badge badge-accent" style="align-self:center;">Approved</span>';
-        if (p.spawned_article_id) {
-          html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
-        }
-      } else if (p.status === 'published') {
-        html += '<span class="badge badge-success" style="align-self:center;">Published</span>';
-        if (p.spawned_article_id) {
-          html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
-        }
-      }
-      if (!p.pitched_by_writer_id) {
-        html += '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')" title="Pick the best writer automatically via beat match">🎯 Auto-assign</button>';
-        html += '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer…</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-      return html;
-    }).join('');
+    grid.innerHTML = list.map(makeCommissionCardHtml).join('');
   }
 
+  function renderCommissionsList(list) {
+    var grid = document.getElementById('commissionsGrid');
+    grid.className = 'commission-list';
+    if (!list.length) {
+      grid.innerHTML = '<div class="review-empty">No commissions awaiting review.</div>';
+      return;
+    }
+
+    var hdr = '<div class="commission-list-hdr">'
+      + '<div><input type="checkbox" id="selectAllCommissions" title="Select all" /></div>'
+      + '<div>Title / Angle</div><div>From</div><div>Category</div>'
+      + '<div>Sources</div><div>Age</div><div>Actions</div>'
+      + '</div>';
+
+    var rows = list.map(function (p) {
+      var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
+      var chipColor, chipLabel;
+      if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+      else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+      else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+      var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+
+      var initiator = p.pitched_by_writer_name
+        ? esc(p.pitched_by_writer_name)
+        : 'Ed: ' + esc(p.requested_by_editor_name || 'editor');
+      var angle = p.angle_summary ? (p.angle_summary.length > 80 ? p.angle_summary.slice(0, 80) + '…' : p.angle_summary) : '';
+      var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
+
+      var actions = '';
+      var isProposed = p.status === 'proposed';
+      if (isProposed) {
+        actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
+          + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">+src</button>';
+        if (!p.pitched_by_writer_id) {
+          actions += '<button class="btn btn-ghost btn-sm" style="padding:3px 7px;" title="Auto-assign writer" onclick="autoAssignCommission(' + p.id + ')">&#127919;</button>';
+        }
+      } else if (p.status === 'approved') {
+        actions = '<span class="badge badge-accent">Approved</span>';
+        if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+        if (!p.pitched_by_writer_id) actions += ' <button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
+      } else if (p.status === 'published') {
+        actions = '<span class="badge badge-success">Published</span>';
+        if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+      } else if (!p.pitched_by_writer_id) {
+        actions = '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')">&#127919; Auto-assign</button>'
+          + '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
+      }
+
+      return '<div class="commission-list-row" data-pitch="' + p.id + '">'
+        + '<div>' + (isProposed ? '<input type="checkbox" class="commission-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+        + '<div style="overflow:hidden;">'
+        + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.source_title || '') + '">' + esc(p.source_title || 'Untitled') + '</div>'
+        + (angle ? '<div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.angle_summary || '') + '">' + esc(angle) + '</div>' : '')
+        + '</div>'
+        + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + initiator + '">' + initiator + '</div>'
+        + '<div style="font-size:12px;">' + esc(p.source_category || '') + '</div>'
+        + '<div>' + sourceChip + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+        + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + '</div>'
+        + '</div>';
+    }).join('');
+
+    grid.innerHTML = hdr + rows;
+
+    var selectAll = document.getElementById('selectAllCommissions');
+    function syncSelectAll() {
+      if (!selectAll) return;
+      var cbs = grid.querySelectorAll('.commission-cb');
+      var checked = grid.querySelectorAll('.commission-cb:checked').length;
+      selectAll.indeterminate = checked > 0 && checked < cbs.length;
+      selectAll.checked = cbs.length > 0 && checked === cbs.length;
+    }
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        grid.querySelectorAll('.commission-cb').forEach(function (cb) {
+          cb.checked = selectAll.checked;
+          var id = parseInt(cb.dataset.pitchId, 10);
+          if (selectAll.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+          cb.closest('.commission-list-row').classList.toggle('selected', selectAll.checked);
+        });
+        updateCommissionsBulkBar();
+      });
+    }
+    grid.querySelectorAll('.commission-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+        cb.closest('.commission-list-row').classList.toggle('selected', cb.checked);
+        syncSelectAll();
+        updateCommissionsBulkBar();
+      });
+    });
+  }
+
+  function makeCommissionSwimlaneRow(p, groupKey, groupKeyValue) {
+    var sc = (typeof p.source_count === 'number' && p.source_count > 0) ? p.source_count : 1;
+    var chipColor, chipLabel;
+    if (sc <= 1) { chipColor = 'background:rgba(239,68,68,0.18);color:#ef4444;'; chipLabel = '1 &#9888;'; }
+    else if (sc === 2) { chipColor = 'background:rgba(251,191,36,0.18);color:#fbbf24;'; chipLabel = '2'; }
+    else { chipColor = 'background:rgba(34,197,94,0.18);color:#22c55e;'; chipLabel = sc + ' &#10003;'; }
+    var sourceChip = '<span class="badge badge-muted" style="' + chipColor + 'font-size:11px;">' + chipLabel + '</span>';
+    // Mid column: category when grouped by writer, from when grouped by category
+    var midCol = groupKey === 'writer'
+      ? esc(p.source_category || '—')
+      : (p.pitched_by_writer_name ? esc(p.pitched_by_writer_name) : 'Ed: ' + esc(p.requested_by_editor_name || 'editor'));
+    var angle = p.angle_summary ? (p.angle_summary.length > 80 ? p.angle_summary.slice(0, 80) + '…' : p.angle_summary) : '';
+    var titleArg = JSON.stringify(p.source_title || '').replace(/"/g, '&quot;');
+    var isProposed = p.status === 'proposed';
+    var actions = '';
+    if (isProposed) {
+      actions = '<button class="btn btn-primary btn-sm" onclick="tryApproveCommission(' + p.id + ',' + sc + ',' + titleArg + ')">&#10003; Approve</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="rejectCommission(' + p.id + ')">&#10007; Reject</button>'
+        + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;commission&quot;,[],' + titleArg + ')">+src</button>';
+      if (!p.pitched_by_writer_id) actions += '<button class="btn btn-ghost btn-sm" style="padding:3px 7px;" title="Auto-assign" onclick="autoAssignCommission(' + p.id + ')">&#127919;</button>';
+    } else if (p.status === 'approved') {
+      actions = '<span class="badge badge-accent">Approved</span>';
+      if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+    } else if (p.status === 'published') {
+      actions = '<span class="badge badge-success">Published</span>';
+      if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+    } else if (!p.pitched_by_writer_id) {
+      actions = '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')">&#127919; Auto-assign</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
+    }
+    return '<div class="commission-swimlane-row" data-pitch="' + p.id + '" data-group-key="' + esc(String(groupKeyValue)) + '">'
+      + '<div>' + (isProposed ? '<input type="checkbox" class="commission-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
+      + '<div style="overflow:hidden;">'
+      + '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(p.source_title || '') + '">' + esc(p.source_title || 'Untitled') + '</div>'
+      + (angle ? '<div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(angle) + '</div>' : '')
+      + '</div>'
+      + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + midCol + '</div>'
+      + '<div>' + sourceChip + '</div>'
+      + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + '</div>'
+      + '</div>';
+  }
+
+  function renderCommissionsGrouped(list, groupKey) {
+    var grid = document.getElementById('commissionsGrid');
+    grid.className = 'pitch-swimlane';
+    if (!list.length) {
+      grid.innerHTML = '<div class="review-empty">No commissions found.</div>';
+      return;
+    }
+
+    var groupMap = {};
+    var groupOrder = [];
+    list.forEach(function (p) {
+      var key, label;
+      if (groupKey === 'writer') {
+        key = String(p.pitched_by_writer_id || 'editor');
+        label = p.pitched_by_writer_name || (p.requested_by_editor_name ? 'Ed: ' + p.requested_by_editor_name : 'Editor');
+      } else {
+        key = p.source_category || 'Uncategorized';
+        label = key;
+      }
+      if (!groupMap[key]) {
+        groupMap[key] = { label: label, writerId: groupKey === 'writer' ? p.pitched_by_writer_id : null, items: [] };
+        groupOrder.push(key);
+      }
+      groupMap[key].items.push(p);
+    });
+
+    grid.innerHTML = groupOrder.map(function (key) {
+      var group = groupMap[key];
+      var proposedCount = group.items.filter(function (p) { return p.status === 'proposed'; }).length;
+      var countLabel = group.items.length + ' commission' + (group.items.length !== 1 ? 's' : '')
+        + (proposedCount !== group.items.length ? ' · ' + proposedCount + ' proposed' : '');
+      var avatarHtml = groupKey === 'writer'
+        ? '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>'
+        : '<div class="swimlane-avatar-ph" style="font-size:10px;font-weight:700;color:var(--accent);">' + esc(group.label.slice(0, 2).toUpperCase()) + '</div>';
+      var header = '<div class="swimlane-header">'
+        + (proposedCount > 0 ? '<input type="checkbox" class="commission-swimlane-cb-all" data-group-key="' + esc(String(key)) + '" title="Select all proposed" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + '<span style="display:flex;align-items:center;gap:8px;">'
+        + avatarHtml
+        + '<div><div class="swimlane-writer-name">' + esc(group.label) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
+        + '</span>'
+        + '</div>';
+      var midColLabel = groupKey === 'writer' ? 'Category' : 'From';
+      var body = '';
+      if (commissionsViewMode === 'grid') {
+        body = '<div style="padding:12px;background:var(--bg-card);"><div class="review-grid">'
+          + group.items.map(makeCommissionCardHtml).join('')
+          + '</div></div>';
+      } else {
+        var listHdr = '<div class="commission-swimlane-hdr"><div></div><div>Title / Angle</div><div>' + midColLabel + '</div><div>Sources</div><div>Age</div><div>Actions</div></div>';
+        body = listHdr + group.items.map(function (p) { return makeCommissionSwimlaneRow(p, groupKey, key); }).join('');
+      }
+      return '<div class="swimlane-group" data-group-key="' + esc(String(key)) + '">' + header + body + '</div>';
+    }).join('');
+
+    // Wire swimlane select-all
+    grid.querySelectorAll('.commission-swimlane-cb-all').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var gkey = cb.dataset.groupKey;
+        grid.querySelectorAll('.commission-swimlane-row[data-group-key="' + gkey + '"] .commission-cb').forEach(function (rowCb) {
+          rowCb.checked = cb.checked;
+          var id = parseInt(rowCb.dataset.pitchId, 10);
+          if (cb.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+          rowCb.closest('.commission-swimlane-row').classList.toggle('selected', cb.checked);
+        });
+        updateCommissionsBulkBar();
+      });
+    });
+
+    // Wire individual checkboxes
+    grid.querySelectorAll('.commission-swimlane-row .commission-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = parseInt(cb.dataset.pitchId, 10);
+        if (cb.checked) selectedCommissionIds.add(id); else selectedCommissionIds.delete(id);
+        var row = cb.closest('.commission-swimlane-row');
+        if (row) row.classList.toggle('selected', cb.checked);
+        var gkey = row ? row.dataset.groupKey : null;
+        if (gkey) {
+          var groupCbs = grid.querySelectorAll('.commission-swimlane-row[data-group-key="' + gkey + '"] .commission-cb');
+          var groupChecked = Array.from(groupCbs).filter(function (c) { return c.checked; }).length;
+          var groupAll = grid.querySelector('.commission-swimlane-cb-all[data-group-key="' + gkey + '"]');
+          if (groupAll) {
+            groupAll.indeterminate = groupChecked > 0 && groupChecked < groupCbs.length;
+            groupAll.checked = groupCbs.length > 0 && groupChecked === groupCbs.length;
+          }
+        }
+        updateCommissionsBulkBar();
+      });
+    });
+  }
+
+  function updateCommissionsBulkBar() {
+    var bar = document.getElementById('commissionBulkBar');
+    var countEl = document.getElementById('commissionBulkCount');
+    if (!bar) return;
+    var n = selectedCommissionIds.size;
+    bar.style.display = (n > 0 && commissionFilter === 'proposed') ? 'flex' : 'none';
+    if (countEl) countEl.textContent = n + ' selected';
+  }
+
+  window.clearCommissionSelection = function () {
+    selectedCommissionIds.clear();
+    document.querySelectorAll('.commission-cb').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('.commission-list-row.selected, .commission-swimlane-row.selected').forEach(function (r) { r.classList.remove('selected'); });
+    document.querySelectorAll('.commission-swimlane-cb-all').forEach(function (cb) { cb.checked = false; cb.indeterminate = false; });
+    var sa = document.getElementById('selectAllCommissions');
+    if (sa) { sa.checked = false; sa.indeterminate = false; }
+    updateCommissionsBulkBar();
+  };
+
+  window.bulkApproveCommissions = async function () {
+    var ids = Array.from(selectedCommissionIds);
+    if (!ids.length) return;
+    var weak = ids.filter(function (id) {
+      var p = _allCommissionsCache.find(function (p) { return p.id === id; });
+      return p && (p.source_count || 1) < 2;
+    });
+    var msg = 'Approve ' + ids.length + ' commission' + (ids.length !== 1 ? 's' : '') + '?';
+    if (weak.length) msg += '\n\n' + weak.length + ' commission' + (weak.length !== 1 ? 's have' : ' has') + ' only 1 source and may fail editorial review.';
+    if (!confirm(msg)) return;
+    var bar = document.getElementById('commissionBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/pitches/' + ids[i] + '/approve', { method: 'POST', body: JSON.stringify({}) }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Approved ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadCommissions();
+  };
+
+  window.bulkRejectCommissions = async function () {
+    var ids = Array.from(selectedCommissionIds);
+    if (!ids.length) return;
+    if (!confirm('Reject ' + ids.length + ' commission' + (ids.length !== 1 ? 's' : '') + '?')) return;
+    var bar = document.getElementById('commissionBulkBar');
+    if (bar) bar.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    var ok = 0, fail = 0;
+    for (var i = 0; i < ids.length; i++) {
+      try { await apiFetch('/pitches/' + ids[i] + '/reject', { method: 'POST', body: JSON.stringify({}) }); ok++; }
+      catch { fail++; }
+    }
+    showAlert('Rejected ' + ok + (fail ? ', ' + fail + ' failed' : '') + '.', fail ? 'warning' : 'success');
+    await loadCommissions();
+  };
+
   function optimisticRemoveCommissionCard(pitchId) {
-    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"]');
+    var card = document.querySelector('.review-card[data-pitch="' + pitchId + '"], .commission-list-row[data-pitch="' + pitchId + '"], .commission-swimlane-row[data-pitch="' + pitchId + '"]');
     if (!card) return function () {};
+    selectedCommissionIds.delete(pitchId);
+    updateCommissionsBulkBar();
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     card.classList.add('optimistic-removing');
     var removed = false;
@@ -892,6 +1454,66 @@
     wireWeakCommissionModal();
     wireOverrideCommissionModal();
     wireNewCommission();
+
+    // Pitch view toggle
+    var toggleBtns = document.querySelectorAll('#pitchViewToggle .view-toggle-btn');
+    function applyViewMode() {
+      toggleBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.view === viewMode); });
+    }
+    toggleBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        viewMode = btn.dataset.view;
+        localStorage.setItem('dfai_pitches_view', viewMode);
+        applyViewMode();
+        loadPitches();
+      });
+    });
+    applyViewMode();
+
+    // Pitch group toggle
+    var groupBtns = document.querySelectorAll('#pitchGroupToggle .view-toggle-btn');
+    function applyGroupBy() {
+      groupBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.group === groupBy); });
+    }
+    groupBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        groupBy = btn.dataset.group;
+        localStorage.setItem('dfai_pitches_group', groupBy);
+        applyGroupBy();
+        loadPitches();
+      });
+    });
+    applyGroupBy();
+
+    // Commission view toggle
+    var commToggleBtns = document.querySelectorAll('#commissionViewToggle .view-toggle-btn');
+    function applyCommissionViewMode() {
+      commToggleBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.cview === commissionsViewMode); });
+    }
+    commToggleBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        commissionsViewMode = btn.dataset.cview;
+        localStorage.setItem('dfai_commissions_view', commissionsViewMode);
+        applyCommissionViewMode();
+        if (activeTab === 'commissions') loadCommissions();
+      });
+    });
+    applyCommissionViewMode();
+
+    // Commission group toggle
+    var commGroupBtns = document.querySelectorAll('#commissionGroupToggle .view-toggle-btn');
+    function applyCommissionsGroupBy() {
+      commGroupBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.cgroup === commissionsGroupBy); });
+    }
+    commGroupBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        commissionsGroupBy = btn.dataset.cgroup;
+        localStorage.setItem('dfai_commissions_group', commissionsGroupBy);
+        applyCommissionsGroupBy();
+        if (activeTab === 'commissions') loadCommissions();
+      });
+    });
+    applyCommissionsGroupBy();
 
     loadPitches();
     loadCommissions(); // populate Commissions tab badge on load (grid is hidden until tab is clicked)

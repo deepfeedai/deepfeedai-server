@@ -11,7 +11,7 @@ const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
 const { generateDailyBudget, todayInTz } = require('../lib/news-budget');
 const { getAppConfig } = require('../lib/app-config');
-const { recordEvent } = require('../lib/newsroom-events');
+const { recordEvent, emitPitchProposed } = require('../lib/newsroom-events');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,18 +28,58 @@ async function _getBudgetWithSlots(budgetId, tenantId) {
   const slots = await getPool().query(`
     SELECT
       nbs.*,
-      rw.name  AS recommended_writer_name,
-      rw.avatar_url AS recommended_writer_avatar,
-      aw.name  AS assigned_writer_name,
-      aw.avatar_url AS assigned_writer_avatar
+      rw.name        AS recommended_writer_name,
+      rw.avatar_url  AS recommended_writer_avatar,
+      aw.name        AS assigned_writer_name,
+      aw.avatar_url  AS assigned_writer_avatar,
+      sp.id          AS pitch_id,
+      sp.status      AS pitch_status,
+      a.id           AS article_id,
+      a.title        AS article_title,
+      a.slug         AS article_slug,
+      a.is_published AS article_is_published,
+      a.status       AS article_status
     FROM news_budget_slots nbs
-    LEFT JOIN writers rw ON rw.id = nbs.recommended_writer_id
-    LEFT JOIN writers aw ON aw.id = nbs.assigned_writer_id
+    LEFT JOIN writers rw       ON rw.id = nbs.recommended_writer_id
+    LEFT JOIN writers aw       ON aw.id = nbs.assigned_writer_id
+    LEFT JOIN story_pitches sp ON sp.id = nbs.spawned_pitch_id  AND sp.tenant_id = nbs.tenant_id
+    LEFT JOIN articles a       ON a.id  = nbs.spawned_article_id AND a.tenant_id  = nbs.tenant_id
     WHERE nbs.budget_id = $1 AND nbs.tenant_id = $2
     ORDER BY nbs.sort_order ASC, nbs.id ASC
   `, [budgetId, tenantId]);
 
-  return { ...budget, slots: slots.rows };
+  // Annotate each slot with whether its sources are wire/curated so the UI
+  // can show a badge before the editor approves.
+  const rows = slots.rows;
+  const allIds = [];
+  rows.forEach(s => {
+    const ids = Array.isArray(s.source_article_ids)
+      ? s.source_article_ids
+      : (typeof s.source_article_ids === 'string' ? JSON.parse(s.source_article_ids || '[]') : []);
+    ids.forEach(id => { if (id) allIds.push(Number(id)); });
+  });
+
+  let sourceTypeMap = {};
+  if (allIds.length) {
+    const srcRes = await getPool().query(
+      'SELECT id, content_type FROM articles WHERE id = ANY($1) AND tenant_id = $2',
+      [allIds, tenantId]
+    );
+    srcRes.rows.forEach(r => { sourceTypeMap[r.id] = r.content_type; });
+  }
+
+  const annotated = rows.map(s => {
+    const ids = Array.isArray(s.source_article_ids)
+      ? s.source_article_ids
+      : (typeof s.source_article_ids === 'string' ? JSON.parse(s.source_article_ids || '[]') : []);
+    const hasWire = ids.some(id => {
+      const ct = sourceTypeMap[Number(id)];
+      return !ct || ct === 'curated' || ct === 'wire';
+    });
+    return { ...s, has_wire_sources: hasWire };
+  });
+
+  return { ...budget, slots: annotated };
 }
 
 /**
@@ -96,7 +136,7 @@ router.get('/today', auth, requirePermission('articles.read'), asyncHandler(asyn
 }));
 
 // POST /api/admin/budget/generate — on-demand generation (idempotent)
-// ?force=true deletes today's existing budget and regenerates from scratch
+// ?force=true regenerates the runsheet but preserves approved/rejected slots
 router.post('/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
   const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
@@ -108,8 +148,44 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
       const full = await _getBudgetWithSlots(existing.id, req.tenantId);
       return res.json({ budget: full, skipped: true, reason: 'already_exists' });
     }
-    // Force: delete budget (slots cascade) so generateDailyBudget can recreate
+    // Preserve non-pending slots so approved/rejected decisions survive the regen
+    const preserved = await db.prepare(`
+      SELECT priority, pitch_type, topic_tag, headline_suggestion, rationale,
+             assigned_writer_id, recommended_writer_id, target_publish_at,
+             source_article_ids, sort_order, status, spawned_article_id
+      FROM news_budget_slots
+      WHERE budget_id = $1 AND tenant_id = $2 AND status NOT IN ('pending')
+    `).all(existing.id, req.tenantId);
+
+    // Delete budget (slots cascade)
     await db.prepare('DELETE FROM news_budgets WHERE id = $1 AND tenant_id = $2').run(existing.id, req.tenantId);
+
+    const result = await generateDailyBudget(req.tenantId);
+    if (!result?.ok && !result?.budget_id) {
+      return res.status(500).json({ error: result?.error || 'Budget generation failed' });
+    }
+
+    // Re-insert preserved slots into the new budget
+    const newBudgetId = result.budget_id;
+    for (const s of preserved) {
+      await db.prepare(`
+        INSERT INTO news_budget_slots
+          (budget_id, tenant_id, priority, pitch_type, topic_tag, headline_suggestion,
+           rationale, assigned_writer_id, recommended_writer_id, target_publish_at,
+           source_article_ids, sort_order, status, spawned_article_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
+      `).run(
+        newBudgetId, req.tenantId,
+        s.priority, s.pitch_type, s.topic_tag, s.headline_suggestion,
+        s.rationale, s.assigned_writer_id, s.recommended_writer_id,
+        s.target_publish_at,
+        typeof s.source_article_ids === 'string' ? s.source_article_ids : JSON.stringify(s.source_article_ids || []),
+        s.sort_order, s.status, s.spawned_article_id,
+      );
+    }
+
+    const full = await _getBudgetWithSlots(newBudgetId, req.tenantId);
+    return res.json({ budget: full });
   }
 
   const result = await generateDailyBudget(req.tenantId);
@@ -189,12 +265,12 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
   const cap    = appCfg.daily_publish_cap != null ? (parseInt(appCfg.daily_publish_cap, 10) || 0) : 6;
   const burst  = parseInt(appCfg.daily_publish_burst, 10) || 0;
   const effectiveCap = cap > 0 ? cap + burst : 0;
-  // Count deep dives published on the selected date only (not the full 7-day window).
-  // Matches what publish-gate.js enforces: content_type IN ('original','deep-dive') for the calendar day.
+  // Count deep dives published on the selected calendar day using the newsroom timezone
+  // (not UTC) so late-night articles don't bleed into the next day's cap.
   const todayDeepDiveCount = deepDiveResult.rows.filter(a => {
     if (!a.published_at) return false;
     const d = a.published_at instanceof Date ? a.published_at : new Date(a.published_at);
-    return d.toISOString().slice(0, 10) === dateStr;
+    return d.toLocaleDateString('en-CA', { timeZone: tz }) === dateStr;
   }).length;
   const todayCount = pubResult.rows.length + todayDeepDiveCount;
 
@@ -317,6 +393,7 @@ router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asy
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
+  emitPitchProposed(pitch, req.tenantId).catch(() => {});
 
   const updatedSlot = await db.prepare(`
     UPDATE news_budget_slots
@@ -480,9 +557,13 @@ router.post('/briefing/generate', auth, requirePermission('articles.write'), asy
   const { generateDailyBriefing, EDITION_CONFIG } = require('../lib/daily-briefing');
   const force   = req.body?.force === true;
   const edition = EDITION_CONFIG[req.body?.edition] ? req.body.edition : 'evening';
-  const result  = await generateDailyBriefing(req.tenantId, { force, edition });
+  const date    = req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : undefined;
+  const result  = await generateDailyBriefing(req.tenantId, { force, edition, date });
   if (!result.ok && result.reason !== 'already_exists') {
-    return res.status(500).json({ error: result.reason || 'generation_failed' });
+    // User-fixable conditions → 422; system failures → 500
+    const userFixable = ['no_articles', 'no_voice', 'budget_exceeded'];
+    const status = userFixable.includes(result.reason) ? 422 : 500;
+    return res.status(status).json({ error: result.reason || 'generation_failed' });
   }
   res.json(result);
 }));
@@ -493,8 +574,32 @@ router.get('/briefing', auth, requirePermission('articles.read'), asyncHandler(a
   const { getTodayBriefings }  = require('../lib/daily-briefing');
   const appCfg = await _cfg(req.tenantId).catch(() => ({}));
   const tz = appCfg.newsroom_timezone || 'UTC';
-  const briefings = await getTodayBriefings(req.tenantId, tz);
-  res.json({ briefings });
+  const dateParam = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined;
+  const briefings = await getTodayBriefings(req.tenantId, tz, dateParam);
+  // Include site_url so the admin can construct shareable public links
+  const siteUrlRow = await db.prepare("SELECT value FROM settings WHERE tenant_id = $1 AND key = 'site_url'").get(req.tenantId);
+  res.json({ briefings, site_url: siteUrlRow?.value || null });
+}));
+
+// DELETE /api/admin/budget/briefing/:edition — delete a briefing so it can be regenerated
+router.delete('/briefing/:edition', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
+  const { edition } = req.params;
+  if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+    return res.status(400).json({ error: 'Invalid edition' });
+  }
+  const { getAppConfig: _cfg } = require('../lib/app-config');
+  const appCfg = await _cfg(req.tenantId).catch(() => ({}));
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const dateParam = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+    ? req.query.date
+    : new Date().toLocaleDateString('en-CA', { timeZone: tz });
+
+  const result = await getPool().query(
+    'DELETE FROM daily_briefings WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 RETURNING id',
+    [req.tenantId, dateParam, edition]
+  );
+  if (result.rowCount === 0) return res.status(404).json({ error: 'Briefing not found' });
+  res.json({ ok: true });
 }));
 
 module.exports = router;

@@ -931,6 +931,74 @@ router.post('/watch/:articleId', asyncHandler(async (req, res) => {
   res.json({ ok: true, watching: true });
 }));
 
+// GET /api/news/briefing/:date/:edition? — public shareable briefing page data
+// :date  = YYYY-MM-DD | 'latest'
+// :edition = morning | afternoon | evening (optional — best available if omitted)
+router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
+  let { date, edition } = req.params;
+  const tenantId = req.tenantId;
+
+  if (date === 'latest') {
+    const { getTodayBriefing } = require('../lib/daily-briefing');
+    const tz = req.query.tz || 'UTC';
+    const best = await getTodayBriefing(tenantId, tz).catch(() => null);
+    if (!best) return res.status(404).json({ error: 'No briefing available' });
+    return res.redirect(302, `/api/news/briefing/${best.briefing_date}/${best.edition}`);
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date' });
+  if (edition && !['morning', 'afternoon', 'evening', 'podcast'].includes(edition)) {
+    return res.status(400).json({ error: 'Invalid edition' });
+  }
+
+  const row = edition
+    ? await db.prepare(`
+        SELECT * FROM daily_briefings
+        WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status = 'ready'
+      `).get(tenantId, date, edition)
+    : await db.prepare(`
+        SELECT * FROM daily_briefings
+        WHERE tenant_id = $1 AND briefing_date = $2 AND status = 'ready'
+        ORDER BY CASE edition WHEN 'evening' THEN 0 WHEN 'afternoon' THEN 1 WHEN 'morning' THEN 2 ELSE 3 END
+        LIMIT 1
+      `).get(tenantId, date);
+
+  if (!row) return res.status(404).json({ error: 'Briefing not found' });
+
+  // Resolve article IDs → titles + slugs
+  const articleIds = Array.isArray(row.article_ids)
+    ? row.article_ids
+    : JSON.parse(row.article_ids || '[]');
+
+  let articles = [];
+  if (articleIds.length) {
+    const ph = articleIds.map((_, i) => `$${i + 2}`).join(',');
+    articles = await db.prepare(`
+      SELECT a.id, a.title, a.generated_title, a.slug, a.category,
+             w.name AS writer_name, w.avatar_url AS writer_avatar_url
+      FROM articles a
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1 AND a.id IN (${ph})
+    `).all(tenantId, ...articleIds);
+  }
+
+  // Resolve audio URL to absolute
+  const mediaBase = process.env.MEDIA_BASE_URL || '';
+  let audioUrl = row.audio_url || null;
+  if (audioUrl && audioUrl.startsWith('/')) audioUrl = mediaBase + audioUrl;
+
+  res.json({
+    date:              row.briefing_date,
+    edition:           row.edition,
+    audio_url:         audioUrl,
+    script:            row.script || null,
+    voice_name:        row.voice_name || null,
+    voice_avatar_url:  row.voice_avatar_url || null,
+    created_at:        row.created_at,
+    articles,
+  });
+}));
+
 // GET /api/news/live-events — public Newsroom Glass feed
 // Returns recent public newsroom events for the live feed widget.
 // Default window: 48h. Falls back to the latest 20 events if the window

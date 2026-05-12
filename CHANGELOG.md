@@ -8,6 +8,97 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.14-beta] — 2026-05-12
+
+**Shareable briefings, activity feed polish, and AI usage improvements.**
+
+### Added
+
+- **Shareable briefing page** — each daily briefing edition now has a permanent URL (`/briefing/:date/:edition`) with an inline audio player, scrollable transcript, and links to every story covered. Shareable from the public site.
+- **`GET /api/news/briefing/:date/:edition`** — public API endpoint to retrieve any briefing by date and edition; used by the new shareable page.
+- **AI Usage: Today tab** — "Today" range tab shows spend and credit usage for the current calendar day alongside the existing 7/30/90-day ranges.
+
+### Fixed
+
+- **Briefing date navigation** — generating or loading briefings for past dates now works correctly; the budget page date picker passes the selected date through to generation and playback.
+- **Activity feed raw JSON cards** — events without a dedicated renderer (`editorial_review`, `article_rewritten`, `synthesis_started`, `thread_updated`, `story_updated`, `pitch_proposed`, `wire_cluster`) previously showed raw JSON in the card body. All now render as readable summaries with relevant links.
+- **Activity feed text cut-off** — writer standups and daily brief prose were truncated mid-sentence by CSS line-clamp. Replaced with a JS sentence-boundary preview (~280 chars) that ends on a complete sentence; a "Show more" button expands the full text.
+- **AI Usage anomaly banner false positives** — anomaly detection now excludes today from the baseline average (today is always incomplete, so including it inflated the ratio). The banner only fires when today's spend genuinely exceeds the historical daily average.
+- **AI Usage credits display** — removed the `cr` abbreviation from all credit counts; numbers now display without a unit suffix.
+- **Default admin view** — post-login now lands on the Classic dashboard. The Newsroom is still accessible from the main nav; it becomes the default once it reaches full feature parity.
+
+### Changed
+
+- **Live feed Newsroom tab** — now the first tab in the public live feed widget (previously third), and the feed panel always opens expanded on page load.
+- **Newsroom Glass on light/sepia themes** — replaced hardcoded white RGBA values in the Newsroom tab CSS with theme variables so headlines, borders, and event cards are readable in all four reader themes.
+
+---
+
+
+## [1.0.13-beta] — 2026-05-11
+
+**Newsroom Glass Phase B — live feed widget wired to event stream.**
+
+### Changed
+
+- **Newsroom tab event rendering** — added icon and colour rules for all Phase A event types: `pitch_proposed` (indigo 📋), `pitch_approved` (mint ✓), `pitch_rejected` (red ✕), `thread_updated` (slate ↻), `wire_cluster` (amber ⚡).
+- **Pitch lifecycle threading** — `groupEvents` now threads pitch events by `target_pitch_id` so `pitch_proposed → pitch_approved → synthesis_started` for the same pitch collapses into a single developing thread instead of three separate cards.
+- **Story/thread links** — `thread_updated` and `story_updated` events now link to `/story/` instead of `/article/`, so the card navigates to the correct story page.
+- **Source count badge** — shown on `pitch_proposed` and `wire_cluster` events when `payload.source_count > 1`.
+
+---
+
+## [1.0.12-beta] — 2026-05-11
+
+**Runsheet pipeline trail + Newsroom Glass Phase A event wiring.**
+
+### Added
+
+- **Inline pipeline status trail on Runsheet slot cards** — each approved slot card now shows a four-dot progress bar: Plan → Assigned → Writing → Published. Dots fill as each stage is reached. A detail line below shows current state: pitch status label, "In review" when an article is drafted, or a direct link to view/preview the article when published or scheduled.
+- **Wire source badge on Runsheet slots** — slots whose source articles include Feed Inbox (curated/wire) items now show an amber "Wire source" badge, clearly distinguishing them from slots seeded by original coverage.
+- **Newsroom Glass Phase A — public event emission wiring** (foundation for the upcoming live feed):
+  - `emitPitchProposed()` helper in `lib/newsroom-events.js` — fires a public `pitch_proposed` event when a story pitch is created.
+  - Called on slot approval via the admin Runsheet, on auto-promotion via `news-budget.js`, and on writer-agent beat-search pitch creation.
+  - `pitch_approved` event emitted when an editor greenlights a pitch via the Pitches page.
+  - `thread_updated` event emitted when a story thread gains its second article, marking an ongoing investigation for the public live feed.
+
+### Fixed
+
+- **Briefing 500 on no articles** — daily briefing generation now returns HTTP 422 (with a human-readable reason) for user-fixable conditions (`no_articles`, `no_voice`, `budget_exceeded`), reserving 500 for genuine system errors. The frontend surfaces the reason label instead of a raw status code.
+- **Deep-dive cap counted against wrong calendar day** — the timezone-aware cap check used UTC (`toISOString()`) instead of the newsroom's local calendar day, causing yesterday's deep dives to inflate today's count. Fixed with `toLocaleDateString('en-CA', { timeZone: tz })`.
+- **Approved slots lost on budget regeneration** — force-regen deleted the entire budget (cascading to all slots), wiping approved/auto-promoted items. Non-pending slots are now snapshotted before deletion and re-inserted into the freshly generated budget.
+
+---
+
+## [1.0.11-beta] — 2026-05-11
+
+**Pitches page overhaul — bulk triage, orthogonal view/group controls, and full skin polish.**
+
+### Added
+
+- **List view for pitches** — compact 8-column table (headline, writer, type, sources, priority, age, actions) with sticky header and per-row checkboxes, alongside the existing grid card view.
+- **List view for commissions** — compact 7-column table (title/angle, from, category, sources, age, actions) with sticky header and per-row checkboxes.
+- **Orthogonal view × group controls** — view (List / Grid) and grouping are now independent toggles. Pitches support "All" or "By Writer"; commissions support "All", "By Writer", or "By Category". All four pitch combinations and six commission combinations work, including grid cards inside writer swimlanes.
+- **Bulk triage** — select multiple pitches or commissions via header checkbox or per-row checkboxes and approve/dismiss/reject in one action. Swimlane headers include a group select-all. Preferences persist to localStorage.
+- **"Ready to approve" filter** — surfaces only pending pitches with ≥ 3 sources and priority ≥ 7.
+- **Priority sort** — pitches are sorted by priority descending in all views.
+- **Action icons** — ✓ Approve, ✗ Reject, – Dismiss added to all button surfaces (cards, list rows, swimlane rows, and bulk bar).
+
+### Changed
+
+- **Bulk action bar** — switched from accent-coloured background (buttons blended in) to a neutral `surface2` bar with a border. Approve uses `btn-primary`, Dismiss/Reject uses `btn-outline`.
+- **Swimlane group-select checkbox** — moved to `data-wid` attribute to prevent the global writer-drawer delegate from intercepting checkbox clicks.
+- **Removed writer profile drawer** — `writer-drawer.js` deleted; the side panel was unused. `data-writer-id` attributes and `cursor:pointer` styles removed from pitches swimlane headers.
+- **Removed Runsheet headline edit button** — inline title editing had a bug where cancelling without a change cleared the title until refresh, and the feature had negligible value (headline suggestion is a synthesis seed, not the final title).
+
+### Fixed
+
+- **`--surface2` CSS variable** — declared in `:root` in `admin.css`; was used throughout the codebase but never defined, causing transparent hover states and avatar placeholders.
+- **`btn-primary` text colour per skin** — all five skins now have explicit text colours: Ink (cyan) and Wire (green) use `#000`; Daylight (blue), Broadsheet (dark red), and Tabloid (red) use `#fff`.
+- **View-toggle active state colours** — same per-skin overrides applied to `.view-toggle-btn.active`.
+
+---
+
 ## [1.0.10-beta] — 2026-05-11
 
 **Inline video positioning and AI image sentiment awareness.**

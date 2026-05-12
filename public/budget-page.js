@@ -162,6 +162,46 @@
     });
   }
 
+  // ── Pipeline status trail (slot → pitch → article) ────────────────────────
+  function pipelineTrailHtml(slot) {
+    if ((slot.status || 'pending') === 'rejected') return '';
+
+    var hasPitch      = !!slot.pitch_id;
+    var hasArticle    = !!slot.article_id;
+    var isPublished   = slot.article_is_published == 1;
+    var isScheduled   = slot.article_status === 'scheduled';
+    var hasWriter     = !!(slot.assigned_writer_id || slot.recommended_writer_id);
+
+    var reached = [
+      true,                        // Plan — slot exists
+      hasWriter,                   // Assigned
+      hasPitch || hasArticle,      // Writing — pitch filed
+      isPublished || isScheduled,  // Published / Scheduled
+    ];
+    var labels = ['Plan', 'Assigned', 'Writing', 'Published'];
+
+    var dots = labels.map(function (lbl, i) {
+      return '<span class="pt-dot' + (reached[i] ? ' pt-dot--done' : '') + '" title="' + esc(lbl) + '"></span>';
+    }).join('');
+
+    var detail = '';
+    if (isPublished && slot.article_slug) {
+      detail = '<a class="pt-link" href="/article/' + esc(slot.article_slug) + '" target="_blank" rel="noopener">&#8599; View article</a>';
+    } else if (isScheduled && slot.article_slug) {
+      detail = '<a class="pt-link" href="/article/' + esc(slot.article_slug) + '" target="_blank" rel="noopener">&#8599; Preview draft</a>';
+    } else if (hasArticle && !isPublished) {
+      detail = '<span class="pt-status">In review</span>';
+    } else if (hasPitch) {
+      var pMap = { proposed: 'Pitch filed', approved: 'Approved', synthesized: 'Synthesizing…', dismissed: 'Dismissed' };
+      detail = '<span class="pt-status">' + esc(pMap[slot.pitch_status] || slot.pitch_status || '') + '</span>';
+    }
+
+    return '<div class="pipeline-trail">'
+      + '<div class="pt-dots"><div class="pt-line"></div>' + dots + '</div>'
+      + (detail ? '<div class="pt-detail">' + detail + '</div>' : '')
+      + '</div>';
+  }
+
   // ── Render a single budget card ────────────────────────────────────────────
   function renderCard(slot) {
     var displayName = slot.assigned_writer_name || slot.recommended_writer_name || '';
@@ -177,7 +217,6 @@
       ? '<button class="card-btn cb-reject" data-action="reject" data-id="' + sid + '" title="Reject slot">&#10005; <span class="cb-label">Reject</span></button>'
       : '';
     var reassignBtn = '<button class="card-btn cb-reassign" data-action="reassign" data-id="' + sid + '" title="Reassign writer">&#8635; <span class="cb-label">Reassign</span></button>';
-    var editBtn     = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + sid + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
 
     // Reschedule / Publish Now buttons
     var publishNowBtn = '';
@@ -204,6 +243,7 @@
         '<div class="card-meta-row">',
           pitchTypeBadge(slot.pitch_type),
           slot.topic_tag ? '<span class="topic-tag" title="' + esc(slot.topic_tag) + '">' + esc(slot.topic_tag) + '</span>' : '',
+          slot.has_wire_sources ? '<span class="slot-wire-badge" title="Sourced from feed inbox — synthesis will draw from wire content">&#127350; Wire source</span>' : '',
         '</div>',
         '<div class="card-meta-row">',
           '<div class="card-writer">',
@@ -218,10 +258,10 @@
           approveBtn,
           rejectBtn,
           reassignBtn,
-          editBtn,
           publishNowBtn,
           rescheduleBtn2,
         '</div>',
+        pipelineTrailHtml(slot),
       '</div>',
     ].join('');
   }
@@ -923,111 +963,6 @@
     }
   }
 
-  // ── Edit headline inline ───────────────────────────────────────────────────
-  function startHeadlineEdit(slotId) {
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-
-    var headlineEl = card.querySelector('.card-headline');
-    if (!headlineEl) return;
-
-    var currentText = headlineEl.textContent;
-
-    // Replace the div with an input
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'card-headline-input';
-    input.value = currentText;
-    headlineEl.parentNode.replaceChild(input, headlineEl);
-    input.focus();
-    input.select();
-
-    // Replace edit button with save/cancel
-    var actionsEl = card.querySelector('.card-actions');
-    var editBtn = actionsEl ? actionsEl.querySelector('[data-action="edit-headline"]') : null;
-    if (editBtn) {
-      editBtn.outerHTML = [
-        '<button class="card-btn cb-save" data-action="save-headline" data-id="' + esc(String(slotId)) + '" title="Save">&#10003; <span class="cb-label">Save</span></button>',
-        '<button class="card-btn cb-cancel" data-action="cancel-headline" data-id="' + esc(String(slotId)) + '" title="Cancel">&#10005;</button>',
-      ].join('');
-    }
-
-    // Save on Enter, cancel on Escape
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); saveHeadline(slotId, input.value); }
-      if (e.key === 'Escape') { cancelHeadlineEdit(slotId, currentText); }
-    });
-    input.addEventListener('blur', function () {
-      // Small delay to allow save/cancel button click to fire first
-      setTimeout(function () {
-        var card2 = document.getElementById('bcard-' + slotId);
-        if (card2 && card2.querySelector('.card-headline-input')) {
-          saveHeadline(slotId, input.value);
-        }
-      }, 200);
-    });
-  }
-
-  function cancelHeadlineEdit(slotId, originalText) {
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-    var input = card.querySelector('.card-headline-input');
-    if (!input) return;
-
-    var div = document.createElement('div');
-    div.className = 'card-headline';
-    div.textContent = originalText;
-    input.parentNode.replaceChild(div, input);
-
-    // Restore edit button
-    var saveBtn = card.querySelector('[data-action="save-headline"]');
-    var cancelBtn = card.querySelector('[data-action="cancel-headline"]');
-    if (saveBtn) {
-      saveBtn.outerHTML = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + esc(String(slotId)) + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
-    }
-    if (cancelBtn) cancelBtn.remove();
-  }
-
-  async function saveHeadline(slotId, newHeadline) {
-    newHeadline = (newHeadline || '').trim();
-    if (!newHeadline) { return; }
-
-    var card = document.getElementById('bcard-' + slotId);
-    if (!card) return;
-
-    // Restore the headline div immediately (optimistic)
-    var input = card.querySelector('.card-headline-input');
-    if (input) {
-      var div = document.createElement('div');
-      div.className = 'card-headline';
-      div.textContent = newHeadline;
-      input.parentNode.replaceChild(div, input);
-    }
-
-    // Restore edit button
-    var saveBtn = card.querySelector('[data-action="save-headline"]');
-    var cancelBtn = card.querySelector('[data-action="cancel-headline"]');
-    if (saveBtn) {
-      saveBtn.outerHTML = '<button class="card-btn cb-edit" data-action="edit-headline" data-id="' + esc(String(slotId)) + '" title="Edit headline">&#9998; <span class="cb-label">Edit</span></button>';
-    }
-    if (cancelBtn) cancelBtn.remove();
-
-    try {
-      await apiFetch('/admin/budget/slots/' + slotId, {
-        method: 'PATCH',
-        body: JSON.stringify({ headline_suggestion: newHeadline }),
-      });
-      // Update in-memory
-      if (currentBudget && currentBudget.slots) {
-        currentBudget.slots = currentBudget.slots.map(function (s) {
-          return s.id === slotId ? Object.assign({}, s, { headline_suggestion: newHeadline }) : s;
-        });
-      }
-    } catch (err) {
-      toast('Failed to save headline: ' + err.message, 'error');
-    }
-  }
-
   // ── Reassign ───────────────────────────────────────────────────────────────
   function openReassignModal(slotId) {
     reassignSlotId = slotId;
@@ -1151,17 +1086,6 @@
 
     if (action === 'approve')          { approveSlot(slotId); }
     if (action === 'reject')           { rejectSlot(slotId); }
-    if (action === 'edit-headline')    { startHeadlineEdit(slotId); }
-    if (action === 'save-headline')    {
-      var card = document.getElementById('bcard-' + slotId);
-      var input = card && card.querySelector('.card-headline-input');
-      if (input) saveHeadline(slotId, input.value);
-    }
-    if (action === 'cancel-headline')  {
-      var card2 = document.getElementById('bcard-' + slotId);
-      var hl = card2 && card2.querySelector('.card-headline');
-      cancelHeadlineEdit(slotId, hl ? hl.textContent : '');
-    }
     if (action === 'reassign')               { openReassignModal(slotId); }
     if (action === 'open-reschedule')        { openRescheduleInline(slotId); }
     if (action === 'reschedule-cancel')      { closeRescheduleInline(slotId); }
@@ -1210,7 +1134,7 @@
 
     EDITIONS.forEach(function (ed) { container.appendChild(buildEditionRow(ed)); });
 
-    function applyBriefingState(edKey, briefing) {
+    function applyBriefingState(edKey, briefing, date, siteUrl) {
       var btn   = document.getElementById('brief-btn-' + edKey);
       var ctrl  = document.getElementById('brief-ctrl-' + edKey);
       var label = btn && btn.querySelector('.brief-btn-label-' + edKey);
@@ -1223,17 +1147,58 @@
       if (briefing.status === 'ready') {
         label.textContent = '✓ Ready';
         btn.classList.add('btn-success-muted');
-        if (briefing.audio_url) {
-          // Insert inline audio player
-          var existing = ctrl.querySelector('.brief-audio-wrap');
-          if (!existing) {
-            var wrap = document.createElement('div');
-            wrap.className = 'brief-audio-wrap';
-            wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;';
-            wrap.innerHTML = '<audio src="' + briefing.audio_url + '" preload="none" controls style="height:26px;max-width:180px;"></audio>'
-              + '<a href="' + briefing.audio_url + '" target="_blank" style="color:var(--muted);font-size:11px;">↗</a>';
-            ctrl.appendChild(wrap);
+        var existing = ctrl.querySelector('.brief-audio-wrap');
+        if (!existing) {
+          var wrap = document.createElement('div');
+          wrap.className = 'brief-audio-wrap';
+          wrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap;';
+
+          if (briefing.audio_url) {
+            wrap.innerHTML = '<audio src="' + briefing.audio_url + '" preload="none" controls style="height:26px;max-width:160px;"></audio>';
           }
+
+          // Share link to public briefing page
+          if (siteUrl && briefing.briefing_date) {
+            var briefDate = String(briefing.briefing_date).slice(0, 10);
+            var shareUrl = siteUrl.replace(/\/$/, '') + '/briefing/' + briefDate + '/' + edKey;
+            var shareBtn = document.createElement('button');
+            shareBtn.className = 'btn btn-outline btn-sm';
+            shareBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+            shareBtn.textContent = '↗ Copy link';
+            shareBtn.title = shareUrl;
+            shareBtn.addEventListener('click', function () {
+              navigator.clipboard.writeText(shareUrl).then(function () {
+                shareBtn.textContent = '✓ Copied';
+                setTimeout(function () { shareBtn.textContent = '↗ Copy link'; }, 2000);
+              }).catch(function () {
+                window.prompt('Share this link:', shareUrl);
+              });
+            });
+            wrap.appendChild(shareBtn);
+          }
+
+          // Delete button — resets the briefing so it can be regenerated
+          var delBtn = document.createElement('button');
+          delBtn.className = 'btn btn-outline btn-sm';
+          delBtn.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--muted);';
+          delBtn.textContent = '✕ Delete';
+          delBtn.title = 'Delete this briefing so it can be regenerated';
+          delBtn.addEventListener('click', function () {
+            if (!window.confirm('Delete the ' + edKey + ' briefing? It can be regenerated.')) return;
+            var qDate = date ? '?date=' + date : '';
+            apiFetch('/admin/budget/briefing/' + edKey + qDate, { method: 'DELETE' }).then(function () {
+              // Reset row to "Generate" state
+              label.textContent = 'Generate';
+              btn.classList.remove('btn-success-muted');
+              btn.disabled = false;
+              wrap.remove();
+            }).catch(function (err) {
+              alert('Delete failed: ' + (err.message || err));
+            });
+          });
+          wrap.appendChild(delBtn);
+
+          ctrl.appendChild(wrap);
         }
       } else if (briefing.status === 'pending') {
         var age = Date.now() - new Date(briefing.updated_at || briefing.created_at).getTime();
@@ -1249,13 +1214,29 @@
       }
     }
 
-    // Load today's briefings
-    apiFetch('/admin/budget/briefing').then(function (data) {
-      var briefings = data.briefings || [];
-      var byEdition = {};
-      briefings.forEach(function (b) { byEdition[b.edition] = b; });
-      EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
-    }).catch(function () {});
+    // Load briefings for the active runsheet date
+    function loadBriefingsForDate(date) {
+      apiFetch('/admin/budget/briefing?date=' + date).then(function (data) {
+        var briefings = data.briefings || [];
+        var siteUrl = data.site_url || null;
+        var byEdition = {};
+        briefings.forEach(function (b) { byEdition[b.edition] = b; });
+        EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key], date, siteUrl); });
+      }).catch(function () {});
+    }
+
+    loadBriefingsForDate(currentDate);
+
+    // Expose so the date picker can reload briefings when switching dates
+    window._briefingReload = loadBriefingsForDate;
+
+    var BRIEFING_ERRORS = {
+      no_articles:     'No articles — publish some first',
+      no_voice:        'No voice configured — assign an ElevenLabs voice to a writer',
+      budget_exceeded: 'AI budget exceeded',
+      script_failed:   'Script generation failed — Retry',
+      tts_failed:      'Audio generation failed — Retry',
+    };
 
     // Wire generate buttons
     container.addEventListener('click', async function (e) {
@@ -1269,7 +1250,7 @@
       try {
         var data = await apiFetch('/admin/budget/briefing/generate', {
           method: 'POST',
-          body: JSON.stringify({ force: true, edition }),
+          body: JSON.stringify({ force: true, edition, date: currentDate }),
         });
         if (data.ok) {
           applyBriefingState(edition, { status: 'ready', audio_url: data.audio_url });
@@ -1279,7 +1260,9 @@
           btn.disabled = false;
         }
       } catch (err) {
-        label.textContent = 'Failed — Retry';
+        var reason = err.message || '';
+        label.textContent = BRIEFING_ERRORS[reason] || 'Failed — Retry';
+        btn.title = reason;
         btn.disabled = false;
       }
     });
@@ -1291,6 +1274,7 @@
   datePicker.addEventListener('change', function () {
     currentDate = datePicker.value;
     loadBudget(currentDate);
+    if (window._briefingReload) window._briefingReload(currentDate);
   });
 
   // ── Editorial note: auto-save on blur ──────────────────────────────────────
