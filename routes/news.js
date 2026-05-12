@@ -988,7 +988,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   if (audioUrl && audioUrl.startsWith('/')) audioUrl = mediaBase + audioUrl;
 
   res.json({
-    date:              row.briefing_date,
+    date:              String(row.briefing_date || '').slice(0, 10),
     edition:           row.edition,
     audio_url:         audioUrl,
     script:            row.script || null,
