@@ -982,10 +982,12 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
     `).all(tenantId, ...articleIds);
   }
 
-  // Resolve audio URL to absolute
+  // Resolve relative URLs to absolute for OG/social scraper compatibility
   const mediaBase = process.env.MEDIA_BASE_URL || '';
   let audioUrl = row.audio_url || null;
   if (audioUrl && audioUrl.startsWith('/')) audioUrl = mediaBase + audioUrl;
+  let thumbnailUrl = row.thumbnail_url || null;
+  if (thumbnailUrl && thumbnailUrl.startsWith('/')) thumbnailUrl = mediaBase + thumbnailUrl;
 
   res.json({
     date:              String(row.briefing_date || '').slice(0, 10),
@@ -994,7 +996,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
     script:            row.script || null,
     voice_name:        row.voice_name || null,
     voice_avatar_url:  row.voice_avatar_url || null,
-    thumbnail_url:     row.thumbnail_url || null,
+    thumbnail_url:     thumbnailUrl,
     created_at:        row.created_at,
     articles,
   });
