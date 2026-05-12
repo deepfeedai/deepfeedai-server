@@ -812,13 +812,15 @@ registerJob({
     const burst = parseInt(appCfg.daily_publish_burst, 10) || 0;
     const effectiveCap = cap > 0 ? cap + burst : 0;
 
+    const tz = appCfg.newsroom_timezone || 'UTC';
     let remaining = Infinity;
     if (effectiveCap > 0) {
       const { rows: countRows } = await db.getPool().query(
         `SELECT COUNT(*) AS cnt FROM articles
          WHERE tenant_id = $1 AND is_published = 1
-           AND published_at >= CURRENT_DATE AND published_at < CURRENT_DATE + INTERVAL '1 day'`,
-        [tenantId]
+           AND published_at >= date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2
+           AND published_at <  date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2 + INTERVAL '1 day'`,
+        [tenantId, tz]
       );
       const todayCount = parseInt(countRows[0]?.cnt ?? 0, 10);
       remaining = effectiveCap - todayCount;

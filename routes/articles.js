@@ -965,7 +965,7 @@ router.put('/:id/publish', auth, requirePermission('articles.update'), asyncHand
   }
 
   await db.prepare(
-    "UPDATE articles SET is_published = 1, is_archived = 0, status = 'published', updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
+    "UPDATE articles SET is_published = 1, is_archived = 0, status = 'published', published_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
   ).run(req.params.id, req.tenantId);
   onArticlePublished(article.id, req.tenantId).catch(() => {});
   logAudit(req, 'article.publish', 'article', parseInt(req.params.id));

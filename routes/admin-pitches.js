@@ -141,11 +141,23 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
 
   burnTokensByTarget('story_pitch', pitch.id, req.tenantId, req.user?.sub || null).catch(() => {});
 
+  // Detect cross-day scheduling: article created but publish_at is a future calendar day.
+  let scheduledForFutureDay = false;
+  if (synthesized?.publish_at) {
+    const { getAppConfig } = require('../lib/app-config');
+    const { todayInTz } = require('../lib/news-budget');
+    const cfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = cfg.newsroom_timezone || 'UTC';
+    const articleDay = new Date(synthesized.publish_at).toLocaleDateString('en-CA', { timeZone: tz });
+    scheduledForFutureDay = articleDay > todayInTz(tz);
+  }
+
   res.json({
     status: 'ok',
     pitch: { ...pitch, status: synthesized ? 'synthesized' : 'approved' },
-    article: synthesized ? { id: synthesized.id, title: synthesized.title, slug: synthesized.slug } : null,
+    article: synthesized ? { id: synthesized.id, title: synthesized.title, slug: synthesized.slug, publish_at: synthesized.publish_at } : null,
     synthesis_skip_reason: synthesized ? null : synthesisSkipReason,
+    scheduled_for_future_day: scheduledForFutureDay || undefined,
   });
 }));
 
