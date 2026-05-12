@@ -47,12 +47,6 @@
     .nl-format-btn:hover:not(.active) { border-color: var(--accent); color: var(--text); }
 
     /* ── Compose card ────────────────────────────────────────────── */
-    .nl-compose-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;
-      align-items: start;
-    }
-    @media (max-width: 700px) { .nl-compose-grid { grid-template-columns: 1fr; } }
-
     .nl-suggest-row {
       display: flex; gap: 8px; align-items: flex-end;
     }
@@ -167,24 +161,22 @@
 
       <div class="settings-card">
 
-        <div class="nl-compose-grid">
-          <!-- Subject -->
-          <div class="nl-suggest-row">
-            <div class="form-group">
-              <label class="form-label">Subject line</label>
-              <input type="text" id="subjectInput" class="form-control" placeholder="Auto-generated if blank" />
-            </div>
-            <button class="btn btn-outline btn-sm" id="suggestSubjectBtn" title="AI-suggest subject">✨</button>
+        <!-- Subject -->
+        <div class="nl-suggest-row" style="margin-bottom:12px;">
+          <div class="form-group">
+            <label class="form-label">Subject line</label>
+            <input type="text" id="subjectInput" class="form-control" placeholder="Auto-generated if blank" />
           </div>
+          <button class="btn btn-outline btn-sm" id="suggestSubjectBtn" title="AI-suggest subject">✨</button>
+        </div>
 
-          <!-- Intro -->
-          <div class="nl-suggest-row">
-            <div class="form-group">
-              <label class="form-label">Editorial intro <span class="text-muted text-sm">(optional)</span></label>
-              <textarea id="introInput" class="form-control" rows="2" placeholder="AI-suggest or write your own intro paragraph…" style="resize:vertical;"></textarea>
-            </div>
-            <button class="btn btn-outline btn-sm" id="suggestIntroBtn" title="AI-suggest intro">✨</button>
+        <!-- Intro -->
+        <div class="nl-suggest-row" style="margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label">Editorial intro <span class="text-muted text-sm">(optional)</span></label>
+            <textarea id="introInput" class="form-control" rows="2" placeholder="AI-suggest or write your own intro paragraph…" style="resize:vertical;"></textarea>
           </div>
+          <button class="btn btn-outline btn-sm" id="suggestIntroBtn" title="AI-suggest intro">✨</button>
         </div>
 
         <!-- Story Arc (weekly only) -->
