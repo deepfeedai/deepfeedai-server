@@ -1173,13 +1173,20 @@
       }
     }
 
-    // Load today's briefings
-    apiFetch('/admin/budget/briefing').then(function (data) {
-      var briefings = data.briefings || [];
-      var byEdition = {};
-      briefings.forEach(function (b) { byEdition[b.edition] = b; });
-      EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
-    }).catch(function () {});
+    // Load briefings for the active runsheet date
+    function loadBriefingsForDate(date) {
+      apiFetch('/admin/budget/briefing?date=' + date).then(function (data) {
+        var briefings = data.briefings || [];
+        var byEdition = {};
+        briefings.forEach(function (b) { byEdition[b.edition] = b; });
+        EDITIONS.forEach(function (ed) { applyBriefingState(ed.key, byEdition[ed.key]); });
+      }).catch(function () {});
+    }
+
+    loadBriefingsForDate(currentDate);
+
+    // Expose so the date picker can reload briefings when switching dates
+    window._briefingReload = loadBriefingsForDate;
 
     var BRIEFING_ERRORS = {
       no_articles:     'No articles — publish some first',
@@ -1201,7 +1208,7 @@
       try {
         var data = await apiFetch('/admin/budget/briefing/generate', {
           method: 'POST',
-          body: JSON.stringify({ force: true, edition }),
+          body: JSON.stringify({ force: true, edition, date: currentDate }),
         });
         if (data.ok) {
           applyBriefingState(edition, { status: 'ready', audio_url: data.audio_url });
@@ -1225,6 +1232,7 @@
   datePicker.addEventListener('change', function () {
     currentDate = datePicker.value;
     loadBudget(currentDate);
+    if (window._briefingReload) window._briefingReload(currentDate);
   });
 
   // ── Editorial note: auto-save on blur ──────────────────────────────────────

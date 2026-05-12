@@ -193,8 +193,52 @@
       } else {
         inner = title + longTextCard(payload.text, null) + feedbackRow;
       }
+    } else if (e.event_type === 'editorial_review') {
+      var artLink = e.target_article_id
+        ? ' <a class="feed-link" href="/articles.html?id=' + e.target_article_id + '" target="_blank">View →</a>'
+        : '';
+      inner = '<div class="feed-snippet">Editorial review in progress.' + artLink + '</div>';
+    } else if (e.event_type === 'article_rewritten') {
+      var triggerLabel = payload.trigger === 'editor_revision' ? 'Editor revision' : esc(payload.trigger || 'Revision');
+      var artLink2 = e.target_article_id
+        ? ' <a class="feed-link" href="/articles.html?id=' + e.target_article_id + '" target="_blank">View →</a>'
+        : '';
+      inner = '<div class="feed-title">' + esc(payload.title || '(untitled)') + '</div>'
+        + '<div class="feed-meta"><span>' + triggerLabel + '</span>' + artLink2 + '</div>';
+    } else if (e.event_type === 'synthesis_started') {
+      inner = '<div class="feed-snippet">'
+        + esc(payload.writer_name || actor) + ' is writing'
+        + (payload.topic ? ' on "' + esc(payload.topic) + '"' : '')
+        + (payload.source_count ? ' · ' + payload.source_count + ' source' + (payload.source_count !== 1 ? 's' : '') : '')
+        + '.</div>';
+    } else if (e.event_type === 'thread_updated') {
+      var storyLink = payload.topic_tag
+        ? ' <a class="feed-link" href="/stories.html?tag=' + encodeURIComponent(payload.topic_tag) + '" target="_blank">View →</a>'
+        : '';
+      inner = '<div class="feed-snippet">Story thread updated: <strong>' + esc(payload.topic_tag || '') + '</strong>'
+        + (payload.article_count ? ' — ' + payload.article_count + ' piece' + (payload.article_count !== 1 ? 's' : '') : '')
+        + '.' + storyLink + '</div>';
+    } else if (e.event_type === 'story_updated') {
+      var storyLink2 = payload.story_slug
+        ? ' <a class="feed-link" href="/story/' + encodeURIComponent(payload.story_slug) + '" target="_blank">View →</a>'
+        : '';
+      inner = '<div class="feed-title">' + esc(payload.story_name || 'Story updated') + '</div>'
+        + (payload.article_title ? '<div class="feed-snippet">New source: ' + esc(payload.article_title) + '</div>' : '')
+        + '<div class="feed-meta">' + storyLink2 + '</div>';
+    } else if (e.event_type === 'pitch_proposed') {
+      inner = '<div class="feed-snippet">New pitch proposed'
+        + (payload.pitch_type && payload.pitch_type !== 'original' ? ' (' + esc(payload.pitch_type) + ')' : '')
+        + '.</div>'
+        + (e.target_pitch_id ? '<div class="feed-meta"><a class="feed-link" href="/pitches.html">Review →</a></div>' : '');
+    } else if (e.event_type === 'wire_cluster') {
+      inner = '<div class="feed-snippet">Wire cluster: <strong>' + esc(payload.topic_tag || '') + '</strong>'
+        + (payload.source_count ? ' · ' + payload.source_count + ' source' + (payload.source_count !== 1 ? 's' : '') : '')
+        + (payload.sample_title ? '</div><div class="feed-snippet feed-snippet--muted">' + esc(payload.sample_title) : '')
+        + '</div>';
     } else {
-      inner = '<div class="feed-snippet">' + esc(JSON.stringify(payload).slice(0, 200)) + '</div>';
+      // Unknown type — render headline if available, else a clean type label
+      var fallbackText = e.headline || (e.event_type.replace(/_/g, ' '));
+      inner = '<div class="feed-snippet">' + esc(fallbackText) + '</div>';
     }
 
     var reactBtns = EMOJIS.map(function (em) {

@@ -8,6 +8,33 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.0.14-beta] — 2026-05-12
+
+**Shareable briefings, activity feed polish, and AI usage improvements.**
+
+### Added
+
+- **Shareable briefing page** — each daily briefing edition now has a permanent URL (`/briefing/:date/:edition`) with an inline audio player, scrollable transcript, and links to every story covered. Shareable from the public site.
+- **`GET /api/news/briefing/:date/:edition`** — public API endpoint to retrieve any briefing by date and edition; used by the new shareable page.
+- **AI Usage: Today tab** — "Today" range tab shows spend and credit usage for the current calendar day alongside the existing 7/30/90-day ranges.
+
+### Fixed
+
+- **Briefing date navigation** — generating or loading briefings for past dates now works correctly; the budget page date picker passes the selected date through to generation and playback.
+- **Activity feed raw JSON cards** — events without a dedicated renderer (`editorial_review`, `article_rewritten`, `synthesis_started`, `thread_updated`, `story_updated`, `pitch_proposed`, `wire_cluster`) previously showed raw JSON in the card body. All now render as readable summaries with relevant links.
+- **Activity feed text cut-off** — writer standups and daily brief prose were truncated mid-sentence by CSS line-clamp. Replaced with a JS sentence-boundary preview (~280 chars) that ends on a complete sentence; a "Show more" button expands the full text.
+- **AI Usage anomaly banner false positives** — anomaly detection now excludes today from the baseline average (today is always incomplete, so including it inflated the ratio). The banner only fires when today's spend genuinely exceeds the historical daily average.
+- **AI Usage credits display** — removed the `cr` abbreviation from all credit counts; numbers now display without a unit suffix.
+- **Default admin view** — post-login now lands on the Classic dashboard. The Newsroom is still accessible from the main nav; it becomes the default once it reaches full feature parity.
+
+### Changed
+
+- **Live feed Newsroom tab** — now the first tab in the public live feed widget (previously third), and the feed panel always opens expanded on page load.
+- **Newsroom Glass on light/sepia themes** — replaced hardcoded white RGBA values in the Newsroom tab CSS with theme variables so headlines, borders, and event cards are readable in all four reader themes.
+
+---
+
+
 ## [1.0.13-beta] — 2026-05-11
 
 **Newsroom Glass Phase B — live feed widget wired to event stream.**

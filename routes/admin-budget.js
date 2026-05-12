@@ -557,7 +557,8 @@ router.post('/briefing/generate', auth, requirePermission('articles.write'), asy
   const { generateDailyBriefing, EDITION_CONFIG } = require('../lib/daily-briefing');
   const force   = req.body?.force === true;
   const edition = EDITION_CONFIG[req.body?.edition] ? req.body.edition : 'evening';
-  const result  = await generateDailyBriefing(req.tenantId, { force, edition });
+  const date    = req.body?.date && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : undefined;
+  const result  = await generateDailyBriefing(req.tenantId, { force, edition, date });
   if (!result.ok && result.reason !== 'already_exists') {
     // User-fixable conditions → 422; system failures → 500
     const userFixable = ['no_articles', 'no_voice', 'budget_exceeded'];
@@ -573,7 +574,8 @@ router.get('/briefing', auth, requirePermission('articles.read'), asyncHandler(a
   const { getTodayBriefings }  = require('../lib/daily-briefing');
   const appCfg = await _cfg(req.tenantId).catch(() => ({}));
   const tz = appCfg.newsroom_timezone || 'UTC';
-  const briefings = await getTodayBriefings(req.tenantId, tz);
+  const dateParam = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : undefined;
+  const briefings = await getTodayBriefings(req.tenantId, tz, dateParam);
   res.json({ briefings });
 }));
 

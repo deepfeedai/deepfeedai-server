@@ -125,7 +125,7 @@
     if (!byok) return;
     setText('byokCost', fmtCost(byok.byok_cost));
     setText('byokCalls', byok.byok_calls + ' calls on your keys');
-    setText('platformCredits', fmt(byok.platform_credits) + ' cr');
+    setText('platformCredits', fmt(byok.platform_credits));
     setText('platformCalls', byok.platform_calls + ' calls on platform credits');
   }
 
@@ -135,7 +135,7 @@
     const cache = data.cache || {};
 
     setText('statCost',    fmtCost(parseFloat(t.estimated_cost) || 0));
-    setText('statCredits', fmt(parseInt(t.total_credits) || 0) + ' cr');
+    setText('statCredits', fmt(parseInt(t.total_credits) || 0));
     setText('statCreditsDelta', 'this period');
     setText('statCalls',   fmt(parseInt(t.api_calls) || 0));
     setText('statTokens',  fmt(parseInt(t.total_tokens) || 0));
@@ -156,7 +156,7 @@
     const eff = data.efficiency || {};
     setText('statCostPerArticle', fmtCost(eff.cost_per_article || 0));
     setText('statArticleCount', (eff.published_articles || 0) + ' articles published');
-    setText('statCreditsPerArticle', fmt(eff.credits_per_article || 0) + ' cr');
+    setText('statCreditsPerArticle', fmt(eff.credits_per_article || 0));
 
     const top = (eff.top_expensive_articles || [])[0];
     if (top) {
@@ -176,8 +176,8 @@
 
     setText('creditsUsed', fmt(creditsUsed) + ' used');
     setText('creditsLimit', fmt(creditsLimit) + ' limit');
-    setText('creditsToday', 'Today: ' + fmt(parseInt(b.credits_used_today) || 0) + ' cr');
-    setText('creditsRemaining', 'Remaining: ' + fmt(creditsRemain) + ' cr');
+    setText('creditsToday', 'Today: ' + fmt(parseInt(b.credits_used_today) || 0));
+    setText('creditsRemaining', 'Remaining: ' + fmt(creditsRemain));
     setText('creditsLabel', Math.round(creditsPct) + '% used this month');
 
     const fill = el('creditsFill');
@@ -355,7 +355,7 @@
         <td>${fmt(cached)}${cacheRate > 0 ? ` <span style="color:var(--success);font-size:10px;">(${cacheRate}%⚡)</span>` : ''}</td>
         <td>${fmt(w.output_tokens)}</td>
         <td><strong>${fmtCost(parseFloat(w.cost) || 0)}</strong></td>
-        <td>${fmt(w.credits)} cr</td>
+        <td>${fmt(w.credits)}</td>
         <td>${byokBit}</td>
       </tr>`;
     }).join('');
@@ -629,8 +629,8 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${packsData.packs.map(p => `
               <button class="btn btn-sm buy-pack-btn" data-id="${p.id}" style="display:flex;flex-direction:column;align-items:center;padding:8px 16px;line-height:1.4;">
-                <span style="font-weight:600">${fmt(p.credits)} credits</span>
-                <span style="font-size:11px;color:#888;">$${(p.price_cents / 100).toFixed(2)}</span>
+                <span style="font-weight:600">${p.credits.toLocaleString()} credits</span>
+                <span style="font-size:11px;color:#888;">$${Math.round(p.price_cents / 100)}</span>
               </button>`).join('')}
           </div>`;
         packsEl.querySelectorAll('.buy-pack-btn').forEach(btn => {
