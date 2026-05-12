@@ -3,7 +3,7 @@
  *
  * Draft workflow (v1.1.0):
  *   GET    /draft              — load today's draft (or ?date=YYYY-MM-DD)
- *   POST   /draft              — upsert draft (article_ids, subject, intro, format)
+ *   POST   /draft              — upsert draft (article_ids, subject, intro, format, audience)
  *   PATCH  /draft              — update draft status (skip, cancel)
  *   POST   /draft/suggest-intro   — AI-generated editorial intro
  *   POST   /draft/suggest-subject — AI-generated subject line
@@ -15,7 +15,12 @@
  *   GET    /preview            — cached public preview of latest newsletter
  *   GET    /history            — last 20 sends
  *
- * Auth: admin JWT or cron secret
+ * Reader (public user JWT):
+ *   GET    /reader-status      — current subscription tier for logged-in reader
+ *   POST   /reader-checkout    — create Stripe checkout for paid tier
+ *   POST   /reader-portal      — create Stripe billing portal session
+ *
+ * Auth: admin JWT or cron secret (reader endpoints use public user JWT)
  */
 const express             = require('express');
 const router              = express.Router();
@@ -25,11 +30,13 @@ const { auth }            = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { getSiteConfig }   = require('../lib/site-config');
 const { logUsage }        = require('../lib/ai-usage');
-const { getAppConfig }    = require('../lib/app-config');
+const { getAppConfig, bustAppConfigCache } = require('../lib/app-config');
 const { logAudit }        = require('../middleware/audit');
 const { requireFeature }  = require('../middleware/feature-gate');
 const { complete: aiComplete } = require('../lib/ai-router');
 const { loadPrompt }      = require('../lib/prompt-loader');
+const requireUser         = require('../middleware/user-jwt');
+const { getStripeConfig } = require('../lib/stripe-config');
 
 const TOP_N = 8;
 const { timingSafeEqual } = require('crypto');
@@ -100,7 +107,7 @@ function articleToEmailItem(a, siteUrl, appCfg = {}) {
     category:    a.category || 'Industry',
     imageUrl:    a.image_url || null,
     contentType: a.content_type || null,
-    tier:        a.tier || 'standard',
+    tier:        a.importance || 'standard',
   };
 }
 
@@ -129,9 +136,9 @@ async function fetchCandidates(tenantId) {
        AND a.published_at >= NOW() - INTERVAL '48 hours'
        AND ($2::int[] IS NULL OR a.id != ALL($2::int[]))
      ORDER BY
-       CASE WHEN a.tier = 'breaking' THEN 0
-            WHEN a.tier = 'major'    THEN 1
-            WHEN a.tier = 'trending' THEN 2
+       CASE WHEN a.importance = 'breaking' THEN 0
+            WHEN a.importance = 'major'    THEN 1
+            WHEN a.importance = 'trending' THEN 2
             ELSE 3 END,
        a.published_at DESC
      LIMIT 20`,
@@ -139,6 +146,211 @@ async function fetchCandidates(tenantId) {
   );
   return result.rows.map(serializeRow).map(a => articleToEmailItem(a, siteUrl, appCfg));
 }
+
+// ── GET /info — lightweight public endpoint (no auth) ────────────────────────
+// Returns paidAvailable and newsroom timezone for the public newsletter page.
+router.get('/info', asyncHandler(async (req, res) => {
+  const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+  const paidEnabled = appCfg.newsletter_paid_enabled !== 'false';
+  return res.json({
+    paidAvailable: !!(appCfg.newsletter_paid_price_id) && paidEnabled,
+    timezone:      appCfg.newsroom_timezone || 'UTC',
+  });
+}));
+
+// ── GET /paid-config — admin: current paid tier configuration status ──────────
+router.get('/paid-config', auth, requirePermission('settings:write'), asyncHandler(async (req, res) => {
+  const [appCfg, stripeConfig] = await Promise.all([
+    getAppConfig(req.tenantId).catch(() => ({})),
+    getStripeConfig().catch(() => ({})),
+  ]);
+  return res.json({
+    stripeConnected:    !!(stripeConfig.secretKey),
+    priceId:           appCfg.newsletter_paid_price_id || null,
+    resendAudienceId:  appCfg.resend_paid_audience_id || null,
+    isConfigured:      !!(appCfg.newsletter_paid_price_id && appCfg.resend_paid_audience_id),
+    enabled:           appCfg.newsletter_paid_enabled !== 'false',
+  });
+}));
+
+// ── POST /paid-setup/create-price — admin: auto-create Stripe product + price ─
+router.post('/paid-setup/create-price', auth, requirePermission('settings:write'), asyncHandler(async (req, res) => {
+  const { displayName = 'Weekly Intelligence Report', amount, currency = 'usd', interval = 'month' } = req.body || {};
+  if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    return res.status(400).json({ error: 'amount is required and must be a positive number (in cents)' });
+  }
+  const validIntervals = ['month', 'year'];
+  if (!validIntervals.includes(interval)) {
+    return res.status(400).json({ error: 'interval must be month or year' });
+  }
+
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return res.status(503).json({ error: 'Stripe is not configured. Add your Stripe secret key in Platform settings.' });
+
+  const stripe = require('stripe')(secretKey);
+
+  const product = await stripe.products.create({
+    name:        displayName,
+    metadata:    { source: 'deepfeedai', tenant_id: String(req.tenantId) },
+  });
+  const price = await stripe.prices.create({
+    product:      product.id,
+    unit_amount:  Number(amount),
+    currency,
+    recurring:    { interval },
+  });
+
+  // Save to settings table
+  await getPool().query(
+    `INSERT INTO settings (tenant_id, key, value, updated_at)
+     VALUES ($1, 'newsletter_paid_price_id', $2, NOW())
+     ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [req.tenantId, price.id]
+  );
+  bustAppConfigCache(req.tenantId);
+
+  await logAudit(req, 'newsletter.paid_setup.create_price', 'settings', null, { priceId: price.id, productId: product.id, amount, currency, interval });
+  return res.json({ priceId: price.id, productId: product.id, displayName, amount, currency, interval });
+}));
+
+// ── POST /paid-setup/save — admin: save price ID, Resend audience ID, enabled flag
+router.post('/paid-setup/save', auth, requirePermission('settings:write'), asyncHandler(async (req, res) => {
+  const { priceId, resendAudienceId, enabled } = req.body || {};
+  const updates = [];
+
+  if (priceId !== undefined) {
+    const val = String(priceId || '').trim();
+    updates.push(getPool().query(
+      `INSERT INTO settings (tenant_id, key, value, updated_at)
+       VALUES ($1, 'newsletter_paid_price_id', $2, NOW())
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [req.tenantId, val || null]
+    ));
+  }
+  if (resendAudienceId !== undefined) {
+    const val = String(resendAudienceId || '').trim();
+    updates.push(getPool().query(
+      `INSERT INTO settings (tenant_id, key, value, updated_at)
+       VALUES ($1, 'resend_paid_audience_id', $2, NOW())
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [req.tenantId, val || null]
+    ));
+  }
+  if (enabled !== undefined) {
+    updates.push(getPool().query(
+      `INSERT INTO settings (tenant_id, key, value, updated_at)
+       VALUES ($1, 'newsletter_paid_enabled', $2, NOW())
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [req.tenantId, enabled ? 'true' : 'false']
+    ));
+  }
+
+  if (!updates.length) return res.status(400).json({ error: 'No fields provided' });
+  await Promise.all(updates);
+  bustAppConfigCache(req.tenantId);
+
+  await logAudit(req, 'newsletter.paid_setup.save', 'settings', null, { priceId: priceId ?? undefined, hasAudienceId: !!resendAudienceId, enabled });
+  return res.json({ ok: true });
+}));
+
+// ── GET /reader-status — public user's newsletter tier for this tenant ────────
+router.get('/reader-status', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const row = await getPool().query(
+    `SELECT tier, stripe_status FROM newsletter_subscriptions
+     WHERE public_user_id = $1 AND tenant_id = $2`,
+    [req.user.sub, req.tenantId]
+  ).then(r => r.rows[0] || null);
+
+  const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+  const paidEnabled = appCfg.newsletter_paid_enabled !== 'false';
+  return res.json({
+    tier:         row?.tier || 'free',
+    stripeStatus: row?.stripe_status || null,
+    email:        req.user.email || null,
+    paidAvailable: !!(appCfg.newsletter_paid_price_id) && paidEnabled,
+  });
+}));
+
+// ── POST /reader-checkout — create Stripe checkout for paid newsletter tier ───
+router.post('/reader-checkout', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const appCfg  = await getAppConfig(req.tenantId);
+  const priceId = appCfg.newsletter_paid_price_id;
+  if (!priceId) return res.status(503).json({ error: 'Paid newsletter not available for this site.' });
+
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return res.status(503).json({ error: 'Billing not configured.' });
+
+  const site    = await getSiteConfig(req.tenantId);
+  const siteUrl = (site.url || appCfg.main_site_url || 'https://deepfeedai.com').replace(/\/$/, '');
+  const stripe  = require('stripe')(secretKey);
+
+  // Atomically claim the (user, tenant) slot before touching Stripe to avoid duplicate customers
+  // on concurrent requests. ON CONFLICT returns the existing stripe_customer_id if already set.
+  const lock = await getPool().query(
+    `INSERT INTO newsletter_subscriptions (public_user_id, tenant_id, tier, stripe_status, updated_at)
+     VALUES ($1, $2, 'free', 'pending_checkout', NOW())
+     ON CONFLICT (public_user_id, tenant_id) DO UPDATE SET updated_at = NOW()
+     RETURNING stripe_customer_id`,
+    [req.user.sub, req.tenantId]
+  );
+
+  let customerId = lock.rows[0]?.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email:    req.user.email || undefined,
+      name:     req.user.displayName || undefined,
+      metadata: { public_user_id: String(req.user.sub), tenant_id: String(req.tenantId) },
+    });
+    customerId = customer.id;
+    // Store the new customer ID so concurrent retries reuse it
+    await getPool().query(
+      `UPDATE newsletter_subscriptions SET stripe_customer_id = $1, updated_at = NOW()
+       WHERE public_user_id = $2 AND tenant_id = $3`,
+      [customerId, req.user.sub, req.tenantId]
+    );
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode:       'subscription',
+    customer:   customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${siteUrl}/newsletter?nl_success=1`,
+    cancel_url:  `${siteUrl}/newsletter`,
+    metadata: {
+      type:           'newsletter_reader',
+      public_user_id: String(req.user.sub),
+      tenant_id:      String(req.tenantId),
+    },
+  });
+
+  return res.json({ url: session.url });
+}));
+
+// ── POST /reader-portal — Stripe customer portal for subscription management ──
+router.post('/reader-portal', requireUser, requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const sub = await getPool().query(
+    `SELECT stripe_customer_id FROM newsletter_subscriptions
+     WHERE public_user_id = $1 AND tenant_id = $2 AND stripe_customer_id IS NOT NULL`,
+    [req.user.sub, req.tenantId]
+  ).then(r => r.rows[0]);
+
+  if (!sub) return res.status(404).json({ error: 'No active subscription found.' });
+
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return res.status(503).json({ error: 'Billing not configured.' });
+
+  const appCfg  = await getAppConfig(req.tenantId).catch(() => ({}));
+  const site    = await getSiteConfig(req.tenantId);
+  const siteUrl = (site.url || appCfg.main_site_url || 'https://deepfeedai.com').replace(/\/$/, '');
+  const stripe  = require('stripe')(secretKey);
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer:   sub.stripe_customer_id,
+    return_url: `${siteUrl}/newsletter`,
+  });
+
+  return res.json({ url: session.url });
+}));
 
 // ── GET /candidates ───────────────────────────────────────────────────────────
 router.get('/candidates', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
@@ -156,9 +368,11 @@ router.get('/draft', auth, requirePermission('newsletter.send'), requireFeature(
 
 // ── POST /draft — upsert ──────────────────────────────────────────────────────
 router.post('/draft', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
-  const VALID_FORMATS = ['daily', 'weekly'];
+  const VALID_FORMATS   = ['daily', 'weekly'];
+  const VALID_AUDIENCES = ['all', 'paid'];
   const { article_ids, subject, intro, story_arc, date } = req.body || {};
-  const format  = VALID_FORMATS.includes(req.body?.format) ? req.body.format : 'daily';
+  const format   = VALID_FORMATS.includes(req.body?.format)     ? req.body.format    : 'daily';
+  const audience = VALID_AUDIENCES.includes(req.body?.audience) ? req.body.audience  : 'all';
   const appCfg  = await getAppConfig(req.tenantId).catch(() => ({}));
   const tz      = appCfg.newsroom_timezone || 'UTC';
   const dateStr = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : todayStr(tz);
@@ -168,17 +382,18 @@ router.post('/draft', auth, requirePermission('newsletter.send'), requireFeature
     : null;
 
   const result = await getPool().query(
-    `INSERT INTO newsletter_drafts (tenant_id, send_date, format, article_ids, subject, intro, story_arc, status, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW())
+    `INSERT INTO newsletter_drafts (tenant_id, send_date, format, article_ids, subject, intro, story_arc, audience, status, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
      ON CONFLICT (tenant_id, send_date, format) DO UPDATE
        SET article_ids = COALESCE(EXCLUDED.article_ids, newsletter_drafts.article_ids),
            subject     = COALESCE(EXCLUDED.subject, newsletter_drafts.subject),
            intro       = COALESCE(EXCLUDED.intro, newsletter_drafts.intro),
            story_arc   = COALESCE(EXCLUDED.story_arc, newsletter_drafts.story_arc),
+           audience    = EXCLUDED.audience,
            status      = CASE WHEN newsletter_drafts.status = 'sent' THEN newsletter_drafts.status ELSE 'pending' END,
            updated_at  = NOW()
      RETURNING *`,
-    [req.tenantId, dateStr, format, ids || null, subject || null, intro || null, story_arc || null]
+    [req.tenantId, dateStr, format, ids || null, subject || null, intro || null, story_arc || null, audience]
   );
   return res.json(serializeRow(result.rows[0]));
 }));
@@ -217,12 +432,13 @@ router.post('/draft/suggest-intro', auth, requirePermission('newsletter.send'), 
 
   const site     = await getSiteConfig(req.tenantId);
   const stories  = articles.map((a, i) => `${i + 1}. ${a.title}`).join('\n');
-  const prompt   = await loadPrompt('newsletter-intro', { siteName: site.name || 'Deep Feed AI', stories });
+  const { messages: introMsgs, ...introMeta } = loadPrompt('newsletter-intro').render({ siteName: site.name || 'Deep Feed AI', stories });
 
   const result = await aiComplete({
     operation: 'newsletter-intro',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  introMsgs,
+    ...introMeta,
   });
 
   return res.json({ intro: result.text.trim() });
@@ -239,12 +455,13 @@ router.post('/draft/suggest-subject', auth, requirePermission('newsletter.send')
   if (!articles.length) return res.status(400).json({ error: 'No valid articles found' });
 
   const stories = articles.slice(0, 5).map((a, i) => `${i + 1}. ${a.title}`).join('\n');
-  const prompt  = await loadPrompt('newsletter-subject', { stories });
+  const { messages: subjectMsgs, ...subjectMeta } = loadPrompt('newsletter-subject').render({ stories });
 
   const result = await aiComplete({
     operation: 'newsletter-subject',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  subjectMsgs,
+    ...subjectMeta,
   });
 
   return res.json({ subject: result.text.trim().replace(/^["']|["']$/g, '') });
@@ -262,15 +479,86 @@ router.post('/draft/suggest-story-arc', auth, requirePermission('newsletter.send
 
   const site     = await getSiteConfig(req.tenantId);
   const articleList = articles.map((a, i) => `${i + 1}. ${a.title} (${a.publishedAt ? new Date(a.publishedAt).toLocaleDateString() : ''})`).join('\n');
-  const prompt   = await loadPrompt('newsletter-story-arc', { siteName: site.name || 'Deep Feed AI', articles: articleList });
+  const { messages: arcMsgs, ...arcMeta } = loadPrompt('newsletter-story-arc').render({ siteName: site.name || 'Deep Feed AI', articles: articleList });
 
   const result = await aiComplete({
     operation: 'newsletter-story-arc',
     tenantId:  req.tenantId,
-    messages:  [{ role: 'user', content: prompt }],
+    messages:  arcMsgs,
+    ...arcMeta,
   });
 
   return res.json({ storyArc: result.text.trim() });
+}));
+
+// ── POST /draft/suggest-weekly-briefing — AI WIR synthesis (opus tier) ────────
+router.post('/draft/suggest-weekly-briefing', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const { article_ids, draft_id } = req.body || {};
+  if (!Array.isArray(article_ids) || !article_ids.length) {
+    return res.status(400).json({ error: 'article_ids required' });
+  }
+
+  const articles = await getArticlesByIds(req.tenantId, article_ids.map(Number));
+  if (!articles.length) return res.status(400).json({ error: 'No valid articles found' });
+
+  const site        = await getSiteConfig(req.tenantId);
+  const articleList = articles.map(a => `ID:${a.id} | ${a.title} | ${a.description || ''}`).join('\n');
+  const { messages: wMsgs, ...wMeta } = loadPrompt('newsletter-weekly-briefing').render({
+    siteName: site.name || 'Deep Feed AI',
+    articles: articleList,
+  });
+
+  const result = await aiComplete({
+    operation: 'newsletter-weekly-briefing',
+    tenantId:  req.tenantId,
+    messages:  wMsgs,
+    ...wMeta,
+  });
+
+  let briefing;
+  try {
+    const raw = result.text.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+    briefing = JSON.parse(raw);
+  } catch {
+    return res.status(500).json({ error: 'AI returned invalid JSON for briefing', raw: result.text.slice(0, 200) });
+  }
+
+  // Persist to draft if draft_id provided
+  if (draft_id) {
+    await getPool().query(
+      `UPDATE newsletter_drafts SET briefing_content = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3`,
+      [JSON.stringify(briefing), draft_id, req.tenantId]
+    ).catch(e => console.error('[newsletter] failed to save briefing_content:', e.message));
+  }
+
+  return res.json({ briefing });
+}));
+
+// ── POST /draft/suggest-daily-signal — one-line editorial signal ──────────────
+router.post('/draft/suggest-daily-signal', auth, requirePermission('newsletter.send'), requireFeature('newsletter'), asyncHandler(async (req, res) => {
+  const { article_ids } = req.body || {};
+  if (!Array.isArray(article_ids) || !article_ids.length) {
+    return res.status(400).json({ error: 'article_ids required' });
+  }
+
+  const articles = await getArticlesByIds(req.tenantId, article_ids.map(Number));
+  if (!articles.length) return res.status(400).json({ error: 'No valid articles found' });
+
+  const site     = await getSiteConfig(req.tenantId);
+  const stories  = articles.map(a => `- ${a.title}`).join('\n');
+  const { messages: sMsgs, ...sMeta } = loadPrompt('newsletter-daily-signal').render({
+    siteName: site.name || 'Deep Feed AI',
+    stories,
+  });
+
+  const result = await aiComplete({
+    operation: 'newsletter-daily-signal',
+    tenantId:  req.tenantId,
+    messages:  sMsgs,
+    ...sMeta,
+  });
+
+  return res.json({ signal: result.text.trim() });
 }));
 
 // ── POST /send ────────────────────────────────────────────────────────────────
@@ -278,18 +566,31 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   const preview    = req.query.preview === 'true' || req.query.preview === '1';
   const appCfg     = await getAppConfig(req.tenantId);
   const resendKey  = appCfg.resend_api_key;
-  const audienceId = appCfg.resend_audience_id;
+
+  // Resolve format, audience, and article selection
+  const VALID_FORMATS   = ['daily', 'weekly'];
+  const VALID_AUDIENCES = ['all', 'paid'];
+  const { article_ids, subject: bodySubject, intro: bodyIntro, story_arc: bodyStoryArc, briefing_content: bodyBriefing } = req.body || {};
+  const format   = VALID_FORMATS.includes(req.body?.format)     ? req.body.format    : 'daily';
+  const audience = VALID_AUDIENCES.includes(req.body?.audience) ? req.body.audience  : 'all';
+
+  // Fail explicitly when paid audience selected but not configured — avoid silently blasting free list
+  if (!preview && audience === 'paid' && !appCfg.resend_paid_audience_id) {
+    return res.status(400).json({ error: 'Paid newsletter audience is not configured. Set resend_paid_audience_id in settings before sending to paid subscribers.' });
+  }
+
+  const audienceId = audience === 'paid'
+    ? appCfg.resend_paid_audience_id
+    : appCfg.resend_audience_id;
 
   if (!preview && (!resendKey || !audienceId)) {
     return res.status(500).json({ error: 'Missing Resend config (resend_api_key and resend_audience_id required)' });
   }
 
-  // Resolve article selection: prefer explicit article_ids, then today's draft, then auto-fetch
   let articles = [];
   let draftId  = null;
-  const VALID_FORMATS = ['daily', 'weekly'];
-  const { article_ids, subject: bodySubject, intro: bodyIntro, story_arc: bodyStoryArc } = req.body || {};
-  const format = VALID_FORMATS.includes(req.body?.format) ? req.body.format : 'daily';
+
+  let briefingContent = bodyBriefing || null;
 
   if (Array.isArray(article_ids) && article_ids.length) {
     articles = await getArticlesByIds(req.tenantId, article_ids.map(Number));
@@ -299,6 +600,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
     if (draft && draft.article_ids && draft.article_ids.length) {
       articles = await getArticlesByIds(req.tenantId, draft.article_ids);
       draftId  = draft.id;
+      if (!briefingContent && draft.briefing_content) briefingContent = draft.briefing_content;
     }
   }
 
@@ -319,7 +621,7 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   const intro = bodyIntro || null;
   const isWeekly = format === 'weekly';
   const html = isWeekly
-    ? buildWeeklyEmail(articles, site, intro, bodyStoryArc || null)
+    ? buildWeeklyEmail(articles, site, intro, bodyStoryArc || null, briefingContent)
     : buildEmail(articles, site, intro);
 
   if (preview) {
@@ -328,11 +630,14 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   }
 
   const _nlStart = Date.now();
+  const _broadcastDate = todayStr(appCfg.newsroom_timezone || 'UTC');
+  const _broadcastName = `${site.name || 'Deep Feed AI'} — ${isWeekly ? 'Weekly Intelligence Report' : 'Daily Digest'} · ${_broadcastDate}`;
 
   const createRes = await fetch('https://api.resend.com/broadcasts', {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      name:        _broadcastName,
       audience_id: audienceId,
       from:        `${site.email_from_name || 'Deep Feed AI'} <newsletter@${site.domain || 'deepfeedai.com'}>`,
       reply_to:    `hello@${site.domain || 'deepfeedai.com'}`,
@@ -373,21 +678,20 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
 
   logUsage({ provider: 'resend', operation: 'newsletter', trigger: req.user?.type === 'cron' ? 'cron' : 'manual', emailCount: articles.length, durationMs: Date.now() - _nlStart, tenantId: req.tenantId }).catch(() => {});
 
-  // Mark draft as sent and record broadcast ID
-  const now = new Date();
+  // Mark draft as sent and record broadcast ID + audience
   if (draftId) {
     await getPool().query(
-      `UPDATE newsletter_drafts SET status = 'sent', sent_at = NOW(), sent_broadcast_id = $1, updated_at = NOW() WHERE id = $2`,
-      [broadcastId, draftId]
+      `UPDATE newsletter_drafts SET status = 'sent', sent_at = NOW(), sent_broadcast_id = $1, audience = $2, updated_at = NOW() WHERE id = $3`,
+      [broadcastId, audience, draftId]
     ).catch(e => console.error('[newsletter] draft update failed:', e.message));
   }
 
   // Log to newsletter_sends
   try {
     await getPool().query(
-      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, sent_at)
-       VALUES ($1, $2, $3, $4, 'sent', NOW())`,
-      [req.tenantId, subject, articles.length, broadcastId]
+      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, audience, sent_at)
+       VALUES ($1, $2, $3, $4, 'sent', $5, NOW())`,
+      [req.tenantId, subject, articles.length, broadcastId, audience]
     );
   } catch (e) {
     console.error('[newsletter] failed to log send:', e.message);
@@ -396,9 +700,9 @@ router.post('/send', cronOrAdmin, requirePermission('newsletter.send'), requireF
   // Bust preview cache for this tenant
   _previewCache.delete(req.tenantId);
 
-  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId, format, draftId });
-  console.log(`[newsletter] sent broadcast ${broadcastId} (${format}) with ${articles.length} articles (tenant ${req.tenantId})`);
-  return res.status(200).json({ success: true, broadcastId, articleCount: articles.length });
+  await logAudit(req, 'newsletter.send', 'newsletter', null, { subject, articleCount: articles.length, broadcastId, format, audience, draftId });
+  console.log(`[newsletter] sent broadcast ${broadcastId} (${format}, audience=${audience}) with ${articles.length} articles (tenant ${req.tenantId})`);
+  return res.status(200).json({ success: true, broadcastId, articleCount: articles.length, audience });
 }));
 
 // ── GET /preview — public cached preview ──────────────────────────────────────
@@ -427,7 +731,7 @@ router.get('/preview', asyncHandler(async (req, res) => {
 // ── GET /history ──────────────────────────────────────────────────────────────
 router.get('/history', auth, requirePermission('newsletter.read'), asyncHandler(async (req, res) => {
   const result = await getPool().query(
-    `SELECT id, sent_at, subject, article_count, broadcast_id, status
+    `SELECT id, sent_at, subject, article_count, broadcast_id, status, audience
      FROM newsletter_sends
      WHERE tenant_id = $1
      ORDER BY sent_at DESC
@@ -465,6 +769,31 @@ async function createAutoDraft(tenantId, format = 'daily') {
   // Only notify if we actually created a new draft (not a no-op conflict)
   if (!insertResult.rowCount) return { skipped: true, reason: 'draft_exists_race' };
 
+  // Auto-generate subject line (non-blocking — best-effort)
+  const draftRow = await getPool().query(
+    `SELECT id FROM newsletter_drafts WHERE tenant_id = $1 AND send_date = $2 AND format = $3`,
+    [tenantId, dateStr, format]
+  ).then(r => r.rows[0]);
+
+  if (draftRow) {
+    const articleObjs = await getArticlesByIds(tenantId, selected);
+    const stories     = articleObjs.map(a => `- ${a.title}`).join('\n');
+    const site        = await getSiteConfig(tenantId).catch(() => ({}));
+    try {
+      const { messages: subMsgs, ...subMeta } = loadPrompt('newsletter-subject').render({ stories });
+      const subResult = await aiComplete({ operation: 'newsletter-subject', tenantId, messages: subMsgs, ...subMeta });
+      const subject   = subResult.text.trim().replace(/^["']|["']$/g, '');
+      if (subject) {
+        await getPool().query(
+          `UPDATE newsletter_drafts SET subject = $1, updated_at = NOW() WHERE id = $2`,
+          [subject, draftRow.id]
+        );
+      }
+    } catch (e) {
+      console.warn('[newsletter] auto-subject failed (non-fatal):', e.message);
+    }
+  }
+
   // Notify editors with newsletter.send permission
   try {
     const { notify } = require('../lib/notifications');
@@ -496,10 +825,9 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
   const appCfg  = await getAppConfig(tenantId).catch(() => ({}));
   const tz      = appCfg.newsroom_timezone || 'UTC';
   const dateStr = todayStr(tz);
-  const resendKey  = appCfg.resend_api_key;
-  const audienceId = appCfg.resend_audience_id;
+  const resendKey = appCfg.resend_api_key;
 
-  if (!resendKey || !audienceId) return { skipped: true, reason: 'no_resend_config' };
+  if (!resendKey || !appCfg.resend_audience_id) return { skipped: true, reason: 'no_resend_config' };
 
   // Only send if draft is pending AND hasn't been edited in the last 5 minutes
   const draft = await getPool().query(
@@ -524,14 +852,25 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
   const site    = await getSiteConfig(tenantId);
   const subject = draft.subject || site.newsletter_subject || '🤖 Deep Feed AI — Your Daily AI Digest';
   const html    = format === 'weekly'
-    ? buildWeeklyEmail(articles, site, draft.intro, draft.story_arc || null)
+    ? buildWeeklyEmail(articles, site, draft.intro, draft.story_arc || null, draft.briefing_content || null)
     : buildEmail(articles, site, draft.intro);
 
+  // Resolve audience from draft; fail explicitly rather than silently blasting the free list
+  const draftAudience = draft.audience || 'all';
+  if (draftAudience === 'paid' && !appCfg.resend_paid_audience_id) {
+    return { skipped: true, reason: 'paid_audience_not_configured' };
+  }
+  const audienceId = draftAudience === 'paid'
+    ? appCfg.resend_paid_audience_id
+    : appCfg.resend_audience_id;
+
   const _start = Date.now();
+  const _autoName = `${site.name || 'Deep Feed AI'} — ${format === 'weekly' ? 'Weekly Intelligence Report' : 'Daily Digest'} · ${dateStr}`;
   const createRes = await fetch('https://api.resend.com/broadcasts', {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      name:        _autoName,
       audience_id: audienceId,
       from:        `${site.email_from_name || 'Deep Feed AI'} <newsletter@${site.domain || 'deepfeedai.com'}>`,
       reply_to:    `hello@${site.domain || 'deepfeedai.com'}`,
@@ -580,17 +919,17 @@ async function autoSendPendingDraft(tenantId, format = 'daily') {
 
   try {
     await getPool().query(
-      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, sent_at)
-       VALUES ($1, $2, $3, $4, 'sent', NOW())`,
-      [tenantId, subject, articles.length, broadcastId]
+      `INSERT INTO newsletter_sends (tenant_id, subject, article_count, broadcast_id, status, audience, sent_at)
+       VALUES ($1, $2, $3, $4, 'sent', $5, NOW())`,
+      [tenantId, subject, articles.length, broadcastId, draftAudience]
     );
   } catch (e) {
     console.error('[newsletter] failed to log auto-send:', e.message);
   }
 
   _previewCache.delete(tenantId);
-  console.log(`[newsletter] auto-sent broadcast ${broadcastId} (tenant ${tenantId}, ${format}, ${articles.length} articles)`);
-  return { sent: true, broadcastId, articleCount: articles.length };
+  console.log(`[newsletter] auto-sent broadcast ${broadcastId} (tenant ${tenantId}, ${format}, audience=${draftAudience}, ${articles.length} articles)`);
+  return { sent: true, broadcastId, articleCount: articles.length, audience: draftAudience };
 }
 
 // ── Auto-fetch fallback (legacy behaviour) ────────────────────────────────────
@@ -619,7 +958,7 @@ async function _autoFetchArticles(tenantId, appCfg) {
 
 // ── Email builders ────────────────────────────────────────────────────────────
 
-function buildEmail(articles, site = {}, intro = null) {
+function buildEmail(articles, site = {}, intro = null, dailySignal = null) {
   const date      = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const siteName  = _escHtmlEmail(site.name || 'Deep Feed AI');
   const logoEmoji = _escHtmlEmail(site.logo_emoji || '🤖');
@@ -629,10 +968,36 @@ function buildEmail(articles, site = {}, intro = null) {
   if (Array.isArray(site.categories)) {
     for (const c of site.categories) catColors[c.name] = c.color;
   }
-  const cards = articles.map(a => articleCard(a, siteUrl, catColors)).join('');
+
+  // Visual hierarchy: hero (1st), standard (2–4), compact (5+)
+  const lead    = articles[0];
+  const middle  = articles.slice(1, 4);
+  const compact = articles.slice(4);
+
+  const heroHtml     = lead ? articleCardHero(lead, siteUrl, catColors) : '';
+  const standardHtml = middle.map(a => articleCard(a, siteUrl, catColors)).join('');
+  const compactHtml  = compact.length
+    ? `<tr><td style="background:#111827;padding:16px 32px;border-left:1px solid #1e293b;border-right:1px solid #1e293b;border-top:1px solid #1e293b;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:12px;">Also today</div>
+        ${compact.map(a => {
+          const link = _safeUrl(a.url, siteUrl);
+          return `<div style="margin-bottom:10px;">
+            <a href="${link}" style="color:#e2e8f0;text-decoration:none;font-size:13px;font-weight:600;">${_escHtmlEmail(a.title)}</a>
+            ${a.source ? `<span style="color:#475569;font-size:12px;margin-left:8px;">${_escHtmlEmail(a.source)}</span>` : ''}
+          </div>`;
+        }).join('')}
+       </td></tr>`
+    : '';
+
   const introHtml = intro
     ? `<tr><td style="background:#111827;padding:20px 32px 0;border-left:1px solid #1e293b;border-right:1px solid #1e293b;">
         <p style="margin:0;color:#e2e8f0;font-size:15px;line-height:1.7;font-style:italic;border-left:3px solid #7c3aed;padding-left:16px;">${_escHtmlEmail(intro)}</p>
+       </td></tr>`
+    : '';
+
+  const signalHtml = dailySignal
+    ? `<tr><td style="background:#0f172a;padding:20px 32px;border-left:1px solid #1e293b;border-right:1px solid #1e293b;border-top:1px solid #1e293b;">
+        <p style="margin:0;color:#94a3b8;font-size:13px;line-height:1.6;font-style:italic;">${_escHtmlEmail(dailySignal)}</p>
        </td></tr>`
     : '';
 
@@ -662,8 +1027,17 @@ function buildEmail(articles, site = {}, intro = null) {
 
       ${introHtml}
 
-      <!-- Articles -->
-      ${cards}
+      <!-- Lead story (hero) -->
+      ${heroHtml}
+
+      <!-- Stories 2–4 (standard cards) -->
+      ${standardHtml}
+
+      <!-- Stories 5+ (compact list) -->
+      ${compactHtml}
+
+      <!-- Daily signal -->
+      ${signalHtml}
 
       <!-- CTA -->
       <tr><td style="background:#111827;padding:24px 32px;text-align:center;border-left:1px solid #1e293b;border-right:1px solid #1e293b;">
@@ -683,7 +1057,7 @@ function buildEmail(articles, site = {}, intro = null) {
 </html>`;
 }
 
-function buildWeeklyEmail(articles, site = {}, intro = null, storyArc = null) {
+function buildWeeklyEmail(articles, site = {}, intro = null, storyArc = null, briefingContent = null) {
   const date      = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const siteName  = _escHtmlEmail(site.name || 'Deep Feed AI');
   const logoEmoji = _escHtmlEmail(site.logo_emoji || '🤖');
@@ -694,6 +1068,96 @@ function buildWeeklyEmail(articles, site = {}, intro = null, storyArc = null) {
     for (const c of site.categories) catColors[c.name] = c.color;
   }
 
+  // ── Briefing-content mode (Phase 3e rebuild) ───────────────────────────────
+  if (briefingContent && briefingContent.lead) {
+    const bc = briefingContent;
+    const articleById = Object.fromEntries(articles.map(a => [String(a.id), a]));
+
+    const analysisRows = (bc.storyAnalyses || []).map(s => {
+      const a = articleById[String(s.id)];
+      if (!a) return '';
+      const link = _safeUrl(a.url, siteUrl);
+      return `<tr><td style="background:#111827;padding:20px 32px;border-left:1px solid #1e293b;border-right:1px solid #1e293b;border-top:1px solid #1e293b;">
+        <a href="${link}" style="color:#a855f7;font-size:14px;font-weight:700;text-decoration:none;display:block;margin-bottom:6px;">${_escHtmlEmail(a.title)}</a>
+        <p style="margin:0;color:#94a3b8;font-size:13px;line-height:1.65;">${_escHtmlEmail(s.analysis || '')}</p>
+        <a href="${link}" style="color:#64748b;font-size:12px;text-decoration:none;margin-top:8px;display:inline-block;">Read full story →</a>
+      </td></tr>`;
+    }).join('');
+
+    const signalsHtml = (bc.signals || []).map(sig =>
+      `<li style="margin-bottom:8px;color:#94a3b8;font-size:13px;line-height:1.6;list-style:none;padding-left:16px;position:relative;">
+        <span style="position:absolute;left:0;color:#a855f7;">›</span>${_escHtmlEmail(sig)}
+      </li>`
+    ).join('');
+
+    const underRadarHtml = bc.underTheRadar
+      ? `<tr><td style="background:#0f172a;padding:20px 32px;border-left:1px solid #1e293b;border-right:1px solid #1e293b;border-top:1px solid #1e293b;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:8px;">Under the radar</div>
+          <p style="margin:0;color:#94a3b8;font-size:13px;line-height:1.65;">${_escHtmlEmail(bc.underTheRadar)}</p>
+         </td></tr>`
+      : '';
+
+    const weekNum = Math.ceil(new Date().getDate() / 7);
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${siteName} — Weekly Intelligence Report</title>
+</head>
+<body style="margin:0;padding:0;background:#080d14;font-family:Georgia,'Times New Roman',serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#080d14;">
+  <tr><td align="center" style="padding:32px 16px;">
+    <table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
+
+      <!-- Report header -->
+      <tr><td style="background:linear-gradient(160deg,#0a1628 0%,#0f1e3d 100%);border-radius:12px 12px 0 0;padding:48px 40px 36px;border-bottom:3px solid #1e3a6e;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#4a7fcb;margin-bottom:12px;">${siteName} &nbsp;/&nbsp; Intelligence</div>
+        <h1 style="margin:0 0 8px;font-size:32px;font-weight:700;color:#e2e8f0;font-family:Georgia,serif;line-height:1.2;">Weekly Intelligence Report</h1>
+        <div style="font-size:13px;color:#4a7fcb;">${date}</div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #1e3a6e;font-size:11px;color:#2d4f8a;letter-spacing:.06em;text-transform:uppercase;">Analysis by Maxwell &nbsp;·&nbsp; ${articles.length} stories reviewed</div>
+      </td></tr>
+
+      <!-- Lead narrative -->
+      <tr><td style="background:#0d1829;padding:36px 40px;border-left:1px solid #1e3a6e;border-right:1px solid #1e3a6e;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4a7fcb;margin-bottom:16px;">This week's thesis</div>
+        ${bc.lead.split('\n\n').map(p => `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.8;font-family:Georgia,serif;">${_escHtmlEmail(p.trim())}</p>`).join('')}
+      </td></tr>
+
+      <!-- Story analyses -->
+      <tr><td style="background:#0d1829;padding:12px 40px 4px;border-left:1px solid #1e3a6e;border-right:1px solid #1e3a6e;border-top:2px solid #1e3a6e;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4a7fcb;margin-bottom:4px;">Story analysis</div>
+      </td></tr>
+      ${analysisRows}
+
+      <!-- Under the radar -->
+      ${underRadarHtml}
+
+      <!-- Signals -->
+      <tr><td style="background:#0d1829;padding:28px 40px;border-left:1px solid #1e3a6e;border-right:1px solid #1e3a6e;border-top:2px solid #1e3a6e;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4a7fcb;margin-bottom:16px;">Signals — what to watch</div>
+        <ul style="margin:0;padding:0;">${signalsHtml}</ul>
+      </td></tr>
+
+      <!-- CTA -->
+      <tr><td style="background:#080d14;padding:28px 40px;text-align:center;border-left:1px solid #1e3a6e;border-right:1px solid #1e3a6e;border-top:2px solid #1e3a6e;">
+        <a href="${siteUrl}" style="display:inline-block;background:#1e3a6e;color:#93c5fd;text-decoration:none;font-weight:600;font-size:13px;padding:12px 28px;border-radius:6px;letter-spacing:.04em;">Read the full coverage →</a>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#080d14;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;border:1px solid #1e3a6e;border-top:none;">
+        <p style="margin:0 0 6px;color:#334155;font-size:12px;font-family:-apple-system,sans-serif;">Weekly Intelligence Report from <a href="${siteUrl}" style="color:#4a7fcb;text-decoration:none;">${domain}</a></p>
+        <p style="margin:0;color:#334155;font-size:12px;font-family:-apple-system,sans-serif;"><a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color:#334155;">Unsubscribe</a></p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`;
+  }
+
+  // ── Legacy mode (no briefing_content — falls back to article cards) ──────────
   const introHtml = intro
     ? `<tr><td style="background:#111827;padding:20px 32px 0;border-left:1px solid #1e293b;border-right:1px solid #1e293b;">
         <p style="margin:0;color:#e2e8f0;font-size:15px;line-height:1.7;font-style:italic;border-left:3px solid #7c3aed;padding-left:16px;">${_escHtmlEmail(intro)}</p>
@@ -774,13 +1238,55 @@ function _safeUrl(val, fallback = 'https://deepfeedai.com') {
   return /^https?:\/\//.test(val || '') ? val : fallback;
 }
 
+const _TIER_BADGE = {
+  breaking: `<span style="display:inline-block;background:rgba(239,68,68,.18);color:#f87171;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px;">Breaking</span>`,
+  major:    `<span style="display:inline-block;background:rgba(249,115,22,.18);color:#fb923c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px;">Major</span>`,
+  trending: `<span style="display:inline-block;background:rgba(234,179,8,.18);color:#facc15;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase;margin-right:6px;">Trending</span>`,
+};
+
+function _tierBadge(tier) { return _TIER_BADGE[tier] || ''; }
+
+function articleCardHero(article, siteUrl = 'https://deepfeedai.com', catColors = {}) {
+  const cat      = article.category || 'AI';
+  const fallbackColors = { LLMs: '#7c3aed', 'Image AI': '#0ea5e9', Research: '#10b981', Tools: '#f59e0b', Business: '#f97316', Policy: '#6366f1', Industry: '#ef4444', CyberSecurity: '#dc2626' };
+  const catColor = _safeCssColor(catColors[cat]) || _safeCssColor(fallbackColors[cat]) || '#7c3aed';
+  const date     = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+  const summary  = article.description ? _escHtmlEmail(article.description.slice(0, 280) + (article.description.length > 280 ? '…' : '')) : '';
+  const link     = _safeUrl(article.url, siteUrl);
+  const safeImg  = _safeUrl(article.imageUrl, '');
+
+  const imgHtml = safeImg
+    ? `<img src="${safeImg}" alt="" width="100%" style="border-radius:8px 8px 0 0;display:block;height:240px;object-fit:cover;" />`
+    : '';
+
+  return `
+  <tr><td style="background:#111827;padding:0 32px 4px;border-left:1px solid #1e293b;border-right:1px solid #1e293b;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #1e293b;padding:24px 0;">
+      <tr><td>
+        ${imgHtml ? `<div style="margin-bottom:16px;">${imgHtml}</div>` : ''}
+        <div style="margin-bottom:8px;">
+          ${_tierBadge(article.tier)}
+          <span style="display:inline-block;background:${catColor}22;color:${catColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.5px;text-transform:uppercase;">${_escHtmlEmail(cat)}</span>
+          ${date ? `<span style="color:#475569;font-size:12px;margin-left:8px;">${date}</span>` : ''}
+        </div>
+        <a href="${link}" style="color:#f1f5f9;text-decoration:none;font-size:22px;font-weight:700;line-height:1.3;display:block;margin-bottom:10px;">${_escHtmlEmail(article.title)}</a>
+        ${summary ? `<p style="margin:0 0 12px;color:#94a3b8;font-size:14px;line-height:1.65;">${summary}</p>` : ''}
+        <div>
+          <span style="color:#475569;font-size:12px;">${_escHtmlEmail(article.source || '')}</span>
+          <a href="${link}" style="color:#7c3aed;font-size:13px;font-weight:700;text-decoration:none;margin-left:12px;">Read full story →</a>
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>`;
+}
+
 function articleCard(article, siteUrl = 'https://deepfeedai.com', catColors = {}) {
   const cat      = article.category || 'AI';
   const fallbackColors = { LLMs: '#7c3aed', 'Image AI': '#0ea5e9', Research: '#10b981', Tools: '#f59e0b', Business: '#f97316', Policy: '#6366f1', Industry: '#ef4444', CyberSecurity: '#dc2626' };
   const catColor = _safeCssColor(catColors[cat]) || _safeCssColor(fallbackColors[cat]) || '#7c3aed';
   const date     = article.publishedAt ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
   const summary  = article.description ? _escHtmlEmail(article.description.slice(0, 160) + (article.description.length > 160 ? '…' : '')) : '';
-  const link     = `${siteUrl}/article?u=${encodeURIComponent(article.url)}&t=${encodeURIComponent(article.title)}&s=${encodeURIComponent(article.source || '')}&c=${encodeURIComponent(cat)}`;
+  const link     = _safeUrl(article.url, siteUrl);
   const safeImg  = _safeUrl(article.imageUrl, '');
 
   const thumbRow = safeImg ? `
@@ -795,8 +1301,11 @@ function articleCard(article, siteUrl = 'https://deepfeedai.com', catColors = {}
     <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #1e293b;padding:20px 0;">
       <tr>
         <td>
-          <span style="display:inline-block;background:${catColor}22;color:${catColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;">${_escHtmlEmail(cat)}</span>
-          ${date ? `<span style="color:#475569;font-size:12px;margin-left:8px;">${date}</span>` : ''}
+          <div style="margin-bottom:6px;">
+            ${_tierBadge(article.tier)}
+            <span style="display:inline-block;background:${catColor}22;color:${catColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:.5px;text-transform:uppercase;">${_escHtmlEmail(cat)}</span>
+            ${date ? `<span style="color:#475569;font-size:12px;margin-left:8px;">${date}</span>` : ''}
+          </div>
           <div style="margin-top:4px;">
             <a href="${link}" style="color:#e2e8f0;text-decoration:none;font-size:16px;font-weight:600;line-height:1.4;">${_escHtmlEmail(article.title)}</a>
           </div>

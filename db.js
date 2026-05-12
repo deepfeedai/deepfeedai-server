@@ -1667,6 +1667,30 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE(user_id, tenant_id)
     )`,
+    // Newsletter Phase 5 — paid subscriber tier (reader-facing Stripe subscriptions)
+    // Separate table (not columns on public_users) for proper multi-tenant isolation:
+    // a reader can subscribe to newsletters on multiple tenants independently.
+    `CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
+      id                     SERIAL PRIMARY KEY,
+      public_user_id         INTEGER NOT NULL REFERENCES public_users(id) ON DELETE CASCADE,
+      tenant_id              INTEGER NOT NULL,
+      tier                   TEXT NOT NULL DEFAULT 'free',
+      stripe_customer_id     TEXT,
+      stripe_subscription_id TEXT,
+      stripe_status          TEXT DEFAULT 'active',
+      created_at             TIMESTAMPTZ DEFAULT NOW(),
+      updated_at             TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(public_user_id, tenant_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_newsletter_subscriptions_tenant
+       ON newsletter_subscriptions(tenant_id, tier)`,
+    `CREATE INDEX IF NOT EXISTS idx_newsletter_subscriptions_stripe_sub
+       ON newsletter_subscriptions(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL`,
+    // Track audience target on draft/send records for auditing
+    `ALTER TABLE newsletter_drafts ADD COLUMN IF NOT EXISTS audience TEXT DEFAULT 'all'`,
+    `ALTER TABLE newsletter_sends  ADD COLUMN IF NOT EXISTS audience TEXT DEFAULT 'all'`,
+    // Weekly briefing structured content (Phase 3e)
+    `ALTER TABLE newsletter_drafts ADD COLUMN IF NOT EXISTS briefing_content JSONB`,
   ];
   for (const sql of migrations) {
     try { await p.query(sql); } catch (err) {

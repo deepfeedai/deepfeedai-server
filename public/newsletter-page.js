@@ -52,9 +52,16 @@
         el('subjectInput').value = draft.subject || '';
         el('introInput').value   = draft.intro || '';
         if (el('storyArcInput')) el('storyArcInput').value = draft.story_arc || '';
+        if (el('audienceSelect')) el('audienceSelect').value = draft.audience || 'all';
         if (draft.article_ids && Array.isArray(draft.article_ids)) {
           orderedIds = draft.article_ids.map(Number);
           checkedIds = new Set(orderedIds);
+        }
+        // Restore briefing_content if it exists on the draft
+        if (draft.briefing_content && el('briefingStatus')) {
+          const bc = draft.briefing_content;
+          el('briefingStatus').textContent = `✓ Briefing ready — ${(bc.storyAnalyses || []).length} stories analysed. Preview to see the full report.`;
+          if (el('generateBriefingBtn')) el('generateBriefingBtn').textContent = '✨ Regenerate Briefing';
         }
         renderBanner(draft);
       } else {
@@ -67,13 +74,16 @@
 
   // ── Draft: save ────────────────────────────────────────────────
   async function saveDraft(silent = false) {
-    const ids = getSelectedIds();
+    const ids     = getSelectedIds();
+    const saveBtn = el('saveDraftBtn');
+    if (!silent && saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '💾 Saving…'; }
     try {
       const draftBody = {
         article_ids: ids,
         subject:     el('subjectInput').value.trim() || null,
         intro:       el('introInput').value.trim() || null,
         format:      currentFormat,
+        audience:    el('audienceSelect')?.value || 'all',
       };
       if (currentFormat === 'weekly') {
         draftBody.story_arc = el('storyArcInput')?.value.trim() || null;
@@ -84,12 +94,20 @@
       });
       currentDraft = draft;
       if (!silent) {
-        el('nlSaveIndicator').textContent = '✓ Saved';
-        setTimeout(() => { el('nlSaveIndicator').textContent = ''; }, 2000);
+        el('nlSaveIndicator').textContent = '';
+        if (saveBtn) {
+          saveBtn.textContent = '✓ Saved';
+          setTimeout(() => { saveBtn.textContent = '💾 Save Draft'; }, 2000);
+        }
       }
       renderBanner(draft);
     } catch (err) {
-      if (!silent) el('nlSaveIndicator').textContent = 'Save failed';
+      if (!silent) {
+        el('nlSaveIndicator').textContent = 'Save failed';
+        alert('Save failed: ' + escHtml(err.message));
+      }
+    } finally {
+      if (!silent && saveBtn) saveBtn.disabled = false;
     }
   }
 
@@ -384,12 +402,41 @@
     }
   }
 
+  // ── WIR briefing generation ────────────────────────────────────
+  async function generateBriefing() {
+    const ids = getSelectedIds();
+    if (!ids.length) { alert('Select at least one article first.'); return; }
+    const btn    = el('generateBriefingBtn');
+    const status = el('briefingStatus');
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating…';
+    status.textContent = 'Running analysis (this may take 30–60 seconds)…';
+    try {
+      const data = await apiFetch('/newsletter/draft/suggest-weekly-briefing', {
+        method: 'POST',
+        body: JSON.stringify({ article_ids: ids, draft_id: currentDraft?.id }),
+      });
+      const bc = data.briefing;
+      status.textContent = `✓ Briefing generated — ${(bc.storyAnalyses || []).length} stories analysed, ${(bc.signals || []).length} signals. Preview to see the full report layout.`;
+      btn.textContent = '✨ Regenerate Briefing';
+      // Store on draft object so preview/send picks it up
+      if (currentDraft) currentDraft.briefing_content = bc;
+    } catch (err) {
+      status.textContent = 'Error: ' + escHtml(err.message);
+      btn.textContent = '✨ Generate Briefing';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   // ── Send ───────────────────────────────────────────────────────
   async function sendNewsletter() {
-    const ids = getSelectedIds();
+    const ids      = getSelectedIds();
+    const audience = el('audienceSelect')?.value || 'all';
+    const audienceLabel = audience === 'paid' ? 'paid subscribers only' : 'all subscribers';
     const msg = ids.length
-      ? `Send to your entire Resend audience with ${ids.length} selected article${ids.length !== 1 ? 's' : ''}?`
-      : 'No articles selected — send will auto-fetch the latest 8 articles. Continue?';
+      ? `Send to ${audienceLabel} with ${ids.length} selected article${ids.length !== 1 ? 's' : ''}?`
+      : `No articles selected — send will auto-fetch the latest 8 articles to ${audienceLabel}. Continue?`;
     if (!confirm(msg)) return;
 
     const sendBtn  = el('sendBtn');
@@ -404,13 +451,19 @@
         subject:     el('subjectInput').value.trim() || undefined,
         intro:       el('introInput').value.trim() || undefined,
         format:      currentFormat,
+        audience,
       };
       if (currentFormat === 'weekly') {
         body.story_arc = el('storyArcInput')?.value.trim() || undefined;
       }
 
+      if (currentFormat === 'weekly' && currentDraft?.briefing_content) {
+        body.briefing_content = currentDraft.briefing_content;
+      }
+
       const data = await apiFetch('/newsletter/send', { method: 'POST', body: JSON.stringify(body) });
-      statusEl.innerHTML = `<div class="alert alert-success">✅ Sent! Broadcast ID: <code>${escHtml(data.broadcastId)}</code> — ${data.articleCount} articles</div>`;
+      const audDesc = data.audience === 'paid' ? ' (paid subscribers)' : '';
+      statusEl.innerHTML = `<div class="alert alert-success">✅ Sent${audDesc}! Broadcast ID: <code>${escHtml(data.broadcastId)}</code> — ${data.articleCount} articles</div>`;
       currentDraft = null;
       renderBanner(null);
       el('nlDraftBanner').style.display = 'none';
@@ -429,25 +482,29 @@
     try {
       const rows = await apiFetch('/newsletter/history');
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center" style="padding:24px;">No sends yet</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:24px;">No sends yet</td></tr>';
         return;
       }
       tbody.innerHTML = rows.map(r => {
         const dotClass = r.status === 'skipped' ? 'history-dot skipped'
                        : r.trigger === 'cron'   ? 'history-dot auto'
                        : 'history-dot';
+        const audBadge = r.audience === 'paid'
+          ? '<span style="font-size:10px;font-weight:700;color:#a855f7;background:rgba(168,85,247,0.15);padding:1px 6px;border-radius:4px;">Paid</span>'
+          : '<span style="font-size:10px;color:var(--text-muted);">All</span>';
         return `<tr>
           <td title="${escHtml(new Date(r.sent_at).toLocaleString())}">
             ${relTime(r.sent_at)}<br><span class="text-muted text-sm">${new Date(r.sent_at).toLocaleDateString()}</span>
           </td>
           <td>${escHtml(r.subject || '—')}</td>
           <td>${r.article_count ?? '—'}</td>
+          <td>${audBadge}</td>
           <td><code class="text-sm">${escHtml(r.broadcast_id || '—')}</code></td>
           <td><span class="${dotClass}"></span>${escHtml(r.status)}</td>
         </tr>`;
       }).join('');
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-muted text-center">Failed to load: ${escHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-muted text-center">Failed to load: ${escHtml(err.message)}</td></tr>`;
     }
   }
 
@@ -462,6 +519,178 @@
       el('sendBtn').title = 'Newsletter is not available on your current plan';
       el('saveDraftBtn').disabled = true;
     }
+  }
+
+  // ── Paid tier setup wizard ─────────────────────────────────────
+  let _paidConfig = null;
+
+  function _wizardStep(n) {
+    document.querySelectorAll('.wizard-step').forEach((s, i) => {
+      s.classList.toggle('active', i + 1 === n);
+      s.classList.toggle('done', i + 1 < n);
+    });
+    document.querySelectorAll('.wizard-panel').forEach((p, i) => {
+      p.style.display = (i + 1 === n) ? '' : 'none';
+    });
+  }
+
+  async function initPaidSetupWizard() {
+    try {
+      _paidConfig = await apiFetch('/newsletter/paid-config');
+    } catch { return; }
+
+    if (_paidConfig.isConfigured) {
+      el('paidConfigSummary').style.display = '';
+      _renderPaidEnabledToggle(_paidConfig.enabled !== false);
+      el('paidConfigDetails').textContent =
+        `Price ID: ${_paidConfig.priceId || '—'} · Audience: ${_paidConfig.resendAudienceId || '—'}`;
+      el('editPriceId').value          = _paidConfig.priceId || '';
+      el('editResendAudienceId').value = _paidConfig.resendAudienceId || '';
+      return;
+    }
+
+    el('paidSetupWizard').style.display = '';
+    _wizardStep(1);
+
+    // Step 1 — stripe check
+    if (_paidConfig.stripeConnected) {
+      el('stripeStatus').style.display = 'none';
+      el('stripeConnectedState').style.display = '';
+    } else {
+      el('stripeStatus').style.display = 'none';
+      el('stripeNotConfiguredState').style.display = '';
+    }
+
+    el('wizardStep1Next')?.addEventListener('click', () => _wizardStep(2));
+
+    // Step 2 — price setup mode toggle
+    el('priceAutoBtn')?.addEventListener('click', () => {
+      el('priceAutoForm').style.display = '';
+      el('pricePasteForm').style.display = 'none';
+      el('priceAutoBtn').classList.add('active');
+      el('pricePasteBtn').classList.remove('active');
+    });
+    el('pricePasteBtn')?.addEventListener('click', () => {
+      el('pricePasteForm').style.display = '';
+      el('priceAutoForm').style.display = 'none';
+      el('pricePasteBtn').classList.add('active');
+      el('priceAutoBtn').classList.remove('active');
+    });
+
+    el('createPriceBtn')?.addEventListener('click', async () => {
+      const amount = el('priceAmount').value;
+      if (!amount) { el('wizardStep2Status').textContent = 'Enter an amount in cents.'; return; }
+      el('createPriceBtn').disabled = true;
+      el('createPriceBtn').textContent = 'Creating…';
+      el('wizardStep2Status').textContent = '';
+      try {
+        await apiFetch('/newsletter/paid-setup/create-price', {
+          method: 'POST',
+          body: JSON.stringify({
+            displayName: el('priceDisplayName').value || 'Weekly Intelligence Report',
+            amount:      Number(amount),
+            currency:    el('priceCurrency').value,
+            interval:    el('priceInterval').value,
+          }),
+        });
+        _wizardStep(3);
+      } catch (err) {
+        el('wizardStep2Status').textContent = 'Error: ' + escHtml(err.message);
+        el('createPriceBtn').disabled = false;
+        el('createPriceBtn').textContent = 'Create product & price →';
+      }
+    });
+
+    el('savePriceIdBtn')?.addEventListener('click', async () => {
+      const priceId = el('pastedPriceId').value.trim();
+      if (!priceId) { el('wizardStep2Status').textContent = 'Enter a Price ID.'; return; }
+      el('savePriceIdBtn').disabled = true;
+      el('wizardStep2Status').textContent = '';
+      try {
+        await apiFetch('/newsletter/paid-setup/save', {
+          method: 'POST',
+          body: JSON.stringify({ priceId }),
+        });
+        _wizardStep(3);
+      } catch (err) {
+        el('wizardStep2Status').textContent = 'Error: ' + escHtml(err.message);
+        el('savePriceIdBtn').disabled = false;
+      }
+    });
+
+    // Step 3 — Resend audience
+    el('saveAudienceBtn')?.addEventListener('click', async () => {
+      const audienceId = el('resendAudienceInput').value.trim();
+      if (!audienceId) { el('wizardStep3Status').textContent = 'Enter a Resend Audience ID.'; return; }
+      el('saveAudienceBtn').disabled = true;
+      el('wizardStep3Status').textContent = '';
+      try {
+        await apiFetch('/newsletter/paid-setup/save', {
+          method: 'POST',
+          body: JSON.stringify({ resendAudienceId: audienceId }),
+        });
+        _wizardStep(4);
+      } catch (err) {
+        el('wizardStep3Status').textContent = 'Error: ' + escHtml(err.message);
+        el('saveAudienceBtn').disabled = false;
+      }
+    });
+
+    el('wizardDismissBtn')?.addEventListener('click', () => {
+      el('paidSetupWizard').style.display = 'none';
+    });
+  }
+
+  function _renderPaidEnabledToggle(enabled) {
+    const toggle = el('paidEnabledToggle');
+    const label  = el('paidEnabledLabel');
+    if (!toggle) return;
+    toggle.checked = enabled;
+    if (label) label.textContent = enabled ? 'Visible to readers' : 'Hidden from readers';
+  }
+
+  function initPaidConfigEdit() {
+    el('paidEnabledToggle')?.addEventListener('change', async function() {
+      const enabled = this.checked;
+      _renderPaidEnabledToggle(enabled);
+      try {
+        await apiFetch('/newsletter/paid-setup/save', {
+          method: 'POST',
+          body: JSON.stringify({ enabled }),
+        });
+      } catch (err) {
+        // Revert on failure
+        this.checked = !enabled;
+        _renderPaidEnabledToggle(!enabled);
+        alert('Failed to update: ' + escHtml(err.message));
+      }
+    });
+
+    el('editPaidConfigBtn')?.addEventListener('click', () => {
+      const form = el('paidConfigEditForm');
+      form.style.display = form.style.display === 'none' ? '' : 'none';
+    });
+    el('savePaidConfigBtn')?.addEventListener('click', async () => {
+      el('savePaidConfigBtn').disabled = true;
+      el('paidConfigSaveStatus').textContent = 'Saving…';
+      try {
+        await apiFetch('/newsletter/paid-setup/save', {
+          method: 'POST',
+          body: JSON.stringify({
+            priceId:         el('editPriceId').value.trim() || null,
+            resendAudienceId: el('editResendAudienceId').value.trim() || null,
+          }),
+        });
+        el('paidConfigSaveStatus').textContent = '✓ Saved';
+        el('paidConfigDetails').textContent =
+          `Price ID: ${el('editPriceId').value || '—'} · Audience: ${el('editResendAudienceId').value || '—'}`;
+        setTimeout(() => { el('paidConfigSaveStatus').textContent = ''; }, 2500);
+      } catch (err) {
+        el('paidConfigSaveStatus').textContent = 'Error: ' + escHtml(err.message);
+      } finally {
+        el('savePaidConfigBtn').disabled = false;
+      }
+    });
   }
 
   // ── Boot ───────────────────────────────────────────────────────
@@ -490,10 +719,14 @@
     el('suggestIntroBtn')?.addEventListener('click', suggestIntro);
     el('suggestSubjectBtn')?.addEventListener('click', suggestSubject);
     el('suggestArcBtn')?.addEventListener('click', suggestArc);
+    el('generateBriefingBtn')?.addEventListener('click', generateBriefing);
 
     // Auto-save on subject/intro blur
     el('subjectInput')?.addEventListener('blur', () => saveDraft(true));
     el('introInput')?.addEventListener('blur', () => saveDraft(true));
+
+    initPaidSetupWizard();
+    initPaidConfigEdit();
 
     loadHistory();
     window.pageRefresh = function () { loadDraft(); loadCandidates(); loadHistory(); };

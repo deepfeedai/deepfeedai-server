@@ -8,6 +8,26 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.0] — 2026-05-13
+
+### Added
+
+- **Newsletter v1.2 — paid tier activation wizard** — 4-step in-page setup wizard on the admin Newsletter page: Stripe connection check → auto-create product/price (or paste existing Price ID) → Resend paid audience ID → activate. Post-setup settings card for editing config. No env var or DB access required to enable paid subscriptions.
+- **Newsletter paid tier enable/disable toggle** — checkbox in the admin Newsletter page lets operators show/hide the paid tier from readers without removing config. Useful during testing. Takes effect within 60 seconds (no restart needed).
+- **Weekly Intelligence Report full rebuild** — new prose-document email template (navy/slate report typography, Maxwell byline, signals section). AI synthesis via `newsletter-weekly-briefing` (premium tier) produces a lead narrative, per-story editorial analysis, "under the radar" pick, and forward-looking signals. "Generate Briefing" button in compose view.
+- **Daily digest visual hierarchy** — lead story gets hero treatment (full image, 280-char summary, larger title). Stories 2–4 use standard cards. Stories 5+ collapse into a compact "Also today" list. Tier badges (Breaking/Major/Trending) visible in all cards.
+- **Auto-subject at draft creation** — subject line is AI-generated when the auto-draft cron runs at 6:30 AM, so the draft arrives in the editor's queue with a subject already set.
+- **Daily Signal endpoint** — `POST /newsletter/draft/suggest-daily-signal` returns a one-line editorial observation across all articles. New `newsletter-daily-signal` prompt (fast tier).
+- **Newsletter weekly days configurable** — `newsletter_weekly_days` setting (JSON array, default `["Thu"]`) replaces the hardcoded Thursday check in both draft and auto-send crons.
+- **`newsletter_paid_price_id` and `resend_paid_audience_id` added to CONFIG_MAP** — these keys were missing, making the paid tier completely broken at the config layer regardless of database state.
+- **Resend broadcasts named** — broadcasts now include a `name` field (`"Site — Daily Digest · YYYY-MM-DD"`) so they no longer appear as "Untitled" in the Resend dashboard.
+- **Public `/newsletter/info` endpoint** — returns `{ paidAvailable, timezone }` without requiring auth. Used by the public newsletter page to conditionally show the paid card and display the correct timezone on the delivery time.
+- **Timezone on delivery time** — "Delivered by 7:30 AM" on the public newsletter page now appends the newsroom's timezone abbreviation (e.g. "ET").
+- **401 path fix on public newsletter page** — logged-out users only see the paid card if paid is actually configured, not unconditionally.
+- **`briefing_content` JSONB column on `newsletter_drafts`** — stores the structured WIR briefing so it persists between compose and send.
+
+---
+
 ## [1.0.0] — 2026-05-12
 
 **Official release — stable for community self-hosting.**

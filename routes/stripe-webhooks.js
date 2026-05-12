@@ -8,9 +8,11 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const { getPool } = require('../db');
 const { bustPlanCache } = require('../lib/plan-limits');
 const { bustFeatureCache } = require('../lib/feature-registry');
 const { getStripeConfig } = require('../lib/stripe-config');
+const { getAppConfig } = require('../lib/app-config');
 const { logAudit } = require('../middleware/audit');
 
 function auditFromWebhook(tenantId, eventId, action, resource, resourceId, details) {
@@ -49,6 +51,42 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
+
+        // ── Newsletter reader subscription checkout ──
+        if (session.mode === 'subscription' && session.metadata?.type === 'newsletter_reader') {
+          const publicUserId = parseInt(session.metadata?.public_user_id, 10);
+          const tenantId     = parseInt(session.metadata?.tenant_id, 10);
+          if (!Number.isFinite(publicUserId) || publicUserId <= 0 ||
+              !Number.isFinite(tenantId)     || tenantId <= 0) {
+            console.error('[Stripe Webhook] newsletter_reader checkout missing or invalid metadata', {
+              eventId: event.id, metadata: session.metadata,
+            });
+            break;
+          }
+
+          // Upsert newsletter_subscriptions — write to DB first, then sync Resend
+          await getPool().query(
+            `INSERT INTO newsletter_subscriptions (public_user_id, tenant_id, tier, stripe_customer_id, stripe_subscription_id, stripe_status, updated_at)
+             VALUES ($1, $2, 'paid', $3, $4, 'active', NOW())
+             ON CONFLICT (public_user_id, tenant_id) DO UPDATE
+               SET tier = 'paid', stripe_customer_id = EXCLUDED.stripe_customer_id,
+                   stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+                   stripe_status = 'active', updated_at = NOW()`,
+            [publicUserId, tenantId, session.customer || null, session.subscription || null]
+          );
+
+          // Fire-and-forget Resend paid audience sync
+          _syncResendPaidContact(tenantId, session.customer, 'add').catch(e =>
+            console.warn('[Stripe Webhook] Resend paid audience sync failed:', e.message)
+          );
+
+          auditFromWebhook(tenantId, event.id, 'newsletter.reader.subscribed', 'newsletter_subscription', publicUserId, {
+            stripe_customer_id: session.customer,
+            stripe_subscription_id: session.subscription,
+          });
+          console.log(`[Stripe Webhook] Newsletter reader subscription activated: user ${publicUserId}, tenant ${tenantId}`);
+          break;
+        }
 
         // ── Subscription checkout (signup flow) ──
         if (session.mode === 'subscription' && session.metadata?.signup === 'true') {
@@ -121,8 +159,30 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       }
 
       case 'customer.subscription.deleted': {
-        // Subscription cancelled — downgrade tenant to free plan and schedule data cleanup
         const sub = event.data.object;
+
+        // ── Newsletter reader subscription cancelled ──
+        const nlSub = await getPool().query(
+          'SELECT public_user_id, tenant_id FROM newsletter_subscriptions WHERE stripe_subscription_id = $1',
+          [sub.id]
+        ).then(r => r.rows[0] || null);
+
+        if (nlSub) {
+          await getPool().query(
+            `UPDATE newsletter_subscriptions
+             SET tier = 'free', stripe_subscription_id = NULL, stripe_status = 'cancelled', updated_at = NOW()
+             WHERE stripe_subscription_id = $1`,
+            [sub.id]
+          );
+          _syncResendPaidContact(nlSub.tenant_id, sub.customer, 'remove').catch(() => {});
+          auditFromWebhook(nlSub.tenant_id, event.id, 'newsletter.reader.cancelled', 'newsletter_subscription', nlSub.public_user_id, {
+            stripe_subscription_id: sub.id,
+          });
+          console.log(`[Stripe Webhook] Newsletter reader subscription ${sub.id} cancelled — user ${nlSub.public_user_id} downgraded to free`);
+          break;
+        }
+
+        // ── Tenant subscription cancelled ──
         const affected = await db.prepare(
           'SELECT id, plan FROM tenants WHERE stripe_subscription_id = $1'
         ).get(sub.id);
@@ -177,6 +237,27 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
         if (invoice.subscription) {
+          // ── Newsletter reader payment failed ──
+          const nlSub = await getPool().query(
+            'SELECT public_user_id, tenant_id FROM newsletter_subscriptions WHERE stripe_subscription_id = $1',
+            [invoice.subscription]
+          ).then(r => r.rows[0] || null);
+
+          if (nlSub) {
+            await getPool().query(
+              `UPDATE newsletter_subscriptions SET stripe_status = 'past_due', updated_at = NOW()
+               WHERE stripe_subscription_id = $1`,
+              [invoice.subscription]
+            );
+            auditFromWebhook(nlSub.tenant_id, event.id, 'newsletter.reader.payment_failed', 'newsletter_subscription', nlSub.public_user_id, {
+              stripe_subscription_id: invoice.subscription,
+              attempt_count: invoice.attempt_count,
+            });
+            console.warn(`[Stripe Webhook] Newsletter reader payment failed: subscription ${invoice.subscription}, attempt ${invoice.attempt_count}`);
+            break;
+          }
+
+          // ── Tenant payment failed ──
           const affected = await db.prepare(
             'SELECT id FROM tenants WHERE stripe_subscription_id = $1'
           ).get(invoice.subscription);
@@ -258,5 +339,54 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
 
   res.json({ received: true });
 });
+
+// ── Resend paid audience sync helper ─────────────────────────────────────────
+// Adds or removes a Stripe customer's email from the tenant's paid Resend audience.
+// Called fire-and-forget from webhook handlers — errors are logged but don't block.
+async function _syncResendPaidContact(tenantId, stripeCustomerId, action = 'add') {
+  if (!stripeCustomerId) return;
+  const appCfg = await getAppConfig(tenantId).catch(() => ({}));
+  const apiKey     = appCfg.resend_api_key;
+  const audienceId = appCfg.resend_paid_audience_id;
+  if (!apiKey || !audienceId) return;
+
+  // Fetch the email from Stripe
+  const { secretKey } = await getStripeConfig();
+  if (!secretKey) return;
+  const stripe   = require('stripe')(secretKey);
+  const customer = await stripe.customers.retrieve(stripeCustomerId).catch(() => null);
+  if (!customer || customer.deleted) {
+    console.warn(`[_syncResendPaidContact] Stripe customer ${stripeCustomerId} is deleted or unretrievable — skipping (action=${action})`);
+    return;
+  }
+  const email = customer.email;
+  if (!email) return;
+
+  if (action === 'add') {
+    await fetch(`https://api.resend.com/audiences/${audienceId}/contacts`, {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, subscribed: true }),
+    });
+  } else {
+    // Fetch contact ID then delete
+    const listRes = await fetch(`https://api.resend.com/audiences/${audienceId}/contacts?email=${encodeURIComponent(email)}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (listRes.ok) {
+      const data = await listRes.json();
+      const contact = data.data?.[0];
+      if (contact?.id && contact?.email?.toLowerCase() === email.toLowerCase()) {
+        const delRes = await fetch(`https://api.resend.com/audiences/${audienceId}/contacts/${contact.id}`, {
+          method:  'DELETE',
+          headers: { 'Authorization': `Bearer ${apiKey}` },
+        });
+        if (!delRes.ok) {
+          console.warn(`[_syncResendPaidContact] DELETE contact failed: ${delRes.status}`);
+        }
+      }
+    }
+  }
+}
 
 module.exports = router;
