@@ -8,7 +8,7 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
-## [1.1.0] — 2026-05-13
+## [1.1.0-dev] — 2026-05-13
 
 ### Added
 
