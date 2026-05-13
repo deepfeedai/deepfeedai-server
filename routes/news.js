@@ -797,6 +797,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
         voice_name:       b.voice_name       || null,
         voice_avatar_url: b.voice_avatar_url || null,
         briefing_date:    b.briefing_date,
+        youtube_url:      b.youtube_url      || null,
       };
     }),
   });
