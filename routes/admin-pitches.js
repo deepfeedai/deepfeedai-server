@@ -121,8 +121,8 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
 
           if (synthesized) {
             await db.prepare(
-              "UPDATE story_pitches SET status = 'synthesized' WHERE id = $1"
-            ).run(pitch.id);
+              "UPDATE story_pitches SET status = 'synthesized', spawned_article_id = $2 WHERE id = $1"
+            ).run(pitch.id, synthesized.id);
             // Backlink article to budget slot if this pitch came from one
             db.prepare(
               "UPDATE news_budget_slots SET spawned_article_id = $1, updated_at = NOW() WHERE spawned_pitch_id = $2 AND tenant_id = $3"

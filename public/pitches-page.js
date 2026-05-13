@@ -113,7 +113,8 @@
         + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
     } else {
       actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
-        : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span> <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>'
+        : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+          + (!p.spawned_article_id ? ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>' : '')
         : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
     }
     var isPending = p.status === 'pending';
@@ -187,7 +188,8 @@
           + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
       } else {
         actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
-          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span> <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>'
+          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+            + (!p.spawned_article_id ? ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>' : '')
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
       }
 
