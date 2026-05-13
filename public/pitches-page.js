@@ -113,7 +113,7 @@
         + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
     } else {
       actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
-        : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+        : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span> <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>'
         : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
     }
     var isPending = p.status === 'pending';
@@ -187,7 +187,7 @@
           + '<button class="btn btn-outline btn-sm" style="padding:3px 7px;" title="Enrich sources" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">+src</button>';
       } else {
         actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
-          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
+          : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span> <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>'
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
       }
 
@@ -711,6 +711,7 @@
     } else if (p.status === 'approved') {
       html += '<span class="badge badge-accent" style="align-self:center;">Approved</span>';
       if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
+      else html += '<button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="retryCommissionSynthesis(' + p.id + ')">&#8635; Retry</button>';
     } else if (p.status === 'published') {
       html += '<span class="badge badge-success" style="align-self:center;">Published</span>';
       if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
@@ -773,6 +774,7 @@
       } else if (p.status === 'approved') {
         actions = '<span class="badge badge-accent">Approved</span>';
         if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
+        else actions += ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="retryCommissionSynthesis(' + p.id + ')">&#8635; Retry</button>';
         if (!p.pitched_by_writer_id) actions += ' <button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
       } else if (p.status === 'published') {
         actions = '<span class="badge badge-success">Published</span>';
@@ -1068,6 +1070,16 @@
       restore();
       toast('Approve failed: ' + (err.message || err), 'error');
       await loadCommissions();
+    }
+  };
+
+  window.retryCommissionSynthesis = async function (id) {
+    try {
+      await apiFetch('/pitches/' + id + '/retry-synthesis', { method: 'POST', body: JSON.stringify({}) });
+      toast('Synthesis re-queued — article will appear shortly.', 'success');
+      setTimeout(loadCommissions, 3000);
+    } catch (err) {
+      toast('Retry failed: ' + (err.message || err), 'error');
     }
   };
 

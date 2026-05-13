@@ -483,6 +483,28 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
   });
 }));
 
+// POST /api/pitches/:id/retry-synthesis — re-queue synthesis for a stuck approved pitch
+router.post('/:id/retry-synthesis', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
+  const pitch = await db.prepare(
+    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2'
+  ).get(req.params.id, req.tenantId);
+  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
+  if (pitch.status !== 'approved') return res.status(409).json({ error: `Pitch is ${pitch.status}, not approved` });
+  if (pitch.spawned_article_id) return res.status(409).json({ error: 'Pitch already has a spawned article' });
+
+  const { synthesizeFromPitch } = require('../lib/synthesis');
+  setImmediate(() => {
+    synthesizeFromPitch(pitch.id, req.tenantId)
+      .then(r => {
+        if (r.ok) console.log(`[pitches] retry #${pitch.id} synthesized → article ${r.article.id}`);
+        else console.warn(`[pitches] retry #${pitch.id} synthesis skipped: ${r.reason}`);
+      })
+      .catch(err => console.error(`[pitches] retry #${pitch.id} synthesis failed:`, err.message));
+  });
+
+  res.json({ status: 'ok', queued: true });
+}));
+
 // POST /api/pitches/:id/reject — body: { note? }
 router.post('/:id/reject', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
   const { note } = req.body || {};
