@@ -4,6 +4,18 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.0-alpha.2] — 2026-05-13
+
+### Added
+
+- **YouTube Shorts on briefing page** — each daily briefing edition can now be linked to a YouTube Shorts video. When a video is linked, the public `/briefing/:date/:edition` page shows a 9:16 vertical embed on the left with title, transcript, and stories on the right (single-column on mobile). The audio player is hidden by default and accessible via a "Listen to audio version" toggle.
+- **YouTube link admin UI** — budget page briefing card has a YouTube URL input per edition (below the thumbnail row). Paste any YouTube URL (Shorts, watch?v=, youtu.be) and Save; clear with the ✕ button.
+- **Watch button on main site briefing widget** — when a video is linked, a "▶ Watch" button appears in the briefing player strip and links directly to the YouTube video. Updates when switching between Morning/Afternoon/Evening edition tabs.
+- **"↗ Full brief" and "⬡ Copy link" replace "↗ Share"** — the old Share anchor in the briefing widget was ambiguous (it navigated, not shared). Split into two explicit actions: Full brief opens the dedicated briefing page; Copy link copies the URL to clipboard.
+- **`youtube_url` column on `daily_briefings`** — new nullable TEXT column. `PATCH /api/admin/budget/briefing/:edition/youtube` to set or clear. Returned by `GET /api/news/briefing/:date/:edition` and the feed `briefings` array.
+
+---
+
 ## [1.1.0-alpha.1] — 2026-05-13
 
 ### Fixed
