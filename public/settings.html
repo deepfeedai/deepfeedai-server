@@ -962,6 +962,50 @@
       <!-- ═══ Automation ═══ -->
       <div class="tab-panel" data-tab="automation">
 
+        <!-- Briefing Schedule -->
+        <div class="settings-card" style="margin-bottom:var(--space-5);">
+          <div class="settings-card-header">
+            <div class="settings-card-icon">🎙</div>
+            <div>
+              <div class="settings-card-title">Briefing Schedule</div>
+              <div class="settings-card-subtitle">When each edition is generated (for review) and published (goes live). Times in your newsroom timezone.</div>
+            </div>
+          </div>
+          <div style="padding:0 20px 20px;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead>
+                <tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;">
+                  <th style="text-align:left;padding:0 0 8px;">Edition</th>
+                  <th style="text-align:left;padding:0 0 8px 16px;">Generate at</th>
+                  <th style="text-align:left;padding:0 0 8px 16px;">Publish at</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding:6px 0;color:var(--text);">Morning</td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingMorningGenerateAt" style="width:120px;" /></td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingMorningPublishAt" style="width:120px;" /></td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0;color:var(--text);">Afternoon</td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingAfternoonGenerateAt" style="width:120px;" /></td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingAfternoonPublishAt" style="width:120px;" /></td>
+                </tr>
+                <tr>
+                  <td style="padding:6px 0;color:var(--text);">Evening</td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingEveningGenerateAt" style="width:120px;" /></td>
+                  <td style="padding:6px 0 6px 16px;"><input type="time" class="form-control" id="briefingEveningPublishAt" style="width:120px;" /></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="form-help" style="margin-top:8px;">Generate at = when the brief is created and sent for review. Publish at = when it goes live to readers. Leave 15–30 min between them for YouTube upload and review.</p>
+            <div class="btn-group mt-5">
+              <button class="btn btn-primary" id="saveBriefingScheduleBtn">Save Briefing Schedule</button>
+            </div>
+            <div id="briefingScheduleStatus" class="settings-status"></div>
+          </div>
+        </div>
+
         <!-- Publishing -->
         <div class="settings-card" style="margin-bottom:var(--space-5);">
           <div class="settings-card-header">

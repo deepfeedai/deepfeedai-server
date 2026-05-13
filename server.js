@@ -1017,24 +1017,41 @@ registerJob({
 
 registerJob({
   name: 'daily-briefing',
-  description: 'Multi-edition audio briefing — Morning (8AM), Afternoon (1PM), Evening (6PM)',
+  description: 'Multi-edition audio briefing — generates at configured prep time, publishes at drop time',
   category: 'Media',
-  defaultSchedule: '0 * * * *', // runs hourly; fires at edition hours in newsroom timezone
+  defaultSchedule: '*/5 * * * *', // every 5 min; matches HH:MM generate_at / publish_at per edition
   handler: async (tenantId) => {
     const { isFeatureEnabled } = require('./lib/feature-registry');
     const enabled = await isFeatureEnabled(tenantId, 'daily_briefing').catch(() => false);
     if (!enabled) return { skipped: 'daily_briefing feature not enabled' };
 
-    const { currentHourInTz } = require('./lib/news-budget');
+    const { currentTimeInTz } = require('./lib/news-budget');
+    const { generateDailyBriefing, publishDailyBriefing } = require('./lib/daily-briefing');
     const appCfg = await getAppConfig(tenantId);
-    const tz = appCfg.newsroom_timezone || 'UTC';
-    const hour = currentHourInTz(tz);
-    const editionMap = { 8: 'morning', 13: 'afternoon', 18: 'evening' };
-    const edition = editionMap[hour];
-    if (!edition) return { skipped: 'not a briefing hour in ' + tz };
+    const tz  = appCfg.newsroom_timezone || 'UTC';
+    const { hour, minute } = currentTimeInTz(tz);
+    const hmm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 
-    const { generateDailyBriefing } = require('./lib/daily-briefing');
-    return generateDailyBriefing(tenantId, { edition });
+    const DEFAULTS = {
+      morning:   { generate_at: '07:30', publish_at: '08:00' },
+      afternoon: { generate_at: '12:30', publish_at: '13:00' },
+      evening:   { generate_at: '17:30', publish_at: '18:00' },
+    };
+
+    const results = {};
+    for (const edition of ['morning', 'afternoon', 'evening']) {
+      const genAt = appCfg[`briefing_${edition}_generate_at`] || DEFAULTS[edition].generate_at;
+      const pubAt = appCfg[`briefing_${edition}_publish_at`]  || DEFAULTS[edition].publish_at;
+      if (hmm === genAt) {
+        results[edition] = await generateDailyBriefing(tenantId, { edition });
+      } else if (hmm === pubAt) {
+        results[edition] = await publishDailyBriefing(tenantId, { edition });
+      }
+    }
+
+    const acted = Object.keys(results);
+    if (!acted.length) return { skipped: `no briefing action at ${hmm} ${tz}` };
+    return results;
   },
 });
 

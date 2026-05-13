@@ -741,6 +741,29 @@ router.delete('/briefing/:edition/thumbnail',
   })
 );
 
+// POST /api/admin/budget/briefing/:edition/publish — manually publish a pending_review briefing
+router.post('/briefing/:edition/publish',
+  auth, requirePermission('articles.write'),
+  asyncHandler(async (req, res) => {
+    const { edition } = req.params;
+    if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+      return res.status(400).json({ error: 'Invalid edition' });
+    }
+    const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateParam = resolveEditionDate(req, tz);
+
+    const result = await getPool().query(
+      `UPDATE daily_briefings SET status = 'ready', updated_at = NOW()
+       WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status = 'pending_review'
+       RETURNING id`,
+      [req.tenantId, dateParam, edition]
+    );
+    if (result.rowCount === 0) return res.status(409).json({ error: 'Briefing not found or not in pending_review state' });
+    res.json({ ok: true, edition, briefing_date: dateParam });
+  })
+);
+
 // PATCH /api/admin/budget/briefing/:edition/youtube — set or clear a YouTube Shorts URL
 router.patch('/briefing/:edition/youtube',
   auth, requirePermission('articles.write'),

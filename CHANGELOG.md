@@ -4,6 +4,24 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.0-alpha.4] — 2026-05-13
+
+### Added
+
+- **Briefing drop window — preview before publish** — daily briefings now enter a `pending_review` state after generation instead of going live immediately. This gives editors a window to review the audio, make edits, and add a YouTube Shorts link before the briefing is visible to readers. A "↑ Publish now" button on the budget page allows immediate promotion; otherwise the briefing auto-publishes at the configured publish time.
+- **Configurable briefing schedule** — generate and publish times for Morning, Afternoon, and Evening editions are now configurable per newsroom in Settings → Automation → Briefing Schedule. Defaults: Morning 07:30 / 08:00, Afternoon 12:30 / 13:00, Evening 17:30 / 18:00. Stored as `briefing_{edition}_generate_at` / `briefing_{edition}_publish_at` settings.
+- **5-minute briefing cron** — the daily briefing cron now runs every 5 minutes (previously hourly) and fires generation or publish actions when the current HH:MM matches the configured times.
+- **"⏳ Awaiting publish" budget card state** — briefings in `pending_review` show an amber badge with a "↑ Publish now" button. All controls (audio, share, delete, thumbnail, YouTube URL) are active in this state.
+- **Reschedule pending articles** — new button in Settings → Automation → Publishing that re-stamps all queued scheduled articles to the nearest valid drop window using the current settings. Useful after adjusting drop window times without losing queued articles.
+- **`POST /api/admin/budget/briefing/:edition/publish`** — promotes a `pending_review` briefing to `ready` status. Returns 409 if the briefing is not in the expected state.
+- **`POST /api/admin/budget/reschedule-pending`** — bulk-updates `publish_at` for all `status = 'scheduled'` articles to the nearest future drop window per the current config.
+
+### Fixed
+
+- **Stuck approved pitches** — commission pitches left at `approved` status when synthesis failed silently now show a "↺ Retry" button on the Pitches page. Added `POST /api/pitches/:id/retry-synthesis` endpoint. `spawned_article_id` is now correctly written on synthesis success to prevent duplicate synthesis on retry.
+
+---
+
 ## [1.1.0-alpha.3] — 2026-05-13
 
 ### Added

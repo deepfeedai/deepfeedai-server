@@ -762,6 +762,19 @@ let apiKeyVisible = false;
     _loadDropWindowsList(settings.drop_windows);
     toggleDropWindowsRow();
 
+    // Briefing schedule
+    var BRIEFING_DEFAULTS = {
+      morning:   { generate_at: '07:30', publish_at: '08:00' },
+      afternoon: { generate_at: '12:30', publish_at: '13:00' },
+      evening:   { generate_at: '17:30', publish_at: '18:00' },
+    };
+    for (var ed of ['morning', 'afternoon', 'evening']) {
+      var genEl = document.getElementById('briefing' + ed.charAt(0).toUpperCase() + ed.slice(1) + 'GenerateAt');
+      var pubEl = document.getElementById('briefing' + ed.charAt(0).toUpperCase() + ed.slice(1) + 'PublishAt');
+      if (genEl) genEl.value = settings['briefing_' + ed + '_generate_at'] || BRIEFING_DEFAULTS[ed].generate_at;
+      if (pubEl) pubEl.value = settings['briefing_' + ed + '_publish_at']  || BRIEFING_DEFAULTS[ed].publish_at;
+    }
+
     // BYOK rate limits
     var byokDailyEl   = document.getElementById('byokDailyTokenLimit');
     var byokMonthlyEl = document.getElementById('byokMonthlyTokenLimit');
@@ -819,6 +832,28 @@ let apiKeyVisible = false;
       statusEl.textContent = '❌ Failed: ' + err.message;
     } finally {
       this.disabled = false; this.textContent = '↻ Reschedule pending articles';
+    }
+  });
+
+  // ── Briefing Schedule ─────────────────────────────────────────────
+  document.getElementById('saveBriefingScheduleBtn')?.addEventListener('click', async function () {
+    var statusEl = document.getElementById('briefingScheduleStatus');
+    var payload = {};
+    for (var ed of ['morning', 'afternoon', 'evening']) {
+      var cap = ed.charAt(0).toUpperCase() + ed.slice(1);
+      var genEl = document.getElementById('briefing' + cap + 'GenerateAt');
+      var pubEl = document.getElementById('briefing' + cap + 'PublishAt');
+      if (genEl) payload['briefing_' + ed + '_generate_at'] = genEl.value;
+      if (pubEl) payload['briefing_' + ed + '_publish_at']  = pubEl.value;
+    }
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      if (statusEl) statusEl.textContent = '✅ Briefing schedule saved';
+    } catch (err) {
+      if (statusEl) statusEl.textContent = '❌ Save failed: ' + err.message;
+    } finally {
+      this.disabled = false; this.textContent = 'Save Briefing Schedule';
     }
   });
 

@@ -1144,9 +1144,10 @@
 
       var STUCK_MS = 5 * 60 * 1000; // 5 minutes
 
-      if (briefing.status === 'ready') {
-        label.textContent = '✓ Ready';
-        btn.classList.add('btn-success-muted');
+      if (briefing.status === 'ready' || briefing.status === 'pending_review') {
+        var isPendingReview = briefing.status === 'pending_review';
+        label.textContent = isPendingReview ? '⏳ Awaiting publish' : '✓ Ready';
+        btn.classList.add(isPendingReview ? 'btn-warning-muted' : 'btn-success-muted');
         var existing = ctrl.querySelector('.brief-audio-wrap');
         if (!existing) {
           var wrap = document.createElement('div');
@@ -1175,6 +1176,29 @@
               });
             });
             wrap.appendChild(shareBtn);
+          }
+
+          // Publish now button — only shown for pending_review
+          if (isPendingReview) {
+            var pubBtn = document.createElement('button');
+            pubBtn.className = 'btn btn-primary btn-sm';
+            pubBtn.style.cssText = 'font-size:11px;padding:2px 10px;';
+            pubBtn.textContent = '↑ Publish now';
+            pubBtn.title = 'Make this briefing live immediately';
+            pubBtn.addEventListener('click', function () {
+              pubBtn.disabled = true; pubBtn.textContent = 'Publishing…';
+              var qDate = date ? '?date=' + date : '';
+              apiFetch('/admin/budget/briefing/' + edKey + '/publish' + qDate, { method: 'POST' })
+                .then(function () {
+                  // Reload so the whole state refreshes to 'ready'
+                  loadBriefingsForDate(date || new Date().toLocaleDateString('en-CA'));
+                })
+                .catch(function (err) {
+                  pubBtn.disabled = false; pubBtn.textContent = '↑ Publish now';
+                  alert('Publish failed: ' + (err.message || err));
+                });
+            });
+            wrap.appendChild(pubBtn);
           }
 
           // Delete button — resets the briefing so it can be regenerated
