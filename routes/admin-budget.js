@@ -773,4 +773,78 @@ router.patch('/briefing/:edition/youtube',
   })
 );
 
+// POST /api/admin/budget/reschedule-pending
+// Re-stamps every status='scheduled' article to the nearest future drop window
+// on its existing scheduled day (in newsroom timezone). Day-crossing: if all
+// windows on the article's current day have already passed, falls back to the
+// first window of the next day.
+router.post('/reschedule-pending', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
+  const pool   = getPool();
+  const appCfg = await getAppConfig(req.tenantId);
+  const tz     = appCfg.newsroom_timezone || 'UTC';
+
+  // Parse and sort drop windows
+  let windows;
+  try {
+    windows = typeof appCfg.drop_windows === 'string'
+      ? JSON.parse(appCfg.drop_windows)
+      : (Array.isArray(appCfg.drop_windows) ? appCfg.drop_windows : null);
+  } catch { windows = null; }
+  if (!Array.isArray(windows) || !windows.length) windows = ['07:00', '12:00', '18:00'];
+  windows = windows.map(w => String(w).trim()).filter(w => /^\d{2}:\d{2}$/.test(w)).sort();
+  if (!windows.length) windows = ['07:00', '12:00', '18:00'];
+
+  // Convert a local date + time string to a UTC Date, honoring the newsroom timezone.
+  function windowToUtc(dateStr, timeStr) {
+    const probe    = new Date(`${dateStr}T${timeStr}:00Z`);
+    const localStr = probe.toLocaleString('sv-SE', { timeZone: tz });
+    const asUtc    = new Date(localStr.replace(' ', 'T') + 'Z');
+    return new Date(probe.getTime() + (probe.getTime() - asUtc.getTime()));
+  }
+
+  // Find the first drop window >= fromDate, staying on the same local calendar day where possible.
+  function nearestWindow(fromDate) {
+    const dateStr = fromDate.toLocaleDateString('en-CA', { timeZone: tz });
+    for (const w of windows) {
+      const candidate = windowToUtc(dateStr, w);
+      if (candidate >= fromDate) return candidate;
+    }
+    // All windows on this day have passed — use first window of the next local day.
+    const nextDayUtc  = new Date(fromDate.getTime() + 86_400_000);
+    const nextDateStr = nextDayUtc.toLocaleDateString('en-CA', { timeZone: tz });
+    return windowToUtc(nextDateStr, windows[0]);
+  }
+
+  // Fetch all pending scheduled articles ordered by their current publish_at.
+  const { rows: articles } = await pool.query(
+    `SELECT id, title, publish_at FROM articles
+     WHERE tenant_id = $1 AND status = 'scheduled' AND is_published = 0
+     ORDER BY publish_at ASC`,
+    [req.tenantId]
+  );
+
+  if (!articles.length) return res.json({ rescheduled: 0, articles: [] });
+
+  const updates = articles.map(a => ({
+    id:             a.id,
+    title:          a.title,
+    old_publish_at: a.publish_at,
+    new_publish_at: nearestWindow(new Date(a.publish_at)).toISOString(),
+  }));
+
+  // Bulk UPDATE via VALUES list — one round-trip regardless of article count.
+  const valueClauses = updates.map((_, i) => `($${i * 2 + 2}::int, $${i * 2 + 3}::timestamptz)`).join(', ');
+  const params = [req.tenantId];
+  for (const u of updates) params.push(u.id, u.new_publish_at);
+
+  await pool.query(
+    `UPDATE articles AS a SET publish_at = v.ts, updated_at = NOW()
+     FROM (VALUES ${valueClauses}) AS v(id, ts)
+     WHERE a.tenant_id = $1 AND a.id = v.id`,
+    params
+  );
+
+  res.json({ rescheduled: updates.length, articles: updates });
+}));
+
 module.exports = router;

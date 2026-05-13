@@ -1019,7 +1019,11 @@
                 <label class="form-label">Drop Windows</label>
                 <p class="form-help" style="margin-bottom:10px;">Times in your newsroom timezone when scheduled articles go live. Sorted automatically on save.</p>
                 <div id="dropWindowsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
-                <button type="button" class="btn btn-outline btn-sm" id="addDropWindowBtn">+ Add Window</button>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <button type="button" class="btn btn-outline btn-sm" id="addDropWindowBtn">+ Add Window</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="reschedulePendingBtn" title="Re-stamp all queued articles to the nearest valid drop window">↻ Reschedule pending articles</button>
+                  <span id="reschedulePendingStatus" class="text-muted text-sm"></span>
+                </div>
               </div>
             </div>
             <div class="form-grid-2" style="margin-bottom:16px;">

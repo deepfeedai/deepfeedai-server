@@ -803,6 +803,25 @@ let apiKeyVisible = false;
     }
   });
 
+  document.getElementById('reschedulePendingBtn')?.addEventListener('click', async function () {
+    var statusEl = document.getElementById('reschedulePendingStatus');
+    if (!confirm('Re-stamp all queued scheduled articles to the nearest valid drop window using the current settings?\n\nThis will not publish anything — it only adjusts publish times.')) return;
+    this.disabled = true; this.textContent = '↻ Rescheduling…';
+    statusEl.textContent = '';
+    try {
+      var data = await apiFetch('/admin/budget/reschedule-pending', { method: 'POST' });
+      if (data.rescheduled === 0) {
+        statusEl.textContent = 'No pending articles to reschedule.';
+      } else {
+        statusEl.textContent = '✅ Rescheduled ' + data.rescheduled + ' article' + (data.rescheduled !== 1 ? 's' : '') + '.';
+      }
+    } catch (err) {
+      statusEl.textContent = '❌ Failed: ' + err.message;
+    } finally {
+      this.disabled = false; this.textContent = '↻ Reschedule pending articles';
+    }
+  });
+
   // ── BYOK Rate Limits ──────────────────────────────────────────────
   document.getElementById('saveByokLimitsBtn').addEventListener('click', async function () {
     var daily   = Math.max(0, parseInt(document.getElementById('byokDailyTokenLimit').value)   || 0);
