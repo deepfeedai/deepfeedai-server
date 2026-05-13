@@ -4,6 +4,15 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.0-alpha.3] — 2026-05-13
+
+### Added
+
+- **"🖼 Inline" button on Articles page** — original and deep-dive articles in both list and card views now have an Inline button that queues inline image generation via `POST /api/admin/articles/:id/generate-inline-images`. Previously only available in the Newsroom Desk view.
+- **AI Usage cost breakdown table** — the "By Operation" bar chart is replaced with a ranked table showing each operation's call count, total cost, % of total (with mini bar), and cost-per-call. Period switcher (Today / Yesterday / 7d / 30d) is independent of the main range selector and loads on page open defaulting to Today.
+
+---
+
 ## [1.1.0-alpha.2] — 2026-05-13
 
 ### Added

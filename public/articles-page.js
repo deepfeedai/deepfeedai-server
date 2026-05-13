@@ -414,7 +414,7 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
             ${hasPermission('articles.update') ? `<button class="btn btn-ghost btn-sm" title="Open Editor" onclick="window.location.href='/article-editor.html?id=${a.id}'">✍️ Editor</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
-            ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
+            ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button><button class="btn btn-ghost btn-sm" title="Generate inline images" onclick="genInlineImages(${a.id})">🖼 Inline</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" title="${a.followups ? 'Regenerate follow-ups' : 'Generate follow-ups'}" onclick="generateFollowups(${a.id})">💬 ${a.followups ? 'Redo' : ''} Q&A</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" id="tldr-btn-${a.id}" title="${a.tldr_overview ? 'Regenerate AI summary' : 'Generate AI summary'}" onclick="generateTldr(${a.id})">✨ ${a.tldr_overview ? 'Redo' : ''} TLDR</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
@@ -474,7 +474,7 @@ let articles = [];
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
           <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
-          ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
+          ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Generate inline images" onclick="genInlineImages(${a.id})">🖼 Inline</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
         `}
@@ -1241,6 +1241,16 @@ let articles = [];
     } catch (err) {
       showAlert('Image generation failed: ' + err.message, 'error');
       if (btn) { btn.disabled = false; btn.textContent = '🎨'; }
+    }
+  }
+
+  async function genInlineImages(id) {
+    try {
+      showAlert('Queuing inline image generation…');
+      await apiFetch(`/articles/${id}/generate-inline-images`, { method: 'POST' });
+      showAlert('Inline images queued ✓', 'success');
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
     }
   }
 

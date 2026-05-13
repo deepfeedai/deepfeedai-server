@@ -66,6 +66,13 @@
     /* ── Section two-col ─── */
     .usage-two-col { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-4); margin-bottom:var(--space-6); }
     @media (max-width:800px) { .usage-two-col { grid-template-columns:1fr; } .byok-strip { grid-template-columns:1fr; } }
+
+    /* ── Cost breakdown table ─── */
+    .breakdown-period-tabs { display:flex; gap:4px; }
+    .breakdown-period-tab { padding:3px 10px; border-radius:6px; border:1px solid var(--border); background:transparent; color:var(--muted); font-size:11px; cursor:pointer; transition:background 0.15s; }
+    .breakdown-period-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .breakdown-pct-track { display:inline-block; width:60px; height:5px; border-radius:3px; background:var(--bg); overflow:hidden; vertical-align:middle; }
+    .breakdown-pct-fill  { height:100%; border-radius:3px; background:var(--accent); opacity:0.8; }
   </style>
 </head>
 <body>
@@ -243,10 +250,41 @@
         </div>
       </div>
 
-      <!-- By Operation -->
+      <!-- Cost Breakdown by Operation -->
       <div class="card-section" style="margin-bottom:28px;">
-        <div class="section-header"><h2 class="section-title">By Operation</h2></div>
-        <div style="padding:16px;" id="operationBars"><div class="text-muted text-sm">Loading…</div></div>
+        <div class="section-header">
+          <h2 class="section-title">Cost Breakdown</h2>
+          <div class="breakdown-period-tabs" id="breakdownPeriodTabs">
+            <button class="breakdown-period-tab active" data-period="today">Today</button>
+            <button class="breakdown-period-tab" data-period="yesterday">Yesterday</button>
+            <button class="breakdown-period-tab" data-period="7">7d</button>
+            <button class="breakdown-period-tab" data-period="30">30d</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="data-table" id="breakdownTable">
+            <thead>
+              <tr>
+                <th style="width:32px;text-align:center;">#</th>
+                <th>Operation</th>
+                <th style="text-align:right;">Calls</th>
+                <th style="text-align:right;">Cost</th>
+                <th style="min-width:130px;">% of Total</th>
+                <th style="text-align:right;">$/call</th>
+              </tr>
+            </thead>
+            <tbody id="breakdownTbody">
+              <tr><td colspan="6" class="text-muted text-center" style="padding:24px;">Loading…</td></tr>
+            </tbody>
+            <tfoot id="breakdownFoot" hidden>
+              <tr style="border-top:2px solid var(--border);">
+                <td colspan="3" style="font-weight:600;padding:8px 12px;">Total</td>
+                <td id="breakdownTotal" style="text-align:right;font-weight:700;padding:8px 12px;"></td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
       <!-- By Writer -->

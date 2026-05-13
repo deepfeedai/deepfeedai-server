@@ -68,7 +68,8 @@
 
   let currentRange = '30d';
   let _summaryData  = null;
-  let _sessionWriterId = null; // active writer filter for sessions
+  let _sessionWriterId  = null;
+  let _breakdownPeriod  = 'today';
 
   // ── Load ──────────────────────────────────────────────────────────────
   async function loadData() {
@@ -97,7 +98,7 @@
     renderSparkline(data.by_day || []);
     renderModelBars(data.by_model || []);
     renderTypeBars(data.by_type || []);
-    renderBars('operationBars', data.by_operation || [], 'operation');
+    // operation breakdown is loaded independently via loadOperationBreakdown()
     renderErrors(data.recent_errors || []);
     renderBudget(data.budget || {});
     renderEfficiency(data);
@@ -292,6 +293,61 @@
           <div class="bar-value">${fmtCost(cost)} <span style="font-size:10px;">(${fmt(row.calls)})</span></div>
         </div>`;
     }).join('');
+  }
+
+  // ── Cost breakdown by operation ───────────────────────────────────────
+  async function loadOperationBreakdown(period) {
+    period = period || _breakdownPeriod;
+    _breakdownPeriod = period;
+    const tbody = el('breakdownTbody');
+    const foot  = el('breakdownFoot');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:16px;">Loading…</td></tr>';
+    if (foot) foot.hidden = true;
+    try {
+      const data = await apiFetch(`/ai-usage/cost-breakdown?period=${encodeURIComponent(period)}`);
+      renderOperationBreakdown(data);
+    } catch (err) {
+      const t = el('breakdownTbody');
+      if (t) t.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:16px;">Failed to load</td></tr>';
+    }
+  }
+
+  function renderOperationBreakdown(data) {
+    const tbody = el('breakdownTbody');
+    const foot  = el('breakdownFoot');
+    const totalEl = el('breakdownTotal');
+    if (!tbody) return;
+
+    const ops = data.operations || [];
+    if (!ops.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center" style="padding:24px;">No data for this period</td></tr>';
+      if (foot) foot.hidden = true;
+      return;
+    }
+
+    tbody.innerHTML = ops.map((op, i) => {
+      const pct = Math.min(op.pct_of_total || 0, 100);
+      const imgBadge = op.images > 0
+        ? ` <span style="font-size:10px;color:var(--muted);">🖼 ${op.images}</span>`
+        : '';
+      return `
+        <tr>
+          <td style="text-align:center;color:var(--muted);font-size:12px;">${i + 1}</td>
+          <td style="font-size:12px;">${escHtml(op.operation || 'unknown')}${imgBadge}</td>
+          <td style="text-align:right;font-size:12px;">${fmt(op.calls)}</td>
+          <td style="text-align:right;font-size:12px;font-weight:600;">${fmtCost(op.cost)}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div class="breakdown-pct-track"><div class="breakdown-pct-fill" style="width:${pct}%;"></div></div>
+              <span style="font-size:11px;color:var(--muted);width:38px;">${pct.toFixed(1)}%</span>
+            </div>
+          </td>
+          <td style="text-align:right;font-size:11px;color:var(--muted);">${fmtCost(op.cost_per_call)}</td>
+        </tr>`;
+    }).join('');
+
+    if (totalEl) totalEl.textContent = fmtCost(data.total || 0);
+    if (foot) foot.hidden = false;
   }
 
   // ── Generic bar chart ─────────────────────────────────────────────────
@@ -709,9 +765,18 @@
     loadSessions();
   });
 
+  el('breakdownPeriodTabs')?.addEventListener('click', e => {
+    const tab = e.target.closest('.breakdown-period-tab');
+    if (!tab) return;
+    document.querySelectorAll('.breakdown-period-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    loadOperationBreakdown(tab.dataset.period);
+  });
+
   // ── Init ──────────────────────────────────────────────────────────────
   renderSidebar();
   loadData();
   loadCreditsSection();
-  window.pageRefresh = function () { loadData(); loadCreditsSection(); };
+  loadOperationBreakdown('today');
+  window.pageRefresh = function () { loadData(); loadCreditsSection(); loadOperationBreakdown(_breakdownPeriod); };
 })();

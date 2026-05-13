@@ -386,6 +386,72 @@ router.get('/recent', requirePermission('analytics.read'), asyncHandler(async (r
   res.json(rows.rows);
 }));
 
+// GET /api/ai-usage/cost-breakdown?period=today|yesterday|7d|30d
+// Returns top operations by cost for the period, with %, calls, and $/call.
+// 'today' and 'yesterday' use the newsroom timezone for day boundaries.
+router.get('/cost-breakdown', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
+  const pool   = getPool();
+  const period = req.query.period || 'today';
+  const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+  const tz     = appCfg.newsroom_timezone || 'UTC';
+
+  let timeFilter;
+  if (period === 'today') {
+    timeFilter = `created_at >= date_trunc('day', NOW() AT TIME ZONE '${tz}') AT TIME ZONE '${tz}'`;
+  } else if (period === 'yesterday') {
+    timeFilter = `created_at >= (date_trunc('day', NOW() AT TIME ZONE '${tz}') - INTERVAL '1 day') AT TIME ZONE '${tz}'
+               AND created_at <  date_trunc('day', NOW() AT TIME ZONE '${tz}') AT TIME ZONE '${tz}'`;
+  } else {
+    const days = parseInt(period) || 7;
+    timeFilter = `created_at > NOW() - INTERVAL '${days} days'`;
+  }
+
+  const rows = await pool.query(`
+    WITH ops AS (
+      SELECT
+        operation,
+        COUNT(*)::int                                       AS calls,
+        COALESCE(SUM(estimated_cost), 0)::numeric(10,6)    AS cost,
+        COALESCE(SUM(credits_used), 0)::int                AS credits,
+        COALESCE(SUM(image_count), 0)::int                 AS images,
+        COALESCE(SUM(characters), 0)::int                  AS characters
+      FROM ai_usage
+      WHERE tenant_id = $1 AND ${timeFilter}
+      GROUP BY operation
+    ),
+    total AS (SELECT COALESCE(SUM(cost), 0) AS grand_total FROM ops)
+    SELECT
+      ops.*,
+      total.grand_total,
+      CASE WHEN total.grand_total > 0
+        THEN ROUND((ops.cost / total.grand_total * 100)::numeric, 1)
+        ELSE 0 END AS pct_of_total,
+      CASE WHEN ops.calls > 0
+        THEN ROUND((ops.cost / ops.calls)::numeric, 6)
+        ELSE 0 END AS cost_per_call
+    FROM ops, total
+    ORDER BY ops.cost DESC
+    LIMIT 20
+  `, [req.tenantId]);
+
+  const grandTotal = rows.rows[0] ? parseFloat(rows.rows[0].grand_total) || 0 : 0;
+
+  res.json({
+    period,
+    total: grandTotal,
+    operations: rows.rows.map(r => ({
+      operation:    r.operation,
+      calls:        parseInt(r.calls)           || 0,
+      cost:         parseFloat(r.cost)          || 0,
+      credits:      parseInt(r.credits)         || 0,
+      images:       parseInt(r.images)          || 0,
+      characters:   parseInt(r.characters)      || 0,
+      pct_of_total: parseFloat(r.pct_of_total)  || 0,
+      cost_per_call: parseFloat(r.cost_per_call) || 0,
+    })),
+  });
+}));
+
 // GET /api/ai-usage/elevenlabs — proxy ElevenLabs subscription usage
 router.get('/elevenlabs', requirePermission('analytics.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
