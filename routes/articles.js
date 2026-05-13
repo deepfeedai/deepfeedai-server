@@ -1612,6 +1612,33 @@ router.post('/regen-hero-image', require('../middleware/user-jwt'), userImageReg
   res.json({ ok: true, image_url: imageUrl });
 }));
 
+// POST /api/admin/articles/:id/generate-inline-images — admin-initiated inline image generation
+// Only for original/deep-dive articles. Runs async; returns queued:true immediately.
+router.post('/:id/generate-inline-images', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
+  const articleId = parseInt(req.params.id, 10);
+  if (!articleId) return res.status(400).json({ error: 'Invalid article id' });
+
+  const article = await db.prepare(
+    'SELECT id, content_type, is_archived FROM articles WHERE id = $1 AND tenant_id = $2'
+  ).get(articleId, req.tenantId);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (article.is_archived) return res.status(400).json({ error: 'Cannot generate images for archived article' });
+  if (article.content_type !== 'original' && article.content_type !== 'deep-dive') {
+    return res.status(400).json({ error: 'Inline images are only available for original and deep-dive articles' });
+  }
+
+  // Clear existing so generateInlineImages bypasses the idempotency guard
+  await db.prepare('UPDATE articles SET inline_images = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
+    .run(JSON.stringify([]), articleId, req.tenantId);
+
+  const { generateInlineImages } = require('../lib/media-helpers');
+  setImmediate(() => generateInlineImages(articleId, req.tenantId).catch(err => {
+    console.error('[articles] generate-inline-images background error:', err.message);
+  }));
+
+  res.json({ ok: true, queued: true });
+}));
+
 // POST /api/articles/regen-inline-images?slug=<slug> — regenerate section images via public user JWT
 // Only works for original and deep-dive articles. Runs async; returns queued:true immediately.
 router.post('/regen-inline-images', require('../middleware/user-jwt'), userImageRegenLimiter, asyncHandler(async (req, res) => {

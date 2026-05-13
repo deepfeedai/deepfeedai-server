@@ -374,6 +374,9 @@
         + '<span class="nr-article-status as-' + esc(statusKey) + '">' + esc(statusKey) + '</span>'
         + '<div class="nr-article-actions">'
         + '<button class="nr-art-act-btn" data-art-image="' + a.id + '" title="Generate image"' + (a.image_url ? ' style="color:var(--accent)"' : '') + '>🎨</button>'
+        + ((a.content_type === 'original' || a.content_type === 'deep-dive')
+            ? '<button class="nr-art-act-btn" data-art-inline="' + a.id + '" title="Generate inline images"' + (Array.isArray(a.inline_images) && a.inline_images.some(function(i){return i.status==='ready';}) ? ' style="color:var(--accent)"' : '') + '>🖼</button>'
+            : '')
         + '<button class="nr-art-act-btn" data-art-audio="' + a.id + '" title="Generate audio"' + (a.audio_url ? ' style="color:var(--accent)"' : '') + '>🎙️</button>'
         + '<button class="nr-art-act-btn nr-art-act-archive" data-art-archive="' + a.id + '" title="Archive">🗄</button>'
         + (previewHref ? '<a href="' + previewHref + '" target="_blank" class="nr-art-preview-link" title="Preview on site">↗ Preview</a>' : '')
@@ -452,6 +455,8 @@
     panel.addEventListener('click', function(e) {
       var imgBtn = e.target.closest('[data-art-image]');
       if (imgBtn) { artGenImage(parseInt(imgBtn.dataset.artImage, 10), imgBtn); return; }
+      var inlineBtn = e.target.closest('[data-art-inline]');
+      if (inlineBtn) { artGenInline(parseInt(inlineBtn.dataset.artInline, 10), inlineBtn); return; }
       var audBtn = e.target.closest('[data-art-audio]');
       if (audBtn) { artGenAudio(parseInt(audBtn.dataset.artAudio, 10), audBtn); return; }
       var archBtn = e.target.closest('[data-art-archive]');
@@ -478,6 +483,18 @@
     } catch(err) {
       showAlert('Image failed: ' + err.message, 'error');
       if (btn) { btn.textContent = '🎨'; btn.disabled = false; }
+    }
+  }
+
+  async function artGenInline(articleId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+    try {
+      await apiFetch('/articles/' + articleId + '/generate-inline-images', { method: 'POST' });
+      showAlert('Inline images queued — may take up to a minute.', 'success');
+      if (btn) { btn.style.color = 'var(--accent)'; btn.textContent = '🖼'; btn.disabled = false; }
+    } catch (err) {
+      showAlert('Inline images failed: ' + err.message, 'error');
+      if (btn) { btn.textContent = '🖼'; btn.disabled = false; }
     }
   }
 
