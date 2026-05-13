@@ -741,4 +741,36 @@ router.delete('/briefing/:edition/thumbnail',
   })
 );
 
+// PATCH /api/admin/budget/briefing/:edition/youtube — set or clear a YouTube Shorts URL
+router.patch('/briefing/:edition/youtube',
+  auth, requirePermission('articles.write'),
+  asyncHandler(async (req, res) => {
+    const { edition } = req.params;
+    if (!['morning', 'afternoon', 'evening'].includes(edition)) {
+      return res.status(400).json({ error: 'Invalid edition' });
+    }
+    const appCfg = await getAppConfig(req.tenantId).catch(() => ({}));
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateParam = resolveEditionDate(req, tz);
+
+    // Accept null/empty to clear, or a YouTube URL
+    const raw = req.body.youtube_url ?? null;
+    let youtubeUrl = null;
+    if (raw) {
+      youtubeUrl = String(raw).trim();
+      if (!youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
+        return res.status(400).json({ error: 'Must be a YouTube URL' });
+      }
+    }
+
+    const result = await getPool().query(
+      `UPDATE daily_briefings SET youtube_url = $1, updated_at = NOW()
+       WHERE tenant_id = $2 AND briefing_date = $3 AND edition = $4 RETURNING id`,
+      [youtubeUrl, req.tenantId, dateParam, edition]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Briefing not found' });
+    res.json({ ok: true, youtube_url: youtubeUrl });
+  })
+);
+
 module.exports = router;

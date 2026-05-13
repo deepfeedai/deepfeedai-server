@@ -1286,6 +1286,69 @@
 
           renderThumbSection(briefing.thumbnail_url || null);
           ctrl.appendChild(thumbWrap);
+
+          // ── YouTube Shorts section ──────────────────────────────
+          var ytWrap = document.createElement('div');
+          ytWrap.className = 'brief-yt-wrap';
+          ytWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:8px;margin-top:4px;flex-wrap:wrap;';
+
+          function renderYtSection(currentUrl) {
+            ytWrap.innerHTML = '';
+
+            var ytIcon = document.createElement('span');
+            ytIcon.style.cssText = 'font-size:11px;color:var(--muted);white-space:nowrap;';
+            ytIcon.textContent = '▶ YouTube';
+            ytWrap.appendChild(ytIcon);
+
+            var ytInput = document.createElement('input');
+            ytInput.type = 'url';
+            ytInput.placeholder = 'Paste YouTube Shorts URL…';
+            ytInput.value = currentUrl || '';
+            ytInput.style.cssText = 'font-size:11px;padding:2px 6px;border-radius:5px;border:1px solid var(--border);background:var(--bg-raised);color:var(--text);width:220px;';
+            ytWrap.appendChild(ytInput);
+
+            var saveBtn = document.createElement('button');
+            saveBtn.className = 'btn btn-outline btn-sm';
+            saveBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+            saveBtn.textContent = 'Save';
+            saveBtn.addEventListener('click', function () {
+              var val = ytInput.value.trim() || null;
+              saveBtn.textContent = 'Saving…';
+              saveBtn.disabled = true;
+              var qDate = date ? '?date=' + date : '';
+              apiFetch('/admin/budget/briefing/' + edKey + '/youtube' + qDate, {
+                method: 'PATCH',
+                body: JSON.stringify({ youtube_url: val }),
+              }).then(function (d) {
+                renderYtSection(d.youtube_url);
+              }).catch(function (err) {
+                saveBtn.textContent = 'Save';
+                saveBtn.disabled = false;
+                alert('Save failed: ' + (err.message || err));
+              });
+            });
+            ytWrap.appendChild(saveBtn);
+
+            if (currentUrl) {
+              var clearBtn = document.createElement('button');
+              clearBtn.className = 'btn btn-outline btn-sm';
+              clearBtn.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--muted);';
+              clearBtn.textContent = '✕';
+              clearBtn.title = 'Remove YouTube link';
+              clearBtn.addEventListener('click', function () {
+                var qDate = date ? '?date=' + date : '';
+                apiFetch('/admin/budget/briefing/' + edKey + '/youtube' + qDate, {
+                  method: 'PATCH',
+                  body: JSON.stringify({ youtube_url: null }),
+                }).then(function () { renderYtSection(null); })
+                  .catch(function (err) { alert('Remove failed: ' + (err.message || err)); });
+              });
+              ytWrap.appendChild(clearBtn);
+            }
+          }
+
+          renderYtSection(briefing.youtube_url || null);
+          ctrl.appendChild(ytWrap);
         }
       } else if (briefing.status === 'pending') {
         var age = Date.now() - new Date(briefing.updated_at || briefing.created_at).getTime();
