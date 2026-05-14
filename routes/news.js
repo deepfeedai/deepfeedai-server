@@ -955,12 +955,13 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   const row = edition
     ? await db.prepare(`
         SELECT * FROM daily_briefings
-        WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status = 'ready'
+        WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status IN ('ready', 'pending_review')
       `).get(tenantId, date, edition)
     : await db.prepare(`
         SELECT * FROM daily_briefings
-        WHERE tenant_id = $1 AND briefing_date = $2 AND status = 'ready'
-        ORDER BY CASE edition WHEN 'evening' THEN 0 WHEN 'afternoon' THEN 1 WHEN 'morning' THEN 2 ELSE 3 END
+        WHERE tenant_id = $1 AND briefing_date = $2 AND status IN ('ready', 'pending_review')
+        ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END,
+                 CASE edition WHEN 'evening' THEN 0 WHEN 'afternoon' THEN 1 WHEN 'morning' THEN 2 ELSE 3 END
         LIMIT 1
       `).get(tenantId, date);
 
@@ -993,6 +994,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   res.json({
     date:              String(row.briefing_date || '').slice(0, 10),
     edition:           row.edition,
+    is_preview:        row.status === 'pending_review',
     audio_url:         audioUrl,
     script:            row.script || null,
     voice_name:        row.voice_name || null,

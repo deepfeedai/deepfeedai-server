@@ -1106,9 +1106,9 @@
   // ── Audio Briefing panel (multi-edition) ──────────────────────────────────
   (function () {
     var EDITIONS = [
-      { key: 'morning',   label: 'Morning Edition',  time: '8:00 AM',  color: '#f59e0b' },
-      { key: 'afternoon', label: 'Afternoon Update', time: '1:00 PM',  color: '#3b82f6' },
-      { key: 'evening',   label: 'Evening Report',   time: '6:00 PM',  color: '#8b5cf6' },
+      { key: 'morning',   label: 'Morning Edition',  color: '#f59e0b' },
+      { key: 'afternoon', label: 'Afternoon Update', color: '#3b82f6' },
+      { key: 'evening',   label: 'Evening Report',   color: '#8b5cf6' },
     ];
 
     var container = document.getElementById('briefingPanelContainer');
@@ -1121,7 +1121,7 @@
       row.innerHTML = '<div class="brief-ed-info">'
         + '<span class="brief-ed-dot" style="background:' + ed.color + ';"></span>'
         + '<span class="brief-ed-label">' + ed.label + '</span>'
-        + '<span class="brief-ed-time">' + ed.time + '</span>'
+        + '<span class="brief-ed-time" id="brief-time-' + ed.key + '"></span>'
         + '</div>'
         + '<div class="brief-ed-controls" id="brief-ctrl-' + ed.key + '">'
         + '<button class="btn btn-outline btn-sm brief-gen-btn" id="brief-btn-' + ed.key + '" data-edition="' + ed.key + '">'
@@ -1133,6 +1133,25 @@
     }
 
     EDITIONS.forEach(function (ed) { container.appendChild(buildEditionRow(ed)); });
+
+    // Load configured briefing times from settings and populate edition time labels
+    var BRIEFING_DEFAULTS = { morning: '07:30', afternoon: '12:30', evening: '17:30' };
+    function fmt12(hhmm) {
+      if (!hhmm) return '';
+      var parts = hhmm.split(':');
+      var h = parseInt(parts[0], 10), m = parseInt(parts[1], 10) || 0;
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      var h12  = h % 12 || 12;
+      return h12 + (m ? ':' + String(m).padStart(2, '0') : '') + ' ' + ampm;
+    }
+    apiFetch('/settings').then(function (s) {
+      EDITIONS.forEach(function (ed) {
+        var el = document.getElementById('brief-time-' + ed.key);
+        if (!el) return;
+        var genAt = s['briefing_' + ed.key + '_generate_at'] || BRIEFING_DEFAULTS[ed.key];
+        el.textContent = 'Generates ' + fmt12(genAt);
+      });
+    }).catch(function () {});
 
     function applyBriefingState(edKey, briefing, date, siteUrl) {
       var btn   = document.getElementById('brief-btn-' + edKey);
