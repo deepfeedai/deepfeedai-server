@@ -855,6 +855,24 @@
           <div id="auditRetentionStatus" class="settings-status"></div>
         </div>
 
+        <div class="dash-panel mb-6">
+          <h3 style="margin:0 0 6px;font-size:15px;font-weight:600;color:var(--text);">Pitch Retention</h3>
+          <p class="text-muted text-sm mb-4">Automatically delete <strong>pending</strong>, <strong>proposed</strong>, <strong>dismissed</strong>, and <strong>rejected</strong> pitches older than the configured number of days. Approved and synthesized pitches are never deleted automatically. Runs nightly at 2:30 AM.</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="pitchRetentionDays">Delete old pitches after</label>
+              <div class="input-row">
+                <input type="number" class="form-control" id="pitchRetentionDays" value="0" min="0" max="3650" style="width:90px;" />
+                <span class="text-muted text-sm">days (0 = disabled)</span>
+              </div>
+            </div>
+          </div>
+          <div class="btn-group mt-3">
+            <button class="btn btn-primary" id="savePitchRetentionBtn">Save</button>
+          </div>
+          <div id="pitchRetentionStatus" class="settings-status"></div>
+        </div>
+
       </div><!-- /content -->
 
       <!-- ═══ Moderation ═══ -->

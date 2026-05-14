@@ -1548,6 +1548,47 @@ registerJob({
 });
 
 registerJob({
+  name: 'pitch-cleanup',
+  description: 'Delete old pending and rejected pitches past their retention period',
+  category: 'Maintenance',
+  // Daily at 02:30
+  defaultSchedule: '30 2 * * *',
+  handler: async (tenantId) => {
+    const { getAppConfig } = require('./lib/app-config');
+    const cfg  = await getAppConfig(tenantId).catch(() => ({}));
+    const days = parseInt(cfg.pitch_retention_days) || 0;
+    if (!days) return { skipped: 'pitch_retention_days not configured' };
+    const retentionDays = Math.max(days, 1);
+
+    const pool = db.getPool();
+    const cutoff = `NOW() - make_interval(days => ${retentionDays})`;
+
+    // story_pitches: pending, proposed, dismissed, rejected rows older than retention
+    const sp = await pool.query(
+      `DELETE FROM story_pitches
+        WHERE tenant_id = $1
+          AND status IN ('pending', 'proposed', 'dismissed', 'rejected')
+          AND created_at < ${cutoff}`,
+      [tenantId]
+    );
+    // article_pitches (commissions): same statuses
+    const ap = await pool.query(
+      `DELETE FROM article_pitches
+        WHERE tenant_id = $1
+          AND status IN ('pending', 'proposed', 'dismissed', 'rejected')
+          AND created_at < ${cutoff}`,
+      [tenantId]
+    );
+
+    const deleted = (sp.rowCount || 0) + (ap.rowCount || 0);
+    if (deleted > 0) {
+      console.log(`[Cron] pitch-cleanup (tenant ${tenantId}): deleted ${deleted} pitches older than ${retentionDays}d`);
+    }
+    return { deleted, story_pitches: sp.rowCount, article_pitches: ap.rowCount, retentionDays };
+  },
+});
+
+registerJob({
   name: 'presence-sweep',
   description: 'Reset stale agent presence states to idle',
   category: 'Maintenance',

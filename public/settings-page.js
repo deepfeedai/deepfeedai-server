@@ -886,6 +886,8 @@ let apiKeyVisible = false;
     document.getElementById('purgeProtectEngagedDays').value     = settings.purge_protect_engaged_days || '7';
     document.getElementById('purgeGraceHours').value             = settings.purge_grace_hours || '24';
     document.getElementById('auditRetentionDays').value          = settings.audit_retention_days || '90';
+    var pitchRetEl = document.getElementById('pitchRetentionDays');
+    if (pitchRetEl) pitchRetEl.value = settings.pitch_retention_days || '0';
     toggleEngagedDaysRow();
   }
 
@@ -926,6 +928,20 @@ let apiKeyVisible = false;
       showAlert('Audit retention saved ✓');
     } catch (err) {
       showAlert('Save failed: ' + err.message, 'error');
+    } finally {
+      this.disabled = false; this.textContent = 'Save';
+    }
+  });
+
+  document.getElementById('savePitchRetentionBtn')?.addEventListener('click', async function () {
+    const days = Math.max(parseInt(document.getElementById('pitchRetentionDays').value) || 0, 0);
+    const statusEl = document.getElementById('pitchRetentionStatus');
+    try {
+      this.disabled = true; this.textContent = 'Saving…';
+      await apiFetch('/settings', { method: 'PUT', body: JSON.stringify({ pitch_retention_days: String(days) }) });
+      statusEl.textContent = days === 0 ? '✅ Pitch cleanup disabled' : '✅ Saved — pitches older than ' + days + ' days will be removed nightly';
+    } catch (err) {
+      statusEl.textContent = '❌ Save failed: ' + err.message;
     } finally {
       this.disabled = false; this.textContent = 'Save';
     }
