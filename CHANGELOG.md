@@ -4,6 +4,24 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.1] — 2026-05-14
+
+### Added
+
+- **Briefing drop window — preview before publish** — daily briefings now enter a `pending_review` state after generation instead of going live immediately. Editors can review the audio, add a YouTube Shorts link, or regenerate before the briefing is visible to readers. An amber "⏳ Awaiting publish" badge on the budget page shows which editions are pending; "↑ Publish now" allows immediate promotion.
+- **Configurable briefing schedule** — generate and publish times for Morning, Afternoon, and Evening editions are now configurable per newsroom in Settings → Automation → Briefing Schedule. Defaults: Morning 07:30 / 08:00, Afternoon 12:30 / 13:00, Evening 17:30 / 18:00. The briefing cron now runs every 5 minutes and fires on the configured HH:MM match.
+- **Reschedule pending articles** — Settings → Automation → Publishing has a new "↻ Reschedule pending articles" button that re-stamps all queued scheduled articles to the nearest valid drop window using the current settings.
+- **Nightly pitch cleanup** — Settings → Content → Pitch Retention lets operators set a retention period (in days). Pending, proposed, dismissed, and rejected pitches older than that threshold are deleted nightly at 2:30 AM. Approved and synthesized pitches are never deleted automatically. Default is 0 (disabled).
+
+### Fixed
+
+- **Briefing copy link returned "check back soon"** — the public `/api/news/briefing/:date/:edition` endpoint only accepted `status = 'ready'`, so `pending_review` briefings returned 404. The endpoint now serves both statuses and includes `is_preview: true` in the response when in preview state.
+- **Public briefing page preview banner** — the standalone `/briefing/:date/:edition` page now shows an amber "awaiting final review" notice when the briefing is in `pending_review`, so readers know the content may still be updated.
+- **Hardcoded briefing times on budget page** — the edition rows (Morning / Afternoon / Evening) showed static hardcoded times (8:00 AM, 1:00 PM, 6:00 PM) that didn't reflect custom configuration. Labels now load the actual configured generate time from settings.
+- **Stuck approved commission pitches** — commission pitches that failed synthesis silently were left stuck at `approved` with no retry path. A "↺ Retry" button now appears on the Pitches page for approved pitches without a linked article. `spawned_article_id` is now correctly written on synthesis success to prevent duplicate synthesis on retry.
+
+---
+
 ## [1.1.0-alpha.4] — 2026-05-13
 
 ### Added
