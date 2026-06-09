@@ -4,6 +4,17 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [1.1.2] — 2026-06-09
+
+### Fixed
+
+- **Runsheet autopilot auto-promote** — passed Postgres a real integer array for `ANY($1::int[])`, fixing the production `malformed array literal` failure.
+- **Selected-date runsheet generation** — Generate and Regenerate now honor the selected runsheet date instead of always targeting newsroom today.
+- **Runsheet timezone windows** — actuals, scheduled articles, drop windows, and timeline grouping now use the configured `newsroom_timezone`.
+- **Duplicate pitch creation on approval** — slot approval now locks the slot row and creates the pitch in a transaction, preventing concurrent approvals from spawning duplicate pitches.
+
+---
+
 ## [1.1.1] — 2026-05-14
 
 ### Added

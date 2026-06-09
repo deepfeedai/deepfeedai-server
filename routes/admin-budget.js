@@ -9,7 +9,13 @@ const db = require('../db');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
 const { asyncHandler } = require('../lib/utils');
-const { generateDailyBudget, todayInTz } = require('../lib/news-budget');
+const {
+  generateDailyBudget,
+  todayInTz,
+  localDateTimeToUtc,
+  addDaysToDateString,
+  windowKeyForIso,
+} = require('../lib/news-budget');
 const { getAppConfig } = require('../lib/app-config');
 const { recordEvent, emitPitchProposed } = require('../lib/newsroom-events');
 
@@ -19,7 +25,7 @@ const { recordEvent, emitPitchProposed } = require('../lib/newsroom-events');
  * Fetch a budget row with all its slots (including writer name joins).
  * Returns null if not found or doesn't belong to tenantId.
  */
-async function _getBudgetWithSlots(budgetId, tenantId) {
+async function _getBudgetWithSlots(budgetId, tenantId, tz = 'UTC') {
   const budget = await db.prepare(
     'SELECT * FROM news_budgets WHERE id = $1 AND tenant_id = $2'
   ).get(budgetId, tenantId);
@@ -76,7 +82,11 @@ async function _getBudgetWithSlots(budgetId, tenantId) {
       const ct = sourceTypeMap[Number(id)];
       return !ct || ct === 'curated' || ct === 'wire';
     });
-    return { ...s, has_wire_sources: hasWire };
+    return {
+      ...s,
+      has_wire_sources: hasWire,
+      window_key: windowKeyForIso(s.target_publish_at, tz),
+    };
   });
 
   return { ...budget, slots: annotated };
@@ -128,10 +138,11 @@ async function _createPitchFromSlot(slot, tenantId) {
 // GET /api/admin/budget/today — return today's budget (no slots — light check)
 router.get('/today', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
-  const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const today = todayInTz(tz);
   const budget = await _getBudgetByDate(req.tenantId, today);
   if (!budget) return res.json({ budget: null });
-  const full = await _getBudgetWithSlots(budget.id, req.tenantId);
+  const full = await _getBudgetWithSlots(budget.id, req.tenantId, tz);
   res.json({ budget: full });
 }));
 
@@ -139,13 +150,17 @@ router.get('/today', auth, requirePermission('articles.read'), asyncHandler(asyn
 // ?force=true regenerates the runsheet but preserves approved/rejected slots
 router.post('/generate', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
-  const today = todayInTz(appCfg.newsroom_timezone || 'UTC');
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const requestedDate = req.body?.date;
+  const dateStr = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+    ? requestedDate
+    : todayInTz(tz);
   const force = req.query.force === 'true';
 
-  const existing = await _getBudgetByDate(req.tenantId, today);
+  const existing = await _getBudgetByDate(req.tenantId, dateStr);
   if (existing) {
     if (!force) {
-      const full = await _getBudgetWithSlots(existing.id, req.tenantId);
+      const full = await _getBudgetWithSlots(existing.id, req.tenantId, tz);
       return res.json({ budget: full, skipped: true, reason: 'already_exists' });
     }
     // Preserve non-pending slots so approved/rejected decisions survive the regen
@@ -160,7 +175,7 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
     // Delete budget (slots cascade)
     await db.prepare('DELETE FROM news_budgets WHERE id = $1 AND tenant_id = $2').run(existing.id, req.tenantId);
 
-    const result = await generateDailyBudget(req.tenantId);
+    const result = await generateDailyBudget(req.tenantId, { date: dateStr });
     if (!result?.ok && !result?.budget_id) {
       return res.status(500).json({ error: result?.error || 'Budget generation failed' });
     }
@@ -184,17 +199,17 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
       );
     }
 
-    const full = await _getBudgetWithSlots(newBudgetId, req.tenantId);
+    const full = await _getBudgetWithSlots(newBudgetId, req.tenantId, tz);
     return res.json({ budget: full });
   }
 
-  const result = await generateDailyBudget(req.tenantId);
+  const result = await generateDailyBudget(req.tenantId, { date: dateStr });
   if (!result?.ok && !result?.budget_id) {
     return res.status(500).json({ error: result?.error || 'Budget generation failed' });
   }
 
   const budgetId = result.budget_id || result.skipped_id;
-  const full = await _getBudgetWithSlots(budgetId, req.tenantId);
+  const full = await _getBudgetWithSlots(budgetId, req.tenantId, tz);
   res.json({ budget: full });
 }));
 
@@ -207,6 +222,8 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return res.status(400).json({ error: 'Invalid date format — use YYYY-MM-DD' });
   }
+  const dayStart = localDateTimeToUtc(dateStr, '00:00', tz).toISOString();
+  const dayEnd = localDateTimeToUtc(addDaysToDateString(dateStr, 1), '00:00', tz).toISOString();
 
   const [pubResult, schedResult, deepDiveResult] = await Promise.all([
     // Published originals for the selected calendar day
@@ -222,10 +239,10 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
       WHERE a.tenant_id = $1
         AND a.is_published = 1
         AND a.content_type = 'original'
-        AND a.published_at >= $2::date
-        AND a.published_at < $2::date + INTERVAL '1 day'
+        AND a.published_at >= $2::timestamptz
+        AND a.published_at < $3::timestamptz
       ORDER BY a.published_at ASC
-    `, [req.tenantId, dateStr]),
+    `, [req.tenantId, dayStart, dayEnd]),
 
     // Scheduled originals for the selected calendar day
     getPool().query(`
@@ -241,10 +258,10 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
         AND a.status = 'scheduled'
         AND a.is_published = 0
         AND a.content_type = 'original'
-        AND a.publish_at >= $2::date
-        AND a.publish_at < $2::date + INTERVAL '1 day'
+        AND a.publish_at >= $2::timestamptz
+        AND a.publish_at < $3::timestamptz
       ORDER BY a.publish_at ASC
-    `, [req.tenantId, dateStr]),
+    `, [req.tenantId, dayStart, dayEnd]),
 
     // Deep dives published in the last 7 days — shown independently of the daily plan
     getPool().query(`
@@ -286,23 +303,35 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
         ? JSON.parse(appCfg.drop_windows)
         : appCfg.drop_windows;
       if (Array.isArray(arr) && arr.length) {
-        windowList = arr.map(w => typeof w === 'string'
+        const normalized = arr.map(w => typeof w === 'string'
           ? { label: w, hhmm: w }
-          : { label: w.label || w.hhmm || String(w), hhmm: w.hhmm || String(w) });
+          : { label: w.label || w.hhmm || String(w), hhmm: w.hhmm || String(w) })
+          .filter(w => /^\d{2}:\d{2}$/.test(w.hhmm));
+        if (normalized.length) windowList = normalized;
       }
     } catch (_) {}
   }
 
   const now = new Date();
   const dropWindows = windowList.map(w => {
-    const iso = new Date(dateStr + 'T' + w.hhmm + ':00').toISOString();
-    return { label: w.label, hhmm: w.hhmm, iso, fired: new Date(iso) < now };
+    const iso = localDateTimeToUtc(dateStr, w.hhmm, tz).toISOString();
+    return { label: w.label, hhmm: w.hhmm, iso, fired: new Date(iso) < now, window_key: windowKeyForIso(iso, tz) };
   });
 
+  const published = pubResult.rows.map(a => ({
+    ...a,
+    window_key: windowKeyForIso(a.published_at, tz),
+  }));
+  const scheduled = schedResult.rows.map(a => ({
+    ...a,
+    window_key: windowKeyForIso(a.publish_at, tz),
+  }));
+
   res.json({
-    published:    pubResult.rows,
-    scheduled:    schedResult.rows,
+    published,
+    scheduled,
     deep_dives:   deepDiveResult.rows,
+    timezone:     tz,
     cap: {
       cap,
       burst,
@@ -317,7 +346,8 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
 // GET /api/admin/budget — return budget for a date (defaults to today), with all slots
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const appCfg = await getAppConfig(req.tenantId);
-  const dateStr = req.query.date || todayInTz(appCfg.newsroom_timezone || 'UTC');
+  const tz = appCfg.newsroom_timezone || 'UTC';
+  const dateStr = req.query.date || todayInTz(tz);
 
   // Validate date format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -327,7 +357,7 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   const budget = await _getBudgetByDate(req.tenantId, dateStr);
   if (!budget) return res.json({ budget: null });
 
-  const full = await _getBudgetWithSlots(budget.id, req.tenantId);
+  const full = await _getBudgetWithSlots(budget.id, req.tenantId, tz);
   res.json({ budget: full });
 }));
 
@@ -378,29 +408,79 @@ router.patch('/:id', auth, requirePermission('articles.write'), asyncHandler(asy
 
 // POST /api/admin/budget/slots/:id/approve — approve a slot and create a pitch
 router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
-  const slot = await db.prepare(
-    'SELECT * FROM news_budget_slots WHERE id = $1 AND tenant_id = $2'
-  ).get(req.params.id, req.tenantId);
-  if (!slot) return res.status(404).json({ error: 'Slot not found' });
-
-  if (slot.status === 'approved' || slot.status === 'auto_promoted') {
-    return res.status(400).json({ error: 'Slot is already approved', slot });
-  }
-
+  const pool = getPool();
+  if (!pool) return res.status(500).json({ error: 'Database not connected' });
   let pitch;
+  let updatedSlot;
+  let approvedSlot;
+  const client = await pool.connect();
   try {
-    pitch = await _createPitchFromSlot(slot, req.tenantId);
-  } catch (err) {
-    return res.status(400).json({ error: err.message });
-  }
-  emitPitchProposed(pitch, req.tenantId).catch(() => {});
+    await client.query('BEGIN');
 
-  const updatedSlot = await db.prepare(`
-    UPDATE news_budget_slots
-    SET status = 'approved', spawned_pitch_id = $3, updated_at = NOW()
-    WHERE id = $1 AND tenant_id = $2
-    RETURNING *
-  `).get(slot.id, req.tenantId, pitch.id);
+    const slotResult = await client.query(
+      'SELECT * FROM news_budget_slots WHERE id = $1 AND tenant_id = $2 FOR UPDATE',
+      [req.params.id, req.tenantId]
+    );
+    const slot = slotResult.rows[0];
+    if (!slot) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Slot not found' });
+    }
+    if (slot.status === 'approved' || slot.status === 'auto_promoted') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Slot is already approved', slot });
+    }
+
+    const writerId = slot.assigned_writer_id || slot.recommended_writer_id;
+    if (!writerId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No writer assigned to slot — cannot create pitch' });
+    }
+
+    const sourceIds = Array.isArray(slot.source_article_ids)
+      ? slot.source_article_ids
+      : (typeof slot.source_article_ids === 'string' ? JSON.parse(slot.source_article_ids || '[]') : []);
+
+    const pitchResult = await client.query(`
+      INSERT INTO story_pitches
+        (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, status)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'proposed')
+      RETURNING *
+    `, [
+      req.tenantId,
+      writerId,
+      slot.pitch_type || 'original',
+      (slot.headline_suggestion || '').slice(0, 300),
+      (slot.rationale || '').slice(0, 500),
+      JSON.stringify(sourceIds),
+      slot.target_publish_at || null,
+    ]);
+    pitch = pitchResult.rows[0];
+
+    const updateResult = await client.query(`
+      UPDATE news_budget_slots
+      SET status = 'approved', spawned_pitch_id = $3, updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $2
+      RETURNING *
+    `, [slot.id, req.tenantId, pitch.id]);
+    updatedSlot = updateResult.rows[0];
+    approvedSlot = slot;
+
+    await client.query('COMMIT');
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    return res.status(400).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+
+  const appCfg = await getAppConfig(req.tenantId);
+  updatedSlot = {
+    ...updatedSlot,
+    window_key: windowKeyForIso(updatedSlot.target_publish_at, appCfg.newsroom_timezone || 'UTC'),
+  };
+
+  emitPitchProposed(pitch, req.tenantId).catch(() => {});
 
   // Fire newsroom event so the activity feed picks it up
   recordEvent({
@@ -409,8 +489,8 @@ router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asy
     actorUserId: req.user?.sub || null,
     targetPitchId: pitch.id,
     payload: {
-      slot_id: slot.id,
-      headline: slot.headline_suggestion,
+      slot_id: approvedSlot.id,
+      headline: approvedSlot.headline_suggestion,
       pitch_id: pitch.id,
     },
   }).catch(() => {});
@@ -484,7 +564,15 @@ router.post('/:budgetId/slots', auth, requirePermission('articles.write'), async
 
 // PATCH /api/admin/budget/slots/:id — edit slot fields
 router.patch('/slots/:id', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
-  const { headline_suggestion, rationale, assigned_writer_id, target_publish_at, priority } = req.body;
+  const {
+    headline_suggestion,
+    rationale,
+    assigned_writer_id,
+    target_publish_at,
+    target_publish_local_time,
+    target_publish_date,
+    priority,
+  } = req.body;
 
   const existing = await db.prepare(
     'SELECT id FROM news_budget_slots WHERE id = $1 AND tenant_id = $2'
@@ -509,6 +597,19 @@ router.patch('/slots/:id', auth, requirePermission('articles.write'), asyncHandl
   if (target_publish_at !== undefined) {
     params.push(target_publish_at || null);
     sets.push(`target_publish_at = $${params.length}`);
+  } else if (target_publish_local_time !== undefined) {
+    const appCfg = await getAppConfig(req.tenantId);
+    const tz = appCfg.newsroom_timezone || 'UTC';
+    const dateStr = target_publish_date && /^\d{4}-\d{2}-\d{2}$/.test(target_publish_date)
+      ? target_publish_date
+      : todayInTz(tz);
+    if (target_publish_local_time && !/^\d{2}:\d{2}$/.test(target_publish_local_time)) {
+      return res.status(400).json({ error: 'target_publish_local_time must be HH:MM' });
+    }
+    params.push(target_publish_local_time
+      ? localDateTimeToUtc(dateStr, target_publish_local_time, tz).toISOString()
+      : null);
+    sets.push(`target_publish_at = $${params.length}`);
   }
   if (priority !== undefined) {
     const VALID_PRIORITIES = ['lead', 'standard', 'brief', 'hold'];
@@ -519,9 +620,15 @@ router.patch('/slots/:id', auth, requirePermission('articles.write'), asyncHandl
     sets.push(`priority = $${params.length}`);
   }
 
-  const updatedSlot = await db.prepare(
+  let updatedSlot = await db.prepare(
     `UPDATE news_budget_slots SET ${sets.join(', ')} WHERE id = $1 AND tenant_id = $2 RETURNING *`
   ).get(...params);
+
+  const appCfg = await getAppConfig(req.tenantId);
+  updatedSlot = {
+    ...updatedSlot,
+    window_key: windowKeyForIso(updatedSlot.target_publish_at, appCfg.newsroom_timezone || 'UTC'),
+  };
 
   res.json({ slot: updatedSlot });
 }));

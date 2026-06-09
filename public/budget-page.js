@@ -45,14 +45,20 @@
     if (!iso) return '';
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    var h = d.getHours();
-    var min = d.getMinutes();
-    var ampm = h >= 12 ? 'PM' : 'AM';
-    var h12 = h % 12 || 12;
-    return h12 + (min ? ':' + String(min).padStart(2, '0') : '') + ' ' + ampm;
+    try {
+      var opts = { hour: 'numeric', minute: '2-digit' };
+      if (currentActuals && currentActuals.timezone) opts.timeZone = currentActuals.timezone;
+      return new Intl.DateTimeFormat('en-US', opts).format(d).replace(':00 ', ' ');
+    } catch (_) {
+      var h = d.getHours();
+      var min = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      var h12 = h % 12 || 12;
+      return h12 + (min ? ':' + String(min).padStart(2, '0') : '') + ' ' + ampm;
+    }
   }
 
-  function formatTimeWindow(iso) {
+  function windowKeyFromIso(iso) {
     if (!iso) return 'Unscheduled';
     var h = new Date(iso).getHours();
     if (isNaN(h)) return 'Unscheduled';
@@ -60,6 +66,18 @@
     if (h < 12) return 'Morning';
     if (h < 18) return 'Afternoon';
     return 'Evening';
+  }
+
+  function formatTimeWindow(iso) {
+    return windowKeyFromIso(iso);
+  }
+
+  function articleWindowKey(article) {
+    return article.window_key || windowKeyFromIso(article.published_at || article.publish_at);
+  }
+
+  function slotWindowKey(slot) {
+    return slot.window_key || windowKeyFromIso(slot.target_publish_at);
   }
 
   function toast(msg, type) {
@@ -434,10 +452,8 @@
     if (actuals) {
       var allArticles = (actuals.published || []).concat(actuals.scheduled || []);
       allArticles.forEach(function (a) {
-        var t = a.published_at || a.publish_at;
-        WINDOWS.forEach(function (w) {
-          if (w.test(t)) actualsByWindow[w.key].push(a);
-        });
+        var key = articleWindowKey(a);
+        if (actualsByWindow[key]) actualsByWindow[key].push(a);
       });
     }
 
@@ -446,17 +462,17 @@
     if (actuals && actuals.drop_windows) {
       actuals.drop_windows.forEach(function (dw) {
         if (!dw.fired) return;
-        var h = new Date(dw.iso).getHours();
-        if (h < 6)       firedKeys['Early Morning'] = true;
-        else if (h < 12) firedKeys['Morning']       = true;
-        else if (h < 18) firedKeys['Afternoon']     = true;
-        else             firedKeys['Evening']        = true;
+        if (dw.window_key) {
+          firedKeys[dw.window_key] = true;
+          return;
+        }
+        firedKeys[windowKeyFromIso(dw.iso)] = true;
       });
     }
 
     var html = '';
     WINDOWS.forEach(function (win) {
-      var inWindow       = (slots || []).filter(function (s) { return win.test(s.target_publish_at); });
+      var inWindow       = (slots || []).filter(function (s) { return slotWindowKey(s) === win.key; });
       var actualArticles = actualsByWindow[win.key] || [];
       if (!inWindow.length && !actualArticles.length) return;
 
@@ -826,8 +842,13 @@
     if (!btn) return;
 
     var sid = esc(String(slotId));
-    var windowBtns = DROP_WINDOWS.map(function (w) {
-      return '<button class="card-btn cb-reschedule-opt" data-action="reschedule-window" data-id="' + sid + '" data-time="' + esc(dropWindowAt(w.hhmm)) + '">' + esc(w.label) + '</button>';
+    var windows = currentActuals && currentActuals.drop_windows && currentActuals.drop_windows.length
+      ? currentActuals.drop_windows
+      : DROP_WINDOWS.map(function (w) {
+          return { label: w.label, iso: dropWindowAt(w.hhmm) };
+        });
+    var windowBtns = windows.map(function (w) {
+      return '<button class="card-btn cb-reschedule-opt" data-action="reschedule-window" data-id="' + sid + '" data-time="' + esc(w.iso) + '">' + esc(w.label) + '</button>';
     }).join('');
 
     var wrap = document.createElement('div');
@@ -857,7 +878,7 @@
     picker.parentNode.replaceChild(btn, picker);
   }
 
-  async function rescheduleSlot(slotId, isoTime) {
+  async function rescheduleSlot(slotId, isoTime, localTime) {
     var card = document.getElementById('bcard-' + slotId);
     if (card) card.style.opacity = '0.5';
     closeRescheduleInline(slotId);
@@ -868,20 +889,24 @@
 
     try {
       // Update budget slot target_publish_at
+      var body = localTime
+        ? { target_publish_local_time: localTime, target_publish_date: currentDate }
+        : { target_publish_at: isoTime };
       var data = await apiFetch('/admin/budget/slots/' + slotId, {
         method: 'PATCH',
-        body: JSON.stringify({ target_publish_at: isoTime }),
+        body: JSON.stringify(body),
       });
       if (data.slot) {
         updateCardStatus(slotId, data.slot);
+        var publishAt = data.slot.target_publish_at || isoTime;
         // Also reschedule the spawned article if it exists
         if (slot && slot.spawned_article_id) {
           await apiFetch('/articles/' + slot.spawned_article_id + '/reschedule', {
             method: 'PUT',
-            body: JSON.stringify({ action: 'window', publish_at: isoTime }),
+            body: JSON.stringify({ action: 'window', publish_at: publishAt }),
           }).catch(function () { /* article may already be published, ignore */ });
         }
-        toast('Rescheduled to ' + formatTime(isoTime), 'success');
+        toast('Rescheduled to ' + formatTime(publishAt), 'success');
       }
     } catch (err) {
       toast('Reschedule failed: ' + err.message, 'error');
@@ -918,8 +943,7 @@
   function confirmCustomReschedule(slotId) {
     var input = document.getElementById('custom-time-' + slotId);
     if (!input || !input.value) return;
-    var isoTime = new Date(currentDate + 'T' + input.value + ':00').toISOString();
-    rescheduleSlot(slotId, isoTime);
+    rescheduleSlot(slotId, null, input.value);
   }
 
   // ── Publish Now ────────────────────────────────────────────────────────────
