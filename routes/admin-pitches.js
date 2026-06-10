@@ -12,7 +12,7 @@ const { burnTokensByTarget } = require('../lib/action-tokens');
 
 // GET /api/admin/pitches — list pitches
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
-  const { status = 'pending', writer_id, limit: lim, offset: off } = req.query;
+  const { status = 'open', writer_id, limit: lim, offset: off } = req.query;
   const limit = Math.min(parseInt(lim) || 50, 200);
   const offset = Math.max(parseInt(off) || 0, 0);
 
@@ -32,7 +32,10 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   const params = [req.tenantId];
   const countParams = [req.tenantId];
 
-  if (status && status !== 'all') {
+  if (status === 'open') {
+    query += ` AND sp.status IN ('pending', 'proposed')`;
+    countQuery += ` AND status IN ('pending', 'proposed')`;
+  } else if (status && status !== 'all') {
     params.push(status);
     countParams.push(status);
     query += ` AND sp.status = $${params.length}`;
@@ -218,10 +221,10 @@ router.delete('/:id', auth, requirePermission('articles.delete'), asyncHandler(a
   res.json({ status: 'ok' });
 }));
 
-// GET /api/admin/pitches/count — pending count for badge
+// GET /api/admin/pitches/count — open pitch count for badge
 router.get('/count', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
   const row = await db.prepare(
-    "SELECT COUNT(*)::int AS cnt FROM story_pitches WHERE tenant_id = $1 AND status = 'pending'"
+    "SELECT COUNT(*)::int AS cnt FROM story_pitches WHERE tenant_id = $1 AND status IN ('pending', 'proposed')"
   ).get(req.tenantId);
   res.json({ count: row?.cnt || 0 });
 }));
@@ -475,7 +478,7 @@ router.post('/channels/enroll', auth, requirePermission('settings.update'), asyn
   res.json({ status: 'ok', enrolled: created.length });
 }));
 
-// PATCH /api/admin/pitches/:id/sources — add/replace source articles on a pending pitch
+// PATCH /api/admin/pitches/:id/sources — add/replace source articles on an open pitch
 router.patch('/:id/sources', auth, requirePermission('articles.create'), asyncHandler(async (req, res) => {
   const { source_article_ids } = req.body;
   if (!Array.isArray(source_article_ids)) return res.status(400).json({ error: 'source_article_ids must be an array' });
@@ -484,7 +487,9 @@ router.patch('/:id/sources', auth, requirePermission('articles.create'), asyncHa
     'SELECT * FROM story_pitches WHERE id = $1 AND tenant_id = $2'
   ).get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
-  if (pitch.status !== 'pending') return res.status(400).json({ error: 'Can only enrich pending pitches' });
+  if (!['pending', 'proposed'].includes(pitch.status)) {
+    return res.status(400).json({ error: 'Can only enrich open pitches' });
+  }
 
   // Validate new IDs are integers
   const newIds = source_article_ids.map(Number).filter(n => Number.isFinite(n) && n > 0);

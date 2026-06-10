@@ -22,6 +22,10 @@
     else if (type === 'error') alert(msg);
   }
 
+  function isOpenPitch(p) {
+    return p && (p.status === 'pending' || p.status === 'proposed');
+  }
+
   // ── Tabs ──────────────────────────────────────────────────
 
   document.querySelectorAll('.tab-btn').forEach(function (btn) {
@@ -44,7 +48,7 @@
     var status = document.getElementById('pitchStatusFilter').value;
     var writerId = document.getElementById('pitchWriterFilter').value;
     var isReady = status === 'ready';
-    var apiStatus = isReady ? 'pending' : status;
+    var apiStatus = isReady ? 'open' : status;
 
     var url = '/admin/pitches?status=' + apiStatus + '&_t=' + Date.now();
     if (writerId !== 'all') url += '&writer_id=' + writerId;
@@ -107,7 +111,7 @@
     var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
     var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
     var actions = '';
-    if (p.status === 'pending') {
+    if (isOpenPitch(p)) {
       actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve & Write</button>'
         + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
@@ -117,7 +121,7 @@
           + (!p.spawned_article_id ? ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>' : '')
         : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
     }
-    var isPending = p.status === 'pending';
+    var isPending = isOpenPitch(p);
     var cbHtml = (withCb && isPending)
       ? '<input type="checkbox" class="pitch-card-cb" data-pitch-id="' + p.id + '" style="position:absolute;top:10px;left:10px;z-index:2;" />'
       : '';
@@ -180,7 +184,7 @@
       var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
 
       var actions = '';
-      if (p.status === 'pending') {
+      if (isOpenPitch(p)) {
         var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
         var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
         actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
@@ -193,7 +197,7 @@
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
       }
 
-      var isPending = p.status === 'pending';
+      var isPending = isOpenPitch(p);
       return '<div class="pitch-list-row" data-pitch="' + p.id + '">'
         + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
         + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
@@ -270,7 +274,7 @@
       var priBadge = '<span class="pri-badge ' + priClass + '">' + pri + '</span>';
       var typeBadge = '<span class="pitch-type pitch-type-' + p.pitch_type + '">' + (typeLabels[p.pitch_type] || p.pitch_type) + '</span>';
       var actions = '';
-      if (p.status === 'pending') {
+      if (isOpenPitch(p)) {
         var existingIdsJson = JSON.stringify((p.source_article_ids || []).map(Number));
         var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
         actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve</button>'
@@ -281,7 +285,7 @@
           : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
       }
-      var isPending = p.status === 'pending';
+      var isPending = isOpenPitch(p);
       return '<div class="swimlane-list-row" data-pitch="' + p.id + '" data-writer="' + esc(String(p.writer_id || 0)) + '">'
         + '<div>' + (isPending ? '<input type="checkbox" class="pitch-cb" data-pitch-id="' + p.id + '" />' : '') + '</div>'
         + '<div class="pitch-list-headline" title="' + esc(p.headline) + '">' + esc(p.headline) + '</div>'
@@ -295,14 +299,14 @@
 
     grid.innerHTML = writerOrder.map(function (wid) {
       var group = writerMap[wid];
-      var pendingCount = group.pitches.filter(function (p) { return p.status === 'pending'; }).length;
+      var pendingCount = group.pitches.filter(isOpenPitch).length;
       var countLabel = group.pitches.length + ' pitch' + (group.pitches.length !== 1 ? 'es' : '')
-        + (pendingCount !== group.pitches.length ? ' · ' + pendingCount + ' pending' : '');
+        + (pendingCount !== group.pitches.length ? ' · ' + pendingCount + ' open' : '');
       var avatar = group.avatar
         ? '<img src="' + esc(group.avatar) + '" class="swimlane-avatar" />'
         : '<div class="swimlane-avatar-ph">&#9997;&#65039;</div>';
       var header = '<div class="swimlane-header">'
-        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-wid="' + wid + '" title="Select all pending" />' : '<span style="width:14px;display:inline-block;"></span>')
+        + (pendingCount > 0 ? '<input type="checkbox" class="swimlane-cb-all" data-wid="' + wid + '" title="Select all open pitches" />' : '<span style="width:14px;display:inline-block;"></span>')
         + '<span style="display:flex;align-items:center;gap:8px;">'
         + avatar
         + '<div><div class="swimlane-writer-name">' + esc(group.name) + '</div><div class="swimlane-pitch-count">' + countLabel + '</div></div>'
