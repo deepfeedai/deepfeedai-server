@@ -176,6 +176,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     if (typeof requireAuth === 'function' && !requireAuth()) return;
+    if (typeof renderSidebar === 'function') renderSidebar();
     var dateEl = document.getElementById('eiDate');
     if (dateEl) {
       dateEl.value = state.date;
