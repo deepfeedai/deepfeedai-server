@@ -16,6 +16,9 @@ Generate today's news budget. Today is {{today}}.
 PULSE CLUSTERS (topics building momentum right now):
 {{pulseSummary}}
 
+EDITORIAL INTELLIGENCE BRIEFS (planned story briefs; prefer approved briefs when they fit today's mix):
+{{editorialBriefs}}
+
 PENDING PITCHES (approved but not yet written, or awaiting your decision):
 {{pendingPitches}}
 
@@ -39,7 +42,8 @@ Respond with ONLY valid JSON (no markdown, no code fences):
       "rationale": "7 sources in last 3h, no original yet, strong momentum",
       "recommended_writer_id": 3,
       "target_publish_window": "08:00-10:00",
-      "source_ids": [101, 102, 103]
+      "source_ids": [101, 102, 103],
+      "story_brief_id": 45
     }
   ]
 }
@@ -52,5 +56,7 @@ Rules:
 - priority values: lead | standard | brief | hold
 - target_publish_window: "HH:MM-HH:MM" in the newsroom's local timezone
 - source_ids: array of article IDs from the pulse/pending data provided. Use [] when no specific sources are available.
+- story_brief_id: include the numeric brief ID when a slot is based on an Editorial Intelligence brief; otherwise omit or null.
 - coverage_gaps: topics with signal you are intentionally NOT covering today (max 3)
 - Do NOT invent source_ids not present in the input data
+- Prefer approved Editorial Intelligence briefs before proposed briefs, and preserve their angle in rationale.

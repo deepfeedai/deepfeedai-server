@@ -1646,6 +1646,59 @@ async function initDb() {
     `CREATE INDEX IF NOT EXISTS idx_news_budget_slots_tenant_status
        ON news_budget_slots(tenant_id, status)`,
 
+    // Editorial Intelligence — ranked story opportunities and editor-approved briefs
+    `CREATE TABLE IF NOT EXISTS editorial_story_candidates (
+      id                   SERIAL PRIMARY KEY,
+      tenant_id            INTEGER NOT NULL,
+      planning_date        DATE NOT NULL,
+      candidate_key        TEXT NOT NULL,
+      candidate_type       TEXT NOT NULL DEFAULT 'cluster',
+      topic_tag            TEXT,
+      title                TEXT NOT NULL,
+      summary              TEXT,
+      source_article_ids   JSONB DEFAULT '[]',
+      signal               JSONB DEFAULT '{}',
+      score                NUMERIC(5,2) DEFAULT 0,
+      score_components     JSONB DEFAULT '{}',
+      status               TEXT NOT NULL DEFAULT 'proposed',
+      created_at           TIMESTAMPTZ DEFAULT NOW(),
+      updated_at           TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, planning_date, candidate_key)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_editorial_candidates_lookup
+       ON editorial_story_candidates(tenant_id, planning_date DESC, score DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_editorial_candidates_status
+       ON editorial_story_candidates(tenant_id, status, updated_at DESC)`,
+    `CREATE TABLE IF NOT EXISTS editorial_story_briefs (
+      id                     SERIAL PRIMARY KEY,
+      tenant_id              INTEGER NOT NULL,
+      candidate_id           INTEGER REFERENCES editorial_story_candidates(id) ON DELETE SET NULL,
+      planning_date          DATE NOT NULL,
+      headline               TEXT NOT NULL,
+      angle                  TEXT,
+      why_now                TEXT,
+      audience_value         TEXT,
+      evidence               JSONB DEFAULT '[]',
+      source_article_ids     JSONB DEFAULT '[]',
+      recommended_writer_id  INTEGER,
+      pitch_type             TEXT NOT NULL DEFAULT 'analysis',
+      priority               TEXT NOT NULL DEFAULT 'standard',
+      target_publish_window  TEXT,
+      status                 TEXT NOT NULL DEFAULT 'proposed',
+      approved_at            TIMESTAMPTZ,
+      rejected_at            TIMESTAMPTZ,
+      added_budget_slot_id   INTEGER,
+      created_at             TIMESTAMPTZ DEFAULT NOW(),
+      updated_at             TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (tenant_id, candidate_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_editorial_briefs_lookup
+       ON editorial_story_briefs(tenant_id, planning_date DESC, status, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_editorial_briefs_candidate
+       ON editorial_story_briefs(tenant_id, candidate_id)`,
+    `ALTER TABLE news_budget_slots ADD COLUMN IF NOT EXISTS story_brief_id INTEGER`,
+    `ALTER TABLE story_pitches ADD COLUMN IF NOT EXISTS story_brief_id INTEGER`,
+
     // Waitlist — pre-signup interest capture for closed-beta period
     `CREATE TABLE IF NOT EXISTS waitlist (
       id           SERIAL PRIMARY KEY,

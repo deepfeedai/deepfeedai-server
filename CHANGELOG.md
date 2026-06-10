@@ -4,6 +4,15 @@ All notable changes to Deep Feed AI Admin are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Editorial Intelligence planning layer** — new upstream story planning pass that gathers story signals, scores Story Candidates, drafts editor-reviewable Story Briefs, and lets approved briefs feed runsheet generation and article synthesis with angle, why-now, audience value, source evidence, writer fit, priority, and publish-window context.
+- **Editorial Intelligence admin workflow** — new admin planning page and APIs for running the planning pass, reviewing ranked candidates, approving/rejecting briefs, and adding approved briefs to the runsheet.
+
+---
+
 ## [1.1.2] — 2026-06-09
 
 ### Fixed

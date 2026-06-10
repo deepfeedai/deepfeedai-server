@@ -332,6 +332,7 @@ window.NRCustom = (function () {
     { id: 'floor',         name: 'The Floor',      icon: '📋', desc: 'Budget, pitches & activity',  ws: 'floor' },
     { id: 'wire',          name: 'The Wire',        icon: '📡', desc: 'Feed, stories & discovery',   ws: 'wire' },
     { id: 'desk',          name: 'The Desk',        icon: '🗂',  desc: 'Writers, analytics & settings', ws: 'desk' },
+    { id: 'intelligence',  name: 'Intelligence',    icon: '✦', desc: 'Story planning layer',         href: '/editorial-intelligence.html' },
     { id: 'budget',        name: 'Budget',          icon: '📅', desc: 'Daily news budget',            href: '/budget.html' },
     { id: 'pitches',       name: 'Pitches',         icon: '💡', desc: 'Story pitches queue',          href: '/pitches.html' },
     { id: 'articles',      name: 'Articles',        icon: '📰', desc: 'Article archive',              href: '/articles.html' },

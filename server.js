@@ -384,6 +384,7 @@ app.use('/api/admin/writers',        auth, require('./routes/admin-writers'));
 app.use('/api/admin/writing-styles', auth, require('./routes/admin-writing-styles'));
 app.use('/api/admin/pitches', auth, require('./routes/admin-pitches'));
 app.use('/api/admin/budget',  auth, require('./routes/admin-budget'));
+app.use('/api/admin/editorial-intelligence', auth, require('./routes/editorial-intelligence'));
 app.use('/api/newsroom-prefs', require('./routes/newsroom-prefs'));
 app.use('/api/admin/discover', require('./routes/discover'));
 app.use('/api/webhooks', require('./routes/webhooks'));

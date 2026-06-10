@@ -116,13 +116,51 @@ router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHan
           synthesisSkipReason = `writer id=${pitch.writer_id} not found`;
           console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
         } else {
-          const cluster = { topic: pitch.headline, articles: sources };
+          let storyBrief = null;
+          if (pitch.story_brief_id) {
+            storyBrief = await db.prepare(
+              'SELECT * FROM editorial_story_briefs WHERE id = $1 AND tenant_id = $2'
+            ).get(pitch.story_brief_id, req.tenantId).catch(() => null);
+          }
+          const briefTopic = storyBrief
+            ? [
+                storyBrief.headline,
+                storyBrief.angle ? `Angle: ${storyBrief.angle}` : null,
+                storyBrief.why_now ? `Why now: ${storyBrief.why_now}` : null,
+                storyBrief.audience_value ? `Audience value: ${storyBrief.audience_value}` : null,
+              ].filter(Boolean).join('\n')
+            : pitch.headline;
+          const cluster = {
+            topic: briefTopic,
+            articles: sources,
+            storyBrief: storyBrief ? {
+              id: storyBrief.id,
+              headline: storyBrief.headline,
+              angle: storyBrief.angle,
+              why_now: storyBrief.why_now,
+              audience_value: storyBrief.audience_value,
+            } : null,
+          };
           synthesized = await synthesizeCluster(cluster, writer, req.tenantId);
 
           if (synthesized) {
             await db.prepare(
               "UPDATE story_pitches SET status = 'synthesized', spawned_article_id = $2 WHERE id = $1"
             ).run(pitch.id, synthesized.id);
+            if (storyBrief) {
+              let meta = {};
+              try { meta = typeof synthesized.synthesis_meta === 'string' ? JSON.parse(synthesized.synthesis_meta || '{}') : (synthesized.synthesis_meta || {}); } catch {}
+              meta.story_brief = {
+                id: storyBrief.id,
+                headline: storyBrief.headline,
+                angle: storyBrief.angle,
+                why_now: storyBrief.why_now,
+                audience_value: storyBrief.audience_value,
+              };
+              await db.prepare(
+                'UPDATE articles SET synthesis_meta = $1 WHERE id = $2 AND tenant_id = $3'
+              ).run(JSON.stringify(meta), synthesized.id, req.tenantId);
+            }
             // Backlink article to budget slot if this pitch came from one
             db.prepare(
               "UPDATE news_budget_slots SET spawned_article_id = $1, updated_at = NOW() WHERE spawned_pitch_id = $2 AND tenant_id = $3"

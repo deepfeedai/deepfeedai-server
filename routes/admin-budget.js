@@ -44,12 +44,17 @@ async function _getBudgetWithSlots(budgetId, tenantId, tz = 'UTC') {
       a.title        AS article_title,
       a.slug         AS article_slug,
       a.is_published AS article_is_published,
-      a.status       AS article_status
+      a.status       AS article_status,
+      esb.headline   AS story_brief_headline,
+      esb.angle      AS story_brief_angle,
+      esb.why_now    AS story_brief_why_now,
+      esb.status     AS story_brief_status
     FROM news_budget_slots nbs
     LEFT JOIN writers rw       ON rw.id = nbs.recommended_writer_id
     LEFT JOIN writers aw       ON aw.id = nbs.assigned_writer_id
     LEFT JOIN story_pitches sp ON sp.id = nbs.spawned_pitch_id  AND sp.tenant_id = nbs.tenant_id
     LEFT JOIN articles a       ON a.id  = nbs.spawned_article_id AND a.tenant_id  = nbs.tenant_id
+    LEFT JOIN editorial_story_briefs esb ON esb.id = nbs.story_brief_id AND esb.tenant_id = nbs.tenant_id
     WHERE nbs.budget_id = $1 AND nbs.tenant_id = $2
     ORDER BY nbs.sort_order ASC, nbs.id ASC
   `, [budgetId, tenantId]);
@@ -113,8 +118,8 @@ async function _createPitchFromSlot(slot, tenantId) {
 
   const pitch = await db.prepare(`
     INSERT INTO story_pitches
-      (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, status)
-    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'proposed')
+      (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, story_brief_id, status)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'proposed')
     RETURNING *
   `).get(
     tenantId,
@@ -128,6 +133,7 @@ async function _createPitchFromSlot(slot, tenantId) {
         : (typeof slot.source_article_ids === 'string' ? JSON.parse(slot.source_article_ids || '[]') : [])
     ),
     slot.target_publish_at || null,
+    slot.story_brief_id || null,
   );
 
   return pitch;
@@ -167,7 +173,7 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
     const preserved = await db.prepare(`
       SELECT priority, pitch_type, topic_tag, headline_suggestion, rationale,
              assigned_writer_id, recommended_writer_id, target_publish_at,
-             source_article_ids, sort_order, status, spawned_article_id
+             source_article_ids, sort_order, status, spawned_article_id, story_brief_id
       FROM news_budget_slots
       WHERE budget_id = $1 AND tenant_id = $2 AND status NOT IN ('pending')
     `).all(existing.id, req.tenantId);
@@ -187,8 +193,8 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
         INSERT INTO news_budget_slots
           (budget_id, tenant_id, priority, pitch_type, topic_tag, headline_suggestion,
            rationale, assigned_writer_id, recommended_writer_id, target_publish_at,
-           source_article_ids, sort_order, status, spawned_article_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
+           source_article_ids, sort_order, status, spawned_article_id, story_brief_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15)
       `).run(
         newBudgetId, req.tenantId,
         s.priority, s.pitch_type, s.topic_tag, s.headline_suggestion,
@@ -196,6 +202,7 @@ router.post('/generate', auth, requirePermission('articles.write'), asyncHandler
         s.target_publish_at,
         typeof s.source_article_ids === 'string' ? s.source_article_ids : JSON.stringify(s.source_article_ids || []),
         s.sort_order, s.status, s.spawned_article_id,
+        s.story_brief_id || null,
       );
     }
 
@@ -443,8 +450,8 @@ router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asy
 
     const pitchResult = await client.query(`
       INSERT INTO story_pitches
-        (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, status)
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, 'proposed')
+        (tenant_id, writer_id, pitch_type, headline, reasoning, source_article_ids, target_publish_at, story_brief_id, status)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'proposed')
       RETURNING *
     `, [
       req.tenantId,
@@ -454,6 +461,7 @@ router.post('/slots/:id/approve', auth, requirePermission('articles.write'), asy
       (slot.rationale || '').slice(0, 500),
       JSON.stringify(sourceIds),
       slot.target_publish_at || null,
+      slot.story_brief_id || null,
     ]);
     pitch = pitchResult.rows[0];
 
