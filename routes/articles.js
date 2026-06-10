@@ -5,7 +5,7 @@ const db                             = require('../db');
 const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
 const { requirePermission }          = require('../middleware/permissions');
-const { serializeRow, asyncHandler } = require('../lib/utils');
+const { serializeRow, asyncHandler, cleanInlineMarkdownText } = require('../lib/utils');
 const { articleCreate, articleUpdate, validate } = require('../lib/schemas');
 const { onArticlePublished } = require('../lib/post-publish');
 const { findBestWriter } = require('../lib/writer-assign');
@@ -2046,7 +2046,7 @@ router.post('/:id/rewrite', auth, requirePermission('articles.update'), asyncHan
       maxTokens: 100,
       trigger: 'article-rewrite',
     });
-    const newTitle = result?.text?.trim().replace(/^["']|["']$/g, '');
+    const newTitle = cleanInlineMarkdownText((result?.text || '').trim().replace(/^["']|["']$/g, ''), 220);
     if (!newTitle) return res.status(500).json({ error: 'AI returned no result' });
     await db.prepare('UPDATE articles SET generated_title = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newTitle, article.id, req.tenantId);
     logAudit(req, 'article.rewrite', 'article', parseInt(req.params.id), { mode, title: newTitle });
@@ -2064,7 +2064,7 @@ router.post('/:id/rewrite', auth, requirePermission('articles.update'), asyncHan
       maxTokens: 160,
       trigger: 'article-rewrite',
     });
-    const newSummary = result?.text?.trim();
+    const newSummary = cleanInlineMarkdownText((result?.text || '').trim().replace(/^["']|["']$/g, ''), 500);
     if (!newSummary) return res.status(500).json({ error: 'AI returned no result' });
     await db.prepare('UPDATE articles SET summary = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(newSummary, article.id, req.tenantId);
     logAudit(req, 'article.rewrite', 'article', parseInt(req.params.id), { mode });

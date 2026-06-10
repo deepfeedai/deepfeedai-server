@@ -324,6 +324,36 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
     const iso = localDateTimeToUtc(dateStr, w.hhmm, tz).toISOString();
     return { label: w.label, hhmm: w.hhmm, iso, fired: new Date(iso) < now, window_key: windowKeyForIso(iso, tz) };
   });
+  const todayStr = todayInTz(tz);
+  let nextDropWindow = null;
+  if (dateStr === todayStr) {
+    nextDropWindow = dropWindows.find(w => new Date(w.iso) > now) || null;
+    if (!nextDropWindow && windowList.length) {
+      const tomorrow = addDaysToDateString(dateStr, 1);
+      const firstWindow = windowList[0];
+      const iso = localDateTimeToUtc(tomorrow, firstWindow.hhmm, tz).toISOString();
+      nextDropWindow = {
+        label: firstWindow.label,
+        hhmm: firstWindow.hhmm,
+        iso,
+        fired: false,
+        window_key: windowKeyForIso(iso, tz),
+        date: tomorrow,
+        is_tomorrow: true,
+      };
+    } else if (nextDropWindow) {
+      nextDropWindow = {
+        ...nextDropWindow,
+        date: dateStr,
+        is_tomorrow: false,
+      };
+    }
+  }
+  const nextDropIso = nextDropWindow && nextDropWindow.iso;
+  const dropWindowsWithNext = dropWindows.map(w => ({
+    ...w,
+    is_next: !!nextDropIso && w.iso === nextDropIso,
+  }));
 
   const published = pubResult.rows.map(a => ({
     ...a,
@@ -346,7 +376,8 @@ router.get('/actuals', auth, requirePermission('articles.read'), asyncHandler(as
       today:     todayCount,
       remaining: effectiveCap > 0 ? Math.max(0, effectiveCap - todayCount) : null,
     },
-    drop_windows: dropWindows,
+    drop_windows: dropWindowsWithNext,
+    next_drop_window: nextDropWindow,
   });
 }));
 

@@ -27,6 +27,7 @@
   var reassignSlotId  = null;          // slot id pending reassign
   var currentActuals   = null;          // data from /admin/budget/actuals
   var countdownTimers = [];            // setInterval handles for auto-promote timers
+  var actualsCountdownTimer = null;     // setInterval handle for next drop timer
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function esc(s) {
@@ -178,6 +179,44 @@
       tick();
       countdownTimers.push(setInterval(tick, 1000));
     });
+  }
+
+  function countdownText(ms) {
+    if (ms <= 0) return 'now';
+    var totalSec = Math.floor(ms / 1000);
+    var d = Math.floor(totalSec / 86400);
+    var h = Math.floor((totalSec % 86400) / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
+    var s = totalSec % 60;
+    var parts = [];
+    if (d) parts.push(d + 'd');
+    if (h || d) parts.push(h + 'h');
+    if (m || h || d) parts.push(m + 'm');
+    if (!d) parts.push(s + 's');
+    return parts.join(' ');
+  }
+
+  function startActualsCountdown() {
+    if (actualsCountdownTimer) {
+      clearInterval(actualsCountdownTimer);
+      actualsCountdownTimer = null;
+    }
+    var el = document.getElementById('actualsNextDropCountdown');
+    if (!el || !el.dataset.at) return;
+
+    var tick = function () {
+      var ms = new Date(el.dataset.at).getTime() - Date.now();
+      el.textContent = countdownText(ms);
+      if (ms <= 0) {
+        clearInterval(actualsCountdownTimer);
+        actualsCountdownTimer = null;
+        setTimeout(function () {
+          if (currentDate) loadActuals(currentDate);
+        }, 1500);
+      }
+    };
+    tick();
+    actualsCountdownTimer = setInterval(tick, 1000);
   }
 
   // ── Pipeline status trail (slot → pitch → article) ────────────────────────
@@ -559,6 +598,10 @@
     if (!strip) return;
 
     if (!actuals) {
+      if (actualsCountdownTimer) {
+        clearInterval(actualsCountdownTimer);
+        actualsCountdownTimer = null;
+      }
       strip.innerHTML = '';
       strip.className = '';
       return;
@@ -590,21 +633,28 @@
     var windowsHtml = (actuals.drop_windows || []).map(function (w) {
       var icon = w.fired ? '&#10003;' : '&#9675;';
       var cls  = w.fired ? 'actuals-win-fired' : 'actuals-win-upcoming';
+      if (w.is_next) cls += ' actuals-win-next';
       return '<span class="actuals-window ' + cls + '">' + icon + ' ' + esc(w.label) + '</span>';
     }).join('');
 
     var schedHtml = sched > 0
       ? '<span class="actuals-queued">&#9654; ' + sched + ' queued</span>'
       : '';
+    var nextDrop = actuals.next_drop_window || null;
+    var nextDropHtml = nextDrop && nextDrop.iso
+      ? '<span class="actuals-queued actuals-next-drop">&#9201; Next drop: ' + esc(nextDrop.window_key || nextDrop.label || 'Drop') + (nextDrop.is_tomorrow ? ' tomorrow' : '') + ' · <span id="actualsNextDropCountdown" data-at="' + esc(nextDrop.iso) + '"></span></span>'
+      : '';
+    var queueHtml = [nextDropHtml, schedHtml].filter(Boolean).join(' ');
 
     strip.className = 'actuals-strip';
     strip.innerHTML = [
       '<div class="actuals-strip-inner">',
         capHtml,
         windowsHtml ? '<div class="actuals-windows">' + windowsHtml + '</div>' : '',
-        schedHtml   ? '<div class="actuals-queue">'   + schedHtml   + '</div>' : '',
+        queueHtml   ? '<div class="actuals-queue">'   + queueHtml   + '</div>' : '',
       '</div>',
     ].join('');
+    startActualsCountdown();
   }
 
   // ── Show/hide views ────────────────────────────────────────────────────────
