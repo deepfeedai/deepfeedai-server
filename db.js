@@ -1787,34 +1787,34 @@ async function initDb() {
 
   // Seed categories table from legacy site_categories JSON setting (one-time migration)
   try {
-    const catCount = await prepare('SELECT COUNT(*) AS cnt FROM categories').get();
+    const catCount = await prepare('SELECT COUNT(*) AS cnt FROM categories WHERE tenant_id = 1').get();
     if (parseInt(catCount.cnt) === 0) {
-      const row = await prepare("SELECT value FROM settings WHERE key = $1").get('site_categories');
+      const row = await prepare("SELECT value FROM settings WHERE tenant_id = 1 AND key = $1").get('site_categories');
       if (row && row.value) {
         let cats = [];
         try { cats = JSON.parse(row.value); } catch { /* ignore */ }
+        let seeded = 0;
         for (let i = 0; i < cats.length; i++) {
           const c = cats[i];
           if (!c.name) continue;
           const kw = Array.isArray(c.keywords) ? c.keywords : [];
-          try {
-            await p.query(
-              `INSERT INTO categories (name, color, keywords, sort_order)
-               VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO NOTHING`,
+          const inserted = await p.query(
+              `INSERT INTO categories (tenant_id, name, color, keywords, sort_order)
+               VALUES (1, $1, $2, $3, $4) ON CONFLICT (tenant_id, name) DO NOTHING`,
               [c.name, c.color || '#94a3b8', kw, i]
             );
-          } catch { /* skip duplicates */ }
+          seeded += inserted.rowCount;
         }
-        console.log(`✅ Seeded ${cats.length} categories from site_categories setting`);
+        console.log(`✅ Seeded ${seeded} categories from site_categories setting`);
       }
     }
   } catch (err) { console.error('[DB] category seed error:', err.message); }
 
   // One-time: refresh category keywords from updated site_categories seed (v1.10.2)
   try {
-    const migFlag = await prepare("SELECT value FROM settings WHERE key = $1").get('_migrated_cat_keywords_v2');
+    const migFlag = await prepare("SELECT value FROM settings WHERE tenant_id = 1 AND key = $1").get('_migrated_cat_keywords_v2');
     if (!migFlag) {
-      const row = await prepare("SELECT value FROM settings WHERE key = $1").get('site_categories');
+      const row = await prepare("SELECT value FROM settings WHERE tenant_id = 1 AND key = $1").get('site_categories');
       if (row && row.value) {
         let cats = [];
         try { cats = JSON.parse(row.value); } catch { /* ignore */ }
@@ -1823,7 +1823,7 @@ async function initDb() {
           const kw = Array.isArray(c.keywords) ? c.keywords : [];
           try {
             await p.query(
-              `UPDATE categories SET keywords = $1 WHERE name = $2`,
+              `UPDATE categories SET keywords = $1 WHERE name = $2 AND tenant_id = 1`,
               [kw, c.name]
             );
           } catch { /* skip */ }
@@ -1831,8 +1831,8 @@ async function initDb() {
         // Ensure Industry category exists
         try {
           await p.query(
-            `INSERT INTO categories (name, color, keywords, sort_order)
-             VALUES ('Industry', '#94a3b8', $1, 99) ON CONFLICT (name) DO UPDATE SET keywords = $1`,
+            `INSERT INTO categories (tenant_id, name, color, keywords, sort_order)
+             VALUES (1, 'Industry', '#94a3b8', $1, 99) ON CONFLICT (tenant_id, name) DO UPDATE SET keywords = $1`,
             [cats.find(c => c.name === 'Industry')?.keywords || []]
           );
         } catch { /* skip */ }
