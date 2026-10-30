@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - publishing reliability
+
+- Separate saved briefs, approval, paid drafting and explicit publication with duplicate/revision safeguards.
+- Preserve corrections, source attribution and image edits; record private publication history.
+- Remove unpublished public-feed exposure and AI calls from public topic reads; add isolated real-route acceptance coverage.
+
 ## Unreleased - publication-safe Stories
 
 - Validate article attachments atomically by tenant and publication eligibility; derive public counts and covers from eligible membership.
