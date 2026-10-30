@@ -1,7 +1,14 @@
 .git
-node_modules
 .env
 .env.*
+node_modules
 data
 public/media
+backups
 *.log
+*.tar
+*.tar.gz
+*.sql
+*.dump
+*.pem
+*.key
