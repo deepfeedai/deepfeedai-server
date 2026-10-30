@@ -257,8 +257,8 @@ router.get('/', asyncHandler(async (req, res) => {
   const totalCount = parseInt(countResult.rows[0].total);
   const items      = result.rows.map(serializeRow);
 
-  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
-  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  // Keep local media same-origin; never expose the upstream container host.
+  const mediaBase = '';
   items.forEach(item => {
     if (item.image_url && item.image_url.startsWith('/')) {
       item.image_url = mediaBase + item.image_url;
@@ -356,8 +356,8 @@ router.get('/hot', asyncHandler(async (req, res) => {
   );
   const items = result.rows.map(serializeRow);
 
-  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
-  const hotMediaBase = `${req.protocol}://${req.get('host')}`;
+  // Keep local media same-origin; never expose the upstream container host.
+  const hotMediaBase = '';
   items.forEach(item => {
     if (item.image_url && item.image_url.startsWith('/')) {
       item.image_url = hotMediaBase + item.image_url;
@@ -752,7 +752,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
   } catch { /* trends not available */ }
 
   // Serialize and resolve media URLs
-  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  const mediaBase = '';
   function resolveMedia(items) {
     return items.map(row => {
       const item = serializeRow(row);

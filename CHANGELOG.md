@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - image display updates
+
+- Keep local public media on the reader origin, preserving external CDN URLs.
+- Guard duplicate image requests and reconcile uncertain completion through reads only.
+- Show upload previews and explicit Save Article attachment guidance.
+
 ## Unreleased — image generation reliability
 
 - Correct image settings/style guidance and cover portrait/article request shapes without legacy response_format.

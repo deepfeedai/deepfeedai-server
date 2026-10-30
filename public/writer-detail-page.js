@@ -361,6 +361,7 @@
     html += '</div>';
     document.getElementById('writerDetailContent').innerHTML = html;
 
+    document.getElementById('regenAvatarBtn')?.addEventListener('click',()=>window.generateWriterAvatar());
     // Char counters
     wireCharCounter('fBio', 2000);
     wireCharCounter('fAvatarStyleNotes', 1000);
@@ -526,12 +527,14 @@
   };
 
   window.generateWriterAvatar = async function () {
+    if(writerData&&ImageUpdates.busy('writer:'+writerData.id))return;
     if (!window.confirm("Generate a portrait using the configured image provider? This may incur charges.")) return;
     if (!writerData || !writerData.id) return;
     var btn = document.getElementById('generateAvatarBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
     try {
-      var data = await apiFetch('/admin/writers/' + writerData.id + '/generate-avatar', { method: 'POST' });
+      const before=writerData.avatar_url;
+      var data = await ImageUpdates.run('writer:'+writerData.id,()=>apiFetch('/admin/writers/' + writerData.id + '/generate-avatar', { method: 'POST' }),async()=>{const rows=await apiFetch('/admin/writers');const w=rows.find(w=>w.id===writerData.id);return w?.avatar_url&&w.avatar_url!==before?{avatar_url:w.avatar_url}:null;});
       writerData.avatar_url = data.avatar_url;
       var img = document.getElementById('writerAvatarImg');
       if (img && img.tagName === 'IMG') {
