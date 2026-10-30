@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased - workflow navigation and newsroom clarity
+
+- Organize existing tools under Overview, Discover, Editorial, Publish and Manage without removing deep links.
+- Add permission-scoped attention queues and evidence-based, per-user onboarding preferences.
+- Add contextual Help, consistent purpose statements, keyboard/mobile navigation and safe login returns.
+- Preserve workflow filters and browser history; show assignment next steps from saved state after asynchronous rendering.
+- Keep navigation and ordinary page reads free of AI generation or publication side effects.
+- Add isolated route/database, UI and browser fixtures with a single-command regression suite.
+
 ## Unreleased - editorial Reader and RSS library
 
 - Upgrade Feed Inbox to a responsive Reader with per-user read/saved state, paginated filters, folders and non-AI assignment handoff.
