@@ -1229,14 +1229,17 @@ let articles = [];
   }
 
   async function generateImage(id) {
-    const btn = document.querySelector(`#row-${id} [title="Generate AI image"]`);
+    const key="article:"+id; if(ImageUpdates.busy(key)) return;
+    const before=(allArticles.find(a=>a.id===id)||{}).image_url;
+    const btn = document.querySelector(`#row-${id} [onclick="generateImage(${id})"]`);
     if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
-      await apiFetch('/media/generate-image', {
+      const result = await ImageUpdates.run(key, () => apiFetch('/media/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleId: id })
-      });
+      }), async()=>{await loadArticles({preservePage:true});const a=allArticles.find(a=>a.id===id);return a?.image_url && a.image_url!==before ? {imageUrl:a.image_url}:null;});
+      if(result.imageUrl) updateArticleRow(id,{image_url:result.imageUrl});
       showAlert('Image generated ✓');
       await loadArticles({ preservePage: true });
     } catch (err) {
@@ -1321,6 +1324,9 @@ let articles = [];
   function setImageField(url) {
     document.getElementById('fImageUrl').value = url || '';
     var status = document.getElementById('fImageStatus');
+    let preview=document.getElementById('fImagePreview');
+    if(!preview){preview=document.createElement('img');preview.id='fImagePreview';preview.alt='Selected article image';preview.style.cssText='display:none;max-width:240px;max-height:140px;object-fit:contain;margin-top:8px';status.parentNode.appendChild(preview);}
+    preview.hidden=!url;preview.style.display=url?'block':'none';if(url)preview.src=url;else preview.removeAttribute('src');
     var clearBtn = document.getElementById('fImageClearBtn');
     if (url) {
       var name = url.split('/').pop();
@@ -1359,7 +1365,7 @@ let articles = [];
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Upload failed');
       setImageField(data.imageUrl);
-      showToast('Image uploaded');
+      showToast('Image uploaded. Click Save Article to attach it; Cancel leaves the article unchanged.');
     } catch (err) {
       showToast(err.message, 'error');
     } finally {

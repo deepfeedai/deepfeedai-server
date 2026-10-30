@@ -36,8 +36,8 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   if (!match) return res.status(404).json({ error: 'Article not found' });
 
-  // Resolve relative image/audio URLs to absolute (use request host — media is served from this server)
-  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  // Keep local media same-origin; never expose the upstream container host.
+  const mediaBase = '';
   if (match.image_url && match.image_url.startsWith('/')) {
     match.image_url = mediaBase + match.image_url;
   }
@@ -234,7 +234,7 @@ router.get('/:id/perspectives', asyncHandler(async (req, res) => {
      LIMIT 20`
   ).all(req.tenantId, lead.topic_tag, lead.id);
 
-  const mediaBase = `${req.protocol}://${req.get('host')}`;
+  const mediaBase = '';
   const items = siblings.map(s => {
     if (s.image_url && s.image_url.startsWith('/')) s.image_url = mediaBase + s.image_url;
     s.effective_importance = require('../lib/story-levels').computeEffectiveImportance(s);

@@ -493,11 +493,12 @@ document.getElementById('generateAvatarBtn').addEventListener('click', async fun
     showAlert('Save the writer first, then generate an avatar', 'error');
     return;
   }
+  const key='writer:'+writerId;if(ImageUpdates.busy(key))return;const before=(writers.find(w=>String(w.id)===String(writerId))||{}).avatar_url;
   var btn = this;
   btn.disabled = true;
   btn.textContent = 'Generating...';
   try {
-    var result = await apiFetch('/admin/writers/' + writerId + '/generate-avatar', { method: 'POST' });
+    var result = await ImageUpdates.run(key,()=>apiFetch('/admin/writers/' + writerId + '/generate-avatar', { method: 'POST' }),async()=>{const rows=await apiFetch('/admin/writers');const w=rows.find(w=>String(w.id)===String(writerId));return w?.avatar_url&&w.avatar_url!==before?{avatar_url:w.avatar_url}:null;});
     if (result.avatar_url) {
       document.getElementById('writerAvatarPreview').src = result.avatar_url;
       document.getElementById('writerAvatarPreviewWrap').style.display = '';
