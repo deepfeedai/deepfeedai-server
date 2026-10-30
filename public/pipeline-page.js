@@ -321,8 +321,9 @@ onReady(async () => {
       }
     }
 
-    const totalGenerated = results.reduce((acc, r) => acc + (r.generated || 0), 0);
-    showToast(`Generated ${totalGenerated} article(s) from ${checks.length} cluster(s)`, totalGenerated > 0 ? 'success' : 'error');
+    const summary = SynthesisResults.summarize(results, checks.length);
+    SynthesisResults.render(document.getElementById('synthesisResults'), summary);
+    showToast(summary.title, summary.hasIssues || !summary.generated ? 'error' : 'success');
 
     runSelectedBtn.disabled = false;
     runSelectedBtn.textContent = 'Run Selected';

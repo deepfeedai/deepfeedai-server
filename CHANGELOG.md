@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — synthesis reliability
+
+- Add the missing article pull-quote column through an idempotent migration.
+- Preserve prompt routing metadata across LF and CRLF line endings.
+- Show safe per-cluster errors and skip reasons, including mixed outcomes, in the pipeline.
+
 ## Unreleased — self-hosted deployment
 
 - Fix fresh database credit-pack initialization, tenant sequences and tenant-scoped category seeding.
