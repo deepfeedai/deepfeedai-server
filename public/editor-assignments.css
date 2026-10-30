@@ -1,0 +1,24 @@
+/* Scoped to editor assignments; legacy commission controls remain unchanged. */
+#editorAssignments { margin-bottom: 24px; }
+#editorAssignments > .text-muted { margin: 8px 0 16px; line-height: 1.5; }
+.assignment-card + .assignment-card { margin-top: 16px; }
+.assignment-card > p { margin: 10px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.assignment-card h4 { overflow-wrap: anywhere; }
+.assignment-edit { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.assignment-edit summary { width: fit-content; padding: 6px 0; cursor: pointer; font-weight: 600; }
+.assignment-fields { display: grid; gap: 16px; margin-top: 12px; }
+.assignment-fields label { display: grid; gap: 8px; font-size: 13px; }
+.assignment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.assignment-actions .btn { min-height: 40px; justify-content: center; white-space: normal; line-height: 1.4; text-align: center; }
+.assignment-workflow-actions:empty { display: none; }
+.assignment-workflow-actions > p { flex-basis: 100%; margin: 0; }
+.assignment-card :is(.btn, summary, .form-control):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.assignment-card [aria-busy="true"], .assignment-card[aria-busy="true"] { cursor: progress; }
+.assignment-card .btn:disabled { opacity: .55; cursor: wait; }
+.assignment-card select:disabled { opacity: .65; }
+.assignment-card [role="alert"] { color: var(--danger); }
+@media (max-width: 600px) {
+  .assignment-actions { align-items: stretch; }
+  .assignment-actions .btn { flex: 1 1 100%; min-height: 44px; }
+  .assignment-card { padding: 14px; }
+}

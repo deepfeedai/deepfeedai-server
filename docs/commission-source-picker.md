@@ -24,4 +24,6 @@ Manual checks: open an assignment; inspect existing attachments; search and sele
 
 ## Overlay reconciliation
 
-The separately unpublished Editor button customization overlaps the original renderer/save handler and remains preserved in its original worktree. It must not be blindly reapplied over the picker or silently included in publication. Consolidation/publication/deployment require the separately requested approval; local canonical implementation and disposable tests can proceed independently.
+The earlier unpublished Editor button customization is now consolidated with approval: scoped card spacing, writer fields, responsive action groups, primary/secondary hierarchy, focus indicators and all-control busy feedback are retained. Its obsolete multiselect styling is omitted because the searchable picker replaces that control. The original dirty worktree and deployment backup retain the previous overlay as rollback evidence.
+
+Build the combined committed source directly. Do not apply the old overlay over this renderer: it would restore the removed multiselect and overwrite the additive handlers. The picker PR is stacked on the still-unmerged workflow-navigation branch; the separate Platform Reader-link PR remains unchanged. Rollback restores the prior backend image and affected source files from the deployment backup without restoring an old database over newer editorial work. This milestone adds no schema migration.
