@@ -33,6 +33,8 @@ async function startFixture({port=0,readerRoot=process.env.READER_ROOT}={}) {
  const foreign=await db.prepare("INSERT INTO articles(tenant_id,title,slug,summary,content_type,is_published) VALUES($1,'Foreign draft',$2,'Private fixture','original',0) RETURNING id").get(other.id,prefix+'-private');
  const app=express();app.use(express.json({limit:'2mb'}));app.use('/api',require('../../middleware/tenant').tenantContext);
  app.use('/api/reader/open',require('../../routes/reader-entry'));
+ app.use('/api/newsroom-overview',require('../../routes/newsroom-overview'));
+ app.use('/api/admin/pitches',require('../../routes/admin-pitches'));
  app.use('/api/reader',require('../../routes/reader'));
  app.use('/api/sources',require('../../routes/sources'));
  app.use('/api/feed-groups',require('../../routes/feed-groups'));

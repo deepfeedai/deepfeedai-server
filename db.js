@@ -2166,6 +2166,7 @@ async function initDb() {
   await require('./lib/publication').initPublicationSchema(p);
   await require('./lib/rss-schema').initRssSchema(p);
   await require('./lib/reader-schema').initReaderSchema(p);
+  await require('./lib/navigation-schema').initNavigationSchema(p);
   _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;
