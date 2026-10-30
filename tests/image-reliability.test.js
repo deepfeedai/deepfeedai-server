@@ -80,3 +80,8 @@ test('worker honors nonretryable image timeouts and reports actual pending retry
  const m=mocked({db:{getPool:()=>({query:async()=>({rows:[{id:1,tenant_id:1,job_type:'generate_image',attempts:0,max_attempts:3}]})})},'lib/jobs/executor':{executeJob:async()=>{throw imageError(retryable?'IMAGE_PROVIDER':'IMAGE_TIMEOUT',retryable)}},'lib/jobs/queue':{failJob:async opts=>{received=opts;return{status:opts.retryable?'pending':'failed'}}}},'lib/jobs/worker');
  try{assert.equal((await m.result.pollAndExecute()).status,'failed');assert.equal(received.retryable,false);retryable=true;assert.equal((await m.result.pollAndExecute()).status,'pending');assert.equal(received.retryable,true);}finally{m.restore();}
 });
+
+for (const [operation,aspectRatio,size] of [['writer-avatar','1:1','1024x1024'],['thumbnail-render','16:9','1536x1024']]) test(operation+' GPT Image request excludes legacy response_format',async()=>{
+ const old=global.fetch;let request;global.fetch=async(url,options)=>{request={url,body:JSON.parse(options.body)};return{ok:true,json:async()=>({data:[{b64_json:png}]})};};
+ try{await require('../lib/providers/openai-image').generate({apiKey:'offline-test',model:'gpt-image-2',prompt:'offline fixture',aspectRatio});assert.equal(request.url,'https://api.openai.com/v1/images/generations');assert.deepEqual(request.body,{model:'gpt-image-2',prompt:'offline fixture',n:1,size,quality:'medium',output_format:'png'});assert.ok(!Object.hasOwn(request.body,'response_format'));}finally{global.fetch=old;}
+});
