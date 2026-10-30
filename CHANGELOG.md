@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased - publication-safe Stories
+
+- Validate article attachments atomically by tenant and publication eligibility; derive public counts and covers from eligible membership.
+- Keep story URLs stable and withhold summaries whose published-source snapshot no longer matches, while retaining editor text.
+- Make AI regeneration explicit, budget-checked and deduplicated with durable status, safe failure/retry guidance and no paid public reads.
+- Show per-story AI outcomes, retain unsaved edits, load all management pages and support narrow-screen drawers.
+
 ## Unreleased - editor assignments
 
 - Save source-free research briefs with topic, angle and writer; require supporting sources before drafting.

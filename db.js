@@ -2162,6 +2162,7 @@ async function initDb() {
   await require('./lib/jobs/schema').initJobSchema(p);
 
   await require('./lib/editor-assignment-schema').initAssignmentSchema(p);
+  await require('./lib/story-ai').initStoryAiSchema(p);
   _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;
