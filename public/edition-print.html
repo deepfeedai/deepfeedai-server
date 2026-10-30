@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <title>Newspaper edition | DeepFeedAI</title>
+  <link rel="stylesheet" href="/edition-print.css">
+  <script src="/edition-print.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#editionPaper">Skip to edition</a>
+  <header class="print-toolbar" aria-label="Edition controls">
+    <div><a id="editionBack" href="/editions.html">Back to editions</a><h1>Newspaper preview</h1></div>
+    <div class="print-actions"><button id="editionReload" type="button">Reload preview</button><button id="editionPrint" class="primary" type="button" disabled>Print / Save PDF</button></div>
+  </header>
+  <div class="print-guidance">
+    <p id="editionPrintSettings">Loading saved layout settings...</p>
+    <p>Preview is approximate. In your browser's print dialog, choose the matching paper size, 100% scale, and turn off browser headers and footers. Page breaks and margins depend on the browser and printer. Use Save as PDF to check your output first.</p>
+    <p>Printing does not publish articles. Downloaded and printed copies cannot be recalled if an article is later withdrawn.</p>
+  </div>
+  <p id="editionStatus" class="print-status" role="status" aria-live="polite">Loading edition...</p>
+  <main id="editionPaper" class="edition-paper" tabindex="-1" hidden></main>
+  <div id="editionWatermark" class="proof-watermark" aria-hidden="true" hidden>DRAFT</div>
+  <p id="editionPrintUnavailable" class="print-unavailable">This edition is not ready to print. Return to the preview and reload it.</p>
+  <noscript>This preview requires JavaScript to verify access and load the edition. No content is available without verification.</noscript>
+</body>
+</html>
