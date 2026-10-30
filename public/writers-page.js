@@ -951,10 +951,10 @@ async function createAiGenWriters() {
       created++;
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">&#10003;</span> <span><strong>' + esc(persona.name) + '</strong> created — generating avatar...</span>';
 
-      // Fire-and-forget avatar generation
+      // Track creation; portrait generation is an explicit paid action.
       if (savedWriter && savedWriter.id) {
         createdIds.push(savedWriter.id);
-        apiFetch('/admin/writers/' + savedWriter.id + '/generate-avatar', { method: 'POST' }).catch(function() {});
+        // Generate portraits explicitly from the writer detail page (paid request).
       }
     } catch (err) {
       failed++;

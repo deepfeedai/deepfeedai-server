@@ -260,66 +260,18 @@ router.post('/preview-voice', auth, requirePermission('writers.read'), asyncHand
 // POST /api/media/generate-image  { articleId }
 const { getVisualConcept, buildImagePrompt, storeImage, deleteImage, deleteAudio: deleteAudioHelper } = require('../lib/media-helpers');
 
-router.post('/generate-image', auth, requirePermission('media.create'), requireFeature('image_generation'), asyncHandler(async (req, res) => {
-  const imgStorageQuota = await checkPlanLimit(req.tenantId, 'storage');
-  if (!imgStorageQuota.allowed) {
-    return res.status(403).json({ error: 'Storage limit reached. Upgrade your plan for more space.', current: imgStorageQuota.current, max: imgStorageQuota.max });
-  }
-
-  const { articleId } = req.body;
-  if (!articleId) return res.status(400).json({ error: 'articleId required' });
-
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(articleId, req.tenantId);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
-  if (article.is_archived) return res.status(400).json({ error: 'Cannot generate image for archived article' });
-
+router.post('/generate-image', auth, requirePermission('media.create'), requireFeature('image_generation'), asyncHandler(async (req,res) => {
+  const articleId = Number(req.body.articleId);
+  if (!Number.isSafeInteger(articleId) || articleId < 1) return res.status(400).json({error:'Valid articleId required'});
+  const article = await db.prepare('SELECT id,is_archived FROM articles WHERE id=$1 AND tenant_id=$2').get(articleId,req.tenantId);
+  if (!article) return res.status(404).json({error:'Article not found'});
+  if (article.is_archived) return res.status(400).json({error:'Cannot generate image for archived article'});
   try {
-    // Clean up old image if replacing
-    await deleteImage(article.image_url, req.tenantId);
-
-    const category = article.category || '';
-
-    // Step 1: Get visual concept + style from Gemini
-    const visualResult = await getVisualConcept(article.title, article.summary, category, req.tenantId, 'manual');
-
-    // Step 2: Assemble full Imagen prompt
-    const fullPrompt = buildImagePrompt(visualResult, article.title);
-
-    console.log(`[ImageGen] Article ${articleId}: "${article.title}"`);
-    console.log(`[ImageGen] Visual concept: ${visualResult ? visualResult.concept : 'fallback'}`);
-    console.log(`[ImageGen] Full prompt: ${fullPrompt}`);
-
-    let imageResult;
-    try {
-      imageResult = await aiGenerateImage({
-        tenantId: req.tenantId,
-        prompt: fullPrompt,
-        operation: 'thumbnail-render',
-        aspectRatio: '16:9',
-        articleSlug: article.slug,
-        trigger: 'manual',
-      });
-    } catch (err) {
-      if (err.code === 'MISSING_KEY') {
-        return res.status(500).json({ error: 'Gemini/Imagen API key not configured — set it in Settings > Integrations or GEMINI_API_KEY env var' });
-      }
-      throw err;
-    }
-    const b64 = imageResult.b64;
-
-    const pngBuf  = Buffer.from(b64, 'base64');
-    const randHex  = require('crypto').randomBytes(8).toString('hex');
-    const filename = `img-${randHex}-${Date.now()}.png`;
-    const imageUrl = await storeImage(pngBuf, filename, req.tenantId);
-
-    await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(imageUrl, articleId, req.tenantId);
-
-    await logAudit(req, 'media.generate-image', 'article', articleId, { title: article.title });
-    res.json({ imageUrl, visualConcept: visualResult ? visualResult.concept : null, fullPrompt });
-  } catch (err) {
-    console.error('[Media] Image generation error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
+    const imageUrl = await require('../lib/media-helpers').regenerateArticleImage(articleId,req.tenantId);
+    if (!imageUrl) throw new Error('No image generated');
+    await logAudit(req,'media.generate-image','article',articleId);
+    res.json({imageUrl});
+  } catch(e) { res.status(502).json(require('../lib/image-errors').publicImageError(e)); }
 }));
 
 // POST /api/media/regenerate-local-images — find articles with local image paths and re-generate via R2

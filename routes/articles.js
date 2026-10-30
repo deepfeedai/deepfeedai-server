@@ -1594,26 +1594,19 @@ router.post('/regen-hero-image', require('../middleware/user-jwt'), userImageReg
   if (!article) return res.status(404).json({ error: 'Article not found' });
   if (article.is_archived) return res.status(400).json({ error: 'Cannot regenerate image for archived article' });
 
-  const adminRow = await db.prepare(
-    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
-  ).get(req.user.email, article.tenant_id);
-  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+  if (!await require('../lib/image-policy').canGenerateForUser(req.user.email,article.tenant_id)) return res.status(403).json({error:'Media creation permission required'});
 
-  const { generateAndStoreImage } = require('../lib/media-helpers');
 
-  // Clear existing image so generateAndStoreImage proceeds
-  await deleteImage(article.image_url, article.tenant_id);
-  await db.prepare('UPDATE articles SET image_url = NULL, updated_at = NOW() WHERE id = $1 AND tenant_id = $2')
-    .run(article.id, article.tenant_id);
+  try {
+    const imageUrl=await require('../lib/media-helpers').regenerateArticleImage(article.id,article.tenant_id);
+    if(!imageUrl) throw new Error('No image generated');
+    res.json({ok:true,image_url:imageUrl});
+  } catch(e) {res.status(502).json(require('../lib/image-errors').publicImageError(e));}
 
-  const imageUrl = await generateAndStoreImage(article.id, article.tenant_id);
-  if (!imageUrl) return res.status(500).json({ error: 'Image generation failed — check AI provider settings' });
-
-  res.json({ ok: true, image_url: imageUrl });
 }));
 
 // POST /api/admin/articles/:id/generate-inline-images — admin-initiated inline image generation
-// Only for original/deep-dive articles. Runs async; returns queued:true immediately.
+// Only for original/deep-dive articles. Returns synchronous per-image outcomes.
 router.post('/:id/generate-inline-images', auth, requirePermission('articles.write'), asyncHandler(async (req, res) => {
   const articleId = parseInt(req.params.id, 10);
   if (!articleId) return res.status(400).json({ error: 'Invalid article id' });
@@ -1627,20 +1620,15 @@ router.post('/:id/generate-inline-images', auth, requirePermission('articles.wri
     return res.status(400).json({ error: 'Inline images are only available for original and deep-dive articles' });
   }
 
-  // Clear existing so generateInlineImages bypasses the idempotency guard
-  await db.prepare('UPDATE articles SET inline_images = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
-    .run(JSON.stringify([]), articleId, req.tenantId);
+  try {
+    const result=await require('../lib/media-helpers').generateInlineImages(articleId,req.tenantId,{replace:true});
+    res.json({ok:true,...result});
+  } catch(e) {res.status(502).json(require('../lib/image-errors').publicImageError(e));}
 
-  const { generateInlineImages } = require('../lib/media-helpers');
-  setImmediate(() => generateInlineImages(articleId, req.tenantId).catch(err => {
-    console.error('[articles] generate-inline-images background error:', err.message);
-  }));
-
-  res.json({ ok: true, queued: true });
 }));
 
 // POST /api/articles/regen-inline-images?slug=<slug> — regenerate section images via public user JWT
-// Only works for original and deep-dive articles. Runs async; returns queued:true immediately.
+// Only works for original and deep-dive articles. Returns synchronous per-image outcomes.
 router.post('/regen-inline-images', require('../middleware/user-jwt'), userImageRegenLimiter, asyncHandler(async (req, res) => {
   const slug = req.query.slug;
   if (!slug) return res.status(400).json({ error: 'slug required' });
@@ -1652,22 +1640,14 @@ router.post('/regen-inline-images', require('../middleware/user-jwt'), userImage
     return res.status(400).json({ error: 'Inline images are only available for original and deep-dive articles' });
   }
 
-  const adminRow = await db.prepare(
-    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
-  ).get(req.user.email, article.tenant_id);
-  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
+  if (!await require('../lib/image-policy').canGenerateForUser(req.user.email,article.tenant_id)) return res.status(403).json({error:'Media creation permission required'});
 
-  // Clear existing inline images so generateInlineImages bypasses the idempotency guard
-  await db.prepare('UPDATE articles SET inline_images = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3')
-    .run(JSON.stringify([]), article.id, article.tenant_id);
 
-  // Fire generation async — multiple Imagen calls can take 30-60s
-  const { generateInlineImages } = require('../lib/media-helpers');
-  setImmediate(() => generateInlineImages(article.id, article.tenant_id).catch(err => {
-    console.error('[articles] regen-inline-images background error:', err.message);
-  }));
+  try {
+    const result=await require('../lib/media-helpers').generateInlineImages(article.id,article.tenant_id,{replace:true});
+    res.json({ok:true,...result});
+  } catch(e) {res.status(502).json(require('../lib/image-errors').publicImageError(e));}
 
-  res.json({ ok: true, queued: true });
 }));
 
 // POST /api/articles/regen-audio?slug=<slug> — regenerate TTS audio via public user JWT

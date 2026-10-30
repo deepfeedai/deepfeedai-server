@@ -1082,18 +1082,19 @@ let articles = [];
     });
     if (!ids.length) return;
     showAlert(`Generating images for ${ids.length} article(s)… this may take a while.`);
-    let done = 0, failed = 0;
+    const outcomes=[];
     for (const id of ids) {
       const cell = document.getElementById(`img-cell-${id}`);
       if (cell) cell.innerHTML = '<span class="badge badge-muted" style="font-size:10px;">⏳</span>';
       try {
         await apiFetch('/media/generate-image', { method: 'POST', body: JSON.stringify({ articleId: id }) });
-        done++;
-      } catch { failed++; }
+        outcomes.push({id,status:'ready'});
+      } catch { outcomes.push({id,status:'failed'}); }
       await new Promise(r => setTimeout(r, 500)); // small delay between calls
     }
     selectedIds.clear();
-    showAlert(`Images generated: ${done} ✓${failed ? `, ${failed} failed` : ''}`);
+    const summary=ImageOutcomes.summarize(outcomes);
+    showAlert(summary.text,summary.hasIssues?'error':'success');
     await loadArticles({ preservePage: true });
   }
 
@@ -1247,8 +1248,9 @@ let articles = [];
   async function genInlineImages(id) {
     try {
       showAlert('Queuing inline image generation…');
-      await apiFetch(`/articles/${id}/generate-inline-images`, { method: 'POST' });
-      showAlert('Inline images queued ✓', 'success');
+      const result=await apiFetch(`/articles/${id}/generate-inline-images`, { method: 'POST' });
+      const summary=ImageOutcomes.summarize(result.outcomes || []);
+      showAlert(summary.text,summary.hasIssues?'error':'success');
     } catch (err) {
       showAlert('Failed: ' + err.message, 'error');
     }

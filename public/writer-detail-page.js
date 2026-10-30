@@ -526,6 +526,7 @@
   };
 
   window.generateWriterAvatar = async function () {
+    if (!window.confirm("Generate a portrait using the configured image provider? This may incur charges.")) return;
     if (!writerData || !writerData.id) return;
     var btn = document.getElementById('generateAvatarBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }

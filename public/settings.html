@@ -439,7 +439,7 @@
             <div class="settings-card-icon">🖼️</div>
             <div>
               <div class="settings-card-title">Image Provider</div>
-              <div class="settings-card-subtitle">Choose Imagen or DALL-E for thumbnails and inline images, per operation</div>
+              <div class="settings-card-subtitle">Choose a separate image provider for articles and portraits. Text-provider settings do not apply here.</div>
             </div>
           </div>
           <div class="form-group">
@@ -447,11 +447,11 @@
             <div style="display:flex;gap:8px;">
               <select class="form-control" id="imgDefaultProvider" style="flex:1;">
                 <option value="imagen">Imagen (Google)</option>
-                <option value="dalle">DALL-E (OpenAI)</option>
+                <option value="openai-image">GPT Image (OpenAI)</option><option value="dalle">DALL-E (retired; choose a replacement)</option>
               </select>
               <select class="form-control" id="imgDefaultModel" style="flex:2;"></select>
             </div>
-            <p class="form-help">Used for any image operation without its own override. DALL-E requires an OpenAI API key configured below.</p>
+            <p class="form-help">Used for any image operation without its own override. GPT Image requires an OpenAI API key. Legacy DALL-E settings are retained but blocked until you explicitly save a supported replacement.</p>
           </div>
           <div class="form-group">
             <label class="form-label">Per-Operation Overrides</label>
@@ -460,14 +460,14 @@
               <select class="form-control" id="imgOpProvider-thumbnail-render">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-thumbnail-render"></select>
               <div style="font-size:13px;color:var(--text-muted);">Inline images</div>
               <select class="form-control" id="imgOpProvider-inline-image">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-inline-image"></select>
 
@@ -475,7 +475,7 @@
               <select class="form-control" id="imgOpProvider-writer-avatar">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-writer-avatar"></select>
 
@@ -483,7 +483,7 @@
               <select class="form-control" id="imgOpProvider-standalone-design">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-standalone-design"></select>
             </div>
