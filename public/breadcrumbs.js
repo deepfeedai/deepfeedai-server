@@ -25,20 +25,10 @@
     var esc = NK.esc;
     var el  = NK.el;
     var pathname = window.location.pathname;
+    if (!window.WorkflowNav.allowed(pathname+window.location.search)) return;
 
     // Resolve { group, item } from NAV_GROUPS
-    function resolveNav() {
-      var groups = window.NAV_GROUPS || [];
-      for (var i = 0; i < groups.length; i++) {
-        for (var j = 0; j < groups[i].items.length; j++) {
-          var it = groups[i].items[j];
-          if (pathname === it.href || (it.href === '/index.html' && pathname === '/')) {
-            return { group: groups[i].label, item: it.label, href: it.href };
-          }
-        }
-      }
-      return null;
-    }
+    function resolveNav() { var item=window.WorkflowNav.resolve(pathname+window.location.search);return item&&window.WorkflowNav.allowed(item)?{group:item.group,item:item.label,href:item.href}:null; }
 
     // Entity pages: pull a human label from the URL + API. Keep this list
     // small and intentional — over-enriching the topbar makes it noisy.
@@ -48,13 +38,13 @@
           var id = new URLSearchParams(location.search).get('id');
           if (!id) return null;
           var data = await apiFetch('/articles/' + id);
-          return { parent: { group: 'Content', item: 'Articles', href: '/articles.html' }, label: data?.title || ('Article #' + id) };
+          return { parent: { group: 'Publish', item: 'Articles', href: '/articles.html' }, label: data?.title || ('Article #' + id) };
         }
         if (pathname === '/preview.html') {
           var slug = new URLSearchParams(location.search).get('slug');
           if (!slug) return null;
           var d = await apiFetch('/articles/preview-by-slug?slug=' + encodeURIComponent(slug));
-          return { parent: { group: 'Content', item: 'Articles', href: '/articles.html' }, label: d?.title || slug };
+          return { parent: { group: 'Publish', item: 'Articles', href: '/articles.html' }, label: d?.title || slug };
         }
       } catch (_) { /* non-fatal — breadcrumbs degrade gracefully */ }
       return null;
@@ -82,11 +72,14 @@
         return; // nothing meaningful to show
       }
 
-      var wrap = el('div', { class: 'breadcrumbs', 'aria-label': 'Breadcrumb' });
+      var wrap = el('nav', { class: 'breadcrumbs', 'aria-label': 'Breadcrumb' });
+      crumbs.unshift({label:'Overview',href:'/overview.html'});
+      // Merge adjacent workflow/page labels; retain the final current-page crumb.
+      crumbs = crumbs.filter(function(c,i){return i===crumbs.length-1||c.label!==crumbs[i+1].label;});
       crumbs.forEach(function (c, i) {
         if (i > 0) wrap.appendChild(el('span', { class: 'breadcrumbs-sep' }, ['›']));
         if (c.href) {
-          wrap.appendChild(el('a', { class: 'breadcrumbs-link', href: c.href }, [c.label]));
+          wrap.appendChild(el('a', { class: 'breadcrumbs-link', href: c.href === '/articles.html' && window.WorkflowState ? window.WorkflowState.safeReturn(new URLSearchParams(location.search).get('return'),c.href) : c.href }, [c.label]));
         } else {
           var isLast = i === crumbs.length - 1;
           wrap.appendChild(el('span', { class: 'breadcrumbs-crumb' + (isLast ? ' current' : '') }, [c.label]));
@@ -115,6 +108,7 @@
       document.head.appendChild(s);
     })();
 
+    window.addEventListener('workflow:navigate',function(){var updated=resolveNav();if(updated)render(updated,null);});
     var nav = resolveNav();
     // Initial render with nav only; enrichment (entity name) comes async.
     if (nav) render(nav, null);

@@ -32,6 +32,7 @@
     var DEBOUNCE_MS = 180;
     var MAX_RESULTS = 40;
 
+    var previousFocus = null;
     var overlay = null;
     var input   = null;
     var list    = null;
@@ -55,7 +56,7 @@
         });
       });
       // Settings (footer) — also a page
-      out.push({ kind: 'page', label: 'Settings', group: 'Admin', href: '/settings.html', icon: '' });
+
       return out;
     }
 
@@ -100,6 +101,7 @@
       results.forEach(function (r, i) {
         var icon = r.icon || (r.kind === 'article' ? '📄' : r.kind === 'writer' ? '👤' : r.kind === 'recent' ? '⏱' : '→');
         var row = el('div', {
+          id:'cp-result-'+i,role:'option','aria-selected':String(i===selected),
           class: 'cp-row' + (i === selected ? ' selected' : ''),
           dataset: { index: String(i) },
           onclick: function () { selected = i; activate(); },
@@ -111,13 +113,14 @@
           + '<span class="cp-row-meta">' + esc(r.group || r.kind) + '</span>';
         list.appendChild(row);
       });
-      scrollSelectedIntoView();
+      highlightSelected();
     }
 
     function highlightSelected() {
       if (!list) return;
       var rows = list.querySelectorAll('.cp-row');
-      for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('selected', i === selected);
+      for (var i = 0; i < rows.length; i++) {rows[i].classList.toggle('selected', i === selected);rows[i].setAttribute('aria-selected',String(i===selected));}
+      if(results.length)input.setAttribute('aria-activedescendant','cp-result-'+selected);else input.removeAttribute('aria-activedescendant');
       scrollSelectedIntoView();
     }
 
@@ -133,7 +136,7 @@
       var items = pageItems();
 
       // Recent: always include at top when query is empty or matches
-      var recents = NK.getRecent().map(function (r) {
+      var recents = NK.getRecent().filter(r=>window.WorkflowNav.allowed(r.path)).map(function (r) {
         return { kind: 'recent', label: r.label, group: 'Recent', href: r.path, icon: '⏱' };
       });
 
@@ -165,6 +168,7 @@
       if (!query || query.length < 2) return [];
       var results = [];
       try {
+        if (!hasPermission('articles.read')) throw new Error('Unavailable');
         var data = await apiFetch('/articles?search=' + encodeURIComponent(query) + '&limit=6');
         if (token !== searchToken) return [];
         var articles = Array.isArray(data) ? data : (data.articles || []);
@@ -173,13 +177,14 @@
             kind: 'article',
             label: a.title || '(untitled)',
             group: [a.category, a.content_type].filter(Boolean).join(' · ') || 'Article',
-            href: '/article-editor.html?id=' + a.id,
+            href: (hasPermission('articles.update') ? '/article-editor.html?id=' : '/articles.html?tab=all&content_type=all&id=') + encodeURIComponent(a.id),
             icon: '📄',
           });
         });
       } catch (_) { /* swallow — offline or 403 */ }
       try {
-        var writers = await apiFetch('/writers');
+        if (!hasPermission('writers.read')) throw new Error('Unavailable');
+        var writers = await apiFetch('/admin/writers');
         if (token !== searchToken) return results;
         var ql = query.toLowerCase();
         (Array.isArray(writers) ? writers : []).forEach(function (w) {
@@ -188,7 +193,7 @@
             kind: 'writer',
             label: w.name,
             group: (w.beats || []).join(', ') || 'Writer',
-            href: '/writers.html?slug=' + (w.slug || ''),
+            href: '/writers.html?slug=' + encodeURIComponent(w.slug || ''),
             icon: '👤',
           });
         });
@@ -203,6 +208,7 @@
       renderResults();
 
       clearTimeout(debounceTimer);
+      ++searchToken;
       if (!q || q.length < 2) return;
       var myToken = ++searchToken;
       debounceTimer = setTimeout(async function () {
@@ -229,17 +235,17 @@
     function ensureOverlay() {
       if (overlay) return;
       overlay = el('div', { id: 'cpOverlay', class: 'cp-overlay', onclick: function (e) { if (e.target === overlay) close(); } });
-      var panel = el('div', { class: 'cp-panel', role: 'dialog', 'aria-label': 'Command palette' });
+      var panel = el('div', { class: 'cp-panel', role: 'dialog', 'aria-modal':'true', 'aria-label': 'Command palette' });
       var hint  = el('div', { class: 'cp-hint' }, ['↑↓ navigate · ↵ open · ' + (NK.isMac ? '⌘↵' : 'Ctrl+↵') + ' or ⇧↵ new tab · Esc close']);
       input = el('input', {
         class: 'cp-input',
-        type: 'text',
+        type: 'text',role:'combobox','aria-label':'Search pages, articles and writers','aria-autocomplete':'list','aria-controls':'cp-results','aria-expanded':'false',
         placeholder: 'Jump to page, article, writer…',
         autocomplete: 'off',
         autocorrect: 'off',
         spellcheck: 'false',
       });
-      list = el('div', { class: 'cp-list' });
+      list = el('div', { id:'cp-results',role:'listbox','aria-label':'Destinations',class: 'cp-list' });
 
       input.addEventListener('input', refresh);
       input.addEventListener('keydown', function (ev) {
@@ -252,6 +258,7 @@
           // mod+Enter OR shift+Enter → new tab
           activate(ev.metaKey || ev.ctrlKey || ev.shiftKey);
         }
+        else if (ev.key === 'Tab') { ev.preventDefault(); input.focus(); }
         else if (ev.key === 'Escape') { ev.preventDefault(); close(); }
       });
 
@@ -263,8 +270,10 @@
     }
 
     function open() {
+      previousFocus=document.activeElement;
       ensureOverlay();
       overlay.style.display = 'flex';
+      input.setAttribute('aria-expanded','true');
       input.value = '';
       refresh();
       setTimeout(function () { input.focus(); }, 10);
@@ -272,6 +281,9 @@
 
     function close() {
       if (overlay) overlay.style.display = 'none';
+      input?.setAttribute('aria-expanded','false');
+      clearTimeout(debounceTimer);++searchToken;
+      previousFocus?.focus?.();
     }
 
     // ── Styles ────────────────────────────────────────────

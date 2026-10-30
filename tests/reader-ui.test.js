@@ -7,9 +7,9 @@ const facets={folders:[],sources:[],categories:[],counts:{all:61,unread:60,saved
 test('Reader initializes the standard admin shell before loading its own panes and mobile navigation',async()=>{
  const calls=[],elements={};let ready,authorized=true;
  const c={onReady:fn=>ready=fn,requireAuth:()=>authorized,renderSidebar:()=>calls.push('sidebar'),store:null,apiFetch(){},render(){},allowed:()=>true,
-  createStore(){assert.deepEqual(calls,['sidebar']);return{load:async()=>calls.push('load')}},$:id=>elements[id]||(elements[id]=node()),document:{querySelectorAll:()=>[],addEventListener(){}},window:{},closeDialog(){},keyboard(){},folderDialog(){},manageFolder(){},moveDialog(){}};
- vm.createContext(c);vm.runInContext(source.slice(source.indexOf(' onReady(async()=>{'),source.lastIndexOf('\n})();')),c);
- authorized=false;await ready();assert.deepEqual(calls,[]);authorized=true;await ready();assert.deepEqual(calls,['sidebar','load']);
+  readerNav:{read:()=>({view:'saved',offset:'30',id:'7'}),restoreScroll:()=>calls.push('scroll')},readerNavReady:false,openArticle:async(id,markRead)=>calls.push(['open',id,markRead]),createStore(){assert.deepEqual(calls,['sidebar']);return{state:{filters:{},offset:0},load:async()=>calls.push('load')}},$:id=>elements[id]||(elements[id]=node()),document:{querySelectorAll:()=>[],addEventListener(){}},window:{},closeDialog(){},keyboard(){},folderDialog(){},manageFolder(){},moveDialog(){}};
+ vm.createContext(c);vm.runInContext(source.slice(source.indexOf(' function applyReaderNav('),source.indexOf(' let store,')),c);vm.runInContext(source.slice(source.indexOf(' onReady(async()=>{'),source.lastIndexOf('\n})();')),c);
+ authorized=false;await ready();assert.deepEqual(calls,[]);authorized=true;await ready();assert.deepEqual(calls,['sidebar','load',['open',7,false],'scroll']);assert.equal(c.store.state.filters.view,'saved');assert.equal(c.store.state.offset,30);assert.equal(c.readerNavReady,true);
  const html=fs.readFileSync(require.resolve('../public/feed-inbox.html'),'utf8');assert.ok(html.indexOf('/admin-mobile-nav.js')>html.indexOf('/feed-inbox-page.js'),'Mobile enhancer must run after Reader creates the standard sidebar');
 });
 test('Reader queries server filters and page counts without loading the whole collection',async()=>{
@@ -56,13 +56,13 @@ test('keyboard navigation ignores form typing and supports read/save/back withou
  const event=(key,editing=false)=>({key,target:{matches:()=>editing},preventDefault(){}});c.keyboard(event('j'));c.keyboard(event('s'));c.keyboard(event('u',true));c.keyboard(event('Escape'));assert.deepEqual(JSON.parse(JSON.stringify(actions)),[2,{saved:true},'back']);
 });
 test('actual assignment dialog saves a stable non-AI brief and appends sources without replacing existing attachments',async()=>{
- const fields={},calls=[],elements={readerDialog:{hidden:false},readerDialogStatus:node()};let action,fail=true;
+ const fields={},calls=[],elements={readerDialog:{hidden:false},readerDialogStatus:node(),readerNotice:node()};let action,fail=true;
  const c={document:{createElement:node},loadId:0,dialogBusy:false,crypto:{randomUUID:()=> 'stable-reader-request'},$:id=>elements[id],hasPermission:()=>true,openDialog:()=>node(),
   field(parent,label){const x=node();x.value='';x.reportValidity=()=>true;fields[label]=x;return x;},option(select,label,value){if(!select.value)select.value=String(value)},
   dialogActions(parent,label,fn){action=fn;return node()},closeDialog(){},notice(){},
   apiFetch:async(url,opts)=>{if(opts){calls.push({url,body:JSON.parse(opts.body)});if(fail)throw Error('Uncertain save');return{id:9};}if(url==='/categories')return[{name:'Research'}];if(url==='/admin/writers')return[{id:3,name:'Writer',role:'writer'}];return{assignments:[{id:9,topic:'Existing',status:'proposed'}]};}};
  vm.createContext(c);vm.runInContext(source.slice(source.indexOf(' const allowed='),source.indexOf(' const date=')),c);vm.runInContext(source.slice(source.indexOf(' async function assignmentDialog('),source.indexOf(' function maxwellDialog(')),c);
  await c.assignmentDialog([1,2]);fields.Topic.value='Research topic';fields['Editorial angle'].value='Verified angle';fields.Category.value='Research';fields.Writer.value='3';
- await assert.rejects(action(),/Uncertain/);assert.equal(fields.Topic.value,'Research topic');fail=false;await action();assert.equal(calls[0].body.request_key,calls[1].body.request_key);assert.deepEqual(calls[1].body.source_article_ids,[1,2]);assert.equal(calls[1].url,'/editor-assignments');
+ await assert.rejects(action(),/Uncertain/);assert.equal(fields.Topic.value,'Research topic');fail=false;await action();assert.equal(calls[0].body.request_key,calls[1].body.request_key);assert.deepEqual(calls[1].body.source_article_ids,[1,2]);assert.equal(calls[1].url,'/editor-assignments');assert.equal(elements.readerNotice.children.at(-1).href,'/pitches.html?tab=commissions#editorAssignments');assert.equal(elements.readerNotice.children.at(-1).tag,'a');
  fields.Action.value='existing';fields.Assignment.value='9';await action();assert.equal(calls[2].url,'/reader/assignments/9/sources');assert.deepEqual(calls[2].body,{source_article_ids:[1,2]});assert.ok(!calls.some(x=>/generate|chat|enrich/.test(x.url)));
 });

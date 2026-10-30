@@ -1,3 +1,5 @@
+/* Shared workflow styles belong to the initial blocking stylesheet, not a late script request. */
+@import url('/workflow-navigation.css');
 /* ===== Google Fonts — Inter (default) + skin font families ===== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600;700&family=Merriweather:wght@400;700&family=Open+Sans:wght@400;500;600&family=Playfair+Display:wght@600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');

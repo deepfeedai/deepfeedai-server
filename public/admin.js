@@ -76,7 +76,7 @@ function isLoggedIn() {
 
 function requireAuth() {
   if (!isLoggedIn()) {
-    window.location.href = '/login.html';
+    window.location.href = '/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
     return false;
   }
   return true;
@@ -84,7 +84,7 @@ function requireAuth() {
 
 function requireGuest() {
   if (isLoggedIn()) {
-    window.location.href = '/classic.html';
+    window.location.href = '/overview.html';
   }
 }
 
@@ -134,7 +134,7 @@ async function apiFetch(path, options = {}) {
 
   if (res.status === 401) {
     clearToken();
-    window.location.href = '/login.html';
+    window.location.href = '/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
     throw new Error('Unauthorized');
   }
 
@@ -178,7 +178,7 @@ function initModals() {
 }
 
 // ── Sidebar ───────────────────────────────────────────────
-const NAV_GROUPS = [
+const LEGACY_NAV_GROUPS = [
   { label: '', items: [
     { href: '/newsroom.html', label: '← Newsroom', icon: '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/></svg>' },
   ]},
@@ -214,6 +214,70 @@ const NAV_GROUPS = [
   ]},
 ];
 
+
+// Shared synchronous navigation catalog: presentation only; APIs remain authoritative.
+window.WorkflowNav = (function () {
+  const icon = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5h16v14H4zM4 9h16M9 9v10"/></svg>';
+  const old = LEGACY_NAV_GROUPS.flatMap(g => g.items);
+  const pages = [];
+  function add(group, href, label, permission, purpose, secondary, caution) {
+    const original = old.find(p => p.href === href.split('?')[0]);
+    pages.push({group,href,label,permissions:permission ? permission.split(',') : [],purpose,secondary:!!secondary,caution:caution || '',icon:original?.icon || icon,badgeId:original?.badgeId});
+  }
+  add('Overview','/overview.html','Overview','','See what needs attention and choose your next step.');
+  add('Overview','/newsroom-activity.html','Activity','articles.read','Review recent newsroom changes.');
+  add('Overview','/classic.html','Metrics dashboard','articles.read','Inspect existing newsroom totals and performance.',true);
+  add('Overview','/analytics.html','Analytics','analytics.read','Understand readership and content performance.',true);
+  add('Overview','/notifications.html','Notifications','','Read updates addressed to you.',true);
+  add('Discover','/feed-inbox.html','Reader','articles.read','Gather evidence, save useful sources, and hand them to an assignment.',false,'Reading, saving and organizing do not call AI. Enrichment and Maxwell chat are optional paid actions. Exact repeats are different from coverage groups.');
+  add('Discover','/sources.html','RSS Sources','sources.read','Organize subscriptions and import or export feed lists.',false,'Removal preserves imported articles. Clear all is publication-scoped and recoverable. Exports can contain private feed tokens; share them carefully. Fetching feeds does not enrich with AI.');
+  add('Discover','/discover.html','Web discovery','fetch.execute','Search external sources and import evidence.',true,'Importing evidence is separate from paid AI enrichment.');
+  add('Discover','/pipeline.html','Synthesis pipeline','articles.read','Inspect source clusters before explicitly drafting coverage.',true,'Generate is a paid action. A cluster is evidence, not a published article.');
+  add('Discover','/synthesis.html','Synthesis tools','articles.read','Review specialist synthesis controls.',true,'Generation can incur provider charges; inspect sources before running it.');
+  add('Discover','/story-board.html','Story Board','articles.read','Explore relationships between source coverage.',true);
+  add('Discover','/newsroom-feed.html','Newsroom feed','articles.read','Open the existing newsroom feed workspace.',true);
+  add('Editorial','/pitches.html','Pitches & assignments','articles.read','Evaluate ideas and prepare sourced assignments.',false,'Saving or approving an assignment does not generate a draft. Needs sources means attach evidence; Generate draft is a separate paid action. Drafting means check status, not submit again.');
+  add('Editorial','/articles.html?tab=drafts&content_type=editorial','Editorial drafts','articles.read','Develop drafts before review and publication.');
+  add('Editorial','/articles.html?tab=review','Awaiting review','articles.read','Check evidence, copy and images before deliberate publication.',true);
+  add('Editorial','/editorial.html','Editorial review','articles.read','Use the specialist editorial review workspace.',true);
+  add('Editorial','/budget.html','Runsheet','articles.read','Plan and review the publishing schedule.',true,'Approving and generating are distinct. Scheduled content is not yet published.');
+  add('Editorial','/briefs.html','Briefs','articles.read','Review editorial briefs and their next steps.',true);
+  add('Editorial','/newsroom-chat.html','Maxwell chat','articles.read','Discuss editorial work with Maxwell.',true,'Sending a chat message can use paid AI and propose actions. Review proposed actions before confirming.');
+  add('Editorial','/newsroom.html','Newsroom hub','articles.read','Open the existing specialist newsroom workspace.',true,'Chat and generation can incur provider charges.');
+  add('Editorial','/editorial-intelligence.html','Editorial intelligence','articles.read','Inspect candidates and editorial recommendations.',true,'Running intelligence can call paid AI. Viewing this navigation does not run it.');
+  add('Publish','/articles.html?tab=published','Published articles','articles.read','Review live coverage, corrections and unpublishing.');
+  add('Publish','/stories.html','Stories','articles.read','Curate ongoing timelines of published coverage.',false,'Stories are timelines, not assignments. AI summary generation is explicit and may incur charges. Draft articles do not belong in public coverage.');
+  add('Publish','/articles.html?tab=scheduled','Scheduled articles','articles.read','Inspect queued publications and their scheduled times.',true);
+  add('Publish','/articles.html','Article library','articles.read','Find editorial article records and their persisted status.',true,'Save is not Publish. Uploading an image requires Save Article to attach it. Publication and unpublishing affect readers.');
+  add('Publish','/newsletter.html','Newsletter','newsletter.send','Prepare and review newsletter editions.',true,'Sending contacts subscribers. AI suggestions may incur charges; neither happens by opening this page.');
+  add('Publish','/comments.html','Comments','comments.read','Review reader comments and moderation decisions.',true);
+  add('Publish','/banners.html','Banners','settings.read','Manage reader-facing notices.',true,'Saving active banners can change the public site.');
+  add('Manage','/writers.html','AI Team','writers.read','Configure writers and editorial responsibilities.',false,'Creating a profile is separate from optional paid portrait and writing generation.');
+  add('Manage','/writing-styles.html','Writing styles','','Maintain reusable editorial style guidance.');
+  add('Manage','/settings.html','Settings','settings.read','Configure this publication and its integrations.',false,'Provider tests may incur charges. Automation, credentials and destructive controls require deliberate review; help never changes them.');
+  add('Manage','/ai-usage.html','AI usage','analytics.read','Review recorded provider usage and costs.');
+  add('Manage','/audit.html','Logs','audit.read,analytics.read','Inspect recorded administrative events.',true);
+  add('Manage','/users.html','Users','users.read','Manage people with access to this publication.',true,'Changing roles or access affects what users can do.');
+  add('Manage','/roles.html','Roles','roles.read','Inspect role permissions and access boundaries.',true);
+  add('Manage','/wizard.html','Setup wizard','settings.update','Open the existing publication setup workflow.',true,'Review changes before applying setup.');
+  add('Manage','/deploy-wizard.html','Deployment wizard','settings.update','Open the existing deployment setup workflow.',true,'Deployment actions can change running infrastructure.');
+  add('Manage','/setup.html','Initial setup','settings.update','Open the existing initial setup entry point.',true);
+  const aliases = {'/article-editor.html':'/articles.html','/preview.html':'/articles.html','/writer-detail.html':'/writers.html','/':'/overview.html','/index.html':'/overview.html'};
+  function url(value) { try { if(typeof value!=='string'||!value.startsWith('/')||value.startsWith('//')||/[\\\u0000-\u0020]/.test(value))return null; const u=new URL(value,'https://navigation.invalid');return u.origin==='https://navigation.invalid'?u:null; }catch{return null;} }
+  function resolve(value) {
+    const u=url(value);if(!u)return null;
+    const pathname=aliases[u.pathname]||u.pathname;
+    const candidates=pages.filter(p=>p.href.split('?')[0]===pathname);
+    return candidates.find(p=>{const q=url(p.href).searchParams;return q.size>0&&Array.from(q).every(([k,v])=>u.searchParams.get(k)===v);})||candidates.find(p=>!p.href.includes('?'))||candidates[0]||null;
+  }
+  function allowed(value) { const p=typeof value==='string'?resolve(value):value; return !!p && p.permissions.every(hasPermission); }
+  function groups() { return ['Overview','Discover','Editorial','Publish','Manage'].map(label=>({label,items:pages.filter(p=>p.group===label&&allowed(p))})).filter(g=>g.items.length); }
+  function active(p,value) { return resolve(value)?.href===p.href; }
+  function scopedKey(name) { let claims={};try {claims=JSON.parse(atob(localStorage.getItem('deepfeedai_token').split('.')[1]));}catch{}return 'workflow.v1:'+encodeURIComponent(String(claims.tenantId??'none'))+':'+encodeURIComponent(String(claims.type??'guest'))+':'+encodeURIComponent(String(claims.sub??'none'))+':'+name; }
+  return {pages,resolve,allowed,groups,active,scopedKey};
+})();
+const NAV_GROUPS = window.WorkflowNav.groups();
+
 const LOGOUT_ICON = '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>';
 
 // Expose nav groups on window so downstream modules (command palette,
@@ -222,7 +286,7 @@ window.NAV_GROUPS = NAV_GROUPS;
 
 function renderSidebar() {
   const layout = document.querySelector('.admin-layout');
-  if (!layout) return;
+  if (!layout || document.getElementById('sidebar')) return;
 
   // Load navigation modules (keybindings, ?-cheatsheet, visit telemetry,
   // command palette, recent/pinned) exactly once per page. All admin pages
@@ -247,17 +311,17 @@ function renderSidebar() {
     document.head.appendChild(s);
   });
 
-  const pathname = window.location.pathname;
+  const pathname = window.location.pathname + window.location.search;
 
   // Collapsed state persisted per-group; active group always stays open
   let collapsedGroups;
-  try { collapsedGroups = new Set(JSON.parse(localStorage.getItem('dfa_nav_collapsed') || '[]')); }
+  try { collapsedGroups = new Set(JSON.parse(localStorage.getItem(window.WorkflowNav.scopedKey('collapsed')) || '[]')); }
   catch (e) { collapsedGroups = new Set(); }
 
   let activeGroupKey = null;
   NAV_GROUPS.forEach(function(group) {
     group.items.forEach(function(item) {
-      if (pathname === item.href || (item.href === '/index.html' && pathname === '/')) {
+      if (window.WorkflowNav.active(item, pathname)) {
         activeGroupKey = group.label.toLowerCase().replace(/\s+/g, '-');
       }
     });
@@ -269,28 +333,26 @@ function renderSidebar() {
   NAV_GROUPS.forEach(group => {
     const groupKey = group.label.toLowerCase().replace(/\s+/g, '-');
     const isCollapsed = collapsedGroups.has(groupKey) && groupKey !== activeGroupKey;
-    navHtml += '<div class="nav-section' + (isCollapsed ? ' collapsed' : '') + '" data-nav-toggle="' + groupKey + '">' + group.label + CHEVRON + '</div>';
+    navHtml += '<button type="button" class="nav-section workflow-group' + (isCollapsed ? ' collapsed' : '') + '" aria-expanded="' + !isCollapsed + '" data-nav-toggle="' + groupKey + '">' + group.label + CHEVRON + '</button>';
     navHtml += '<div class="nav-group' + (isCollapsed ? ' collapsed' : '') + '" data-nav-group="' + groupKey + '">';
-    group.items.forEach(item => {
-      const active = pathname === item.href || (item.href === '/index.html' && pathname === '/') ? ' active' : '';
+    let secondaryOpen=false;
+    group.items.slice().sort((a,b)=>Number(a.secondary)-Number(b.secondary)).forEach(item => {
+      if(item.secondary&&!secondaryOpen){secondaryOpen=true;const show=group.items.some(p=>p.secondary&&window.WorkflowNav.active(p,pathname));navHtml+='<details class="workflow-tools"'+(show?' open':'')+'><summary>More '+group.label.toLowerCase()+' tools</summary>';}
+      const active = window.WorkflowNav.active(item, pathname) ? ' active' : '';
       const badge = item.badgeId ? '<span class="nav-count" id="navBadge-' + item.badgeId + '" style="display:none"></span>' : '';
-      navHtml += '<a class="nav-link' + active + '" href="' + item.href + '">' + item.icon + ' ' + item.label + badge + '</a>';
+      navHtml += '<a '+(active?'aria-current="page" ':'')+'class="nav-link' + active + '" href="' + item.href + '">' + item.icon + ' ' + item.label + badge + '</a>';
     });
+    if (secondaryOpen) navHtml += '</details>';
     navHtml += '</div>';
   });
 
   // Default logo — will be updated from site config
   const defaultLogo = '\u{1F916} Deep Feed<span>AI</span>';
 
-  const settingsActive = pathname === '/settings.html' ? ' active' : '';
-  const settingsLink = '<a class="nav-link' + settingsActive + '" href="/settings.html">'
-    + '<svg class="icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>'
-    + ' Settings</a>';
-
   const sidebarHtml = '<aside class="sidebar" id="sidebar">'
     + '<div class="sidebar-header"><div class="sidebar-logo" id="sidebarLogo">' + defaultLogo + '</div></div>'
     + '<nav class="sidebar-nav">' + navHtml + '</nav>'
-    + '<div class="sidebar-footer"><div id="tenantSwitcher"></div>' + settingsLink + '<button class="nav-link" data-logout>' + LOGOUT_ICON + ' Logout</button></div>'
+    + '<div class="sidebar-footer"><div id="tenantSwitcher"></div>' + '' + '<button class="nav-link" data-logout>' + LOGOUT_ICON + ' Logout</button></div>'
     + '</aside>'
     + '<div class="sidebar-overlay" id="sidebarOverlay"></div>';
 
@@ -307,7 +369,7 @@ function renderSidebar() {
   const activeItem = (function findActive() {
     for (const group of NAV_GROUPS) {
       for (const item of group.items) {
-        if (pathname === item.href || (item.href === '/index.html' && pathname === '/')) return item;
+        if (window.WorkflowNav.active(item, pathname)) return item;
       }
     }
     return null;
@@ -315,7 +377,7 @@ function renderSidebar() {
   const trackLabel = activeItem ? activeItem.label : (document.title || pathname);
   (function track(tries) {
     if (window.NavKit && typeof window.NavKit.trackVisit === 'function') {
-      window.NavKit.trackVisit(pathname, trackLabel);
+      if (window.WorkflowNav.allowed(pathname)) window.NavKit.trackVisit(window.WorkflowNav.resolve(pathname).href, trackLabel);
     } else if (tries < 40) {
       setTimeout(function () { track(tries + 1); }, 50);
     }
@@ -360,7 +422,7 @@ function renderSidebar() {
 
   // Inject settings gear + refresh button into topbar
   var topbarEl = document.querySelector('.topbar');
-  if (topbarEl && !topbarEl.querySelector('.topbar-settings-link')) {
+  if (topbarEl && !topbarEl.querySelector('#topbarRefreshBtn')) {
     var settingsGearLink = document.createElement('a');
     settingsGearLink.href = '/settings.html';
     settingsGearLink.className = 'topbar-settings-link';
@@ -392,15 +454,16 @@ function renderSidebar() {
     var userSpan = document.getElementById('topbarUser');
     if (userSpan) {
       topbarEl.insertBefore(refreshBtn, userSpan);
-      topbarEl.insertBefore(settingsGearLink, userSpan);
+      if (window.WorkflowNav.allowed('/settings.html')) topbarEl.insertBefore(settingsGearLink, userSpan);
     } else {
       topbarEl.appendChild(refreshBtn);
-      topbarEl.appendChild(settingsGearLink);
+      if (window.WorkflowNav.allowed('/settings.html')) topbarEl.appendChild(settingsGearLink);
     }
   }
 
   // Inject credit widget into topbar
   renderCreditWidget();
+  window.WorkflowHelp?.boot();
 }
 
 // ── Credit widget (topbar donut ring) ────────────────────
@@ -527,10 +590,11 @@ function initNavCollapse() {
       const isNowCollapsed = group.classList.toggle('collapsed');
       toggle.classList.toggle('collapsed', isNowCollapsed);
       let collapsed;
-      try { collapsed = new Set(JSON.parse(localStorage.getItem('dfa_nav_collapsed') || '[]')); }
+      try { collapsed = new Set(JSON.parse(localStorage.getItem(window.WorkflowNav.scopedKey('collapsed')) || '[]')); }
       catch (e) { collapsed = new Set(); }
       if (isNowCollapsed) collapsed.add(key); else collapsed.delete(key);
-      localStorage.setItem('dfa_nav_collapsed', JSON.stringify([...collapsed]));
+      try { localStorage.setItem(window.WorkflowNav.scopedKey('collapsed'), JSON.stringify([...collapsed])); } catch (_) {}
+      toggle.setAttribute('aria-expanded', String(!isNowCollapsed));
     });
   });
 }
@@ -562,38 +626,15 @@ document.addEventListener('visibilitychange', function() {
 });
 
 function initSidebar() {
-  const hamburger = document.getElementById('hamburger');
-  const sidebar   = document.getElementById('sidebar');
-  const overlay   = document.getElementById('sidebarOverlay');
-
-  if (!hamburger || !sidebar) return;
-
-  function toggleSidebar() {
-    sidebar.classList.toggle('open');
-    overlay.classList.toggle('open');
-  }
-
-  function closeSidebar() {
-    sidebar.classList.remove('open');
-    overlay.classList.remove('open');
-  }
-
-  // Guard against double-binding when admin-mobile-nav.js also runs
-  if (!hamburger.dataset.mobileNavWired) {
-    hamburger.dataset.mobileNavWired = '1';
-    hamburger.addEventListener('click', toggleSidebar);
-  }
-  if (!overlay.dataset.mobileNavWired) {
-    overlay.dataset.mobileNavWired = '1';
-    overlay.addEventListener('click', closeSidebar);
-  }
-
-  // Close sidebar on nav link click (mobile)
-  sidebar.querySelectorAll('.nav-link').forEach(link => {
-    link.addEventListener('click', () => {
-      if (window.innerWidth < 768) closeSidebar();
-    });
-  });
+  const hamburger=document.getElementById('hamburger'),sidebar=document.getElementById('sidebar'),overlay=document.getElementById('sidebarOverlay');
+  if(!hamburger||!sidebar||!overlay||hamburger.dataset.mobileNavWired)return;
+  hamburger.dataset.mobileNavWired='1';overlay.dataset.mobileNavWired='1';hamburger.setAttribute('aria-controls','sidebar');hamburger.setAttribute('aria-expanded','false');hamburger.setAttribute('aria-label','Open navigation');
+  function close(returnFocus) {sidebar.classList.remove('open');overlay.classList.remove('open');hamburger.setAttribute('aria-expanded','false');if(returnFocus)hamburger.focus();}
+  function toggle(){if(sidebar.classList.contains('open'))return close(true);sidebar.classList.add('open');overlay.classList.add('open');hamburger.setAttribute('aria-expanded','true');sidebar.querySelector('a,button,summary')?.focus();}
+  hamburger.addEventListener('click',toggle);overlay.addEventListener('click',()=>close(true));
+  sidebar.addEventListener('click',e=>{if(e.target.closest('a')&&window.innerWidth<768)close(false);});
+  document.addEventListener('keydown',e=>{if(window.innerWidth>=768||!sidebar.classList.contains('open'))return;if(e.key==='Escape'){e.preventDefault();close(true);}if(e.key==='Tab'){const nodes=Array.from(sidebar.querySelectorAll('a,button,summary,[tabindex="0"]')).filter(n=>n.getClientRects().length&&!n.disabled);const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&(document.activeElement===first||!sidebar.contains(document.activeElement))){e.preventDefault();last?.focus();}else if(!e.shiftKey&&(document.activeElement===last||!sidebar.contains(document.activeElement))){e.preventDefault();first?.focus();}}});
+  window.addEventListener('resize',()=>{if(window.innerWidth>=768)close(false);});
 }
 
 // ── Tenant switcher ──────────────────────────────────────
@@ -904,3 +945,70 @@ if (location.pathname === '/article-editor.html') {
   statusScript.src = '/publication-status.js';
   document.head.appendChild(statusScript);
 }
+
+// Shared allowlisted list navigation state (source: navigation-state.js).
+(function(root,factory){const api=factory(root);if(typeof module==='object'&&module.exports)module.exports=api;else root.WorkflowState=api;})(typeof window==='undefined'?globalThis:window,function(root){
+'use strict';
+function safeReturn(value,fallback='/articles.html'){try{if(typeof value!=='string'||!value.startsWith('/')||value.startsWith('//')||/[\\\u0000-\u0020]/.test(value))return fallback;const u=new URL(value,'https://admin.invalid');return u.origin==='https://admin.invalid'&&/^\/[a-z0-9-]+\.html$/.test(u.pathname)?u.pathname+u.search+u.hash:fallback;}catch{return fallback;}}
+function parse(schema,search){const params=new URLSearchParams(search);const out={};for(const[key,rule]of Object.entries(schema)){const value=params.get(key);if(value===null)continue;if(Array.isArray(rule)){if(rule.includes(value))out[key]=value;}else if(rule==='id'){if(/^[1-9]\d{0,9}$/.test(value))out[key]=value;}else if(rule==='number'){if(/^\d{1,7}$/.test(value))out[key]=value;}else if(value.length<=300)out[key]=value;}return out;}
+function notify(){if(root.dispatchEvent&&root.Event)root.dispatchEvent(new root.Event('workflow:navigate'));}
+function create(schema,restore){let restoring=false,lastUrl=root.location.pathname+root.location.search+root.location.hash;const read=()=>parse(schema,root.location.search);function saveScroll(){if(restoring)return;try{const panes={};for(const id of ['readerList','readerDetail']){const e=root.document?.getElementById(id);if(e)panes[id]=e.scrollTop;}root.history.replaceState({...root.history.state,workflowPanes:panes,workflowScroll:root.scrollY||0},'');}catch{}}
+function restoreScroll(){root.requestAnimationFrame(()=>{root.scrollTo(0,Number(root.history.state?.workflowScroll)||0);for(const[id,top]of Object.entries(root.history.state?.workflowPanes||{})){if(!['readerList','readerDetail'].includes(id))continue;const e=root.document?.getElementById(id);if(e)e.scrollTop=Number(top)||0;}});}
+function write(values,replace=false){if(restoring)return;const url=new URL(root.location.href);for(const key of Object.keys(schema)){const value=values[key];if(value===undefined||value===null||value==='')url.searchParams.delete(key);else url.searchParams.set(key,String(value));}if(url.href===root.location.href)return;saveScroll();root.history[replace?'replaceState':'pushState']({...root.history.state,workflowScroll:0},'',url.pathname+url.search+url.hash);lastUrl=url.pathname+url.search+url.hash;notify();}
+root.addEventListener('pagehide',saveScroll);root.addEventListener('scroll',saveScroll,{passive:true,capture:true});root.addEventListener('popstate',async()=>{restoring=true;try{const result=await restore(read());if(result===false){root.history.replaceState(root.history.state,'',lastUrl);return;}lastUrl=root.location.pathname+root.location.search+root.location.hash;restoreScroll();notify();}finally{restoring=false;}});return {read,write,restoreScroll,safeReturn};}
+return {safeReturn,parse,create};
+});
+
+// Update query-sensitive navigation after list history changes without replacing the shell.
+window.addEventListener('workflow:navigate', function () {
+  const current=location.pathname+location.search;
+  document.querySelectorAll('.sidebar-nav a.nav-link').forEach(link=>{const item=window.WorkflowNav.resolve(link.getAttribute('href'));const active=item&&window.WorkflowNav.active(item,current);link.classList.toggle('active',!!active);if(active){link.setAttribute('aria-current','page');const tools=link.closest('details');if(tools)tools.open=true;const group=link.closest('[data-nav-group]');if(group){group.classList.remove('collapsed');const toggle=document.querySelector('[data-nav-toggle="'+group.dataset.navGroup+'"]');if(toggle){toggle.classList.remove('collapsed');toggle.setAttribute('aria-expanded','true');}}}else link.removeAttribute('aria-current');});
+});
+
+// BEGIN synchronous workflow guidance
+(function () {
+  'use strict';
+  if(window.WorkflowHelp)return;
+  function node(tag, text, cls) { const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n; }
+  function boot() {
+    const nav=window.WorkflowNav;if(!nav)return;
+    const item=nav.resolve(location.pathname+location.search);if(!item||!nav.allowed(item))return;
+    const custom=document.querySelector('.nr-topbar-right');
+    const host=document.querySelector('.page-body, .page-content, .main-content, .settings-main')||custom;if(!host||document.getElementById('workflowPurpose'))return;
+    const wrap=node('section',null,'workflow-purpose');wrap.id='workflowPurpose';wrap.setAttribute('aria-label','Page guidance');
+    const copy=node('div',null,'workflow-purpose-copy');copy.append(node('span',item.group,'workflow-eyebrow'),node('p',item.purpose));wrap.append(copy);
+    const actions=node('div',null,'workflow-guidance-actions');const help=node('button','Help with this page','btn btn-outline');help.type='button';help.id='workflowHelpButton';help.setAttribute('aria-expanded','false');help.setAttribute('aria-controls','workflowHelpPanel');actions.append(help);
+    const candidates=nav.groups().find(g=>g.label===item.group)?.items||[];
+    const next=candidates.find(p=>p.href!==item.href&&!p.secondary);
+    if(next) {const a=node('a',next.label,'workflow-context-link');a.href=next.href;actions.append(a);}
+    wrap.append(actions);
+    if(custom&&host===custom){wrap.classList.add('workflow-custom-purpose');copy.hidden=true;const overview=node('a','Overview','workflow-context-link');overview.href='/overview.html';actions.prepend(overview);}
+    // Keep page's existing topbar and all actual create/publish controls intact.
+    const bar=host.querySelector(':scope > .topbar');if(bar)bar.after(wrap);else host.prepend(wrap);
+    const panel=node('section',null,'workflow-help');panel.id='workflowHelpPanel';panel.hidden=true;panel.setAttribute('aria-labelledby','workflowHelpTitle');
+    const title=node('h2','Help: '+item.label);title.id='workflowHelpTitle';panel.append(title,node('p',item.purpose));
+    const caution=item.caution||nav.resolve(location.pathname)?.caution;
+    if(caution)panel.append(node('p',caution,'workflow-caution'));
+    panel.append(node('p','These links only navigate. They do not generate, approve, publish, delete, send messages, or retry jobs. Your available actions still depend on permissions and enabled features.'));
+    const list=node('ul');candidates.filter(p=>p.href!==item.href).forEach(p=>{const li=node('li');const a=node('a',p.label);a.href=p.href;li.append(a,node('span',' — '+p.purpose));list.append(li);});panel.append(list);
+    const intro=node('a','Getting started checklist');intro.href='/overview.html?onboarding=show';panel.append(intro);
+    const close=node('button','Close help','btn btn-outline');close.type='button';panel.append(close);if(custom&&host===custom){panel.classList.add('workflow-custom-help');document.body.append(panel);}else wrap.after(panel);
+    function set(open){panel.hidden=!open;help.setAttribute('aria-expanded',String(open));if(open){title.tabIndex=-1;title.focus();}else help.focus();}
+    help.addEventListener('click',()=>set(panel.hidden));close.addEventListener('click',()=>set(false));panel.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();set(false);}});
+  }
+  window.addEventListener('workflow:navigate',function(){
+    const panel=document.getElementById('workflowHelpPanel'),wrap=document.getElementById('workflowPurpose');
+    const open=panel&&!panel.hidden;const focusOwned=!!(panel?.contains(document.activeElement)||wrap?.contains(document.activeElement));
+    panel?.remove();wrap?.remove();boot();
+    const replacement=document.getElementById('workflowHelpPanel'),button=document.getElementById('workflowHelpButton');
+    if(open&&replacement){replacement.hidden=false;button?.setAttribute('aria-expanded','true');}
+    if(focusOwned)button?.focus();
+  });
+  window.WorkflowHelp={boot};
+  // admin.js is parser-loaded after page markup; mount now, without a second request.
+  boot();
+  // Fallback for custom shells that load the shared script earlier.
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);
+})();
+
+// END synchronous workflow guidance

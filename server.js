@@ -358,6 +358,7 @@ app.use('/api/media',     aiLimiter, require('./routes/media'));
 app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     largeBodyParser, require('./routes/settings'));
 app.use('/api/reader/open', require('./routes/reader-entry'));
+app.use('/api/newsroom-overview', require('./routes/newsroom-overview'));
 app.use('/api/reader', require('./routes/reader'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));

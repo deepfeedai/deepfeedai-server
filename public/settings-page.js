@@ -3506,3 +3506,6 @@ let apiKeyVisible = false;
     }
     if (window.location.hash === '#billing') loadBilling();
   })();
+
+// Preserve Settings' internal navigation while reconnecting to the workflow shell.
+(function(){const link=document.querySelector('.settings-back-link');if(link){link.href='/overview.html';link.textContent='← Overview';}const script=document.createElement('script');script.src='/workflow-help.js';document.head.appendChild(script);})();

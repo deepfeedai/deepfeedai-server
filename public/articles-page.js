@@ -1,5 +1,6 @@
 let articles = [];
   let allArticles = []; // full list including archived
+  let allWorkflowArticles=[];
   let allVideos   = []; // separately fetched videos (content_type='video')
   let writersList = []; // cached writers for dropdown
   let deleteTargetId = null;
@@ -20,6 +21,24 @@ let articles = [];
   let artPage     = 1;
   let artPageSize = 25;
 
+  let articleNavReady=false;
+  const articleNav=window.WorkflowState?.create({tab:['all','published','drafts','review','scheduled','videos'],q:'text',content_type:['all','editorial','original','deep-dive'],page:'id',id:'id',status:['all','published','draft','archived'],category:'text',audio:['all','has-audio','no-audio','hidden'],date:['all','today','7d','30d'],writer:['all','assigned','unassigned'],writer_id:'id',sort:'text',dir:['asc','desc']},async v=>{restoreArticleNav(v);selectedIds.clear();applyFilters({preservePage:true});if(v.id)focusLinkedArticle(v.id);});
+  function restoreArticleNav(v){activeTab=v.tab||(['all','published','drafts','review','scheduled','videos'].includes(location.hash.slice(1))?location.hash.slice(1):'all');searchQuery=v.q||'';contentTypeFilter=v.content_type||'all';artPage=Number(v.page)||1;statusFilter=v.status||'all';categoryFilter=v.category||'all';audioFilter=v.audio||'all';dateFilter=v.date||'all';writerFilter=v.writer||'all';writerNameFilter=v.writer_id||'all';sortCol=['published_at','created_at','title','importance','category'].includes(v.sort)?v.sort:'published_at';sortDir=v.dir||'desc';for(const[id,value]of Object.entries({articleSearch:searchQuery,statusFilter,categoryFilter,audioFilter,dateFilter,writerFilter,contentTypeFilter,writerNameFilter})) {const e=document.getElementById(id);if(e)e.value=value;}document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));}
+  function saveArticleNav(){if(articleNavReady)articleNav?.write({tab:activeTab,q:searchQuery,content_type:contentTypeFilter,page:artPage,id:new URLSearchParams(location.search).get('id')||'',status:statusFilter,category:categoryFilter,audio:audioFilter,date:dateFilter,writer:writerFilter,writer_id:writerNameFilter==='all'?'':writerNameFilter,sort:sortCol,dir:sortDir});}
+  function focusLinkedArticle(id){
+    if(!/^[1-9]\d*$/.test(String(id)))return;
+    const target=allArticles.find(a=>String(a.id)===String(id));
+    if(!target){showAlert('This article is unavailable in the current publication.','info');return;}
+    if(!articles.some(a=>a.id===target.id)){
+      const tab=target.is_archived?'all':target.is_published?'published':target.status==='review'?'review':target.status==='scheduled'?'scheduled':target.content_type==='video'?'videos':'all';
+      restoreArticleNav({tab,status:target.is_archived?'archived':!target.is_published&&tab==='all'?'draft':'all'});
+      applyFilters({preservePage:true});
+    }
+    const index=articles.findIndex(a=>a.id===target.id);if(index<0)return;
+    artPage=Math.floor(index/artPageSize)+1;renderTable();
+    const row=document.getElementById('row-'+id);if(row){row.classList.add('kb-focus');row.scrollIntoView({block:'center',behavior:'smooth'});}
+  }
+  function articleEditorUrl(id){return '/article-editor.html?id='+id+'&return='+encodeURIComponent(location.pathname+location.search+location.hash);}
   function applyViewMode() {
     const desktop = document.querySelector('.articles-desktop');
     const mobile = document.querySelector('.articles-mobile');
@@ -85,26 +104,26 @@ let articles = [];
     }
     const draftCountEl = document.getElementById('draftCount');
     if (draftCountEl) {
-      const draftCount = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published)).length;
+      const draftCount = allArticles.filter(a => !a.is_archived && !a.is_published && ['original','deep-dive'].includes(a.content_type) && (a.status === 'draft' || !a.status)).length;
       draftCountEl.textContent = draftCount || '';
       draftCountEl.style.display = draftCount ? 'inline-flex' : 'none';
     }
     const reviewCountEl = document.getElementById('reviewCount');
     if (reviewCountEl) {
-      const reviewCount = allArticles.filter(a => a.status === 'review').length;
+      const reviewCount = allWorkflowArticles.filter(a => a.status === 'review' && !a.is_published && !a.is_archived).length;
       reviewCountEl.textContent = reviewCount || '';
       reviewCountEl.style.display = reviewCount ? 'inline-flex' : 'none';
     }
     const scheduledCountEl = document.getElementById('scheduledCount');
     if (scheduledCountEl) {
-      const scheduledCount = allArticles.filter(a => a.status === 'scheduled').length;
+      const scheduledCount = allWorkflowArticles.filter(a => a.status === 'scheduled' && !a.is_published && !a.is_archived).length;
       scheduledCountEl.textContent = scheduledCount || '';
       scheduledCountEl.style.display = scheduledCount ? 'inline-flex' : 'none';
     }
 
     // Scheduled tab — articles approved and waiting for drop window
     if (activeTab === 'scheduled') {
-      let filtered = allArticles.filter(a => a.status === 'scheduled');
+      let filtered = allWorkflowArticles.filter(a => a.status === 'scheduled' && !a.is_published && !a.is_archived);
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(a =>
@@ -150,7 +169,7 @@ let articles = [];
 
     // Review tab — show articles pending review
     if (activeTab === 'review') {
-      let filtered = allArticles.filter(a => a.status === 'review');
+      let filtered = allWorkflowArticles.filter(a => a.status === 'review' && !a.is_published && !a.is_archived);
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(a =>
@@ -173,7 +192,7 @@ let articles = [];
 
     // Drafts tab — override all other filters
     if (activeTab === 'drafts') {
-      let filtered = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published));
+      let filtered = allArticles.filter(a => !a.is_archived && !a.is_published && (a.status === 'draft' || !a.status) && ['original','deep-dive'].includes(a.content_type));
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         filtered = filtered.filter(a =>
@@ -227,7 +246,7 @@ let articles = [];
     } else if (statusFilter === 'archived') {
       filtered = allArticles.filter(a => a.is_archived);
     } else {
-      filtered = showArchived ? allArticles : allArticles.filter(a => !a.is_archived);
+      filtered = allArticles.filter(a => ['original','deep-dive'].includes(a.content_type) && (showArchived || !a.is_archived));
     }
 
     // 2. Full-text search on title + summary
@@ -280,7 +299,9 @@ let articles = [];
     }
 
     // 8. Content type filter (editorial formats only — curated articles are in Feed Inbox)
-    if (contentTypeFilter === 'original') {
+    if (contentTypeFilter === 'editorial') {
+      filtered = filtered.filter(a => ['original','deep-dive'].includes(a.content_type));
+    } else if (contentTypeFilter === 'original') {
       filtered = filtered.filter(a => a.content_type === 'original');
     } else if (contentTypeFilter === 'deep-dive') {
       filtered = filtered.filter(a => a.content_type === 'deep-dive');
@@ -334,6 +355,13 @@ let articles = [];
 
   const ROW_TOTAL_COLS = 12;
 
+  function articleCan(permission){return typeof hasPermission==='function'&&hasPermission(permission);}
+  const articleActionPermissions={startInlineEdit:'articles.update',setFeaturedPriority:'articles.update',restoreArticle:'articles.update',openPurge:'articles.delete',approveArticle:'articles.update',rejectArticle:'articles.update',submitForReview:'articles.update',forcePublishNow:'articles.update',togglePublish:'articles.update',generateImage:'media.create',generateAudio:'media.create',openEdit:'articles.update',regenerateArticle:'articles.update',genInlineImages:'articles.write',generateFollowups:'articles.update',generateTldr:'articles.update',openDelete:'articles.delete',toggleImportanceMenu:'articles.update',setImportance:'articles.update',unlockImportance:'articles.update',deleteAudio:'media.delete',toggleMedia:'media.create','window.location.href=articleEditorUrl':'articles.update'};
+  function articleControlAllowed(markup){const handler=markup.match(/on(?:click|change)="([^"\n]*)"/);if(!handler)return true;const action=handler[1].split('(')[0].trim();const permission=articleActionPermissions[action];return !permission||articleCan(permission);}
+  // These are our own generated controls, not user HTML. Backend authorization
+  // remains authoritative; remove unavailable actions before inserting the rows.
+  function filterArticleControls(html){return html.replace(/<(button|select)\b[^>]*>[\s\S]*?<\/\1>/g,node=>articleControlAllowed(node)?node:'').replace(/<span\b[^>]*>/g,tag=>articleControlAllowed(tag)?tag:tag.replace(/\s+onclick="[^"]*"/g,'').replace(/\s+title="[^"]*"/g,''));}
+  function gateArticleToolbar(){const permissions={addArticleBtn:'articles.create',writeArticleBtn:'articles.create',recategorizeAllBtn:'articles.update',purgeArticlesBtn:'articles.delete',bulkPublishBtn:'articles.update',bulkUnpublishBtn:'articles.update',bulkImagesBtn:'media.create',bulkRecategorizeBtn:'articles.update',bulkAssignWriterBtn:'articles.update',bulkDeleteBtn:'articles.update'};for(const[id,permission]of Object.entries(permissions)){const control=document.getElementById(id);if(control&&!articleCan(permission)){control.hidden=true;control.disabled=true;control.style.display='none';}}}
   function renderRowHtml(a) {
     const isArchived = !!a.is_archived;
     const rowClass = [
@@ -360,8 +388,8 @@ let articles = [];
           : `<span class="badge badge-muted td-editable-cat" onclick="startInlineEdit(${a.id},'category')" title="Click to change category">${escHtml(a.category || '—')}</span>`}
       </td>
       <td>${isArchived ? '<span class="badge badge-muted">Archived</span>'
-        : a.status === 'review' ? '<span class="badge badge-warning">In Review</span>'
-        : a.status === 'scheduled' ? `<span class="badge badge-accent">⏱ Scheduled</span>${a.publish_at ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;" title="${new Date(a.publish_at).toLocaleString()}">Drops ${relativeTime(a.publish_at)}</div>` : ''}`
+        : a.status === 'review' && !a.is_published && !a.is_archived ? '<span class="badge badge-warning">In Review</span>'
+        : a.status === 'scheduled' && !a.is_published && !a.is_archived ? `<span class="badge badge-accent">⏱ Scheduled</span>${a.publish_at ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;" title="${new Date(a.publish_at).toLocaleString()}">Drops ${relativeTime(a.publish_at)}</div>` : ''}`
         : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
       </td>
       <td class="td-importance">${renderImportanceCell(a)}</td>
@@ -400,19 +428,19 @@ let articles = [];
             <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
             <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
           ` : `
-            ${a.status === 'review' ? `
+            ${a.status === 'review' && !a.is_published && !a.is_archived ? `
               <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
               <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
             ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
               <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-            ` : a.status === 'scheduled' ? `
+            ` : a.status === 'scheduled' && !a.is_published && !a.is_archived ? `
               <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Force publish now (bypasses daily cap)" onclick="forcePublishNow(${a.id})">⚡ Publish Now</button>
             ` : ''}
             ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
             <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
             <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
-            ${hasPermission('articles.update') ? `<button class="btn btn-ghost btn-sm" title="Open Editor" onclick="window.location.href='/article-editor.html?id=${a.id}'">✍️ Editor</button>` : ''}
+            ${hasPermission('articles.update') ? `<button class="btn btn-ghost btn-sm" title="Open Editor" onclick="window.location.href=articleEditorUrl(${a.id})">✍️ Editor</button>` : ''}
             <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
             ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Regenerate from sources" onclick="regenerateArticle(${a.id})">🔄 Regen</button><button class="btn btn-ghost btn-sm" title="Generate inline images" onclick="genInlineImages(${a.id})">🖼 Inline</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
             ${(a.full_content || a.summary) ? `<button class="btn btn-ghost btn-sm" title="${a.followups ? 'Regenerate follow-ups' : 'Generate follow-ups'}" onclick="generateFollowups(${a.id})">💬 ${a.followups ? 'Redo' : ''} Q&A</button>` : ''}
@@ -424,7 +452,7 @@ let articles = [];
       </td>
     </tr>`;
 
-    return row1 + row2;
+    return filterArticleControls(row1 + row2);
   }
 
   function renderCardHtml(a) {
@@ -435,7 +463,7 @@ let articles = [];
       selectedIds.has(a.id) ? 'card-selected' : '',
       isArchived ? 'card-archived' : ''
     ].filter(Boolean).join(' ');
-    return `
+    return filterArticleControls(`
     <div class="${cardClass}" id="mcard-${a.id}">
       <div class="article-card-header">
         <input type="checkbox" class="card-check" data-id="${a.id}" ${selectedIds.has(a.id) ? 'checked' : ''} />
@@ -444,9 +472,9 @@ let articles = [];
       <div class="article-card-meta">
         ${isArchived
           ? '<span class="badge badge-archived">Archived</span>'
-          : a.status === 'review'
+          : a.status === 'review' && !a.is_published && !a.is_archived
             ? '<span class="badge badge-warning">In Review</span>'
-            : a.status === 'scheduled'
+            : a.status === 'scheduled' && !a.is_published && !a.is_archived
               ? `<span class="badge badge-accent">⏱ Scheduled</span>${a.publish_at ? `<span class="text-muted text-sm" style="margin-left:6px;" title="${new Date(a.publish_at).toLocaleString()}">Drops ${relativeTime(a.publish_at)}</span>` : ''}`
               : `<span class="badge ${a.is_published ? 'badge-success' : 'badge-muted'}">${a.is_published ? 'Published' : 'Draft'}</span>`}
         <span class="badge badge-muted">${escHtml(a.category || 'Uncategorized')}</span>
@@ -460,26 +488,26 @@ let articles = [];
           <button class="btn btn-ghost btn-sm" title="Restore" onclick="restoreArticle(${a.id})">♻️ Restore</button>
           <button class="btn btn-ghost btn-sm" title="Permanently delete" onclick="openPurge(${a.id})">💀 Delete</button>
         ` : `
-          ${a.status === 'review' ? `
+          ${a.status === 'review' && !a.is_published && !a.is_archived ? `
             <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Approve" onclick="approveArticle(${a.id})">✓ Approve</button>
             <button class="btn btn-ghost btn-sm" title="Reject" onclick="rejectArticle(${a.id})">✗ Reject</button>
           ` : a.status === 'draft' || (!a.status && !a.is_published && !a.is_archived) ? `
             <button class="btn btn-sm" style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Submit for Review" onclick="submitForReview(${a.id})">📝 Review</button>
-          ` : a.status === 'scheduled' ? `
+          ` : a.status === 'scheduled' && !a.is_published && !a.is_archived ? `
             <button class="btn btn-sm" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;" title="Force publish now (bypasses daily cap)" onclick="forcePublishNow(${a.id})">⚡ Publish Now</button>
           ` : ''}
           ${a.is_published ? `<button class="btn btn-ghost btn-sm" title="Unpublish" onclick="togglePublish(${a.id})">⬇️ Unpublish</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('image_generation') ? 'Image generation not available on your plan' : a.image_url ? 'Regenerate image' : 'Generate image'}" onclick="generateImage(${a.id})" ${!isFeatureOn('image_generation') ? 'disabled' : ''}>🎨 Image</button>
           <button class="btn btn-ghost btn-sm" title="${!isFeatureOn('audio') ? 'Audio not available on your plan' : a.audio_url ? 'Regenerate audio' : 'Generate audio'}" onclick="generateAudio(${a.id})" ${!isFeatureOn('audio') ? 'disabled' : ''}>🎙️ Audio</button>
           <button class="btn btn-ghost btn-sm" title="Preview" onclick="previewArticle(${a.id})">👁 Preview</button>
-          <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href='/article-editor.html?id=${a.id}'">📝 Content</button>
+          <button class="btn btn-ghost btn-sm" title="Edit Content" onclick="window.location.href=articleEditorUrl(${a.id})">📝 Content</button>
           <button class="btn btn-ghost btn-sm" title="Edit" onclick="openEdit(${a.id})">✏️ Edit</button>
           ${(a.content_type === 'original' || a.content_type === 'deep-dive') ? `<button class="btn btn-ghost btn-sm" title="Generate inline images" onclick="genInlineImages(${a.id})">🖼 Inline</button><button class="btn btn-ghost btn-sm" title="View on Story Board" onclick="window.open('/story-board.html?articleId=${a.id}','_blank')">📊 Board</button>` : ''}
           <button class="btn btn-ghost btn-sm" title="Discuss with an agent" onclick="discussArticle(${a.id}, ${escHtml(JSON.stringify(a.title || ''))}, ${escHtml(JSON.stringify(a.category || ''))})">💬 Discuss</button>
           <button class="btn btn-ghost btn-sm" title="Archive" onclick="openDelete(${a.id})">🗑️ Archive</button>
         `}
       </div>
-    </div>`;
+    </div>`);
   }
 
   // ── Optimistic update helpers ──
@@ -507,13 +535,13 @@ let articles = [];
   function updateTabBadges() {
     const draftCountEl = document.getElementById('draftCount');
     if (draftCountEl) {
-      const c = allArticles.filter(a => a.status === 'draft' || (!a.status && !a.is_archived && !a.is_published)).length;
+      const c = allArticles.filter(a => !a.is_archived && !a.is_published && ['original','deep-dive'].includes(a.content_type) && (a.status === 'draft' || !a.status)).length;
       draftCountEl.textContent = c || '';
       draftCountEl.style.display = c ? 'inline-flex' : 'none';
     }
     const reviewCountEl = document.getElementById('reviewCount');
     if (reviewCountEl) {
-      const c = allArticles.filter(a => a.status === 'review').length;
+      const c = allWorkflowArticles.filter(a => a.status === 'review' && !a.is_published && !a.is_archived).length;
       reviewCountEl.textContent = c || '';
       reviewCountEl.style.display = c ? 'inline-flex' : 'none';
     }
@@ -589,6 +617,7 @@ let articles = [];
   }
 
   function renderTable() {
+    saveArticleNav();
     const tbody = document.getElementById('articlesBody');
     const mobileList = document.getElementById('articlesMobileList');
     if (articles.length === 0) {
@@ -639,6 +668,7 @@ let articles = [];
     const locked = !!a.importance_locked;
     const c = IMPORTANCE_COLORS[eff] || IMPORTANCE_COLORS.standard;
     const label = eff.charAt(0).toUpperCase() + eff.slice(1);
+    if(!articleCan('articles.update'))return '<span class="badge badge-muted">'+escHtml(label)+'</span>';
     const lockIcon = locked ? ' 🔒' : '';
     return `
       <div class="importance-cell" style="display:inline-flex;align-items:center;gap:4px;">
@@ -1498,7 +1528,7 @@ let articles = [];
         return all;
       }
 
-      [allArticles, allVideos] = await Promise.all([fetchAll('editorial'), fetchAll('video')]);
+      allArticles=await fetchAll('all');allWorkflowArticles=allArticles;allVideos=allArticles.filter(a=>a.content_type==='video');
       applyFilters({ preservePage });
     } catch (err) {
       showAlert('Failed to load articles: ' + err.message, 'error');
@@ -1885,6 +1915,7 @@ let articles = [];
   onReady(async () => {
     if (!requireAuth()) return;
     renderSidebar();
+    gateArticleToolbar();
     initModals();
 
     // Load feature flags so media buttons can be gated
@@ -2021,9 +2052,9 @@ let articles = [];
     });
 
     // Tab switching
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-btn[data-tab]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         activeTab = btn.dataset.tab;
         selectedIds.clear();
@@ -2099,30 +2130,15 @@ let articles = [];
       });
     }
 
-    await loadArticles();
+    const typeControl=document.getElementById('contentTypeFilter');if(typeControl&&!typeControl.querySelector('option[value=editorial]')){const opt=document.createElement('option');opt.value='editorial';opt.textContent='Editorial drafts';typeControl.appendChild(opt);}
+    restoreArticleNav(articleNav?.read()||{});
+    await loadArticles({preservePage:true});
+    articleNavReady=true;articleNav?.restoreScroll();gateArticleToolbar();
     window.pageRefresh = () => loadArticles({ preservePage: true });
 
     // Deep-link: ?id=X scrolls to and highlights a specific article row
     const deepLinkId = new URLSearchParams(window.location.search).get('id');
-    if (deepLinkId) {
-      const targetRow = document.getElementById('row-' + deepLinkId);
-      if (targetRow) {
-        targetRow.classList.add('kb-focus');
-        targetRow.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }
-    }
-
-    // Activate tab from URL hash (e.g. #review, #drafts)
-    const hashTab = location.hash.replace('#', '');
-    if (hashTab && ['all', 'published', 'drafts', 'review', 'videos'].includes(hashTab)) {
-      activeTab = hashTab;
-      document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.tab === hashTab);
-      });
-      const archivedWrap = document.getElementById('showArchivedWrap');
-      if (archivedWrap) archivedWrap.style.display = (hashTab === 'published' || hashTab === 'drafts' || hashTab === 'review' || hashTab === 'videos') ? 'none' : 'flex';
-      applyFilters();
-    }
+    if (deepLinkId) focusLinkedArticle(deepLinkId);
 
     // Build writer filter options dynamically (after loadArticles populates writersList)
     const writerSelect = document.getElementById('writerNameFilter');
@@ -2135,6 +2151,7 @@ let articles = [];
         writerSelect.appendChild(opt);
       });
       writerGroup.style.display = '';
+      writerSelect.value=writerNameFilter;
       writerSelect.addEventListener('change', e => {
         writerNameFilter = e.target.value;
         applyFilters();
@@ -2182,9 +2199,9 @@ let articles = [];
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
         setFocusedRow(ids[Math.max(idx - 1, 0)]);
-      } else if (e.key === 'e' && focusedRowId != null) {
+      } else if (e.key === 'e' && focusedRowId != null && articleCan('articles.update')) {
         openEdit(focusedRowId);
-      } else if (e.key === 'd' && focusedRowId != null) {
+      } else if (e.key === 'd' && focusedRowId != null && articleCan('articles.delete')) {
         openDelete(focusedRowId);
       }
     });

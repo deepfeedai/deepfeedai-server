@@ -7,8 +7,12 @@
  */
 
 onReady(async () => {
+  let returnStorage;
+  try { returnStorage = window.sessionStorage; } catch (_) { /* Private browsing may deny storage. */ }
+  LoginDestination.remember(window.location, returnStorage);
+  const destination = () => LoginDestination.consume(window.location, returnStorage);
   if (isLoggedIn()) {
-    window.location.replace('/classic.html');
+    window.location.replace(destination());
     return;
   }
 
@@ -152,7 +156,7 @@ onReady(async () => {
       if (!loginRes.ok) throw new Error(loginData.error || 'No site found for this account');
 
       localStorage.setItem('deepfeedai_token', loginData.token);
-      window.location.replace('/classic.html');
+      window.location.replace(destination());
     } catch (err) {
       showEmailError(err.message);
       emailLoginBtn.disabled = false;
@@ -190,7 +194,7 @@ onReady(async () => {
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       localStorage.setItem('deepfeedai_token', data.token);
-      window.location.href = '/classic.html';
+      window.location.href = destination();
     } catch (err) {
       showLocalError(err.message);
       localLoginBtn.disabled = false;
@@ -246,7 +250,7 @@ onReady(async () => {
       if (!loginRes.ok) throw new Error(loginData.error || 'Tenant login failed');
 
       localStorage.setItem('deepfeedai_token', loginData.token);
-      window.location.replace('/classic.html');
+      window.location.replace(destination());
     } catch (err) {
       showLoginError(err.message);
       googleBtn.disabled = false;
