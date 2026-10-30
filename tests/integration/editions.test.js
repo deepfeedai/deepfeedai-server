@@ -70,5 +70,20 @@ test('Newspaper edition real API lifecycle and privacy',{skip:process.env.PUBLIS
    assert.equal((await request('/'+foreign.id)).status,404);assert.equal((await request('/'+foreign.id+'/assets/'+f.foreignId)).status,404);
    assert.equal(f.state.calls,0);
   });
+  await t.test('real snapshot DTO labels summary-only excerpts and skips sanitized blank body fields',async()=>{
+   const cases=[
+    {full:null,body:null,summary:'Summary only',expected:'Summary only',kind:'excerpt'},
+    {full:'  <p> </p>  ',body:'<p>Actual authored body</p>',summary:'Short summary',expected:'Actual authored body',kind:'full'},
+    {full:'<script>discard()</script>',body:'\n  ',summary:'<p>Readable excerpt</p>',expected:'Readable excerpt',kind:'excerpt'},
+   ];
+   for(const [i,c] of cases.entries()){
+    const article=(await pool.query("INSERT INTO articles(tenant_id,title,full_content,content,summary,content_type,is_published,is_archived) VALUES(1,$1,$2,$3,$4,'original',1,0) RETURNING id",[prefix+' text-kind '+i,c.full,c.body,c.summary])).rows[0];
+    const created=await request('',{method:'POST',body:value([article.id])});assert.equal(created.status,201);
+    const snapshot=created.body.edition.articles[0];assert.equal(snapshot.content,c.expected);assert.equal(snapshot.text_kind,c.kind);
+    const read=await request('/'+created.body.edition.id);assert.equal(read.body.edition.articles[0].text_kind,c.kind);
+   }
+   const blank=(await pool.query("INSERT INTO articles(tenant_id,title,full_content,content,summary,content_type,is_published,is_archived) VALUES(1,$1,'<p> </p>',' ','<script>discard()</script>','original',1,0) RETURNING id",[prefix+' blank'])).rows[0];
+   const rejected=await request('',{method:'POST',body:value([blank.id])});assert.equal(rejected.status,400);assert.match(rejected.body.error,/readable article text/);assert.equal(f.state.calls,0);
+  });
  }finally{await f.close();if(oldMedia===undefined)delete process.env.STORAGE_LOCAL_DIR;else process.env.STORAGE_LOCAL_DIR=oldMedia;await fs.rm(media,{recursive:true,force:true});}
 });

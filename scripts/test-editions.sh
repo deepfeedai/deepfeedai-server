@@ -11,6 +11,7 @@ cleanup() {
   docker image rm "$image" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+# The acceptance Dockerfile-specific ignore file includes tests and excludes live data/config.
 # Downloads are dependency setup only. Test containers receive no provider credentials.
 docker build -t "$image" -f tests/acceptance/Dockerfile .
 docker image inspect pgvector/pgvector:pg16-bookworm >/dev/null 2>&1 || docker pull pgvector/pgvector:pg16-bookworm
