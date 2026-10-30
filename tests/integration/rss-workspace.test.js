@@ -55,6 +55,17 @@ test('RSS Sources actual APIs: imports, scoped recovery, provenance and concurre
    await pool.query('DELETE FROM articles WHERE tenant_id=$1 AND id=$2',[tenant,disposable.id]);
    const restored=await ingestItem(tenant,sources[0],{title:'Disposable',link:'https://publisher.example/'+prefix+'/disposable',guid:'owned-delete'},'Uncategorized');assert.ok(restored.inserted);assert.notEqual(restored.id,disposable.id);
   });
+  await t.test('migration-era URL conflicts do not let an existing GUID steal another article',async()=>{
+   const source=(await pool.query('SELECT * FROM sources WHERE tenant_id=$1 ORDER BY id',[tenant])).rows[0];
+   const legacyUrl='https://publisher.example/'+prefix+'/legacy-conflict';
+   const legacy=(await pool.query("INSERT INTO articles(tenant_id,title,source_url,content_type,is_published) VALUES($1,'Legacy target',$2,'curated',0) RETURNING id",[tenant,legacyUrl])).rows[0].id;
+   const before=await pool.query('SELECT * FROM rss_occurrences WHERE tenant_id=$1 ORDER BY source_id,occurrence_key',[tenant]);
+   const results=await Promise.all(Array.from({length:4},()=>ingestItem(tenant,source,{title:'Conflicting target',link:legacyUrl,guid:'guid-1'},'Uncategorized')));
+   assert.ok(results.every(r=>r.conflict===true&&!r.inserted));
+   assert.deepEqual((await pool.query('SELECT * FROM rss_occurrences WHERE tenant_id=$1 ORDER BY source_id,occurrence_key',[tenant])).rows,before.rows);
+   const independent=await ingestItem(tenant,source,{title:'Legacy target',link:legacyUrl,guid:'legacy-own-guid'},'Uncategorized');assert.equal(independent.id,legacy);
+   assert.notEqual(independent.id,firstArticle);
+  });
   await t.test('duplicate dry-run and reversible collapse never rewrite article references',async()=>{
    const alias=(await pool.query("INSERT INTO articles(tenant_id,title,source_url,content_type,is_published) SELECT tenant_id,'Legacy duplicate',source_url||'&utm_source=legacy','curated',0 FROM articles WHERE id=$1 RETURNING id",[firstArticle])).rows[0].id;
    const report=await request('/api/sources/duplicates');assert.equal(report.status,200);assert.ok(report.body.groups.some(g=>g.articles.some(a=>a.id===alias)));assert.equal(report.body.dry_run,true);
@@ -69,7 +80,13 @@ test('RSS Sources actual APIs: imports, scoped recovery, provenance and concurre
    const cleared=await request('/api/sources/clear',{confirmation:'CLEAR ALL SOURCES',exportAcknowledged:true});assert.equal(cleared.status,200);assert.equal(cleared.body.updated,2);
    assert.equal((await request('/api/sources?paged=1')).body.total,0);assert.equal((await request('/api/sources?paged=1&status=removed')).body.total,2);
    assert.equal(Number((await pool.query('SELECT COUNT(*) n FROM articles WHERE tenant_id=$1',[tenant])).rows[0].n),before);
-   assert.equal((await request('/api/sources/'+ids[0]+'/restore',{})).status,200);const restored=(await request('/api/sources?paged=1')).body.items[0];assert.equal(restored.is_active,0);
+   const restores=await Promise.all(Array.from({length:4},()=>request('/api/sources/'+ids[0]+'/restore',{})));assert.ok(restores.every(r=>r.status===200));assert.equal(restores.reduce((n,r)=>n+r.body.updated,0),1);
+   const restored=(await request('/api/sources?paged=1')).body.items[0];assert.equal(restored.is_active,0);
+   await request('/api/sources/bulk',{action:'resume',selection:{mode:'ids',ids:[ids[0]]}});
+   const mixed=await request('/api/sources/bulk',{action:'restore',selection:{mode:'ids',ids}});assert.equal(mixed.body.updated,1);assert.deepEqual(mixed.body.ids,[ids[1]]);
+   const repeat=await request('/api/sources/bulk',{action:'restore',selection:{mode:'ids',ids}});assert.equal(repeat.body.updated,0);
+   const current=(await request('/api/sources?paged=1')).body.items;assert.equal(current.find(s=>s.id===ids[0]).is_active,1);assert.equal(current.find(s=>s.id===ids[1]).is_active,0);
+   await request('/api/sources/bulk',{action:'remove',selection:{mode:'ids',ids:[ids[1]]},confirm:'REMOVE SELECTED'});
    assert.equal((await request('/api/sources/'+ids[0]+'?confirmed=true',null,'DELETE')).status,200);assert.equal((await request('/api/sources?paged=1&status=removed')).body.total,2);
    assert.equal(f.state.calls,0,'Reading, import, export and source actions must not call AI');
   });

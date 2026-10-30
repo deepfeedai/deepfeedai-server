@@ -83,6 +83,10 @@ previously imported articles between editorial folders.
 - Imports are limited to 500 entries and 500 KB of text. OPML uses a strict XML
   parser with document types/entities rejected and bounded nesting. No import
   preview fetches remote feeds; feed connectivity testing is a separate action.
+  Only the four POST import endpoints receive a 3,010,000-byte JSON wire limit,
+  allowing worst-case JSON escaping of 500,000 decoded bytes plus the envelope.
+  Decoded content (or serialized legacy source arrays) remains capped at 500,000
+  bytes; unrelated API routes retain the default 64 KB parser limit.
 - OPML preserves names, URLs and nested folders. It does not preserve platform
   priority, pause state, ingest limit or default category. JSON includes those
   selected source configuration fields. CSV is a readable export, not a supported

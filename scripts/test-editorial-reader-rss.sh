@@ -31,6 +31,6 @@ docker run --rm --name "$runner" --network "$network" --memory 1536m --cpus 1 \
   -e AUTOMATION_ENABLED=false -e DEPLOYMENT_MODE=multi \
   -e SETTINGS_ENCRYPTION_KEY=1111111111111111111111111111111111111111111111111111111111111111 \
   "$image" node -r tsx/cjs --test --test-concurrency=1 \
-  tests/rss-sources.test.js tests/reader-entry.test.js tests/reader-fetch.test.js \
+  tests/rss-sources.test.js tests/rss-body-parser.test.js tests/reader-entry.test.js tests/reader-fetch.test.js \
   tests/reader-ui.test.js tests/sources-ui.test.js \
   tests/integration/reader.test.js tests/integration/rss-workspace.test.js

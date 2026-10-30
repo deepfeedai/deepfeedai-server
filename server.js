@@ -190,6 +190,7 @@ const xlBodyParser    = express.json({ limit: '10mb' });
 // Apply larger limit to specific admin paths BEFORE the global parser
 app.use('/api/admin/writers', xlBodyParser);
 app.use('/api/synthesis', largeBodyParser);
+app.use(require('./lib/rss-body-parser').rssImportBodyParser());
 
 // Default: small limit for everything else (DoS mitigation)
 app.use(express.json({ limit: '64kb' }));
