@@ -2159,6 +2159,8 @@ async function initDb() {
   // billing_status tracks Stripe payment health: 'active' | 'payment_failed' | 'suspended'
   await p.query(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS billing_status TEXT NOT NULL DEFAULT 'active'`);
 
+  await require('./lib/jobs/schema').initJobSchema(p);
+
   _dbReady = true;
   console.log('✅ Postgres database initialized');
   return p;
