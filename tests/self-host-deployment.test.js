@@ -22,3 +22,16 @@ test('explicit verified database TLS requires certificate verification', () => {
   `], {cwd:path.join(__dirname,'..'),env:{...process.env,DATABASE_URL:'postgresql://test:dummy@database:5432/test',DATABASE_SSL:'verify-full'},encoding:'utf8'});
   assert.equal(child.status,0,child.stderr);
 });
+test('disabled automation blocks both scheduled and manual execution before database access',async()=>{
+  const previous=process.env.AUTOMATION_ENABLED;
+  process.env.AUTOMATION_ENABLED='false';
+  try {
+    const cron=require('../lib/cron-registry');
+    let ran=false;
+    cron.registerJob({name:'deployment-test',defaultSchedule:'* * * * *',handler:async()=>{ran=true;}});
+    await cron.startAll();
+    const result=await cron.runJob('deployment-test',1);
+    assert.match(result.skipped,/disabled/);
+    assert.equal(ran,false);
+  } finally {if(previous===undefined)delete process.env.AUTOMATION_ENABLED;else process.env.AUTOMATION_ENABLED=previous;}
+});

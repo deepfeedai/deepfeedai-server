@@ -1803,7 +1803,7 @@ db.init().then(async () => {
 
     // Auto-restore Telegram webhook on startup
     try {
-      const rows = await db.prepare(
+      const rows = process.env.AUTOMATION_ENABLED === 'false' ? [] : await db.prepare(
         "SELECT s.tenant_id, s.value AS url FROM settings s WHERE s.key = 'telegram_webhook_url' AND s.value IS NOT NULL AND s.value != ''"
       ).all();
       for (const row of rows) {
@@ -1818,7 +1818,7 @@ db.init().then(async () => {
     // Auto-connect Discord Gateway bots on startup
     try {
       const { startAllGateways } = require('./lib/messaging/discord-gateway');
-      await startAllGateways();
+      if (process.env.AUTOMATION_ENABLED !== 'false') await startAllGateways();
     } catch (err) {
       console.error('  [discord-gw] Gateway startup failed:', err.message);
     }
