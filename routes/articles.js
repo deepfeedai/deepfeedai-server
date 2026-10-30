@@ -2,6 +2,7 @@ const express                        = require('express');
 const router                         = express.Router();
 const rateLimit                      = require('express-rate-limit');
 const db                             = require('../db');
+const publication = require('../lib/publication');
 const { getPool }                    = require('../db');
 const { auth }                       = require('../middleware/auth');
 const { requirePermission }          = require('../middleware/permissions');
@@ -44,6 +45,10 @@ const userImageRegenLimiter = rateLimit({
   handler:         rateLimitHandler('user.img-regen'),
 });
 
+
+router.get('/:id/history',auth,requirePermission('articles.read'),asyncHandler(async(req,res)=>{
+ const rows=await db.prepare('SELECT revision,action,actor_id,before_state,after_state,created_at FROM article_publication_history WHERE article_id=$1 AND tenant_id=$2 ORDER BY id DESC LIMIT 50').all(req.params.id,req.tenantId);res.json({history:rows});
+}));
 
 // GET /api/articles
 router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
@@ -377,22 +382,7 @@ router.put('/:id/reschedule', auth, requirePermission('articles.update'), asyncH
   if (!action) return res.status(400).json({ error: 'action required: "now" or "window"' });
 
   if (action === 'now') {
-    const { evaluatePublish: _evalNow } = require('../lib/publish-gate');
-    const forceNow = req.body?.force_publish === true;
-    const nowGate  = await _evalNow(req.tenantId, { force: forceNow });
-    if (nowGate.action === 'cap_reached') {
-      return res.status(429).json({
-        error: `Daily publish cap reached (${nowGate.count}/${nowGate.cap})`,
-        hint:  'Pass force_publish: true to override',
-      });
-    }
-    const updated = await db.prepare(`
-      UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
-        publish_at = NULL, published_at = NOW(), updated_at = NOW()
-      WHERE id = $1 AND tenant_id = $2 RETURNING *
-    `).get(req.params.id, req.tenantId);
-    onArticlePublished(article.id, req.tenantId).catch(() => {});
-    logAudit(req, 'article.publish_now', 'article', parseInt(req.params.id), { title: article.title });
+    const updated = await publication.change(Number(req.params.id),req.tenantId,{published:true,force:req.body?.force_publish===true,expectedRevision:req.body?.expected_revision,userId:req.user?.sub});
     return res.json(updated);
   }
 
@@ -436,36 +426,12 @@ router.put('/bulk-action', auth, requirePermission('articles.update'), asyncHand
   const reviewer  = req.user?.sub || null;
 
   if (action === 'approve') {
-    const appCfg    = await getAppConfig(req.tenantId);
-    const scheduled = appCfg.publish_mode === 'scheduled';
-
-    if (scheduled) {
-      const tz        = appCfg.newsroom_timezone || 'UTC';
-      const fallback  = nextDropWindow(tz, appCfg.drop_windows).toISOString();
-      const vph4      = validIds.map((_, i) => `$${i + 4}`).join(', ');
-      // Preserve each article's seeded publish_at if it's still in the future;
-      // fall back to the next drop window for articles with no seeded time or a missed window.
-      await getPool().query(
-        `UPDATE articles
-         SET status = 'scheduled', is_published = 0, is_archived = 0,
-             reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW(),
-             publish_at = CASE
-               WHEN publish_at IS NOT NULL AND publish_at > NOW() THEN publish_at
-               ELSE $2::timestamptz
-             END
-         WHERE tenant_id = $3 AND id IN (${vph4})`,
-        [reviewer, fallback, req.tenantId, ...validIds]
-      );
-    } else {
-      await getPool().query(
-        `UPDATE articles
-         SET status = 'published', is_published = 1, is_archived = 0,
-             reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
-         WHERE tenant_id = $2 AND id IN (${vph})`,
-        [reviewer, req.tenantId, ...validIds]
-      );
-      for (const id of validIds) onArticlePublished(id, req.tenantId).catch(() => {});
+    const results=[];
+    for(const id of safeIds){
+      try{const article=await publication.change(id,req.tenantId,{published:true,approve:true,userId:reviewer});results.push({id,status:article.status,ok:true});}
+      catch(e){results.push({id,ok:false,error:e.status?e.message:'Publication failed; reload the article before retrying.'});}
     }
+    return res.json({processed:results.filter(r=>r.ok).length,skipped:results.filter(r=>!r.ok).length,results});
 
   } else if (action === 'reject-draft') {
     const vph2 = validIds.map((_, i) => `$${i + 2}`).join(', ');
@@ -642,6 +608,7 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
   const { title, summary, content, content_blocks, category, source, source_url,
           image_url, author, is_featured, featured_priority: fp, is_published, published_at } = body;
 
+  if(body.writer_id&&!await db.prepare("SELECT id FROM writers WHERE id=$1 AND tenant_id=$2 AND role='writer'").get(body.writer_id,req.tenantId))return res.status(400).json({error:'Select a writer from this workspace'});
   // Validate content_blocks if provided
   let blocksJson = null;
   let derivedContent = content || null;
@@ -662,13 +629,13 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
   }
 
   const { toSlug } = require('../lib/utils');
-  const pubVal = is_published !== undefined ? (is_published ? 1 : 0) : 1;
+  const pubVal = 0; // New articles are saved as drafts; publication is a separate action.
   const initStatus = pubVal ? 'published' : 'draft';
   const article = await db.prepare(`
     INSERT INTO articles
       (title, slug, summary, content, content_blocks, full_content, category, source, source_url, image_url, author,
-       is_featured, featured_priority, is_published, published_at, status, tenant_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       is_featured, featured_priority, is_published, published_at, status, tenant_id,writer_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,$18)
     RETURNING *
   `).get(
     title,
@@ -687,10 +654,10 @@ router.post('/', auth, requirePermission('articles.create'), asyncHandler(async 
     pubVal,
     published_at || new Date().toISOString(),
     initStatus,
-    req.tenantId
+    req.tenantId,body.writer_id||null
   );
   // Auto-assign best writer if none set
-  if (!article.writer_id) {
+  if (!article.writer_id && process.env.AUTOMATION_ENABLED!=='false' && !Object.hasOwn(body,'writer_id')) {
     findBestWriter({ id: article.id, title: article.title, summary: article.summary, category: article.category }, req.tenantId)
       .then(writer => {
         if (writer) db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, article.id, req.tenantId);
@@ -706,12 +673,15 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
   const existing = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
   if (!existing) return res.status(404).json({ error: 'Article not found' });
 
-  const body = validate(articleUpdate, req.body, res);
-  if (!body) return;
+  const validated = validate(articleUpdate, req.body, res);
+  if (!validated) return;
+  // Create defaults must not overwrite omitted fields during a partial correction.
+  const body = Object.fromEntries(Object.entries(validated).filter(([key]) => Object.hasOwn(req.body, key)));
 
   const { title, summary, content, content_blocks, category, source, source_url,
           image_url, author, is_featured, featured_priority, is_published, published_at, disable_summary } = body;
 
+  if(body.writer_id&&!await db.prepare("SELECT id FROM writers WHERE id=$1 AND tenant_id=$2 AND role='writer'").get(body.writer_id,req.tenantId))return res.status(400).json({error:'Select a writer from this workspace'});
   // Handle content_blocks: validate and derive full_content
   let blocksJson = undefined; // undefined = not sent, don't update
   let derivedFullContent = undefined;
@@ -730,36 +700,35 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
   const newFeatured = is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured;
   const newPriority = featured_priority !== undefined ? (featured_priority || null) : existing.featured_priority;
 
-  if (newFeatured) {
-    // If assigning a priority slot, evict whoever currently holds it
-    if (newPriority) {
-      await db.prepare(
-        'UPDATE articles SET is_featured = 0, featured_priority = NULL, updated_at = NOW() WHERE featured_priority = $1 AND id != $2 AND tenant_id = $3'
-      ).run(newPriority, req.params.id, req.tenantId);
-    }
-  }
-
   // Check raw body — Zod .default() fills is_published even when not sent
   const pubExplicit = req.body.is_published !== undefined;
   const newIsPublished = pubExplicit ? (is_published ? 1 : 0) : existing.is_published;
   // Only change status if is_published was explicitly sent AND actually changed
   const pubChanged = pubExplicit && newIsPublished !== existing.is_published;
+  if(pubChanged) return res.status(400).json({error:'Save edits first, then use the explicit Publish or Unpublish action.'});
+  const expectedRevision=req.body.expected_revision ?? existing.publication_revision;
+  if(!Number.isSafeInteger(expectedRevision)||expectedRevision!==existing.publication_revision)return res.status(409).json({error:'This article changed since it was opened. Reload before saving; your edits have not been applied.'});
   const newStatus = pubChanged ? (newIsPublished ? 'published' : 'draft') : (existing.status || 'draft');
 
   // Recompute slug when title changes
   const { toSlug } = require('../lib/utils');
   const newTitle = title !== undefined ? title : existing.title;
-  const newSlug = title !== undefined ? toSlug(title) : existing.slug;
+  const newSlug = existing.slug || toSlug(newTitle); // Corrections preserve reader URLs.
 
-  const updated = await db.prepare(`
+  const client=await getPool().connect();let updated;
+  try{
+   await client.query('BEGIN');
+   await client.query('SELECT pg_advisory_xact_lock(78241,$1)',[req.tenantId]);
+   const result = await client.query(`
     UPDATE articles SET
+      generated_title=CASE WHEN title IS DISTINCT FROM $1 THEN NULL ELSE generated_title END,
       title = $1, slug = $2, summary = $3, content = $4, category = $5, source = $6,
       source_url = $7, image_url = $8, author = $9, is_featured = $10,
       featured_priority = $11, is_published = $12, published_at = $13, status = $14,
-      content_blocks = $15, full_content = $16, disable_summary = $17, updated_at = NOW()
-    WHERE id = $18 AND tenant_id = $19
+      content_blocks = $15, full_content = $16, disable_summary = $17, writer_id=$21, publication_revision=publication_revision+1, updated_at = NOW()
+    WHERE id = $18 AND tenant_id = $19 AND publication_revision=$20
     RETURNING *
-  `).get(
+  `, [
     newTitle,
     newSlug,
     summary      !== undefined ? summary      : existing.summary,
@@ -775,11 +744,19 @@ router.put('/:id', auth, requirePermission('articles.update'), asyncHandler(asyn
     published_at !== undefined ? published_at : existing.published_at,
     newStatus,
     blocksJson !== undefined ? (blocksJson ? JSON.stringify(blocksJson) : null) : (existing.content_blocks || null),
-    derivedFullContent !== undefined ? derivedFullContent : (existing.full_content || null),
+    derivedFullContent !== undefined ? derivedFullContent : (content !== undefined ? content : (existing.full_content || null)),
     disable_summary !== undefined ? (disable_summary ? 1 : 0) : (existing.disable_summary || 0),
     req.params.id,
-    req.tenantId
-  );
+    req.tenantId, expectedRevision,body.writer_id!==undefined?body.writer_id:existing.writer_id
+  ]);
+  updated=result.rows[0];
+  if(!updated)throw Object.assign(new Error('Article changed while saving. Reload and review your edits.'),{status:409});
+  if(updated.is_published)await publication.validate(client,updated,req.tenantId);
+  if(newFeatured&&newPriority)await client.query('UPDATE articles SET is_featured=0,featured_priority=NULL,updated_at=NOW() WHERE featured_priority=$1 AND id!=$2 AND tenant_id=$3',[newPriority,updated.id,req.tenantId]);
+  await publication.history(client,req.tenantId,updated.id,'correction',req.user?.sub,existing,updated);
+  await client.query('COMMIT');
+  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+
   // Learn from manual category corrections
   if (category !== undefined && category !== existing.category && updated?.title) {
     learnFromCorrection(updated.title, category, req.tenantId).catch(() => {});
@@ -938,38 +915,10 @@ function syncStatusFields(status) {
   }
 }
 
-// PUT /api/articles/:id/publish (toggle — kept for backwards compat)
-router.put('/:id/publish', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
-
-  // Unpublish path — no gate needed
-  if (article.is_published) {
-    await db.prepare(
-      "UPDATE articles SET is_published = 0, is_archived = 0, status = 'draft', updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
-    ).run(req.params.id, req.tenantId);
-    logAudit(req, 'article.unpublish', 'article', parseInt(req.params.id));
-    return res.json({ id: article.id, is_published: 0, status: 'draft' });
-  }
-
-  // Publish path — check daily cap (force_publish bypasses it)
-  const { evaluatePublish } = require('../lib/publish-gate');
-  const force = req.body?.force_publish === true;
-  const gate  = await evaluatePublish(req.tenantId, { force });
-
-  if (gate.action === 'cap_reached') {
-    return res.status(429).json({
-      error: `Daily publish cap reached (${gate.count}/${gate.cap})`,
-      hint:  'Pass force_publish: true to override',
-    });
-  }
-
-  await db.prepare(
-    "UPDATE articles SET is_published = 1, is_archived = 0, status = 'published', published_at = NOW(), updated_at = NOW() WHERE id = $1 AND tenant_id = $2"
-  ).run(req.params.id, req.tenantId);
-  onArticlePublished(article.id, req.tenantId).catch(() => {});
-  logAudit(req, 'article.publish', 'article', parseInt(req.params.id));
-  res.json({ id: article.id, is_published: 1, status: 'published' });
+// Explicit desired state makes repeated requests safe.
+router.put('/:id/publish',auth,requirePermission('articles.update'),asyncHandler(async(req,res)=>{
+ const article=await publication.change(Number(req.params.id),req.tenantId,{published:req.body?.published,expectedRevision:req.body?.expected_revision,force:req.body?.force_publish===true,userId:req.user?.sub});
+ res.json(article);
 }));
 
 // PUT /api/articles/:id/submit-review
@@ -985,132 +934,10 @@ router.put('/:id/submit-review', auth, requirePermission('articles.update'), asy
   res.json(updated);
 }));
 
-// PUT /api/articles/:id/approve
-router.put('/:id/approve', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
-  if (article.status !== 'review') return res.status(400).json({ error: 'Only articles in review can be approved' });
-
-  const appCfg    = await getAppConfig(req.tenantId);
-  const scheduled = appCfg.publish_mode === 'scheduled';
-
-  let updated;
-  if (scheduled) {
-    const tz  = appCfg.newsroom_timezone || 'UTC';
-    // Use the slot-seeded publish_at if it's still in the future; otherwise roll to next window.
-    // This covers both budget-originated articles (seeded from slot.target_publish_at) and
-    // missed windows (article spent too long in review — quietly bumps to next available drop).
-    const seeded     = article.publish_at ? new Date(article.publish_at) : null;
-    const publishAt  = (seeded && seeded > new Date())
-      ? article.publish_at
-      : nextDropWindow(tz, appCfg.drop_windows).toISOString();
-    const wasMissed  = seeded && seeded <= new Date();
-    updated = await db.prepare(`
-      UPDATE articles SET status = 'scheduled', is_published = 0, is_archived = 0,
-        reviewed_by = $1, reviewed_at = NOW(), publish_at = $2, updated_at = NOW()
-      WHERE id = $3 AND tenant_id = $4 RETURNING *
-    `).get(req.user?.sub || null, publishAt, req.params.id, req.tenantId);
-    logAudit(req, 'article.approve_scheduled', 'article', parseInt(req.params.id), {
-      title: article.title, publish_at: publishAt, window_rolled: wasMissed || false,
-    });
-
-    setImmediate(() => {
-      (async () => {
-        try {
-          const { notify } = require('../lib/notifications');
-          const editors = await db.prepare(
-            `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
-          ).all(req.tenantId);
-          const dropLabel = new Date(publishAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
-          const body = wasMissed
-            ? `"${article.title}" approved — missed original window, rescheduled to ${dropLabel}.`
-            : `"${article.title}" approved — drops at ${dropLabel}.`;
-          for (const ed of editors) {
-            notify({
-              tenantId: req.tenantId,
-              userId:   ed.id,
-              kind:     wasMissed ? 'article_window_rolled' : 'article_scheduled',
-              title:    wasMissed ? 'Drop window rolled' : 'Article scheduled',
-              body,
-              payload:  { article_id: article.id, title: article.title, publish_at: publishAt, window_rolled: wasMissed || false },
-            }).catch(() => {});
-          }
-        } catch { /* non-fatal */ }
-      })();
-    });
-  } else {
-    // Continuous mode — check daily cap before publishing immediately
-    const { evaluatePublish: _evalPub } = require('../lib/publish-gate');
-    const forcePub = req.body?.force_publish === true;
-    const pubGate  = await _evalPub(req.tenantId, { force: forcePub, appCfg });
-
-    if (pubGate.action === 'cap_reached') {
-      // Cap hit — route to next drop window even though publish_mode is continuous
-      const tz       = appCfg.newsroom_timezone || 'UTC';
-      const publishAt = pubGate.scheduleAt.toISOString();
-      updated = await db.prepare(`
-        UPDATE articles SET status = 'scheduled', is_published = 0, is_archived = 0,
-          reviewed_by = $1, reviewed_at = NOW(), publish_at = $2, updated_at = NOW()
-        WHERE id = $3 AND tenant_id = $4 RETURNING *
-      `).get(req.user?.sub || null, publishAt, req.params.id, req.tenantId);
-      logAudit(req, 'article.approve_cap_scheduled', 'article', parseInt(req.params.id), {
-        title: article.title, publish_at: publishAt, cap: pubGate.cap, count: pubGate.count,
-      });
-
-      setImmediate(() => {
-        (async () => {
-          try {
-            const { notify } = require('../lib/notifications');
-            const editors = await db.prepare(
-              `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
-            ).all(req.tenantId);
-            const dropLabel = new Date(publishAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: appCfg.newsroom_timezone || 'UTC' });
-            for (const ed of editors) {
-              notify({
-                tenantId: req.tenantId,
-                userId:   ed.id,
-                kind:     'article_cap_scheduled',
-                title:    'Daily cap reached — article scheduled',
-                body:     `"${article.title}" approved but daily cap (${pubGate.count}/${pubGate.cap}) reached — drops at ${dropLabel}.`,
-                payload:  { article_id: article.id, title: article.title, publish_at: publishAt, cap: pubGate.cap },
-              }).catch(() => {});
-            }
-          } catch { /* non-fatal */ }
-        })();
-      });
-    } else {
-      updated = await db.prepare(`
-        UPDATE articles SET status = 'published', is_published = 1, is_archived = 0,
-          reviewed_by = $1, reviewed_at = NOW(), published_at = NOW(), updated_at = NOW()
-        WHERE id = $2 AND tenant_id = $3 RETURNING *
-      `).get(req.user?.sub || null, req.params.id, req.tenantId);
-      onArticlePublished(article.id, req.tenantId).catch(() => {});
-      logAudit(req, 'article.approve', 'article', parseInt(req.params.id), { title: article.title });
-
-      setImmediate(() => {
-        (async () => {
-          try {
-            const { notify } = require('../lib/notifications');
-            const editors = await db.prepare(
-              `SELECT id FROM users WHERE tenant_id = $1 AND is_active = 1 AND role IN ('owner','admin','editor','superadmin')`
-            ).all(req.tenantId);
-            for (const ed of editors) {
-              notify({
-                tenantId: req.tenantId,
-                userId:   ed.id,
-                kind:     'article_published',
-                title:    'Article published',
-                body:     `"${article.title}" was approved and published (score ${article.editorial_score ?? 'n/a'}).`,
-                payload:  { article_id: article.id, title: article.title, score: article.editorial_score ?? null },
-              }).catch(() => {});
-            }
-          } catch { /* non-fatal */ }
-        })();
-      });
-    }
-  }
-
-  res.json(updated);
+// Approval remains an explicit editorial action; scheduling is reflected in the result.
+router.put('/:id/approve',auth,requirePermission('articles.update'),asyncHandler(async(req,res)=>{
+ const article=await publication.change(Number(req.params.id),req.tenantId,{published:true,approve:true,expectedRevision:req.body?.expected_revision,force:req.body?.force_publish===true,userId:req.user?.sub});
+ res.json(article);
 }));
 
 // PUT /api/articles/:id/reject
@@ -1686,30 +1513,15 @@ router.post('/regen-audio', require('../middleware/user-jwt'), userImageRegenLim
 
 // POST /api/articles/quick-publish?slug= — toggle published status
 router.post('/quick-publish', require('../middleware/user-jwt'), asyncHandler(async (req, res) => {
-  const slug = req.query.slug;
-  if (!slug) return res.status(400).json({ error: 'slug required' });
-
-  const article = await db.prepare(
-    'SELECT id, tenant_id, title, is_published FROM articles WHERE slug = $1'
-  ).get(slug);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
-
-  const adminRow = await db.prepare(
-    'SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND tenant_id = $2 AND is_active = 1'
-  ).get(req.user.email, article.tenant_id);
-  if (!adminRow) return res.status(403).json({ error: 'Admin access required' });
-
-  const newPublished = article.is_published ? 0 : 1;
-  const newStatus    = newPublished ? 'published' : 'draft';
-  await db.prepare(
-    'UPDATE articles SET is_published = $1, is_archived = 0, status = $2, updated_at = NOW() WHERE id = $3 AND tenant_id = $4'
-  ).run(newPublished, newStatus, article.id, article.tenant_id);
-
-  if (newPublished) {
-    onArticlePublished(article.id, article.tenant_id).catch(() => {});
-  }
-
-  res.json({ ok: true, is_published: newPublished });
+  const article=await db.prepare('SELECT id FROM articles WHERE slug=$1 AND tenant_id=$2').get(req.query.slug,req.tenantId);
+  if(!article)return res.status(404).json({error:'Article not found'});
+  const admin=await db.prepare('SELECT id,role FROM users WHERE LOWER(email)=LOWER($1) AND tenant_id=$2 AND is_active=1').get(req.user.email,req.tenantId);
+  if(!admin)return res.status(403).json({error:'Admin access required'});
+  const role=await db.prepare('SELECT permissions FROM roles WHERE name=$1 AND tenant_id=$2').get(admin.role,req.tenantId);
+  let perms=role?.permissions||[];if(typeof perms==='string'){try{perms=JSON.parse(perms);}catch{perms=[];}}
+  if(admin.role!=='owner'&&!perms.some(p=>['*','articles.*','articles.update'].includes(p)))return res.status(403).json({error:'Insufficient permissions'});
+  const result=await publication.change(article.id,req.tenantId,{published:req.body?.published,expectedRevision:req.body?.expected_revision,userId:admin.id});
+  res.json({ok:true,is_published:result.is_published,publication_revision:result.publication_revision});
 }));
 
 // POST /api/articles/set-embed?slug= — attach or clear a YouTube video embed

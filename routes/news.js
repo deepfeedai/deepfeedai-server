@@ -13,6 +13,7 @@
 const express                              = require('express');
 const jwt                                  = require('jsonwebtoken');
 const router                               = express.Router();
+router.use((req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
 const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
@@ -110,10 +111,10 @@ router.get('/', asyncHandler(async (req, res) => {
     const devLimit = Math.min(parseInt(lim) || 20, 50);
     const devResult = await getPool().query(
       `SELECT a.id, a.title, a.summary, a.category, a.source, a.source_url,
-              a.image_url, a.editorial_score, a.created_at, a.slug, a.topic_tag
+              a.image_url, a.created_at, a.slug, a.topic_tag
        FROM articles a
        WHERE a.tenant_id = $1
-         AND a.is_published = 0
+         AND a.is_published = 1
          AND (a.is_archived = 0 OR a.is_archived IS NULL)
          AND (content_type IS NULL OR content_type NOT IN ('original', 'deep-dive'))
          AND a.created_at > NOW() - INTERVAL '48 hours'
@@ -232,7 +233,7 @@ router.get('/', asyncHandler(async (req, res) => {
                       w.avatar_url AS writer_avatar_url,
                       (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
                FROM articles a
-               LEFT JOIN writers w ON w.id = a.writer_id
+               LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
                ${whereClause}`;
 
   query += ` ORDER BY
@@ -249,7 +250,7 @@ router.get('/', asyncHandler(async (req, res) => {
   query += ` OFFSET $${params.length}`;
 
   // Run data query and count query in parallel
-  const countQuery = `SELECT COUNT(*) AS total FROM articles a LEFT JOIN writers w ON w.id = a.writer_id ${whereClause}`;
+  const countQuery = `SELECT COUNT(*) AS total FROM articles a LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id ${whereClause}`;
   const [result, countResult] = await Promise.all([
     getPool().query(query, params),
     getPool().query(countQuery, whereParams),
@@ -337,7 +338,7 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   const hasMore = offset + finalItems.length < totalCount;
-  res.json({ status: 'ok', items: finalItems, count: finalItems.length, totalCount, hasMore });
+  res.json({ status: 'ok', items: finalItems.map(require('../lib/public-article').article), count: finalItems.length, totalCount, hasMore });
 }));
 
 // GET /api/news/hot — top articles ranked by hot_score
@@ -383,7 +384,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
     .sort((a, b) => b.hot_score - a.hot_score)
     .slice(0, limit);
 
-  res.json({ status: 'ok', items: scored, count: scored.length });
+  res.json({ status: 'ok', items: scored.map(require('../lib/public-article').article), count: scored.length });
 }));
 
 // GET /api/news/updated-at — lightweight cache-bust timestamp for the main site
@@ -421,7 +422,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
         a.source_article_ids,
         w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
       FROM articles a
-      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id AND w.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1
         AND a.topic_tag IS NOT NULL
         AND (a.is_archived = 0 OR a.is_archived IS NULL)
@@ -628,60 +629,8 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
 
 // GET /api/news/topic-pulse/:tag/brief — AI "catch me up" summary for a topic cluster
 router.get('/topic-pulse/:tag/brief', asyncHandler(async (req, res) => {
-  const tenantId = req.tenantId;
-  const tag      = req.params.tag;
-  const cacheKey = `${tenantId}:${tag}`;
-
-  // Serve from cache if fresh
-  const cached = _briefCache.get(cacheKey);
-  if (cached && Date.now() - cached.generatedAt < BRIEF_TTL) {
-    return res.json({ status: 'ok', brief: cached.text, generatedAt: cached.generatedAt, cached: true });
-  }
-
-  // Fetch up to 8 recent published articles for this topic
-  const rows = await getPool().query(`
-    SELECT title, summary, published_at
-    FROM articles
-    WHERE tenant_id = $1
-      AND topic_tag = $2
-      AND is_published = 1
-      AND content_type IN ('original', 'deep-dive')
-      AND (is_archived = 0 OR is_archived IS NULL)
-    ORDER BY published_at DESC
-    LIMIT 8
-  `, [tenantId, tag]);
-
-  if (!rows.rows.length) {
-    return res.status(404).json({ status: 'error', error: 'No articles found for this topic' });
-  }
-
-  const articleBlurbs = rows.rows.map((a, i) =>
-    `${i + 1}. ${a.title}${a.summary ? '\n   ' + a.summary.slice(0, 200) : ''}`
-  ).join('\n\n');
-
-  const { complete: aiComplete } = require('../lib/ai-router');
-  const result = await aiComplete({
-    operation:  'topic-brief',
-    tenantId,
-    skipBudget: false,
-    messages: [{
-      role: 'user',
-      content: `You are a news editor briefing a busy reader on a developing story. Based on these articles, write a 3–4 sentence "catch me up" summary. Cover: what happened, who's involved, where things stand now, and what's still unresolved. Be direct and specific — no hedging phrases like "according to reports". No bullet points, just flowing prose.
-
-Articles:
-${articleBlurbs}`,
-    }],
-    temperature: 0.3,
-    maxTokens:   1200,
-  });
-
-  const text = (result?.text || '').trim();
-  if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
-
-  const generatedAt = Date.now();
-  _briefCacheSet(cacheKey, { text, generatedAt });
-
-  res.json({ status: 'ok', brief: text, generatedAt, cached: false });
+  // Public reads never create billable AI work or serve stale withdrawn summaries.
+  res.json({status:'not_generated',brief:null,message:'An AI topic brief is not available. Read the published articles for this topic.'});
 }));
 
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
@@ -777,10 +726,10 @@ router.get('/brief', asyncHandler(async (req, res) => {
 
   res.json({
     status: 'ok',
-    top_articles: topArticles,
+    top_articles: topArticles.map(require('../lib/public-article').article),
     category_breakdown: catResult.rows,
     top_keyword: topKeyword,
-    featured_synthesis: synthesis,
+    featured_synthesis: synthesis ? require('../lib/public-article').article(synthesis) : null,
     briefing: briefing ? {
       audio_url:        briefingAudioUrl,
       voice_name:       briefing.voice_name       || null,
@@ -979,7 +928,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
       SELECT a.id, a.title, a.generated_title, a.slug, a.category,
              w.name AS writer_name, w.avatar_url AS writer_avatar_url
       FROM articles a
-      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id AND w.tenant_id = a.tenant_id
       WHERE a.tenant_id = $1 AND a.id IN (${ph})
     `).all(tenantId, ...articleIds);
   }

@@ -1517,7 +1517,9 @@ let articles = [];
     document.getElementById('fSource').value = '';
     document.getElementById('fSourceUrl').value = '';
     setImageField('');
-    document.getElementById('fPublished').checked = true;
+    document.getElementById('fPublished').checked = false;
+    document.getElementById('fPublished').disabled = true;
+    document.getElementById('fPublished').title = 'New articles are saved as drafts. Publish separately after review.';
     document.getElementById('fFeatured').value = '0';
     populateWriterSelect(null);
     openModal('articleModal');
@@ -1577,10 +1579,13 @@ let articles = [];
     document.getElementById('fSource').value = a.source || '';
     document.getElementById('fSourceUrl').value = a.source_url || '';
     setImageField(a.image_url || '');
+    document.getElementById('editId').dataset.revision=String(a.publication_revision);
     document.getElementById('fPublished').checked = !!a.is_published;
     document.getElementById('fFeatured').value = a.is_featured ? (a.featured_priority || 1) : 0;
     populateWriterSelect(a.writer_id || null);
     openModal('articleModal');
+    document.getElementById('fPublished').disabled=true;
+    document.getElementById('fPublished').title='Use the separate Publish or Unpublish action after saving.';
     document.getElementById('fTitle').focus();
   }
 
@@ -1590,6 +1595,7 @@ let articles = [];
   }
 
   async function saveArticle() {
+    if(document.getElementById('saveArticleBtn').disabled)return;
     const id    = document.getElementById('editId').value;
     const title = document.getElementById('fTitle').value.trim();
     if (!title) { showAlert('Title is required', 'error'); return; }
@@ -1602,13 +1608,14 @@ let articles = [];
       source    : document.getElementById('fSource').value.trim() || null,
       source_url: document.getElementById('fSourceUrl').value.trim() || null,
       image_url : document.getElementById('fImageUrl').value.trim() || null,
-      is_published: document.getElementById('fPublished').checked,
+      expected_revision: id && document.getElementById('editId').dataset?.revision ? Number(document.getElementById('editId').dataset.revision) : undefined,
       is_featured       : parseInt(document.getElementById('fFeatured').value) > 0,
       featured_priority : parseInt(document.getElementById('fFeatured').value) || null,
     };
 
     const writerVal = document.getElementById('fWriter').value;
     const writerId = writerVal ? parseInt(writerVal) : null;
+    payload.writer_id=writerId;
 
     const saveBtn = document.getElementById('saveArticleBtn');
     saveBtn.disabled = true;
@@ -1616,26 +1623,20 @@ let articles = [];
 
     try {
       if (id) {
-        // Edit: optimistic update + close modal immediately
-        const rollback = updateArticleRow(parseInt(id), { ...payload, writer_id: writerId });
-        closeModal('articleModal');
+        // Keep edits open until persistence succeeds.
         try {
           const saved = await apiFetch(`/articles/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-          await apiFetch(`/articles/${id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
           const idx = allArticles.findIndex(x => x.id === parseInt(id));
           if (idx !== -1) Object.assign(allArticles[idx], saved, { writer_id: writerId });
+          closeModal('articleModal');
           rerenderRow(parseInt(id));
           showAlert('Article updated ✓');
         } catch (err) {
-          rollback();
-          showAlert('Error: ' + err.message, 'error');
+          showAlert('Save failed; your edits remain open. ' + err.message, 'error');
         }
       } else {
         // Create: wait for API, then reload with page preserved
         const saved = await apiFetch('/articles', { method: 'POST', body: JSON.stringify(payload) });
-        if (saved && saved.id) {
-          await apiFetch(`/articles/${saved.id}/assign-writer`, { method: 'PUT', body: JSON.stringify({ writerId }) });
-        }
         closeModal('articleModal');
         showAlert('Article created ✓');
         await loadArticles({ preservePage: true });
@@ -1718,32 +1719,31 @@ let articles = [];
     }
   }
 
+  const publicationPending=new Set();
   async function togglePublish(id) {
     const list = activeTab === 'videos' ? allVideos : allArticles;
     const a = list.find(x => x.id === id);
     if (!a) return;
     const newVal = a.is_published ? 0 : 1;
-    const newStatus = newVal ? 'published' : 'draft';
-    const rollback = updateArticleRow(id, { is_published: newVal, status: newStatus });
+    if(publicationPending.has(id))return;publicationPending.add(id);
     try {
-      const result = await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/publish`, { method: 'PUT', body:JSON.stringify({published:!!newVal,expected_revision:a.publication_revision}) });
       const idx = list.findIndex(x => x.id === id);
       if (idx !== -1) Object.assign(list[idx], result);
       rerenderRow(id);
     } catch (err) {
-      rollback();
       showAlert('Error: ' + err.message, 'error');
-    }
+    } finally {publicationPending.delete(id);}
   }
 
   async function approveArticle(id) {
     // Optimistically remove from review tab — article leaves review either way
     if (activeTab === 'review') removeArticleRow(id);
     try {
-      const result = await apiFetch(`/articles/${id}/approve`, { method: 'PUT' });
+      const result = await apiFetch(`/articles/${id}/approve`, { method: 'PUT',body:JSON.stringify({expected_revision:allArticles.find(a=>a.id===id)?.publication_revision}) });
       const idx = allArticles.findIndex(x => x.id === id);
       if (idx !== -1) Object.assign(allArticles[idx], result);
-      rerenderRow(id);
+      if(activeTab==='review')removeArticleRow(id);else rerenderRow(id);
       if (result.status === 'scheduled' && result.publish_at) {
         const dropTime = new Date(result.publish_at).toLocaleString();
         showAlert(`Article approved — drops at ${dropTime}`, 'success');
@@ -1753,7 +1753,7 @@ let articles = [];
     } catch (err) {
       if (activeTab === 'review') applyFilters({ preservePage: true });
       showAlert('Error: ' + err.message, 'error');
-    }
+    }finally{publicationPending.delete(id);}
   }
 
   async function rejectArticle(id) {
@@ -1836,7 +1836,7 @@ let articles = [];
     for (const id of ids) {
       const a = articles.find(x => x.id === id);
       if (a && a.is_published !== val) {
-        await apiFetch(`/articles/${id}/publish`, { method: 'PUT' });
+        await apiFetch(`/articles/${id}/publish`, { method: 'PUT',body:JSON.stringify({published:!!val,expected_revision:a.publication_revision}) });
         done++;
       }
     }
