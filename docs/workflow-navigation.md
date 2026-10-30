@@ -42,6 +42,12 @@ Manual review: open each Overview queue; compare its filters and count; switch A
 
 ## Rollout and limitations
 
+### Navigation paint readiness
+
+Shared workflow CSS is imported by the blocking admin stylesheet, and page guidance initializes from the existing parser-loaded admin script. This avoids white native navigation buttons and late guidance insertion while retaining normal document navigation, modifier-click/new-tab behavior, authentication, history and existing page initialization. No body-hiding delay, transition animation or automatic Turbo opt-in is added.
+
+For a slow-resource diagnostic in the disposable acceptance environment, run `node -r tsx/cjs tests/acceptance/navigation-paint-fixture.js` instead of the regular browser fixture and open `/__fixture/paint-login` (or `?skin=daylight`). It deliberately delays workflow CSS by one second and logs DOM-ready/first-frame/settled layout samples. Do not expose this fixture in production. On the observed desktop baseline, first-frame buttons had the browser's light background and guidance shifted the content from 56px to 168.8px. With the repair, guidance and final button styling are present at the first frame and the measured content position remains stable. Ordinary document loads and page-specific data loading still occur; this is not a single-page router.
+
 Startup adds the idempotent `navigation_preferences` table. It does not rewrite articles, assignments or provider settings. Roll back the application image/source if needed; leave this additive table in place so preferences remain available. Do not restore an old whole database over newer user edits merely to undo navigation.
 
 The existing Articles workspace still retrieves article pages for client-side filtering; very large publications may benefit from a separate server-filtered list optimization. Legacy specialist screens retain their own detailed layouts. This milestone consolidates discovery and guidance without rewriting those workflows. Existing agent-tool TypeScript errors and dependency audit findings are separate from this change.

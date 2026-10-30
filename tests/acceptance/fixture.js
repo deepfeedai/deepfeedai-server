@@ -1,7 +1,7 @@
 'use strict';
 // Test-only entry point. Never mount these controls in server.js.
 const path=require('node:path');
-async function startFixture({port=0,readerRoot=process.env.READER_ROOT}={}) {
+async function startFixture({port=0,readerRoot=process.env.READER_ROOT,beforeStatic}={}) {
  if(process.env.PUBLISHING_ACCEPTANCE!=='1'||process.env.AUTOMATION_ENABLED!=='false'||!String(process.env.DATABASE_URL).match(/\/publishing_acceptance(?:\?|$)/)) {
   throw Error('Publishing acceptance requires its explicitly named disposable database and disabled automation');
  }
@@ -49,6 +49,7 @@ async function startFixture({port=0,readerRoot=process.env.READER_ROOT}={}) {
  app.use('/api/admin/writers',require('../../middleware/auth').auth,require('../../routes/admin-writers'));
  app.use((err,req,res,next)=>{res.status(err.status||500).json({error:err.message});});
  app.get('/__fixture/login',(req,res)=>res.type('html').send('<script>localStorage.setItem("dfa_admin_url",location.origin);localStorage.setItem("dfa_site_url",location.origin);localStorage.setItem("deepfeedai_token",'+JSON.stringify(token)+');localStorage.setItem("deepfeedai_user",JSON.stringify({role:"owner",permissions:["*"]}));location.href="/pitches.html";</script>'));
+ if(beforeStatic)beforeStatic(app);
  if(readerRoot){app.get('/article/:slug',(req,res)=>res.sendFile(path.join(readerRoot,'article.html')));app.get('/',(req,res)=>res.sendFile(path.join(readerRoot,'index.html')));app.use(express.static(readerRoot));}
  app.use(express.static(path.resolve(__dirname,'../../public')));
  const server=app.listen(port,'0.0.0.0');await new Promise(r=>server.once('listening',r));

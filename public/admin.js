@@ -292,7 +292,6 @@ function renderSidebar() {
   // command palette, recent/pinned) exactly once per page. All admin pages
   // call renderSidebar on boot, so this is the natural funnel.
   [
-    { id: 'workflowHelpScript', src: '/workflow-help.js' },
     { id: 'navKitScript',             src: '/nav-kit.js' },
     { id: 'commandPaletteScript',     src: '/command-palette.js' },
     { id: 'navExtrasScript',          src: '/nav-extras.js' },
@@ -312,7 +311,6 @@ function renderSidebar() {
     document.head.appendChild(s);
   });
 
-  if (!document.getElementById('workflowStyles')) { const css=document.createElement('link');css.id='workflowStyles';css.rel='stylesheet';css.href='/workflow-navigation.css';document.head.appendChild(css); }
   const pathname = window.location.pathname + window.location.search;
 
   // Collapsed state persisted per-group; active group always stays open
@@ -465,6 +463,7 @@ function renderSidebar() {
 
   // Inject credit widget into topbar
   renderCreditWidget();
+  window.WorkflowHelp?.boot();
 }
 
 // ── Credit widget (topbar donut ring) ────────────────────
@@ -966,5 +965,50 @@ window.addEventListener('workflow:navigate', function () {
   document.querySelectorAll('.sidebar-nav a.nav-link').forEach(link=>{const item=window.WorkflowNav.resolve(link.getAttribute('href'));const active=item&&window.WorkflowNav.active(item,current);link.classList.toggle('active',!!active);if(active){link.setAttribute('aria-current','page');const tools=link.closest('details');if(tools)tools.open=true;const group=link.closest('[data-nav-group]');if(group){group.classList.remove('collapsed');const toggle=document.querySelector('[data-nav-toggle="'+group.dataset.navGroup+'"]');if(toggle){toggle.classList.remove('collapsed');toggle.setAttribute('aria-expanded','true');}}}else link.removeAttribute('aria-current');});
 });
 
-// Custom legacy newsroom keeps its own workspace; add only contextual navigation/help.
-(function(){function customHelp(){if(!document.querySelector('.nr-topbar-right')||document.getElementById('workflowHelpScript'))return;const script=document.createElement('script');script.id='workflowHelpScript';script.src='/workflow-help.js';document.head.appendChild(script);}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',customHelp);else customHelp();})();
+// BEGIN synchronous workflow guidance
+(function () {
+  'use strict';
+  if(window.WorkflowHelp)return;
+  function node(tag, text, cls) { const n=document.createElement(tag);if(text)n.textContent=text;if(cls)n.className=cls;return n; }
+  function boot() {
+    const nav=window.WorkflowNav;if(!nav)return;
+    const item=nav.resolve(location.pathname+location.search);if(!item||!nav.allowed(item))return;
+    const custom=document.querySelector('.nr-topbar-right');
+    const host=document.querySelector('.page-body, .page-content, .main-content, .settings-main')||custom;if(!host||document.getElementById('workflowPurpose'))return;
+    const wrap=node('section',null,'workflow-purpose');wrap.id='workflowPurpose';wrap.setAttribute('aria-label','Page guidance');
+    const copy=node('div',null,'workflow-purpose-copy');copy.append(node('span',item.group,'workflow-eyebrow'),node('p',item.purpose));wrap.append(copy);
+    const actions=node('div',null,'workflow-guidance-actions');const help=node('button','Help with this page','btn btn-outline');help.type='button';help.id='workflowHelpButton';help.setAttribute('aria-expanded','false');help.setAttribute('aria-controls','workflowHelpPanel');actions.append(help);
+    const candidates=nav.groups().find(g=>g.label===item.group)?.items||[];
+    const next=candidates.find(p=>p.href!==item.href&&!p.secondary);
+    if(next) {const a=node('a',next.label,'workflow-context-link');a.href=next.href;actions.append(a);}
+    wrap.append(actions);
+    if(custom&&host===custom){wrap.classList.add('workflow-custom-purpose');copy.hidden=true;const overview=node('a','Overview','workflow-context-link');overview.href='/overview.html';actions.prepend(overview);}
+    // Keep page's existing topbar and all actual create/publish controls intact.
+    const bar=host.querySelector(':scope > .topbar');if(bar)bar.after(wrap);else host.prepend(wrap);
+    const panel=node('section',null,'workflow-help');panel.id='workflowHelpPanel';panel.hidden=true;panel.setAttribute('aria-labelledby','workflowHelpTitle');
+    const title=node('h2','Help: '+item.label);title.id='workflowHelpTitle';panel.append(title,node('p',item.purpose));
+    const caution=item.caution||nav.resolve(location.pathname)?.caution;
+    if(caution)panel.append(node('p',caution,'workflow-caution'));
+    panel.append(node('p','These links only navigate. They do not generate, approve, publish, delete, send messages, or retry jobs. Your available actions still depend on permissions and enabled features.'));
+    const list=node('ul');candidates.filter(p=>p.href!==item.href).forEach(p=>{const li=node('li');const a=node('a',p.label);a.href=p.href;li.append(a,node('span',' — '+p.purpose));list.append(li);});panel.append(list);
+    const intro=node('a','Getting started checklist');intro.href='/overview.html?onboarding=show';panel.append(intro);
+    const close=node('button','Close help','btn btn-outline');close.type='button';panel.append(close);if(custom&&host===custom){panel.classList.add('workflow-custom-help');document.body.append(panel);}else wrap.after(panel);
+    function set(open){panel.hidden=!open;help.setAttribute('aria-expanded',String(open));if(open){title.tabIndex=-1;title.focus();}else help.focus();}
+    help.addEventListener('click',()=>set(panel.hidden));close.addEventListener('click',()=>set(false));panel.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();set(false);}});
+  }
+  window.addEventListener('workflow:navigate',function(){
+    const panel=document.getElementById('workflowHelpPanel'),wrap=document.getElementById('workflowPurpose');
+    const open=panel&&!panel.hidden;const focusOwned=!!(panel?.contains(document.activeElement)||wrap?.contains(document.activeElement));
+    panel?.remove();wrap?.remove();boot();
+    const replacement=document.getElementById('workflowHelpPanel'),button=document.getElementById('workflowHelpButton');
+    if(open&&replacement){replacement.hidden=false;button?.setAttribute('aria-expanded','true');}
+    if(focusOwned)button?.focus();
+  });
+  window.WorkflowHelp={boot};
+  // admin.js is parser-loaded after page markup; mount now, without a second request.
+  boot();
+  // Fallback for custom shells that load the shared script earlier.
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);
+})();
+
+// END synchronous workflow guidance
