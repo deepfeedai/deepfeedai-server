@@ -474,6 +474,7 @@ async function initDb() {
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT 'curated'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_article_ids JSONB DEFAULT '[]'`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS full_content TEXT`,
+    `ALTER TABLE articles ADD COLUMN IF NOT EXISTS pull_quote TEXT`,
     // YouTube/video embed support
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_url TEXT`,
     `ALTER TABLE articles ADD COLUMN IF NOT EXISTS embed_type TEXT`,
