@@ -551,7 +551,7 @@
     btn.disabled = true;
     btn.textContent = '…';
     try {
-      await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT' });
+      await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT', body:JSON.stringify({published:false}) });
       showAlert('Article unpublished — reverted to draft.', 'info');
       var row = btn.closest('.nr-article-row');
       if (row) {
@@ -644,7 +644,7 @@
 
     var succeeded = 0;
     await Promise.all(ids.map(function(id) {
-      return apiFetch('/articles/' + id + '/publish', { method: 'PUT' }).then(function() {
+      return apiFetch('/articles/' + id + '/publish', { method: 'PUT', body:JSON.stringify({published:false}) }).then(function() {
         succeeded++;
         var row = document.querySelector('[data-art-row-id="' + id + '"]');
         if (row) {

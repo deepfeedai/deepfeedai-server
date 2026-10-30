@@ -4,6 +4,7 @@
  */
 const express               = require('express');
 const router                = express.Router();
+router.use((req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
 const db                    = require('../db');
 const { getPool }           = require('../db');
 const { toSlug, asyncHandler, significantWords } = require('../lib/utils');
@@ -16,9 +17,9 @@ router.get('/', asyncHandler(async (req, res) => {
   let match = await db.prepare(
     `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
             w.avatar_url AS writer_avatar_url, w.accent_color AS writer_color,
-            (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
+            (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id AND c2.tenant_id = a.tenant_id) AS writer_beats
      FROM articles a
-     LEFT JOIN writers w ON w.id = a.writer_id
+     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
      WHERE a.tenant_id = $1 AND a.slug = $2 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)`
   ).get(req.tenantId, slug);
 
@@ -27,9 +28,9 @@ router.get('/', asyncHandler(async (req, res) => {
     const articles = await db.prepare(
       `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug,
               w.avatar_url AS writer_avatar_url,
-              (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
+              (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id AND c2.tenant_id = a.tenant_id) AS writer_beats
        FROM articles a
-       LEFT JOIN writers w ON w.id = a.writer_id
+       LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
        WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL) AND (a.slug IS NULL OR a.slug = '')`
     ).all(req.tenantId);
     match = articles.find(a => toSlug(a.title) === slug);
@@ -82,7 +83,7 @@ router.get('/', asyncHandler(async (req, res) => {
     embed_url:              match.embed_url              || null,
     embed_type:             match.embed_type             || null,
     source_type:            match.source_type            || null,
-    synthesis_meta:         match.synthesis_meta         || null,
+    synthesis_meta:         require('../lib/public-article').synthesisMeta(match.synthesis_meta),
     inline_images:          match.inline_images          || [],
     disable_summary:        match.disable_summary        || 0,
     generated_title:        match.generated_title        || null,
@@ -105,24 +106,10 @@ router.get('/related', asyncHandler(async (req, res) => {
   // Check cache first (skip if ?refresh=1)
   const pool = getPool();
   const cacheKey = `related_${slug}`;
-  if (!req.query.refresh) {
-    const cached = await pool.query(
-      `SELECT payload FROM summary_cache
-       WHERE tenant_id = $1 AND cache_key = $2
-         AND created_at > NOW() - INTERVAL '6 hours'`,
-      [req.tenantId, cacheKey]
-    );
-    if (cached.rows[0]?.payload) {
-      res.setHeader('X-Cache', 'HIT');
-      const p = cached.rows[0].payload;
-      return res.json(typeof p === 'string' ? JSON.parse(p) : p);
-    }
-  }
-
   // Fetch the source article
   const article = await db.prepare(
     `SELECT id, title, category, topic_tag, content_type FROM articles
-     WHERE tenant_id = $1 AND slug = $2 AND is_published = 1`
+     WHERE tenant_id = $1 AND slug = $2 AND is_published = 1 AND COALESCE(is_archived,0)=0`
   ).get(req.tenantId, slug);
   if (!article) return res.status(404).json({ error: 'Article not found' });
 
@@ -132,7 +119,7 @@ router.get('/related', asyncHandler(async (req, res) => {
             a.image_url, a.source, a.published_at, a.generated_title,
             w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
      FROM articles a
-     LEFT JOIN writers w ON w.id = a.writer_id
+     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
      WHERE a.tenant_id = $1 AND a.is_published = 1 AND (a.is_archived = 0 OR a.is_archived IS NULL)
        AND a.content_type IN ('original', 'deep-dive')
        AND a.id != $2
@@ -223,7 +210,7 @@ router.get('/:id/perspectives', asyncHandler(async (req, res) => {
             a.importance, a.importance_locked, a.importance_updated_at,
             w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
      FROM articles a
-     LEFT JOIN writers w ON w.id = a.writer_id
+     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
      WHERE a.tenant_id = $1
        AND a.is_published = 1
        AND (a.is_archived = 0 OR a.is_archived IS NULL)

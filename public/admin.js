@@ -892,3 +892,15 @@ function onReady(fn) {
   if (document.readyState !== 'loading') fn();
   else document.addEventListener('DOMContentLoaded', fn);
 }
+
+// Separate module keeps the already deployed assignment button overlay intact.
+if (location.pathname === '/pitches.html') {
+  const briefScript = document.createElement('script');
+  briefScript.src = '/assignment-brief.js';
+  document.head.appendChild(briefScript);
+}
+if (location.pathname === '/article-editor.html') {
+  const statusScript = document.createElement('script');
+  statusScript.src = '/publication-status.js';
+  document.head.appendChild(statusScript);
+}

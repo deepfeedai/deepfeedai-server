@@ -890,7 +890,7 @@
     btn.disabled = true;
     btn.textContent = '…';
     try {
-      await apiFetch('/articles/' + encodeURIComponent(id) + '/publish', { method: 'PUT' });
+      await apiFetch('/articles/' + encodeURIComponent(id) + '/publish', { method: 'PUT', body:JSON.stringify({published:false}) });
       var row = btn.closest('.nr-story-article-row');
       if (row) {
         row.style.transition = 'opacity .2s';

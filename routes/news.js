@@ -13,11 +13,31 @@
 const express                              = require('express');
 const jwt                                  = require('jsonwebtoken');
 const router                               = express.Router();
+router.use((req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
 const { getPool }                          = require('../db');
 const db                                   = require('../db');
 const { toSlug, serializeRow, asyncHandler } = require('../lib/utils');
 const { computeEffectiveImportance, RANK: IMPORTANCE_RANK } = require('../lib/story-levels');
 const { isFeatureEnabled } = require('../lib/feature-registry');
+
+// Recordings can contain every input's text: all inputs must still be public.
+function briefingIds(row) {
+  let ids=row.article_ids;
+  if(typeof ids==='string'){try{ids=JSON.parse(ids);}catch{return [];}}
+  return Array.isArray(ids)&&ids.every(id=>Number.isSafeInteger(id)&&id>0)?[...new Set(ids)]:[];
+}
+async function publicBriefings(rows,tenantId) {
+  const candidates=rows.filter(row=>row.status==='ready'&&briefingIds(row).length);
+  const ids=[...new Set(candidates.flatMap(briefingIds))];
+  if(!ids.length)return [];
+  const result=await getPool().query('SELECT id FROM articles WHERE tenant_id=$1 AND id=ANY($2::int[]) AND is_published=1 AND COALESCE(is_archived,0)=0',[tenantId,ids]);
+  const visible=new Set(result.rows.map(row=>row.id));
+  return candidates.filter(row=>briefingIds(row).every(id=>visible.has(id)));
+}
+function preferredBriefing(rows) {
+  const order={evening:0,afternoon:1,morning:2,podcast:3};
+  return [...rows].sort((a,b)=>(order[a.edition]??4)-(order[b.edition]??4))[0]||null;
+}
 
 // In-memory brief cache — keyed by `${tenantId}:${tag}`, TTL 2 hours.
 // Bounded to 500 entries; evict expired entries first, then oldest on overflow.
@@ -110,10 +130,10 @@ router.get('/', asyncHandler(async (req, res) => {
     const devLimit = Math.min(parseInt(lim) || 20, 50);
     const devResult = await getPool().query(
       `SELECT a.id, a.title, a.summary, a.category, a.source, a.source_url,
-              a.image_url, a.editorial_score, a.created_at, a.slug, a.topic_tag
+              a.image_url, a.created_at, a.slug, a.topic_tag
        FROM articles a
        WHERE a.tenant_id = $1
-         AND a.is_published = 0
+         AND a.is_published = 1
          AND (a.is_archived = 0 OR a.is_archived IS NULL)
          AND (content_type IS NULL OR content_type NOT IN ('original', 'deep-dive'))
          AND a.created_at > NOW() - INTERVAL '48 hours'
@@ -232,7 +252,7 @@ router.get('/', asyncHandler(async (req, res) => {
                       w.avatar_url AS writer_avatar_url,
                       (SELECT COALESCE(json_agg(c2.name), '[]') FROM writer_beats wb2 JOIN categories c2 ON c2.id = wb2.category_id WHERE wb2.writer_id = w.id) AS writer_beats
                FROM articles a
-               LEFT JOIN writers w ON w.id = a.writer_id
+               LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
                ${whereClause}`;
 
   query += ` ORDER BY
@@ -249,7 +269,7 @@ router.get('/', asyncHandler(async (req, res) => {
   query += ` OFFSET $${params.length}`;
 
   // Run data query and count query in parallel
-  const countQuery = `SELECT COUNT(*) AS total FROM articles a LEFT JOIN writers w ON w.id = a.writer_id ${whereClause}`;
+  const countQuery = `SELECT COUNT(*) AS total FROM articles a LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id ${whereClause}`;
   const [result, countResult] = await Promise.all([
     getPool().query(query, params),
     getPool().query(countQuery, whereParams),
@@ -337,7 +357,7 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   const hasMore = offset + finalItems.length < totalCount;
-  res.json({ status: 'ok', items: finalItems, count: finalItems.length, totalCount, hasMore });
+  res.json({ status: 'ok', items: finalItems.map(require('../lib/public-article').article), count: finalItems.length, totalCount, hasMore });
 }));
 
 // GET /api/news/hot — top articles ranked by hot_score
@@ -383,7 +403,7 @@ router.get('/hot', asyncHandler(async (req, res) => {
     .sort((a, b) => b.hot_score - a.hot_score)
     .slice(0, limit);
 
-  res.json({ status: 'ok', items: scored, count: scored.length });
+  res.json({ status: 'ok', items: scored.map(require('../lib/public-article').article), count: scored.length });
 }));
 
 // GET /api/news/updated-at — lightweight cache-bust timestamp for the main site
@@ -421,8 +441,8 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
         a.source_article_ids,
         w.id AS writer_id, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
       FROM articles a
-      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
-      WHERE a.tenant_id = $1
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1 AND a.is_published = 1
         AND a.topic_tag IS NOT NULL
         AND (a.is_archived = 0 OR a.is_archived IS NULL)
         AND COALESCE(a.published_at, a.created_at) > NOW() - INTERVAL '48 hours'
@@ -438,7 +458,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
               COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive')) AS pub_count,
               COUNT(*) FILTER (WHERE content_type IS NULL OR content_type = 'curated') AS src_count
             FROM articles
-            WHERE tenant_id = $1 AND topic_tag IS NOT NULL
+            WHERE tenant_id = $1 AND is_published = 1 AND topic_tag IS NOT NULL
               AND (is_archived = 0 OR is_archived IS NULL)
               AND COALESCE(published_at, created_at) > NOW() - INTERVAL '48 hours'
             GROUP BY topic_tag
@@ -449,7 +469,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
         COUNT(*) FILTER (WHERE is_published = 1 AND (content_type = 'original' OR content_type = 'deep-dive') AND published_at > NOW() - INTERVAL '24 hours') AS articles_today,
         COUNT(DISTINCT writer_id) FILTER (WHERE is_published = 1 AND published_at > NOW() - INTERVAL '24 hours' AND writer_id IS NOT NULL) AS writers_active
       FROM articles
-      WHERE tenant_id = $1 AND (is_archived = 0 OR is_archived IS NULL)
+      WHERE tenant_id = $1 AND is_published = 1 AND (is_archived = 0 OR is_archived IS NULL)
     `, [tenantId]),
 
     getPool().query(`
@@ -459,7 +479,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
       FROM newsroom_events ne
       JOIN articles a ON a.id = ne.target_article_id AND a.tenant_id = ne.tenant_id
       JOIN writers w ON w.id = ne.actor_writer_id AND w.tenant_id = ne.tenant_id
-      WHERE ne.tenant_id = $1
+      WHERE ne.tenant_id = $1 AND ne.is_public = true AND a.is_published = 1 AND COALESCE(a.is_archived,0)=0
         AND ne.created_at > NOW() - INTERVAL '6 hours'
         AND a.topic_tag IS NOT NULL
       ORDER BY ne.created_at DESC
@@ -511,22 +531,8 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
     if (forming && sources.length < 2) continue;
     if (!forming && published.length < 1) continue;
 
-    // Source count: for published clusters use source_article_ids from the articles
-    // (curated source items are typically older than the 48h query window);
-    // for forming topics (no published articles yet) fall back to live curated count.
-    let sourceCount;
-    if (!forming) {
-      const sourceIdSet = new Set();
-      for (const a of published) {
-        const ids = Array.isArray(a.source_article_ids) ? a.source_article_ids
-          : (typeof a.source_article_ids === 'string' && a.source_article_ids
-              ? JSON.parse(a.source_article_ids) : []);
-        ids.forEach(id => sourceIdSet.add(id));
-      }
-      sourceCount = sourceIdSet.size || sources.length;
-    } else {
-      sourceCount = sources.length;
-    }
+    // Public counts describe only currently visible sources, never private inbox IDs.
+    const sourceCount = sources.length;
 
     // Momentum: curated sources arriving in the last 2h (scaled 0–5)
     const hotSources = sources.filter(a => now - new Date(a.created_at).getTime() < TWO_HOURS).length;
@@ -597,7 +603,7 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
         FROM story_timeline_articles sta
         JOIN articles a  ON a.id  = sta.article_id AND a.tenant_id  = sta.tenant_id
         JOIN story_timelines st ON st.id = sta.story_id AND st.tenant_id = sta.tenant_id
-        WHERE sta.tenant_id = $1
+        WHERE sta.tenant_id = $1 AND a.is_published = 1 AND COALESCE(a.is_archived,0)=0
           AND a.topic_tag   = ANY($2::text[])
           AND st.status    != 'archived'
         ORDER BY a.topic_tag, st.last_activity_at DESC
@@ -628,60 +634,8 @@ router.get('/topic-pulse', asyncHandler(async (req, res) => {
 
 // GET /api/news/topic-pulse/:tag/brief — AI "catch me up" summary for a topic cluster
 router.get('/topic-pulse/:tag/brief', asyncHandler(async (req, res) => {
-  const tenantId = req.tenantId;
-  const tag      = req.params.tag;
-  const cacheKey = `${tenantId}:${tag}`;
-
-  // Serve from cache if fresh
-  const cached = _briefCache.get(cacheKey);
-  if (cached && Date.now() - cached.generatedAt < BRIEF_TTL) {
-    return res.json({ status: 'ok', brief: cached.text, generatedAt: cached.generatedAt, cached: true });
-  }
-
-  // Fetch up to 8 recent published articles for this topic
-  const rows = await getPool().query(`
-    SELECT title, summary, published_at
-    FROM articles
-    WHERE tenant_id = $1
-      AND topic_tag = $2
-      AND is_published = 1
-      AND content_type IN ('original', 'deep-dive')
-      AND (is_archived = 0 OR is_archived IS NULL)
-    ORDER BY published_at DESC
-    LIMIT 8
-  `, [tenantId, tag]);
-
-  if (!rows.rows.length) {
-    return res.status(404).json({ status: 'error', error: 'No articles found for this topic' });
-  }
-
-  const articleBlurbs = rows.rows.map((a, i) =>
-    `${i + 1}. ${a.title}${a.summary ? '\n   ' + a.summary.slice(0, 200) : ''}`
-  ).join('\n\n');
-
-  const { complete: aiComplete } = require('../lib/ai-router');
-  const result = await aiComplete({
-    operation:  'topic-brief',
-    tenantId,
-    skipBudget: false,
-    messages: [{
-      role: 'user',
-      content: `You are a news editor briefing a busy reader on a developing story. Based on these articles, write a 3–4 sentence "catch me up" summary. Cover: what happened, who's involved, where things stand now, and what's still unresolved. Be direct and specific — no hedging phrases like "according to reports". No bullet points, just flowing prose.
-
-Articles:
-${articleBlurbs}`,
-    }],
-    temperature: 0.3,
-    maxTokens:   1200,
-  });
-
-  const text = (result?.text || '').trim();
-  if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
-
-  const generatedAt = Date.now();
-  _briefCacheSet(cacheKey, { text, generatedAt });
-
-  res.json({ status: 'ok', brief: text, generatedAt, cached: false });
+  // Public reads never create billable AI work or serve stale withdrawn summaries.
+  res.json({status:'not_generated',brief:null,message:'An AI topic brief is not available. Read the published articles for this topic.'});
 }));
 
 // GET /api/news/brief — compact morning briefing (top articles, category breakdown, trending keyword)
@@ -693,7 +647,7 @@ router.get('/brief', asyncHandler(async (req, res) => {
   const topResult = await getPool().query(
     `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
      FROM articles a
-     LEFT JOIN writers w ON a.writer_id = w.id
+     LEFT JOIN writers w ON a.writer_id = w.id AND w.tenant_id = a.tenant_id
      WHERE a.tenant_id = $1 AND a.is_published = 1 AND a.is_archived = 0
        AND a.content_type IN ('original', 'deep-dive')
        AND a.category != 'Uncategorized'
@@ -719,8 +673,8 @@ router.get('/brief', asyncHandler(async (req, res) => {
   const synthResult = await getPool().query(
     `SELECT a.*, w.name AS writer_name, w.slug AS writer_slug, w.avatar_url AS writer_avatar_url
      FROM articles a
-     LEFT JOIN writers w ON a.writer_id = w.id
-     WHERE a.tenant_id = $1 AND a.content_type = 'original' AND a.is_published = 1
+     LEFT JOIN writers w ON a.writer_id = w.id AND w.tenant_id = a.tenant_id
+     WHERE a.tenant_id = $1 AND a.content_type = 'original' AND a.is_published = 1 AND COALESCE(a.is_archived,0)=0
        AND a.published_at >= NOW() - INTERVAL '24 hours'
      ORDER BY a.editorial_score DESC NULLS LAST
      LIMIT 1`,
@@ -728,12 +682,12 @@ router.get('/brief', asyncHandler(async (req, res) => {
   );
 
   // Today's audio briefings (all editions)
-  const { getTodayBriefing, getTodayBriefings } = require('../lib/daily-briefing');
+  const { getTodayBriefings } = require('../lib/daily-briefing');
   const { getAppConfig: _getAppCfg } = require('../lib/app-config');
   const _appCfg    = await _getAppCfg(tenantId).catch(() => ({}));
   const _tz        = _appCfg.newsroom_timezone || 'UTC';
-  const briefing   = await getTodayBriefing(tenantId, _tz).catch(() => null);
-  const allBriefings = await getTodayBriefings(tenantId, _tz).catch(() => []);
+  const allBriefings = await publicBriefings(await getTodayBriefings(tenantId, _tz).catch(() => []),tenantId);
+  const briefing = preferredBriefing(allBriefings);
 
   // Top trending keyword from trends_cache
   let topKeyword = null;
@@ -777,10 +731,10 @@ router.get('/brief', asyncHandler(async (req, res) => {
 
   res.json({
     status: 'ok',
-    top_articles: topArticles,
+    top_articles: topArticles.map(require('../lib/public-article').article),
     category_breakdown: catResult.rows,
     top_keyword: topKeyword,
-    featured_synthesis: synthesis,
+    featured_synthesis: synthesis ? require('../lib/public-article').article(synthesis) : null,
     briefing: briefing ? {
       audio_url:        briefingAudioUrl,
       voice_name:       briefing.voice_name       || null,
@@ -940,11 +894,12 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   const tenantId = req.tenantId;
 
   if (date === 'latest') {
-    const { getTodayBriefing } = require('../lib/daily-briefing');
+    const { getTodayBriefings } = require('../lib/daily-briefing');
     const tz = req.query.tz || 'UTC';
-    const best = await getTodayBriefing(tenantId, tz).catch(() => null);
+    const best = preferredBriefing(await publicBriefings(await getTodayBriefings(tenantId, tz).catch(() => []),tenantId));
     if (!best) return res.status(404).json({ error: 'No briefing available' });
-    return res.redirect(302, `/api/news/briefing/${best.briefing_date}/${best.edition}`);
+    const briefingDate=best.briefing_date instanceof Date?best.briefing_date.toISOString().slice(0,10):String(best.briefing_date).slice(0,10);
+    return res.redirect(302, `/api/news/briefing/${briefingDate}/${best.edition}`);
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Invalid date' });
@@ -955,11 +910,11 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   const row = edition
     ? await db.prepare(`
         SELECT * FROM daily_briefings
-        WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status IN ('ready', 'pending_review')
+        WHERE tenant_id = $1 AND briefing_date = $2 AND edition = $3 AND status = 'ready'
       `).get(tenantId, date, edition)
     : await db.prepare(`
         SELECT * FROM daily_briefings
-        WHERE tenant_id = $1 AND briefing_date = $2 AND status IN ('ready', 'pending_review')
+        WHERE tenant_id = $1 AND briefing_date = $2 AND status = 'ready'
         ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END,
                  CASE edition WHEN 'evening' THEN 0 WHEN 'afternoon' THEN 1 WHEN 'morning' THEN 2 ELSE 3 END
         LIMIT 1
@@ -968,9 +923,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   if (!row) return res.status(404).json({ error: 'Briefing not found' });
 
   // Resolve article IDs → titles + slugs
-  const articleIds = Array.isArray(row.article_ids)
-    ? row.article_ids
-    : JSON.parse(row.article_ids || '[]');
+  const articleIds = briefingIds(row);
 
   let articles = [];
   if (articleIds.length) {
@@ -979,10 +932,14 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
       SELECT a.id, a.title, a.generated_title, a.slug, a.category,
              w.name AS writer_name, w.avatar_url AS writer_avatar_url
       FROM articles a
-      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
-      WHERE a.tenant_id = $1 AND a.id IN (${ph})
+      LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id AND w.tenant_id = a.tenant_id
+      WHERE a.tenant_id = $1 AND a.is_published = 1 AND COALESCE(a.is_archived,0)=0 AND a.id IN (${ph})
     `).all(tenantId, ...articleIds);
   }
+
+  // Script/audio may quote every input. Withhold the whole edition after an input
+  // is withdrawn, rather than leaking it through the pre-generated recording.
+  if (!articleIds.length || articleIds.length !== articles.length) return res.status(404).json({ error: 'Briefing unavailable' });
 
   // Resolve relative URLs to absolute for OG/social scraper compatibility
   const mediaBase = process.env.MEDIA_BASE_URL || '';
@@ -994,7 +951,7 @@ router.get('/briefing/:date/:edition?', asyncHandler(async (req, res) => {
   res.json({
     date:              String(row.briefing_date || '').slice(0, 10),
     edition:           row.edition,
-    is_preview:        row.status === 'pending_review',
+    is_preview:        false,
     audio_url:         audioUrl,
     script:            row.script || null,
     voice_name:        row.voice_name || null,

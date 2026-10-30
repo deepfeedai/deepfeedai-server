@@ -52,7 +52,8 @@
       document.getElementById(id)?.addEventListener('input', () => { isDirty = true; });
     });
     document.getElementById('esDisableSummary')?.addEventListener('change', () => { isDirty = true; saveArticle(); });
-    document.getElementById('editorPublished')?.addEventListener('change', () => { isDirty = true; saveArticle(); if (articleId) syncPublishToggleLabel(); });
+    document.getElementById('editorPublished').disabled=true;
+    document.getElementById('editorPublished').title='Use Publish or Unpublish after saving your edits.';
 
     // Image upload
     document.getElementById('esImageUploadBtn').addEventListener('click', () => document.getElementById('esImageUpload').click());
@@ -306,7 +307,7 @@
         source: document.getElementById('esSource').value.trim() || null,
         source_url: document.getElementById('esSourceUrl').value.trim() || null,
         image_url: document.getElementById('esImageUrl').value.trim() || null,
-        is_published: document.getElementById('editorPublished').checked,
+        expected_revision: articleData?.publication_revision,
         is_featured: parseInt(document.getElementById('esFeatured').value) > 0,
         featured_priority: parseInt(document.getElementById('esFeatured').value) || null,
         disable_summary: document.getElementById('esDisableSummary').checked,
@@ -317,16 +318,13 @@
 
       const writerVal = document.getElementById('esWriter').value;
       const writerId = writerVal ? parseInt(writerVal) : null;
+    payload.writer_id=writerId;
 
       let saved;
       if (articleId) {
         saved = await apiFetch('/articles/' + articleId, {
           method: 'PUT',
           body: JSON.stringify(payload),
-        });
-        await apiFetch('/articles/' + articleId + '/assign-writer', {
-          method: 'PUT',
-          body: JSON.stringify({ writerId }),
         });
       } else {
         saved = await apiFetch('/articles', {
@@ -336,10 +334,6 @@
         if (saved && saved.id) {
           articleId = saved.id;
           articleData = saved;
-          await apiFetch('/articles/' + saved.id + '/assign-writer', {
-            method: 'PUT',
-            body: JSON.stringify({ writerId }),
-          });
           // Update URL without reload
           const newUrl = '/article-editor.html?id=' + saved.id;
           window.history.replaceState({}, '', newUrl);
@@ -347,6 +341,7 @@
         }
       }
 
+      articleData={...articleData,...saved,writer_id:writerId};
       isDirty = false;
       updateStatus('Saved');
       showAlert('Article saved');
@@ -646,9 +641,14 @@
 
   async function handleTogglePublish() {
     const btn = document.getElementById('actionTogglePublish');
+    if(btn.disabled)return;
+    if(isDirty){showAlert('Save your edits before changing publication status.','error');return;}
+    const published=!articleData.is_published;
+    if(!confirm(published?'Publish this reviewed article to readers?':'Unpublish this article from readers?'))return;
     btn.disabled = true;
     try {
-      const result = await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT' });
+      const result = await apiFetch('/articles/' + articleId + '/publish', { method: 'PUT',body:JSON.stringify({published,expected_revision:articleData.publication_revision}) });
+      articleData={...articleData,...result};
       const nowPublished = result.is_published === 1;
       document.getElementById('editorPublished').checked = nowPublished;
       articleData.is_published = nowPublished ? 1 : 0;
