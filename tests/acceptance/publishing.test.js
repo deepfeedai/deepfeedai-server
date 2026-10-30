@@ -110,5 +110,63 @@ test('actual publishing APIs: assignment to reviewed draft and reader',{skip:pro
    const brief=await request('/api/news/topic-pulse/offline-publishing/brief',null,'GET',false);
    assert.equal(brief.status,200);assert.equal(brief.body.status,'not_generated');assert.equal(f.state.calls,calls);
   });
+  await t.test('approval preserves future editorial schedules and daily cap lower bounds',async()=>{
+   const config=require('../../lib/app-config');
+   const set=async(key,value)=>{await f.db.prepare('INSERT INTO settings(tenant_id,key,value) VALUES(1,$1,$2) ON CONFLICT(tenant_id,key) DO UPDATE SET value=$2').run(key,value);config.bustAppConfigCache(1);};
+   const approve=async(seed)=>{await f.db.prepare("UPDATE articles SET status='review',is_published=0,publish_at=$2 WHERE id=$1").run(article.id,seed);const r=await request('/api/articles/'+article.id+'/approve',{},'PUT');assert.equal(r.status,200,JSON.stringify(r.body));return (await request('/api/articles/'+article.id)).body;};
+   await set('publish_mode','scheduled');await set('daily_publish_cap','0');await set('newsroom_timezone','UTC');await set('drop_windows','["07:00","12:00","18:00"]');
+   const future=new Date(Date.now()+3*86400000).toISOString();
+   assert.equal(new Date((await approve(future)).publish_at).toISOString(),future);
+   const again=await request('/api/articles/'+article.id+'/approve',{},'PUT');assert.equal(again.status,200);
+   assert.equal(new Date((await request('/api/articles/'+article.id)).body.publish_at).toISOString(),future);
+   assert.ok(new Date((await approve(new Date(Date.now()-86400000))).publish_at)>new Date());
+   const blocker=await f.db.prepare("INSERT INTO articles(tenant_id,title,content_type,is_published,published_at) VALUES(1,'Cap fixture','original',1,NOW()) RETURNING id").get();
+   await set('daily_publish_cap','1');await set('daily_publish_burst','0');
+   const floor=require('../../lib/news-budget').nextDropWindowTomorrow('UTC',null);
+   assert.ok(new Date((await approve(new Date(Date.now()+1000))).publish_at)>=floor);
+   assert.equal(new Date((await approve(future)).publish_at).toISOString(),future);
+   await f.db.prepare('DELETE FROM articles WHERE id=$1').run(blocker.id);
+   await set('publish_mode','continuous');await set('daily_publish_cap','0');
+  });
+  await t.test('public topic pulse excludes private, archived and foreign sources and activity',async()=>{
+   const tag='private-pulse-'+Date.now();
+   await f.db.prepare('UPDATE articles SET topic_tag=$1 WHERE id=ANY($2::int[])').run(tag,f.sourceIds);
+   await f.db.prepare('UPDATE articles SET topic_tag=$1,is_published=1 WHERE id=$2').run(tag,f.foreignId);
+   let r=await request('/api/news/topic-pulse',null,'GET',false);assert.equal(r.status,200,JSON.stringify(r.body));
+   assert.ok(!JSON.stringify(r.body).includes(tag));
+   await f.db.prepare('UPDATE articles SET is_published=1 WHERE id=ANY($1::int[])').run(f.sourceIds);
+   r=await request('/api/news/topic-pulse',null,'GET',false);assert.ok(JSON.stringify(r.body).includes(tag));
+   await f.db.prepare('UPDATE articles SET is_archived=1 WHERE id=$1').run(f.sourceIds[0]);
+   r=await request('/api/news/topic-pulse',null,'GET',false);assert.ok(!JSON.stringify(r.body).includes(tag));
+   await f.db.prepare('UPDATE articles SET is_published=0,is_archived=0 WHERE id=ANY($1::int[])').run(f.sourceIds);
+   await f.db.prepare('UPDATE articles SET topic_tag=$1,is_published=1 WHERE id=$2').run(tag,article.id);
+   await f.db.prepare("INSERT INTO newsroom_events(tenant_id,event_type,actor_writer_id,target_article_id,is_public) VALUES(1,'private-work',$1,$2,true),(1,'internal-work',$1,$3,false)").run(f.writerId,f.sourceIds[0],article.id);
+   r=await request('/api/news/topic-pulse',null,'GET',false);
+   const topic=r.body.topics.find(x=>x.topic_tag===tag);assert.ok(topic);assert.equal(topic.writer_activity,null);assert.equal(topic.source_count,0);
+   await f.db.prepare('UPDATE articles SET is_published=0 WHERE id=$1').run(article.id);
+  });
+  await t.test('public briefing withholds pending review and recordings with withdrawn inputs',async()=>{
+   const date=new Date().toISOString().slice(0,10);const ids=[f.sourceIds[0]];
+   await f.db.prepare("INSERT INTO daily_briefings(tenant_id,briefing_date,edition,status,script,audio_url,article_ids) VALUES(1,$1,'morning','pending_review','Private recording','/media/private.mp3',$2)").run(date,ids);
+   const url='/api/news/briefing/'+date+'/morning';
+   assert.equal((await request(url,null,'GET',false)).status,404);
+   assert.equal((await request('/api/news/brief',null,'GET',false)).body.briefings.length,0);
+   await f.db.prepare("UPDATE daily_briefings SET status='ready' WHERE tenant_id=1 AND briefing_date=$1").run(date);
+   assert.equal((await request(url,null,'GET',false)).status,404);
+   await f.db.prepare('UPDATE articles SET is_published=1 WHERE id=$1').run(ids[0]);
+   const visible=await request(url,null,'GET',false);assert.equal(visible.status,200);assert.equal(visible.body.articles.length,1);
+   assert.equal((await request('/api/news/brief',null,'GET',false)).body.briefings.length,1);
+   assert.equal((await request('/api/news/briefing/latest',null,'GET',false)).status,200);
+   for(const invalid of [f.foreignId,2147483647]){
+    await f.db.prepare('UPDATE daily_briefings SET article_ids=$2 WHERE tenant_id=1 AND briefing_date=$1').run(date,[...ids,invalid]);
+    assert.equal((await request(url,null,'GET',false)).status,404);
+   }
+   await f.db.prepare('UPDATE daily_briefings SET article_ids=$2 WHERE tenant_id=1 AND briefing_date=$1').run(date,ids);
+   await f.db.prepare('UPDATE articles SET is_archived=1 WHERE id=$1').run(ids[0]);
+   assert.equal((await request(url,null,'GET',false)).status,404);
+   assert.equal((await request('/api/news/brief',null,'GET',false)).body.briefings.length,0);
+   assert.equal((await request('/api/news/briefing/latest',null,'GET',false)).status,404);
+   await f.db.prepare('UPDATE articles SET is_archived=0,is_published=0 WHERE id=$1').run(ids[0]);
+  });
  }finally{await f.close();}
 });
