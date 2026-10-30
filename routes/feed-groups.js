@@ -70,6 +70,30 @@ router.post('/auto-sort', auth, requirePermission('articles.update'), asyncHandl
 
   if (!articles.length) return res.json({ proposals: [], new_folders: [], applied: 0, skipped: 0 });
 
+  // Ordinary organization is deterministic and free. Paid classification requires
+  // a separate explicit confirmation, including for a preview.
+  if (req.body?.confirmPaid !== true) {
+    const names = seeds.length ? seeds : existingGroups.map(g => g.name);
+    const proposed = articles.map(a => {
+      const haystack = `${a.title} ${a.category}`.toLowerCase();
+      const exact = names.find(name => name.toLowerCase() === String(a.category).toLowerCase());
+      const matched = exact || names.find(name => name.toLowerCase().split(/\s+/).filter(w=>w.length>2).some(w=>haystack.includes(w)));
+      return matched ? {id:a.id,folder:matched} : null;
+    }).filter(Boolean);
+    if (dry_run) return res.json({proposals:proposed,new_folders:[],applied:0,skipped,missed:articles.length-proposed.length,method:'rules',ai_used:false});
+    const client=await getPool().connect();let applied=0;
+    try {
+      await client.query('BEGIN');
+      for(const proposal of proposed){
+        const group=existingGroups.find(g=>g.name.toLowerCase()===proposal.folder.toLowerCase());
+        if(!group)continue;
+        const result=await client.query('UPDATE articles SET group_id=$1,updated_at=NOW() WHERE tenant_id=$2 AND id=$3',[group.id,tid,proposal.id]);applied+=result.rowCount;
+      }
+      await client.query('COMMIT');
+    } catch(e){await client.query('ROLLBACK');throw e;} finally{client.release();}
+    return res.json({proposals:proposed,new_folders:[],applied,skipped,missed:articles.length-proposed.length,method:'rules',ai_used:false});
+  }
+
   // 3. Build prompt — three distinct modes
   const isColdStart = existingGroups.length === 0 && seeds.length === 0;
   const isSeeded    = seeds.length > 0;
@@ -345,12 +369,12 @@ router.put('/:id/articles', auth, requirePermission('articles.update'), asyncHan
   if (!group.rows[0]) return res.status(404).json({ error: 'Group not found' });
 
   const ids = article_ids.map(Number).filter(Boolean);
-  await getPool().query(
+  const result = await getPool().query(
     `UPDATE articles SET group_id = $1, updated_at = NOW()
      WHERE id = ANY($2::int[]) AND tenant_id = $3`,
     [req.params.id, ids, tid]
   );
-  res.json({ moved: ids.length });
+  res.json({ moved: result.rowCount });
 }));
 
 // DELETE /api/feed-groups/:id/articles — remove articles from group (ungrouped)
@@ -361,12 +385,12 @@ router.delete('/:id/articles', auth, requirePermission('articles.update'), async
     return res.status(400).json({ error: 'article_ids must be a non-empty array' });
   }
   const ids = article_ids.map(Number).filter(Boolean);
-  await getPool().query(
+  const result = await getPool().query(
     `UPDATE articles SET group_id = NULL, updated_at = NOW()
      WHERE id = ANY($2::int[]) AND tenant_id = $3 AND group_id = $1`,
     [req.params.id, ids, tid]
   );
-  res.json({ removed: ids.length });
+  res.json({ removed: result.rowCount });
 }));
 
 module.exports = router;

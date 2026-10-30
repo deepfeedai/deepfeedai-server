@@ -190,6 +190,7 @@ const xlBodyParser    = express.json({ limit: '10mb' });
 // Apply larger limit to specific admin paths BEFORE the global parser
 app.use('/api/admin/writers', xlBodyParser);
 app.use('/api/synthesis', largeBodyParser);
+app.use(require('./lib/rss-body-parser').rssImportBodyParser());
 
 // Default: small limit for everything else (DoS mitigation)
 app.use(express.json({ limit: '64kb' }));
@@ -356,6 +357,8 @@ app.use('/api/media',     aiLimiter, require('./routes/media'));
 // voices route deprecated — ElevenLabs voice IDs now stored directly on writers
 app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     largeBodyParser, require('./routes/settings'));
+app.use('/api/reader/open', require('./routes/reader-entry'));
+app.use('/api/reader', require('./routes/reader'));
 app.use('/api/categories',   require('./routes/categories'));
 app.use('/api/site-config',  require('./routes/site-config'));
 app.use('/api/analytics',    require('./routes/analytics'));  // POST /event public, GET /summary auth

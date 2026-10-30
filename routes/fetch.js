@@ -23,139 +23,36 @@ const parser = new RSSParser({
   },
 });
 
-async function fetchAllSources(tenantId = 1) {
-  const sources  = await db.prepare('SELECT * FROM sources WHERE is_active = 1 AND tenant_id = $1').all(tenantId);
-  let inserted = 0, skipped = 0;
-  const errors = [];
-  const needsImage = []; // { id, source_url } — newly inserted articles without an RSS image
-
-  for (const source of sources) {
-    const maxToIngest      = parseInt(source.auto_publish_max, 10) || 50;
-    let insertedForSource  = 0;
-
-    try {
-      const feed  = await parser.parseURL(source.url);
-      const items = (feed.items || []).slice().sort((a, b) => new Date(b.pubDate || 0) - new Date(a.pubDate || 0));
-      // First fetch for a new source: use 30-day lookback to pull in backlog
-      const lookbackMs = source.last_fetched ? 48 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
-      const cutoff = Date.now() - lookbackMs;
-
-      for (const item of items) {
-        const url = item.link || item.guid;
-        if (!url || !item.title) continue;
-
-        const pubMs = item.pubDate ? new Date(item.pubDate).getTime() : 0;
-        if (pubMs && pubMs < cutoff) { skipped++; continue; }
-
-        const existing = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
-        if (existing) { skipped++; continue; }
-
-        // Respect per-source ingest cap
-        if (insertedForSource >= maxToIngest) { skipped++; continue; }
-
-        const category = await detectCategory(item, { defaultCategory: source.default_category, tenantId });
-        if (!category || category === 'Uncategorized') { skipped++; continue; }
-
-        const image    =
-          item.enclosure?.url                              ||  // standard podcast/media enclosure
-          item['media:content']?.['$']?.url               ||  // media:content (common in news feeds)
-          item['media:thumbnail']?.['$']?.url             ||  // media:thumbnail
-          item.image?.url                                  ||  // image.url (some feeds)
-          item['itunes:image']?.['$']?.href               ||  // iTunes image
-          null;
-        const summary  = (item.contentSnippet || item.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 500) || null;
-        const pubDate  = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
-        const author   = item.creator || item.author || null;
-
-        // Insert as source material — synthesis pipeline is the path to publication
-        await db.prepare(
-          `INSERT INTO articles (title, slug, summary, category, source, source_url, image_url, author, is_published, is_featured, published_at, status, tenant_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, 'source', $10)`
-        ).run(decodeEntities(item.title), toSlug(decodeEntities(item.title)), summary, category, source.name, url, image, author, pubDate, tenantId);
-        inserted++;
-        insertedForSource++;
-
-        // Fire-and-forget: writer assignment + quality gate auto-publish
-        try {
-          const inserted_row = await db.prepare('SELECT * FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
-          if (inserted_row) {
-            const artObj = { id: inserted_row.id, title: decodeEntities(item.title), summary, category, source: source.name };
-            (async () => {
-              try {
-                const writer = await findBestWriter(artObj, tenantId);
-                if (writer) {
-                  await db.prepare('UPDATE articles SET writer_id = $1 WHERE id = $2 AND tenant_id = $3').run(writer.id, artObj.id, tenantId);
-                  // TLDR generation deferred to post-publish to avoid wasting tokens
-                  // on articles that will be consumed by synthesis
-                }
-
-                // Always score curated articles
-                const gate = await getCuratedScore({ title: artObj.title, summary: artObj.summary, image_url: inserted_row.image_url, author: inserted_row.author, source: artObj.source }, tenantId);
-                await db.prepare('UPDATE articles SET editorial_score = $1 WHERE id = $2 AND tenant_id = $3').run(gate.score, inserted_row.id, tenantId);
-
-                // Source articles are not auto-published — synthesis is the path to publication
-
-                // Enrich: scrape full article text and generate structured summary
-                const { enrichArticle } = require('../lib/synthesis');
-                enrichArticle(inserted_row.id, tenantId)
-                  .then(async () => {
-                    // After enrichment, generate an embedding for semantic clustering.
-                    // Fire-and-forget; embedding failure must not break ingest.
-                    try {
-                      const { generateEmbedding, isPgvectorAvailable } = require('../lib/embeddings');
-                      if (!(await isPgvectorAvailable())) return;
-                      const row = await db.prepare(
-                        'SELECT id, title, COALESCE(enriched_summary, tldr_overview, LEFT(summary, 400)) AS text FROM articles WHERE id = $1 AND tenant_id = $2'
-                      ).get(inserted_row.id, tenantId);
-                      if (!row) return;
-                      const textToEmbed = `${row.title} — ${row.text || ''}`.slice(0, 1000);
-                      const vector = await generateEmbedding(tenantId, textToEmbed);
-                      await db.prepare('UPDATE articles SET embedding = $1 WHERE id = $2 AND tenant_id = $3')
-                        .run(JSON.stringify(vector), row.id, tenantId);
-                    } catch (err) { console.warn('[fetch] embedding failed for article', inserted_row.id, err.message); }
-                  })
-                  .catch(() => {});
-              } catch (e) { console.error('[fetch] auto-assign/publish error:', e.message); }
-            })();
-          }
-        } catch { /* ignore */ }
-
-        // Track articles without an RSS image for synchronous OG enrichment below
-        if (!image) {
-          const row = await db.prepare('SELECT id FROM articles WHERE source_url = $1 AND tenant_id = $2').get(url, tenantId);
-          if (row) needsImage.push({ id: row.id, source_url: url });
-        }
+async function fetchAllSources(tenantId = 1, options = {}) {
+  const sources = await db.prepare('SELECT * FROM sources WHERE is_active=1 AND removed_at IS NULL AND tenant_id=$1 ORDER BY id').all(tenantId);
+  const { safeFetchText } = require('../lib/rss-safe');
+  const { ingestItem } = require('../lib/rss-ingest');
+  let inserted=0,skipped=0,conflicts=0; const errors=[];
+  for(const source of sources){
+    let added=0;
+    try{
+      const xml=await (options.fetchText || safeFetchText)(source.url);
+      if(/<!DOCTYPE|<!ENTITY/i.test(xml))throw Error('Unsupported feed entities');
+      const feed=await parser.parseString(xml);
+      const cutoff=Date.now()-(source.last_fetched?48:30*24)*3600000;
+      for(const item of (feed.items||[]).slice(0,1000)){
+        if(added>=Math.min(200,Number(source.auto_publish_max)||50)){skipped++;continue;}
+        const date=new Date(item.pubDate||item.isoDate||Date.now());
+        if(Number.isFinite(date.getTime())&&date.getTime()<cutoff){skipped++;continue;}
+        try{
+          const category=await detectCategory(item,{defaultCategory:source.default_category,tenantId,allowAI:false});
+          const result=await ingestItem(tenantId,source,item,category);
+          if(result.inserted){inserted++;added++;}else skipped++;
+          if(result.conflict)conflicts++;
+        }catch{skipped++;errors.push({source_id:source.id,error:'One feed item could not be imported'});}
       }
-      await db.prepare('UPDATE sources SET last_fetched = $1 WHERE id = $2 AND tenant_id = $3').run(new Date().toISOString(), source.id, tenantId);
-    } catch (err) {
-      errors.push({ source: source.name, error: err.message });
+      await db.prepare('UPDATE sources SET last_fetched=NOW(),last_fetch_error=NULL WHERE id=$1 AND tenant_id=$2').run(source.id,tenantId);
+    }catch{
+      await db.prepare('UPDATE sources SET last_fetch_error=$1 WHERE id=$2 AND tenant_id=$3').run('Feed could not be fetched or parsed',source.id,tenantId);
+      errors.push({source_id:source.id,error:'Feed could not be fetched or parsed'});
     }
   }
-
-  // ── Background OG image enrichment (non-blocking) ──────────────────────
-  setImmediate(async () => {
-    try {
-      const noImage = await db.prepare(
-        `SELECT id, source_url FROM articles
-         WHERE (image_url IS NULL OR image_url = '')
-           AND (is_archived = 0 OR is_archived IS NULL)
-           AND tenant_id = $1
-         ORDER BY id DESC LIMIT 30`
-      ).all(tenantId);
-      const CONCURRENCY = 5;
-      for (let i = 0; i < noImage.length; i += CONCURRENCY) {
-        const batch = noImage.slice(i, i + CONCURRENCY);
-        await Promise.all(batch.map(async (a) => {
-          try {
-            const img = await scrapeOgImage(a.source_url, tenantId);
-            if (img) await db.prepare('UPDATE articles SET image_url = $1, updated_at = NOW() WHERE id = $2 AND tenant_id = $3').run(img, a.id, tenantId);
-          } catch { /* ignore per-article failures */ }
-        }));
-      }
-    } catch { /* ignore enrichment errors */ }
-  });
-
-  return { inserted, skipped, errors };
+  return {inserted,skipped,conflicts,errors:errors.slice(0,100),ai_used:false};
 }
 
 // ── Live news fetch (NewsAPI + Brave Search) ──────────────────────────────────
@@ -372,7 +269,7 @@ router.post('/recategorize', auth, requirePermission('fetch.execute'), asyncHand
     await Promise.all(articles.slice(i, i + RECAT_CONCURRENCY).map(async (a) => {
       const newCat = await detectCategory(
         { title: a.title, contentSnippet: a.summary, link: a.source_url, sourceUrl: a.source_url },
-        { tenantId: req.tenantId, defaultCategory: sourceDefaults[a.source] }
+        { tenantId: req.tenantId, allowAI: req.body?.confirmPaid === true, defaultCategory: sourceDefaults[a.source] }
       );
       if (newCat !== a.category) {
         const key = `${a.category} → ${newCat}`;

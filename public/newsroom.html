@@ -2601,29 +2601,20 @@ section.nr-expanded {
   <div id="ws-wire" class="nr-workspace">
 
     <div class="wire-inner-tabs" id="nr-wire-tab-bar">
-      <button class="wire-inner-tab active" data-wire-tab="feed">Feed</button>
+      <button class="wire-inner-tab active" data-wire-tab="feed">Reader</button>
       <button class="wire-inner-tab" data-wire-tab="stories">Stories</button>
       <button class="wire-inner-tab" data-wire-tab="discover">Discover</button>
       <button class="wire-inner-tab" data-wire-tab="pipeline">Pipeline</button>
     </div>
 
-    <!-- Feed panel (cluster/single ingest) -->
+    <!-- One editorial Reader owns source browsing; specialist views stay here. -->
     <div id="wire-tab-feed" class="wire-tab-panel active">
-      <div class="wire-toolbar">
-        <div class="nr-filter-chips" id="nr-wire-filters">
-          <button class="nr-filter-chip active" data-filter="all">All</button>
-          <button class="nr-filter-chip" data-filter="clusters">Clusters</button>
-          <button class="nr-filter-chip" data-filter="singles">Singles</button>
-        </div>
-        <div class="nr-pipeline-status" id="nr-pipeline-status" style="display:none">
-          <div class="nr-pipeline-dot" id="nr-pipeline-dot"></div>
-          <span id="nr-pipeline-text">Pipeline</span>
-        </div>
-        <input class="wire-search-input" id="nr-wire-search" type="search" placeholder="Search wire…">
-      </div>
-      <div class="wire-feed-body" id="nr-wire-feed">
-        <div class="nr-loading">Loading feed…</div>
-      </div>
+      <section style="max-width:640px;margin:auto;padding:32px;line-height:1.7;">
+        <p style="color:var(--accent);text-transform:uppercase;letter-spacing:.12em;font-size:12px;">Editorial Reader</p>
+        <h2 style="font-size:28px;margin:8px 0;">One place to read, save and shape your next story.</h2>
+        <p style="color:var(--muted);">Browse all sources, keep your reading place, compare coverage and collect evidence for an assignment. Stories, discovery and synthesis remain available in the tabs above.</p>
+        <a id="nr-wire-reader-link" class="btn btn-primary" href="/feed-inbox.html">Open Reader</a>
+      </section>
     </div>
 
     <!-- Stories panel -->
