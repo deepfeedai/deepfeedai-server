@@ -21,6 +21,7 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
+const storyAi = require('../lib/story-ai');
 const { asyncHandler } = require('../lib/utils');
 const { auth } = require('../middleware/auth');
 const { requirePermission } = require('../middleware/permissions');
@@ -61,7 +62,7 @@ router.get('/articles-search', auth, requirePermission('articles.read'), asyncHa
   const params = [req.tenantId, limit];
   let excludeClause = '';
   if (excludeStory) {
-    excludeClause = `AND a.id NOT IN (SELECT article_id FROM story_timeline_articles WHERE story_id = $${params.length + 1})`;
+    excludeClause = `AND a.id NOT IN (SELECT article_id FROM story_timeline_articles WHERE tenant_id = $1 AND story_id = ${params.length + 1})`;
     params.push(excludeStory);
   }
 
@@ -76,7 +77,7 @@ router.get('/articles-search', auth, requirePermission('articles.read'), asyncHa
     FROM articles a
     LEFT JOIN writers w ON w.id = a.writer_id AND w.tenant_id = a.tenant_id
     WHERE a.tenant_id = $1
-      AND (a.status = 'published' OR a.content_type = 'curated')
+      AND a.is_published = 1
       AND (a.is_archived = 0 OR a.is_archived IS NULL)
       ${excludeClause}
       ${searchClause}
@@ -94,7 +95,7 @@ router.post('/', auth, requirePermission('articles.update'), asyncHandler(async 
   const story = await createStory(req.tenantId, {
     name,
     summary,
-    articleIds: Array.isArray(articleIds) ? articleIds.map(Number).filter(Boolean) : [],
+    articleIds: Array.isArray(articleIds) ? articleIds.map(Number) : [],
   });
   res.status(201).json({ story });
 }));
@@ -127,8 +128,9 @@ router.delete('/:id', auth, requirePermission('articles.update'), asyncHandler(a
 // POST /:id/regenerate — re-run Maxwell
 router.post('/:id/regenerate', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const storyId = parseInt(req.params.id);
-  generateStoryNameAndSummary(storyId, req.tenantId).catch(() => {});
-  res.json({ ok: true, message: 'regeneration queued' });
+  const task = await storyAi.start(req.tenantId,storyId,req.body || {});
+  res.status(task.run ? 202 : 200).json({ok:true,job:task.job});
+  if(task.run) setImmediate(()=>task.run().catch(()=>{}));
 }));
 
 // POST /:id/articles — add article
@@ -210,10 +212,9 @@ router.post('/regenerate-all', auth, requirePermission('articles.update'), async
     return res.json({ ok: true, dryRun: true, filter, count: rows.length, genericCount });
   }
 
-  for (const row of rows) {
-    generateStoryNameAndSummary(row.id, req.tenantId).catch(() => {});
-  }
-  res.json({ ok: true, queued: rows.length, filter, genericCount });
+  res.status(409).json({error:'Open a story and explicitly generate its summary. Each story shows its own cost confirmation and durable result.'});
+
+
 }));
 
 module.exports = router;

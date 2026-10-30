@@ -14,6 +14,7 @@ const express = require('express');
 const router  = express.Router();
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
+const publication = require('../lib/story-publication');
 const { asyncHandler } = require('../lib/utils');
 const { getSecrets }   = require('../lib/secrets');
 const {
@@ -42,10 +43,10 @@ router.get('/stories', asyncHandler(async (req, res) => {
              st.article_count, st.image_url, st.last_activity_at, st.created_at,
              a.image_url AS cover_image_url
       FROM story_timeline_articles sta
-      JOIN story_timelines st ON st.id = sta.story_id AND st.tenant_id = sta.tenant_id
+      JOIN ${publication.projection} st ON st.id = sta.story_id AND st.tenant_id = sta.tenant_id
       LEFT JOIN articles a ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
       WHERE sta.article_id = $1 AND sta.tenant_id = $2
-        AND st.status != 'archived'
+        AND st.status != 'archived' AND EXISTS (SELECT 1 FROM articles eligible_article WHERE eligible_article.id=sta.article_id AND eligible_article.tenant_id=sta.tenant_id AND ${publication.eligible('eligible_article')})
       ORDER BY st.last_activity_at DESC
       LIMIT 5
     `).all(articleId, req.tenantId).catch(() => []);
@@ -67,7 +68,7 @@ router.get('/stories', asyncHandler(async (req, res) => {
     const rows = await db.prepare(`
       SELECT st.*, a.image_url AS cover_image_url
       FROM user_story_follows usf
-      JOIN story_timelines st ON st.id = usf.story_id AND st.tenant_id = usf.tenant_id
+      JOIN ${publication.projection} st ON st.id = usf.story_id AND st.tenant_id = usf.tenant_id
       LEFT JOIN articles a ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
       WHERE usf.user_id = $1 AND usf.tenant_id = $2
       ORDER BY st.last_activity_at DESC
@@ -123,10 +124,10 @@ router.get('/stories/catchup', asyncHandler(async (req, res) => {
              SELECT a2.image_url FROM story_timeline_articles sta2
              JOIN articles a2 ON a2.id = sta2.article_id AND a2.tenant_id = sta2.tenant_id
              WHERE sta2.story_id = st.id AND sta2.tenant_id = st.tenant_id
-               AND a2.image_url IS NOT NULL AND a2.image_url != ''
+               AND ${publication.eligible('a2')} AND a2.image_url IS NOT NULL AND a2.image_url != ''
              ORDER BY a2.published_at DESC LIMIT 1
            ) AS fallback_image_url
-    FROM story_timelines st
+    FROM ${publication.projection} st
     LEFT JOIN articles a  ON a.id = st.cover_article_id AND a.tenant_id = st.tenant_id
     LEFT JOIN writers w   ON w.id = a.writer_id         AND w.tenant_id = a.tenant_id
     WHERE st.tenant_id = $1
@@ -187,54 +188,12 @@ router.get('/stories/:slug', asyncHandler(async (req, res) => {
   res.json({ status: 'ok', story: { ...story, followerCount, isFollowing } });
 }));
 
-// GET /stories/:slug/summarize — AI brief of recent story articles
-const _storySummarizeCache = new Map();
-const STORY_BRIEF_TTL = 60 * 60 * 1000; // 1 hour
-
-router.get('/stories/:slug/summarize', asyncHandler(async (req, res) => {
-  const tenantId = req.tenantId;
-  const slug     = req.params.slug;
-  const cacheKey = `${tenantId}:${slug}`;
-
-  const cached = _storySummarizeCache.get(cacheKey);
-  if (cached && Date.now() - cached.generatedAt < STORY_BRIEF_TTL) {
-    return res.json({ status: 'ok', brief: cached.text, generatedAt: cached.generatedAt, cached: true });
-  }
-
-  const story = await getStory(tenantId, slug);
-  if (!story) return res.status(404).json({ status: 'error', error: 'story not found' });
-
-  const recent = (story.articles || [])
-    .filter(a => ['original', 'deep-dive'].includes(a.content_type))
-    .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
-    .slice(0, 8);
-
-  if (!recent.length) return res.status(404).json({ status: 'error', error: 'No published articles found' });
-
-  const articleBlurbs = recent.map((a, i) =>
-    `${i + 1}. ${a.generated_title || a.title}${a.tldr_overview || a.summary ? '\n   ' + (a.tldr_overview || a.summary).slice(0, 200) : ''}`
-  ).join('\n\n');
-
-  const { complete: aiComplete } = require('../lib/ai-router');
-  const result = await aiComplete({
-    operation:  'story-summarize',
-    tenantId,
-    skipBudget: false,
-    messages: [{
-      role: 'user',
-      content: `You are a news editor briefing a reader on a developing story. Based on these articles, write a 3–4 sentence summary. Cover: what happened, who's involved, where things stand now, and what's still unresolved. Be direct and specific — no hedging phrases like "according to reports". No bullet points, just flowing prose.\n\nArticles:\n${articleBlurbs}`,
-    }],
-    temperature: 0.3,
-    maxTokens:   1200,
-  });
-
-  const text = (result?.text || '').trim();
-  if (!text) return res.status(500).json({ status: 'error', error: 'AI returned no content' });
-
-  const generatedAt = Date.now();
-  _storySummarizeCache.set(cacheKey, { text, generatedAt });
-
-  res.json({ status: 'ok', brief: text, generatedAt, cached: false });
+// Public reads never start AI work. The editor explicitly regenerates summaries.
+router.get('/stories/:slug/summarize', asyncHandler(async (req,res) => {
+  const story = await getStory(req.tenantId,req.params.slug);
+  if(!story) return res.status(404).json({error:'story not found'});
+  if(!story.summary) return res.status(404).json({status:'unavailable',error:'No published story summary is available'});
+  res.json({status:'ok',brief:story.summary,generatedAt:story.updated_at,cached:true});
 }));
 
 // POST /stories/:slug/follow
