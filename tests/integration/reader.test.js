@@ -93,6 +93,9 @@ test('Reader actual APIs: per-user state, tenant isolation, matching selection, 
   await t.test('assignment append is concurrent-safe, non-paid and preserves existing source IDs',async()=>{
    const assignment=await require('../../lib/editor-assignments').create({topic:'Reader research',angle_summary:'Explain verified sources',writer_id:f.writerId,source_article_ids:[ids[0],ids[1]],request_key:prefix+'-assignment'},1,null);
    await require('../../lib/editor-assignments').approve(assignment.id,1,null);
+   const repeated=await request('/assignments/'+assignment.id+'/sources',{method:'POST',body:{source_article_ids:[ids[0]]}});
+   assert.equal(repeated.status,200);assert.equal(repeated.body.status,'approved');assert.ok(repeated.body.decided_at);
+   assert.equal((await request('/assignments/'+assignment.id+'/sources',{method:'POST',body:{source_article_ids:[]}})).status,400);
    const outcomes=await Promise.all([ids[2],ids[3]].map(id=>request('/assignments/'+assignment.id+'/sources',{method:'POST',body:{source_article_ids:[id]}})));
    assert.ok(outcomes.every(r=>r.status===200));
    const saved=await f.db.prepare('SELECT * FROM article_pitches WHERE id=$1').get(assignment.id);assert.equal(saved.status,'proposed');

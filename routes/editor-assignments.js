@@ -1,4 +1,6 @@
 const express=require('express'),router=express.Router(),db=require('../db');const {auth}=require('../middleware/auth'),{requirePermission}=require('../middleware/permissions');const assignments=require('../lib/editor-assignments');
+const sourceRules=require('../lib/assignment-sources');
+router.use((req,res,next)=>{res.setHeader('Cache-Control','no-store');next()});
 router.use(auth);router.use(async(req,res,next)=>{if(!await require('../lib/feature-registry').isFeatureEnabled(req.tenantId,'article_pitches').catch(()=>false))return res.status(404).json({error:'Assignments are not enabled.'});next()});
 const handle=fn=>async(req,res)=>{try{if(req.params.id&&!/^[1-9]\d{0,8}$/.test(req.params.id))return res.status(400).json({error:'Invalid assignment ID.'});await fn(req,res)}catch(e){res.status(e.status||500).json({error:e.status?e.message:'Assignment operation failed. Please retry after checking its current state.'})}};
 router.get('/',requirePermission('articles.read'),handle(async(req,res)=>{
@@ -14,12 +16,17 @@ router.get('/',requirePermission('articles.read'),handle(async(req,res)=>{
  const where=conditions.length?' WHERE '+conditions.join(' AND '):'';
  const total=await db.getPool().query('SELECT count(*)::int AS total FROM ('+base+') assignments'+where,params);
  const rows=await db.getPool().query('SELECT * FROM ('+base+') assignments'+where+' ORDER BY created_at DESC,id DESC LIMIT $'+(params.length+1)+' OFFSET $'+(params.length+2),[...params,limit,offset]);
- res.setHeader('Cache-Control','no-store');res.json({assignments:rows.rows,total:total.rows[0].total,limit,offset});
+ res.setHeader('Cache-Control','no-store');res.json({assignments:await sourceRules.decorate(rows.rows,req.tenantId),total:total.rows[0].total,limit,offset});
 }));
+router.get('/:id/source-options',requirePermission('articles.read'),handle(async(req,res)=>res.json(await sourceRules.options(Number(req.params.id),req.tenantId,req.query))));
+const mutation=action=>handle(async(req,res)=>{const row=await sourceRules.mutate(Number(req.params.id),req.tenantId,action,action==='remove'?{sourceId:Number(req.params.sourceId)}:req.body||{});res.json((await sourceRules.decorate([row],req.tenantId))[0]);});
+router.post('/:id/sources',requirePermission('articles.update'),mutation('add'));
+router.delete('/:id/sources/:sourceId',requirePermission('articles.update'),mutation('remove'));
+router.put('/:id/writer',requirePermission('articles.update'),mutation('writer'));
 router.get('/:id',requirePermission('articles.read'),handle(async(req,res)=>{
  const row=await db.prepare('SELECT p.*,a.status AS article_status,a.is_published AS article_published FROM article_pitches p LEFT JOIN articles a ON a.id=p.spawned_article_id AND a.tenant_id=p.tenant_id WHERE p.id=$1 AND p.tenant_id=$2 AND p.is_editor_assignment=true').get(req.params.id,req.tenantId);
  if(!row)return res.status(404).json({error:'Assignment not found.'});
- res.setHeader('Cache-Control','no-store');res.json(row);
+ res.setHeader('Cache-Control','no-store');res.json((await sourceRules.decorate([row],req.tenantId))[0]);
 }));
 router.post('/',requirePermission('articles.update'),handle(async(req,res)=>res.status(201).json(await assignments.create(req.body,req.tenantId,req.user?.sub||null))));
 router.put('/:id/sources',requirePermission('articles.update'),handle(async(req,res)=>res.json(await assignments.attach(Number(req.params.id),req.tenantId,req.body.source_article_ids,Number(req.body.writer_id)||null))));
