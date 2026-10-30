@@ -201,6 +201,15 @@
       border-radius:50%; animation:rspin 0.6s linear infinite; vertical-align:middle;
     }
     @keyframes rspin { to { transform:rotate(360deg); } }
+  .d-header { flex-wrap:wrap; gap:8px; }
+    .d-hdr-actions { flex-wrap:wrap; gap:8px; }
+    #regenBtn { white-space:normal; text-align:left; }
+    #storyAiStatus { font-size:13px; line-height:1.5; padding:10px; background:var(--bg-hover); border-radius:6px; }
+    @media (max-width:800px) {
+      .stories-layout.drawer-open .stories-panel { display:none; }
+      .stories-drawer { width:100%; min-width:0; max-width:100%; }
+      .d-header,.d-hdr-actions { width:100%; }
+    }
   </style>
 </head>
 <body>
@@ -225,7 +234,7 @@
               <option value="created">Created</option>
             </select>
             <button class="btn btn-ghost btn-sm" onclick="openBackfillModal()" style="margin-left:auto;">⟳ Backfill</button>
-            <button class="btn btn-ghost btn-sm" onclick="openRegenAllModal()">↻ Regen Names</button>
+            <button class="btn btn-ghost btn-sm" onclick="openRegenAllModal()">AI summary help</button>
             <button class="btn btn-sm" onclick="openNewStoryModal()">+ New Story</button>
           </div>
           <div class="s-stats" id="sStats"></div>
@@ -325,7 +334,7 @@
 <div class="modal-overlay" id="regenAllModal">
   <div class="modal" style="max-width:480px;">
     <div class="modal-header">
-      <div class="modal-title">Regenerate Story Names</div>
+      <div class="modal-title">AI story summaries</div>
       <button class="modal-close" onclick="closeModal('regenAllModal')">✕</button>
     </div>
     <div class="modal-body" id="regenAllBody">

@@ -11,6 +11,8 @@
   let _regenTimer    = null;
   let _regenAttempts = 0;
   let _pendingArchiveId = null;
+  let _loadVersion = 0;
+  const _regenBusy = new Set();
 
   // Phase 3: new-story modal
   let _newStorySelectedIds = []; // [{ id, title }]
@@ -43,8 +45,16 @@
   async function loadStories() {
     try {
       const q = searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : '';
-      const data = await apiFetch(`/story-timelines?status=active,dormant,archived&limit=100${q}`);
-      stories = data.stories || [];
+      const version=++_loadVersion;
+      const all=[];
+      let hasMore=true;
+      while(hasMore){
+        const data=await apiFetch(`/story-timelines?status=active,dormant,archived&limit=100&offset=${all.length}${q}`);
+        if(version!==_loadVersion)return;
+        all.push(...(data.stories || []));
+        hasMore=data.hasMore && (data.stories || []).length>0;
+      }
+      stories = all;
       renderAll();
     } catch (err) {
       document.getElementById('sList').innerHTML =
@@ -193,6 +203,7 @@
 
     try {
       const data = await apiFetch('/story-timelines/' + id);
+      if(openStoryId!==id)return;
       openStory = data.story;
       // Cache intensity on the list item for sparklines
       const listItem = stories.find(s => s.id === id);
@@ -270,6 +281,13 @@
       </div>
     `;
 
+    const state=document.createElement('p');
+    state.id='storyAiStatus'; state.setAttribute('role','status');
+    state.textContent=s.aiJob ? `AI ${s.aiJob.state}: ${s.aiJob.message || ''}` : 'AI generation is manual and may incur provider charges.';
+    document.getElementById('dBody').prepend(state);
+    const regen=document.getElementById('regenBtn');
+    if(regen){regen.disabled=s.aiJob?.state==='running' || _regenBusy.has(s.id);regen.textContent='Generate name + summary (paid)';}
+    if(s.aiJob?.state==='running') pollStoryAi(s.id);
     setupNameEdit(s);
     setupAddArticle(s.id);
   }
@@ -327,7 +345,7 @@
       if (newName === original) return;
       if (!newName) { el.textContent = original; return; }
       try {
-        await apiFetch('/story-timelines/' + openStoryId, {
+        await apiFetch('/story-timelines/' + s.id, {
           method: 'PATCH', body: JSON.stringify({ name: newName }),
         });
         original = newName;
@@ -433,51 +451,58 @@
 
   // ── Drawer: regenerate ─────────────────────────────────────────────────────
   window.regenerateStory = async function () {
-    if (!openStoryId) return;
-    clearRegenPoll();
-    const btn = document.getElementById('regenBtn');
-    if (btn) btn.innerHTML = '<span class="regen-spin"></span> Regenerating…';
+    const id=openStoryId;
+    if(!id || _regenBusy.has(id) || openStory?.aiJob?.state==='running')return;
+    if(!confirm('Generate this story name and summary using your AI provider? This may incur charges.'))return;
+    const retryAcknowledged=openStory?.aiJob?.state==='failed';
+    if(retryAcknowledged && !confirm('The previous attempt may already have incurred charges. Retry anyway?'))return;
+    _regenBusy.add(id);
+    const btn=document.getElementById('regenBtn'); if(btn)btn.disabled=true;
+    const key='story-'+crypto.randomUUID();
     try {
-      await apiFetch('/story-timelines/' + openStoryId + '/regenerate', { method: 'POST' });
-    } catch (err) {
-      showAlert('Regenerate failed: ' + err.message, 'error');
-      if (btn) btn.textContent = '↺ Regenerate';
-      return;
-    }
-    _regenAttempts = 0;
-    const storyIdAtStart = openStoryId;
-    const nameAtStart    = openStory ? openStory.name : null;
-    const summAtStart    = openStory ? openStory.summary : null;
-
-    _regenTimer = setInterval(async () => {
-      if (openStoryId !== storyIdAtStart) { clearRegenPoll(); return; }
-      _regenAttempts++;
-      try {
-        const data = await apiFetch('/story-timelines/' + storyIdAtStart);
-        const fresh = data.story;
-        const changed = fresh.name !== nameAtStart || fresh.summary !== summAtStart;
-        if (changed || _regenAttempts >= 10) {
-          clearRegenPoll();
-          openStory = fresh;
-          const listItem = stories.find(s => s.id === storyIdAtStart);
-          if (listItem) {
-            listItem.name    = fresh.name;
-            listItem.summary = fresh.summary;
-          }
-          renderList();
-          renderDrawer(fresh);
-          if (changed) showAlert('Story regenerated', 'success');
-        }
-      } catch { /* ignore transient errors */ }
-    }, 3000);
+      const result=await apiFetch('/story-timelines/'+id+'/regenerate',{method:'POST',body:JSON.stringify({confirmPaid:true,retryAcknowledged,requestKey:key})});
+      if(openStoryId===id && openStory)openStory.aiJob=result.job;
+      if(openStoryId===id)pollStoryAi(id);
+    } catch(err) {
+      showAlert('Request not confirmed: '+err.message+'. Check status before retrying; no automatic retry was sent.','error');
+      if(openStoryId===id && openStory)openStory.aiJob={state:'running',message:'Checking request outcome'};
+      if(openStoryId===id)pollStoryAi(id);
+    } finally {_regenBusy.delete(id);}
   };
 
-  function clearRegenPoll() {
-    if (_regenTimer) { clearInterval(_regenTimer); _regenTimer = null; }
-    _regenAttempts = 0;
-    const btn = document.getElementById('regenBtn');
-    if (btn) btn.innerHTML = '↺ Regenerate';
+  function pollStoryAi(id) {
+    clearRegenPoll();
+    let attempts=0;
+    _regenTimer=setInterval(async()=>{
+      if(openStoryId!==id){clearRegenPoll();return;}
+      attempts++;
+      try {
+        const {story}=await apiFetch('/story-timelines/'+id);
+        if(openStoryId!==id)return;
+        const status=document.getElementById('storyAiStatus');
+        if(status)status.textContent=story.aiJob ? 'AI '+story.aiJob.state+': '+story.aiJob.message : 'No AI request was recorded. You may try again.';
+        if(story.aiJob?.state!=='running'){
+          clearRegenPoll();
+          const summary=document.getElementById('dSummary'),name=document.getElementById('dName');
+          const editing=(summary && summary.value!==String(openStory?.summary || '')) || (name && name.textContent!==String(openStory?.name || ''));
+          if(editing){
+            openStory.aiJob=story.aiJob;
+            const button=document.getElementById('regenBtn');if(button)button.disabled=false;
+            showAlert('AI status updated. Your unsaved edits were kept; reopen the story to load the saved AI result.','info');
+          }else{openStory=story;renderDrawer(story);}
+          await loadStories();
+        }else if(attempts>=100){
+          clearRegenPoll();if(status)status.textContent+=' Reopen this story to check again; no retry was started.';
+        }
+      }catch(error){if(attempts>=100){clearRegenPoll();showAlert('Status unavailable. Reopen the story before retrying.','error');}}
+    },3000);
   }
+  function clearRegenPoll() {
+    if(_regenTimer){clearInterval(_regenTimer);_regenTimer=null;}
+    _regenAttempts=0;
+  }
+
+
 
   // ── Drawer: key moment toggle ──────────────────────────────────────────────
   window.toggleKeyMoment = async function (articleId, currentlyKey) {
@@ -645,78 +670,17 @@
 
   // ── Regen All modal ───────────────────────────────────────────────────────
   window.openRegenAllModal = async function () {
-    document.getElementById('regenAllBody').innerHTML =
-      '<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Counting stories…</p></div>';
-    document.getElementById('regenAllGenericBtn').disabled = true;
-    document.getElementById('regenAllAllBtn').disabled = true;
-    document.getElementById('regenAllFooter').innerHTML = `
-      <button class="btn btn-ghost" onclick="closeModal('regenAllModal')">Cancel</button>
-      <button class="btn" id="regenAllGenericBtn" onclick="runRegenAll('generic')" disabled>Regen Generic</button>
-      <button class="btn btn-ghost btn-sm" id="regenAllAllBtn" onclick="runRegenAll('all')" disabled style="opacity:0.7;">Regen All</button>`;
+    document.getElementById('regenAllBody').textContent='Open a story and select Generate name + summary (paid). Each action requires confirmation, preserves the story URL, and records success, failure or a budget skip. Public reads and backfill do not generate summaries.';
+    document.getElementById('regenAllFooter').innerHTML='<button class="btn" onclick="closeModal(\'regenAllModal\')">Close</button>';
     openModal('regenAllModal');
-
-    try {
-      const data = await apiFetch('/story-timelines/regenerate-all?dry=true&filter=all', { method: 'POST' });
-      const total   = data.count   || 0;
-      const generic = data.genericCount || 0;
-
-      document.getElementById('regenAllBody').innerHTML = `
-        <div class="bf-summary" style="margin-bottom:14px;">
-          <div class="bf-stat">
-            <div class="bf-stat-num" style="color:#f59e0b;">${generic}</div>
-            <div class="bf-stat-label">Generic names</div>
-          </div>
-          <div class="bf-stat">
-            <div class="bf-stat-num">${total}</div>
-            <div class="bf-stat-label">Total stories</div>
-          </div>
-        </div>
-        <p style="font-size:13px;color:var(--text-muted);line-height:1.6;">
-          <strong>Regen Generic</strong> queues the ${generic} stor${generic !== 1 ? 'ies' : 'y'} with
-          short or missing names (≤ 3 words / no summary) for Maxwell to rename.<br/>
-          <strong>Regen All</strong> queues all ${total} stor${total !== 1 ? 'ies' : 'y'} regardless
-          of current name quality. Existing good names may be overwritten.
-        </p>
-        <p style="font-size:12px;color:var(--text-muted);margin-top:10px;">
-          Regeneration runs in the background — the list will update as names come in.
-        </p>`;
-
-      document.getElementById('regenAllGenericBtn').disabled = generic === 0;
-      document.getElementById('regenAllGenericBtn').textContent = `Regen Generic (${generic})`;
-      document.getElementById('regenAllAllBtn').disabled = total === 0;
-      document.getElementById('regenAllAllBtn').textContent = `Regen All (${total})`;
-    } catch (err) {
-      document.getElementById('regenAllBody').innerHTML =
-        `<div class="s-empty"><div class="ei">⚠️</div><p>${esc(err.message)}</p></div>`;
-    }
   };
 
-  window.runRegenAll = async function (filter) {
-    const genericBtn = document.getElementById('regenAllGenericBtn');
-    const allBtn     = document.getElementById('regenAllAllBtn');
-    if (genericBtn) { genericBtn.disabled = true; }
-    if (allBtn)     { allBtn.disabled = true; }
-    document.getElementById('regenAllBody').innerHTML =
-      `<div style="text-align:center;padding:30px;"><span class="spinner"></span><p style="margin-top:10px;font-size:13px;color:var(--text-muted)">Queueing regenerations…</p></div>`;
-
-    try {
-      const data = await apiFetch('/story-timelines/regenerate-all?filter=' + filter, { method: 'POST' });
-      const queued = data.queued || 0;
-      document.getElementById('regenAllBody').innerHTML = `
-        <div style="text-align:center;padding:20px 10px;">
-          <div style="font-size:36px;margin-bottom:10px;">✓</div>
-          <p style="font-size:14px;font-weight:600;">${queued} stor${queued !== 1 ? 'ies' : 'y'} queued</p>
-          <p style="font-size:13px;color:var(--text-muted);margin-top:6px;">
-            Maxwell is regenerating names in the background. Refresh the list in a minute to see updates.
-          </p>
-        </div>`;
-      document.getElementById('regenAllFooter').innerHTML =
-        `<button class="btn" onclick="closeModal('regenAllModal');loadStories();">Done</button>`;
-    } catch (err) {
-      showAlert('Regen failed: ' + err.message, 'error');
-      closeModal('regenAllModal');
-    }
+  window.runRegenAll = async function () {
+    closeModal('regenAllModal');
+    showAlert('Open a story and use Generate name + summary (paid). Each story tracks its own result.','info');
   };
+
+
 
   // ── Phase 3: New Story modal ───────────────────────────────────────────────
   window.openNewStoryModal = function () {
