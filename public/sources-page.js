@@ -97,6 +97,7 @@
     if(navReady)nav?.write({...state.filters,page:state.page});
     const version = ++state.loadVersion; state.loading = true; renderSelection();
     const params = new URLSearchParams({ paged: '1', page: String(state.page), limit: String(state.limit), ...state.filters });
+    for (const [key,value] of [...params]) if (value === '') params.delete(key);
     $('sourcesCount').textContent = 'Loading sources…';
     try {
       const data = await api('/sources?' + params); if (version !== state.loadVersion) return;

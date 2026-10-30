@@ -83,5 +83,20 @@ test('Overview real routes: queues, evidence, identity, filters and read-only be
    assert.equal(second.total,57);assert.equal(second.pitches.length,7);assert.equal(second.hasMore,false);
    assert.equal(new Set([...first.pitches,...second.pitches].map(p=>p.id)).size,57);
   });
+  await t.test('actual Sources page default load and clearing error-only filter reach the real route',async()=>{
+   await pool.query("INSERT INTO sources(tenant_id,name,url,is_active) VALUES(1,$1,$2,0)",[prefix+'healthy','https://example.invalid/'+prefix+'healthy']);
+   const nodes=new Map(),el=id=>{if(!nodes.has(id))nodes.set(id,{value:'',checked:false,dataset:{},setAttribute(){},classList:{add(){},remove(){}}});return nodes.get(id);};
+   el('sourcesStatus').value='current';
+   const calls=[],headers={Authorization:'Bearer '+f.token};
+   const page=require('../../public/sources-page')({getElementById:el,querySelectorAll:()=>[]},async path=>{
+    const response=await fetch(f.base+'/api'+path,{headers});calls.push({path,status:response.status});const data=await response.json();if(!response.ok)throw Error(data.error);return data;
+   },{nav:{create:()=>({read:()=>({}),write(){}})}});
+   await page.load();const total=page.state.total;assert.ok(total>0);assert.equal(calls.at(-1).status,200);assert.equal(new URL(calls.at(-1).path,'http://fixture').searchParams.has('errors'),false);
+   el('sourcesErrors').checked=true;await page.filterChanged();assert.equal(calls.at(-1).status,200);assert.ok(page.state.total<total);
+   el('sourcesErrors').checked=false;await page.filterChanged();assert.equal(calls.at(-1).status,200);assert.equal(page.state.total,total);assert.equal(new URL(calls.at(-1).path,'http://fixture').searchParams.has('errors'),false);
+   assert.equal((await fetch(f.base+'/api/sources?paged=1&errors=',{headers})).status,200);
+   assert.equal((await fetch(f.base+'/api/sources?paged=1&errors=invalid',{headers})).status,400);
+   assert.equal(f.state.calls,0);
+  });
  }finally{await f.close();}
 });
