@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased - editorial Reader and RSS library
+
+- Upgrade Feed Inbox to a responsive Reader with per-user read/saved state, paginated filters, folders and non-AI assignment handoff.
+- Add safe partial feed imports, OPML/CSV/JSON exports, bulk organization and recoverable subscription removal.
+- Preserve ingestion identities and occurrences, distinguish exact repeats from related coverage, and offer reversible duplicate review.
+- Keep ordinary reading/fetching/organization non-AI and guard optional enrichment with explicit confirmation and safe fetching.
+- Add isolated API/UI regression coverage and a portable disposable-database test command.
+
 ## Unreleased - publishing reliability
 
 - Preserve future editorial schedules and daily-cap floors; restrict public topic activity and briefing recordings to eligible published inputs.
