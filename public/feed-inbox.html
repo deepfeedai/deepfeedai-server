@@ -1,265 +1,29 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Feed Inbox</title>
-  <link rel="stylesheet" href="/admin.css" />
-  <script src="/theme-init.js"></script>
-</head>
-<body>
-<div class="admin-layout">
-  <!-- Main -->
-  <div class="main-content">
-    <header class="topbar">
-      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
-      <div class="topbar-title">Feed Inbox</div>
-    </header>
-
-    <div class="page-body page-body-wide">
-      <div class="inbox-layout">
-
-        <!-- Folder panel -->
-        <aside class="folder-panel" id="folderPanel">
-          <div class="folder-panel-header">
-            <span class="folder-panel-title">Folders</span>
-            <div style="display:flex;gap:2px;">
-              <!-- autoSortBtn disabled: auto-sort under repair -->
-
-              <button class="btn btn-ghost btn-sm folder-new-btn" id="newFolderBtn" title="New folder">＋</button>
-            </div>
-          </div>
-          <div id="folderList"></div>
-          <div class="folder-new-form" id="folderNewForm" style="display:none;">
-            <input type="text" class="folder-name-input" id="folderNameInput" placeholder="Folder name…" maxlength="30" />
-            <div class="folder-form-row">
-              <input type="color" class="folder-color-input" id="folderColorInput" value="#6366f1" />
-              <button class="btn btn-primary btn-sm" id="folderSaveBtn">Add</button>
-              <button class="btn btn-ghost btn-sm" id="folderCancelBtn">✕</button>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Main inbox content -->
-        <div class="inbox-main">
-
-          <div class="section-header">
-            <div class="tab-bar">
-              <button class="tab-btn active" data-tab="all">All Sources</button>
-              <button class="tab-btn" data-tab="today">Today <span class="tab-badge" id="todayCount"></span></button>
-              <button class="tab-btn" data-tab="week">This Week <span class="tab-badge" id="weekCount"></span></button>
-            </div>
-            <div class="btn-group">
-              <div class="view-toggle-group" role="group">
-                <button class="btn btn-sm btn-outline view-toggle-btn active" id="viewTable" title="Table view">☰ Table</button>
-                <button class="btn btn-sm btn-outline view-toggle-btn" id="viewFolders" title="Folder view">📁 Folders</button>
-              </div>
-              <button class="btn btn-outline btn-sm" id="fetchSourcesBtn" title="Trigger RSS fetch now">🔄 Fetch Sources</button>
-              <div class="dropdown" id="purgeDropdown" style="position:relative;">
-                <button class="btn btn-danger btn-sm" id="purgeArticlesBtn" title="Purge feed articles">🗑 Purge Feed</button>
-                <div id="purgeMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px;z-index:100;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,.3);">
-                  <a class="purge-option" data-type="curated" href="#" style="display:block;padding:8px 12px;color:#f87171;text-decoration:none;font-size:13px;border-radius:6px;">⚠️ Purge All Feed Articles</a>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Filter Bar -->
-          <button type="button" class="filter-bar-toggle" id="filterBarToggle" aria-expanded="false">
-            <span>Filters</span><span aria-hidden="true">▾</span>
-          </button>
-          <div class="filter-bar filter-bar-collapsible collapsed" id="filterBar">
-            <div class="filter-search-wrap">
-              <span class="filter-search-icon">🔍</span>
-              <input type="text" id="articleSearch" class="filter-search-input" placeholder="Search title or summary…" autocomplete="off" />
-              <button class="filter-search-clear" id="clearSearch" style="display:none;" title="Clear search">✕</button>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label" for="sourceFilter">Source</label>
-              <select class="filter-select" id="sourceFilter">
-                <option value="all">All</option>
-              </select>
-            </div>
-            <div class="filter-group" id="categoryFilterGroup" style="display:none;">
-              <label class="filter-label" for="categoryFilter">Category</label>
-              <select class="filter-select" id="categoryFilter">
-                <option value="all">All</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label" for="dateFilter">Date</label>
-              <select class="filter-select" id="dateFilter">
-                <option value="all">All</option>
-                <option value="24h">24h</option>
-                <option value="7d">7d</option>
-                <option value="30d">30d</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label" for="statusFilter">Status</label>
-              <select class="filter-select" id="statusFilter">
-                <option value="all">All</option>
-                <option value="published">Published</option>
-                <option value="draft">Draft</option>
-                <option value="review">Review</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label" for="scoreFilter">Score</label>
-              <select class="filter-select" id="scoreFilter">
-                <option value="all">All</option>
-                <option value="high">High (≥7)</option>
-                <option value="mid">Mid (5–6)</option>
-                <option value="low">Low (&lt;5)</option>
-                <option value="none">No score</option>
-              </select>
-            </div>
-            <div class="filter-group">
-              <label class="filter-label" for="pitchStatusFilter">Pitch</label>
-              <select class="filter-select" id="pitchStatusFilter">
-                <option value="all">All</option>
-                <option value="unused">Unused</option>
-                <option value="in_pitch">In pitch</option>
-                <option value="used">Used</option>
-              </select>
-            </div>
-            <span class="filter-count" id="filterCount"></span>
-          </div>
-
-          <!-- Uncategorized notice banner -->
-          <div id="uncatBanner" class="uncat-banner" style="display:none;">
-            <span id="uncatBannerMsg"></span>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button class="btn btn-sm btn-primary" id="uncatFixAllBtn">Fix all</button>
-              <button class="btn btn-sm btn-ghost" id="uncatDismissBtn" title="Dismiss">✕</button>
-            </div>
-          </div>
-
-          <!-- Bulk action toolbar -->
-          <div id="bulkToolbar" class="bulk-toolbar" style="display:none;">
-            <span id="bulkCount" class="bulk-count">0 selected</span>
-            <button class="btn btn-sm btn-primary" id="bulkPitchBtn" title="Compose a pitch bundling selected sources">📋 Create pitch from selection</button>
-            <select id="bulkPitchType" class="pitch-type-select" style="display:none;" title="Pitch type"></select>
-            <select id="bulkMoveFolder" class="filter-select" style="min-width:130px;" title="Move to folder"></select>
-            <button class="btn btn-sm btn-outline" id="bulkMoveBtn">📁 Move</button>
-            <button class="btn btn-sm btn-outline" id="bulkRecategorizeBtn" title="Re-run category detection on selected">🏷️ Recategorize</button>
-            <button class="btn btn-sm btn-danger" id="bulkDeleteBtn">🗑️ Delete</button>
-            <button class="btn btn-sm btn-ghost" id="bulkClearBtn">✕ Clear</button>
-          </div>
-
-          <!-- Table view -->
-          <div id="tableViewWrap" class="table-wrap"><div class="table-scroll">
-            <table id="inboxTable" class="feed-inbox-table">
-              <thead>
-                <tr>
-                  <th class="th-check">
-                    <input type="checkbox" id="selectAll" title="Select all" />
-                  </th>
-                  <th class="sortable th-title" data-col="title">Title <span class="sort-icon">⇅</span></th>
-                  <th class="sortable" data-col="source">Source <span class="sort-icon">⇅</span></th>
-                  <th class="sortable th-cat" data-col="category">Category <span class="sort-icon">⇅</span></th>
-                  <th class="sortable th-score" data-col="editorial_score">Score <span class="sort-icon">⇅</span></th>
-                  <th class="sortable th-date" data-col="created_at">Fetched <span class="sort-icon">↓</span></th>
-                  <th style="width:40px;"></th>
-                </tr>
-              </thead>
-              <tbody id="inboxBody">
-                <tr><td colspan="7" class="td-loading"><span class="spinner"></span></td></tr>
-              </tbody>
-            </table>
-          </div></div>
-
-          <!-- Folder view -->
-          <div id="folderViewContainer" style="display:none;"></div>
-
-          <div id="inboxPagination"></div>
-        </div><!-- /inbox-main -->
-
-      </div><!-- /inbox-layout -->
-    </div>
-  </div>
-</div>
-
-<!-- Article Preview Modal -->
-<div class="modal-overlay" id="articlePreviewModal">
-  <div class="modal modal-xl modal-dark" style="max-width:860px;">
-    <div class="modal-header">
-      <div class="modal-title">Source Preview</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body" id="articlePreviewBody" style="padding:0;max-height:80vh;overflow-y:auto;"></div>
-    <div class="modal-footer" style="gap:8px;">
-      <a id="previewSourceLink" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:none;">View source</a>
-      <button class="btn btn-outline" data-close-modal>Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- Purge confirm modal -->
-<div class="modal-overlay" id="purgeConfirmModal">
-  <div class="modal modal-sm">
-    <div class="modal-header">
-      <div class="modal-title">Purge Feed Articles</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body">
-      <p class="text-muted">This will <strong class="text-danger">permanently delete</strong> all feed/curated articles. Original and deep-dive articles will not be affected.</p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-danger" id="confirmPurgeBtn">Purge All</button>
-    </div>
-  </div>
-</div>
-
-<!-- Auto-sort modal -->
-<div class="modal-overlay" id="autoSortModal">
-  <div class="modal" style="max-width:580px;">
-    <div class="modal-header">
-      <div class="modal-title">✨ AI Auto-sort</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body">
-      <!-- Seed input -->
-      <div class="autosort-seed-row" id="autoSortSeedRow">
-        <label class="filter-label" style="display:block;margin-bottom:4px;">Folder names <span class="text-muted" style="font-weight:400;">(optional — comma separated)</span></label>
-        <div style="display:flex;gap:6px;">
-          <input type="text" id="seedFoldersInput" class="folder-name-input" style="flex:1;"
-                 placeholder="e.g. Fed &amp; Rates, AI Industry, Middle East" maxlength="300" />
-          <button class="btn btn-primary btn-sm" id="analyseBtn">Analyse</button>
-        </div>
-        <p class="text-muted" style="font-size:11px;margin-top:4px;">Leave empty — AI will suggest folder names. Or type your beats and AI will assign articles to them.</p>
-      </div>
-      <!-- Preview -->
-      <div id="autoSortPreviewBody" style="max-height:52vh;overflow-y:auto;margin-top:12px;"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-primary" id="confirmAutoSortBtn" style="display:none;">Apply assignments</button>
-    </div>
-  </div>
-</div>
-
-<!-- Recategorize preview modal -->
-<div class="modal-overlay" id="recategorizeModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Recategorize articles</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body" id="recategorizePreview" style="max-height:60vh;overflow-y:auto;">Loading preview…</div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-primary" id="confirmRecategorizeBtn" style="display:none;">Apply Changes</button>
-    </div>
-  </div>
-</div>
-
-<script src="/admin.js"></script>
-<script src="/admin-mobile-nav.js"></script>
-<script src="/notifications-bell.js"></script>
-<script src="/discuss-picker.js"></script>
-<script src="/feed-inbox-page.js"></script>
-</body>
-</html>
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Reader · DeepFeedAI</title>
+<script src="/theme-init.js"></script><link rel="stylesheet" href="/admin.css"><link rel="stylesheet" href="/reader.css"></head>
+<body class="reader-page"><div class="admin-layout"><main class="main-content">
+<header class="topbar"><button class="hamburger" id="hamburger" aria-label="Open navigation">☰</button><div class="topbar-title">Reader</div></header>
+<div class="reader-workspace" id="readerWorkspace">
+ <header class="reader-heading"><div><p class="reader-eyebrow">YOUR EDITORIAL READING ROOM</p><h1>Find the story.</h1><p class="reader-subtitle">Read thoughtfully. Collect evidence. Shape the next assignment.</p></div><div class="reader-heading-actions"><a class="btn btn-outline" href="/sources.html">Manage sources</a><button class="btn btn-primary" id="readerFetch">Fetch feeds <span class="reader-no-ai">No AI</span></button></div></header>
+ <div class="reader-notice" id="readerNotice" role="status" aria-live="polite" hidden></div>
+ <div class="reader-shell">
+  <aside class="reader-sidebar" id="readerSidebar" aria-label="Reading views and folders">
+   <div class="reader-side-title"><span>LIBRARY</span><button class="reader-icon-button reader-mobile-close" id="readerCloseSidebar" aria-label="Close reading views">×</button></div>
+   <nav class="reader-views" aria-label="Saved reading views"><button data-view="all" class="is-active"><span>All articles</span><span data-count="all">—</span></button><button data-view="unread"><span><i class="reader-dot"></i>Unread</span><span data-count="unread">—</span></button><button data-view="saved"><span>◇ Saved for later</span><span data-count="saved">—</span></button></nav>
+   <div class="reader-side-title"><span>FOLDERS</span><button class="reader-icon-button" id="readerNewFolder" aria-label="Create folder">+</button></div><div id="readerFolders" class="reader-views"></div><button id="readerManageFolder" class="reader-text-button" hidden>Manage selected folder</button>
+   <div class="reader-sidebar-filter"><label for="readerSource">Source</label><select id="readerSource"><option value="">Every source</option></select><label for="readerCategory">Category</label><select id="readerCategory"><option value="">Every category</option></select><label for="readerDate">Published</label><select id="readerDate"><option value="">Any time</option><option value="24h">Past 24 hours</option><option value="7d">Past 7 days</option><option value="30d">Past 30 days</option></select></div>
+   <label class="reader-check-option"><input type="checkbox" id="readerCollapse" checked> Collapse exact duplicates</label><p class="reader-help">Different publishers covering one event remain separate sources.</p><a class="reader-secondary-link" href="/sources.html#duplicates">Review exact repeats →</a><div class="reader-side-title"><span>COVERAGE GROUPS</span></div><div id="readerTopics" class="reader-views"></div><a class="reader-secondary-link" href="/newsroom.html#wire">Open synthesis overview →</a>
+   <p class="reader-shortcuts"><kbd>J</kbd> / <kbd>K</kbd> next / previous<br><kbd>S</kbd> save · <kbd>U</kbd> read/unread<br><kbd>/</kbd> search · <kbd>Esc</kbd> back</p>
+  </aside>
+  <section class="reader-index" aria-label="Article list">
+   <div class="reader-search-row"><button class="reader-icon-button reader-filter-toggle" id="readerFilters" aria-controls="readerSidebar" aria-expanded="false" aria-label="Open reading views and filters">☷</button><label class="reader-search"><span aria-hidden="true">⌕</span><input id="readerSearch" type="search" placeholder="Search your sources…" aria-label="Search title or source text" autocomplete="off"><kbd>/</kbd></label><button id="readerReload" class="reader-icon-button" aria-label="Reload current articles">↻</button></div>
+   <div class="reader-list-heading"><div><h2 id="readerViewTitle">All articles</h2><p id="readerResultCount">Loading your reading room…</p></div><label><span class="reader-sr-only">Sort articles</span><select id="readerSort"><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></label></div>
+   <div class="reader-selection-row"><label><input type="checkbox" id="readerSelectPage"> Select this page</label><button class="reader-text-button" id="readerSelectMatching">Select all matching</button></div>
+   <div class="reader-bulk" id="readerBulk" hidden><p id="readerSelectionLabel"></p><div><button class="btn btn-outline btn-sm" id="readerMarkRead">Mark read</button><button class="btn btn-outline btn-sm" id="readerMarkUnread">Mark unread</button><button class="btn btn-outline btn-sm" id="readerSaveSelected">Save</button><button class="btn btn-outline btn-sm" id="readerMove">Move to folder</button><button class="btn btn-primary btn-sm" id="readerAssignment">Use as sources</button><button class="reader-text-button" id="readerClearSelection">Clear</button></div></div>
+   <div id="readerList" class="reader-list" aria-busy="true"></div><footer class="reader-pagination"><button class="btn btn-outline btn-sm" id="readerPrevious" disabled>← Previous</button><span id="readerPageLabel">Page 1</span><button class="btn btn-outline btn-sm" id="readerNext" disabled>Next →</button></footer>
+  </section>
+  <section class="reader-detail" id="readerDetail" aria-label="Reading pane" tabindex="-1"><div class="reader-empty-detail"><span class="reader-empty-mark" aria-hidden="true">◈</span><p class="reader-eyebrow">A LITTLE SPACE TO THINK</p><h2>Your next idea starts here.</h2><p>Choose an article to read, save a promising lead, or gather sources for an assignment.</p><span class="reader-muted">Reading and saving never call AI.</span></div></section>
+ </div>
+</div></main></div>
+<div class="reader-dialog-backdrop" id="readerDialog" hidden><section class="reader-dialog" role="dialog" aria-modal="true" aria-labelledby="readerDialogTitle" tabindex="-1"><header><h2 id="readerDialogTitle"></h2><button class="reader-icon-button" id="readerDialogClose" aria-label="Close dialog">×</button></header><div id="readerDialogBody"></div><p id="readerDialogStatus" role="status" aria-live="polite"></p></section></div>
+<script src="/admin.js"></script><script src="/notifications-bell.js"></script><script src="/discuss-picker.js"></script><script src="/reader-model.js"></script><script src="/feed-inbox-page.js"></script><script src="/admin-mobile-nav.js"></script></body></html>

@@ -1,146 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeepFeedAI Admin — Sources</title>
-  <link rel="stylesheet" href="/admin.css" />
-  <script src="/theme-init.js"></script>
-</head>
-<body>
-<div class="admin-layout">
-  <!-- Main -->
-  <div class="main-content">
-    <header class="topbar">
-      <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
-      <div class="topbar-title">RSS Sources</div>
-    </header>
-
-    <div class="page-body">
-
-
-      <div class="section-header">
-        <div class="section-title">RSS Sources</div>
-        <div class="btn-group">
-          <button class="btn btn-outline" id="suggested-btn">💡 Suggested Feeds</button>
-          <button class="btn btn-outline" id="import-opml-btn">📥 Import OPML</button>
-          <input type="file" id="opml-file-input" accept=".opml,.xml" style="display:none">
-          <button class="btn btn-outline" id="fetch-btn">🔄 Fetch All Sources</button>
-          <button class="btn btn-primary" id="addSourceBtn">＋ Add Source</button>
-        </div>
-      </div>
-
-      <div class="table-wrap"><div class="table-scroll">
-        <table class="sources-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>URL</th>
-              <th>Priority</th>
-              <th>Active</th>
-              <th>Ingest Cap</th>
-              <th>Category</th>
-              <th>Last Fetched</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="sourcesBody">
-            <tr><td colspan="8" class="td-loading"><span class="spinner"></span></td></tr>
-          </tbody>
-        </table>
-      </div></div>
-    </div>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RSS Sources · DeepFeedAI</title><script src="/theme-init.js"></script><link rel="stylesheet" href="/admin.css"><link rel="stylesheet" href="/sources.css"></head>
+<body><div class="admin-layout"><main class="main-content">
+<header class="topbar"><button class="hamburger" id="hamburger" aria-label="Open navigation">☰</button><div class="topbar-title">RSS Sources</div><a class="btn btn-ghost btn-sm sources-reader-shortcut" href="/feed-inbox.html">Open Reader →</a></header>
+<div class="page-body sources-workspace">
+ <section class="sources-heading" aria-labelledby="sources-title"><div><div class="sources-eyebrow">YOUR SOURCE LIBRARY</div><h1 id="sources-title">A well-sourced newsroom.</h1><p>Bring your feeds together. Keep every article and its provenance.</p></div><div class="sources-header-actions"><button class="btn btn-outline" id="sourcesExport">Export</button><button class="btn btn-primary" id="sourcesAdd" data-permission="sources.create">+ Add feeds</button></div></section>
+ <div id="sourcesNotice" class="sources-notice" role="status" aria-live="polite" hidden></div>
+ <section class="sources-library" aria-label="Source library">
+  <div class="sources-toolbar">
+   <label class="sources-search"><span class="sources-sr">Search sources</span><input id="sourcesSearch" class="form-control" type="search" placeholder="Search by source name…" autocomplete="off"></label>
+   <label><span class="sources-sr">Source status</span><select id="sourcesStatus" class="form-control"><option value="current">Current sources</option><option value="active">Active</option><option value="paused">Paused</option><option value="removed">Removed · restore</option></select></label>
+   <label><span class="sources-sr">Folder</span><select id="sourcesFolder" class="form-control"><option value="">All folders</option></select></label>
+   <label><span class="sources-sr">Category</span><select id="sourcesCategory" class="form-control"><option value="">All categories</option></select></label>
+   <button class="btn btn-outline" id="sourcesRefresh" data-permission="fetch.execute">Refresh feeds</button>
   </div>
-</div>
-
-<!-- Add/Edit Modal -->
-<div class="modal-overlay" id="sourceModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="sourceModalTitle">Add Source</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="editSourceId" />
-      <div class="form-group">
-        <label class="form-label" for="fSName">Source Name *</label>
-        <input class="form-control" type="text" id="fSName" placeholder="e.g. The Verge AI" required />
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="fSUrl">RSS URL *</label>
-        <input class="form-control" type="url" id="fSUrl" placeholder="https://example.com/feed.xml" required />
-        <small class="form-help" id="feedStatus" style="min-height:18px;"></small>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="fSPriority">Priority (1 = highest)</label>
-        <input class="form-control" type="number" id="fSPriority" min="1" max="10" value="1" />
-      </div>
-      <div class="form-toggles mt-3">
-        <div class="form-check">
-          <label class="toggle">
-            <input type="checkbox" id="fSActive" checked />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="form-check-label">Active</span>
-        </div>
-      </div>
-      <div class="form-group mt-3">
-        <label class="form-label" for="fSAutoPublishMax">Max items to ingest per fetch</label>
-        <input class="form-control input-narrow" type="number" id="fSAutoPublishMax" min="1" max="200" value="50" />
-        <small class="form-help">Caps how many new articles are pulled in per fetch cycle. Useful for throttling high-volume sources. Set higher (50–200) to capture all recent articles.</small>
-      </div>
-      <div class="form-group mt-3">
-        <label class="form-label" for="fSDefaultCategory">Default Category</label>
-        <select class="form-control" id="fSDefaultCategory">
-          <option value="">— Auto-detect —</option>
-        </select>
-        <small class="form-help">Biases auto-categorization toward this category. Leave on auto-detect for keyword-only scoring.</small>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-primary" id="saveSourceBtn">Save Source</button>
-    </div>
+  <div class="sources-context"><span id="sourcesCount" aria-live="polite">Loading source library…</span><span>Feed refresh uses no AI.</span></div>
+  <div id="sourcesSelectionBar" class="sources-selection" hidden>
+   <strong id="sourcesSelectionText"></strong><button class="btn btn-ghost btn-sm" id="sourcesSelectMatching">Select all matching</button><button class="btn btn-ghost btn-sm" id="sourcesClearSelection">Clear selection</button>
+   <label><span class="sources-sr">Bulk action</span><select id="sourcesBulkAction" class="form-control"><option value="pause">Pause</option><option value="resume">Resume</option><option value="folder">Move to folder</option><option value="category">Set category</option><option value="remove">Remove subscriptions</option><option value="restore">Restore subscriptions</option></select></label>
+   <label id="sourcesBulkValueWrap" hidden><span class="sources-sr">Folder or category</span><input id="sourcesBulkValue" class="form-control" list="sourcesFolderOptions" maxlength="200" placeholder="Folder / subfolder"></label>
+   <datalist id="sourcesFolderOptions"></datalist><datalist id="sourcesCategoryOptions"></datalist><button class="btn btn-primary btn-sm" id="sourcesBulkApply">Apply</button>
   </div>
-</div>
-
-<!-- Suggested Feeds Modal -->
-<div class="modal-overlay" id="suggestedModal">
-  <div class="modal modal-lg">
-    <div class="modal-header">
-      <div class="modal-title">💡 Suggested AI News Feeds</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body modal-body-flush">
-      <div id="suggestedList" class="suggested-list"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Close</button>
-      <button class="btn btn-primary" id="addAllBtn" disabled>Add All</button>
-    </div>
-  </div>
-</div>
-
-<!-- Delete confirm modal -->
-<div class="modal-overlay" id="deleteSourceModal">
-  <div class="modal modal-sm">
-    <div class="modal-header">
-      <div class="modal-title">Delete Source</div>
-      <button class="modal-close" data-close-modal>✕</button>
-    </div>
-    <div class="modal-body">
-      <p class="text-muted">Are you sure you want to delete this source? This cannot be undone.</p>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" data-close-modal>Cancel</button>
-      <button class="btn btn-danger" id="confirmDeleteSourceBtn">Delete</button>
-    </div>
-  </div>
-</div>
-
-<script src="/admin.js"></script>
-<script src="/admin-mobile-nav.js"></script>
-<script src="/notifications-bell.js"></script>
-<script src="/sources-page.js"></script>
-</body>
-</html>
+  <div class="sources-table-wrap" tabindex="0" aria-label="Scrollable sources table"><table class="sources-table"><thead><tr><th class="sources-check"><input type="checkbox" id="sourcesSelectPage" aria-label="Select sources on this page"></th><th>Source</th><th>Folder / category</th><th>Status</th><th>Last fetched</th><th><span class="sources-sr">Actions</span></th></tr></thead><tbody id="sourcesBody"></tbody></table></div>
+  <div id="sourcesEmpty" class="sources-empty" hidden><div class="sources-empty-mark" aria-hidden="true">◉</div><h2 id="sourcesEmptyTitle">Build your reading list</h2><p id="sourcesEmptyText">Paste feed URLs or import an OPML file to get started.</p><button class="btn btn-outline" id="sourcesRetry" hidden>Retry loading</button></div>
+  <footer class="sources-pagination"><span id="sourcesPageText"></span><div><button class="btn btn-outline btn-sm" id="sourcesPrevious">← Previous</button><button class="btn btn-outline btn-sm" id="sourcesNext">Next →</button></div></footer>
+ </section>
+ <section class="sources-bottom"><div><p>Subscriptions and reading are separate: removing a feed keeps imported articles, citations, pitches and Stories.</p><button class="btn btn-ghost btn-sm" id="sourcesDuplicates" data-permission="articles.read">Review repeated entries →</button></div><button class="btn btn-ghost sources-danger-link" id="sourcesClearAll" data-permission="sources.delete">Remove all current sources…</button></section>
+</div></main></div>
+<dialog class="sources-dialog sources-dialog-wide" id="sourcesImportDialog" aria-labelledby="sourcesImportTitle">
+ <div class="sources-dialog-heading"><div><div class="sources-eyebrow">GROW YOUR LIBRARY</div><h2 id="sourcesImportTitle">Add feeds</h2></div><button class="btn btn-ghost" data-close="sourcesImportDialog" aria-label="Close add feeds">✕</button></div>
+ <div class="sources-dialog-body"><p class="sources-help">Paste one feed URL per line, or import OPML. Preview checks addresses and structure before anything is added.</p><div class="sources-inline"><label class="btn btn-outline sources-file-label">Choose OPML or JSON<input id="sourcesImportFile" type="file" accept=".opml,.xml,.json,application/xml,text/xml,application/json"></label><button class="btn btn-ghost" id="sourcesSuggested">Browse suggested feeds</button><span id="sourcesImportFileName" class="sources-help"></span></div><label class="form-label" for="sourcesImportFormat">Input format</label><select id="sourcesImportFormat" class="form-control"><option value="urls">Feed URLs · one per line</option><option value="opml">OPML</option><option value="json">DeepFeedAI JSON backup</option></select><label class="form-label" for="sourcesImportContent">Feeds to import</label><textarea id="sourcesImportContent" class="form-control sources-import-input" rows="7" maxlength="500000" spellcheck="false" placeholder="https://example.com/feed.xml&#10;https://another.example/rss"></textarea><div class="sources-callout">Feed URLs can contain private access tokens. Preview URLs are masked; your original input is used only for this import.</div><div id="sourcesImportMessage" role="status" aria-live="polite"></div><div id="sourcesImportResults" class="sources-import-results"></div></div>
+ <footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesImportDialog">Cancel</button><button class="btn btn-outline" id="sourcesPreviewImport">Preview import</button><button class="btn btn-primary" id="sourcesCommitImport" disabled>Add ready feeds</button></footer>
+</dialog>
+<dialog class="sources-dialog" id="sourcesSuggestedDialog" aria-labelledby="sourcesSuggestedTitle"><div class="sources-dialog-heading"><h2 id="sourcesSuggestedTitle">Suggested feeds</h2><button class="btn btn-ghost" data-close="sourcesSuggestedDialog" aria-label="Close suggested feeds">✕</button></div><div class="sources-dialog-body"><label class="form-label" for="sourcesSuggestedNiche">Topic</label><select id="sourcesSuggestedNiche" class="form-control"></select><div id="sourcesSuggestedList" class="sources-suggested-list"></div></div><footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesSuggestedDialog">Cancel</button><button class="btn btn-primary" id="sourcesSuggestedUse">Use selected feeds</button></footer></dialog>
+<dialog class="sources-dialog" id="sourcesExportDialog" aria-labelledby="sourcesExportTitle"><div class="sources-dialog-heading"><h2 id="sourcesExportTitle">Export your sources</h2><button class="btn btn-ghost" data-close="sourcesExportDialog" aria-label="Close export">✕</button></div><div class="sources-dialog-body"><label class="form-label" for="sourcesExportScope">Include</label><select id="sourcesExportScope" class="form-control"><option value="current">All current sources</option><option value="matching">All matching this view</option><option value="selected">Selected sources</option></select><label class="form-label" for="sourcesExportFormat">Format</label><select id="sourcesExportFormat" class="form-control"><option value="opml">OPML · portable feed subscriptions</option><option value="csv">CSV · spreadsheet</option><option value="json">JSON · source configuration backup</option></select><p class="sources-help">OPML includes folder structure and feed addresses. Category, pause state, priority and ingest limits are DeepFeedAI settings; use JSON to retain these. This is a source backup, not an article or credential backup.</p><div class="sources-callout">Exports contain complete feed URLs, including any private tokens. Store the download securely and review it before sharing.</div><div id="sourcesExportMessage" role="status" aria-live="polite"></div></div><footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesExportDialog">Cancel</button><button class="btn btn-primary" id="sourcesDownload">Download export</button></footer></dialog>
+<dialog class="sources-dialog" id="sourcesRemoveDialog" aria-labelledby="sourcesRemoveTitle"><div class="sources-dialog-heading"><h2 id="sourcesRemoveTitle">Remove subscriptions?</h2><button class="btn btn-ghost" data-close="sourcesRemoveDialog" aria-label="Close removal confirmation">✕</button></div><div class="sources-dialog-body"><p id="sourcesRemoveDescription"></p><p>Feeds move to Removed and stop fetching. Imported articles, citations, pitches and Stories are preserved. You can restore subscriptions from the Removed view.</p><button class="btn btn-outline" id="sourcesBackupBeforeRemove">Download OPML first</button><p class="sources-help">The export includes complete feed addresses; keep token-bearing URLs private.</p><div id="sourcesClearConfirmation" hidden><label class="form-label" for="sourcesClearPhrase">Type CLEAR ALL SOURCES to remove every current source in this publication</label><input id="sourcesClearPhrase" class="form-control" autocomplete="off" spellcheck="false"><label class="sources-checkbox-label"><input id="sourcesExportAcknowledged" type="checkbox"> I have exported my sources or choose to continue without an export.</label></div><div id="sourcesRemoveMessage" role="status" aria-live="polite"></div></div><footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesRemoveDialog">Cancel</button><button class="btn btn-danger" id="sourcesConfirmRemove">Remove subscriptions</button></footer></dialog>
+<dialog class="sources-dialog" id="sourcesEditDialog" aria-labelledby="sourcesEditTitle"><div class="sources-dialog-heading"><h2 id="sourcesEditTitle">Edit source</h2><button class="btn btn-ghost" data-close="sourcesEditDialog" aria-label="Close edit source">✕</button></div><div class="sources-dialog-body"><input id="sourcesEditId" type="hidden"><label class="form-label" for="sourcesEditName">Name</label><input id="sourcesEditName" class="form-control" maxlength="200" required><label class="form-label" for="sourcesEditUrl">Replace feed URL (optional)</label><input id="sourcesEditUrl" class="form-control" type="url" autocomplete="off" placeholder="Leave blank to keep the existing address"><p id="sourcesEditCurrentUrl" class="sources-help"></p><div class="sources-form-grid"><label>Priority<input id="sourcesEditPriority" class="form-control" type="number" min="1" max="10"></label><label>Items per fetch<input id="sourcesEditCap" class="form-control" type="number" min="1" max="200"></label></div><label class="form-label" for="sourcesEditFolder">Folder</label><input id="sourcesEditFolder" class="form-control" list="sourcesFolderOptions" maxlength="200"><label class="form-label" for="sourcesEditCategory">Default category</label><select id="sourcesEditCategory" class="form-control"><option value="">Auto · keyword matching</option></select><label class="sources-checkbox-label"><input id="sourcesEditActive" type="checkbox"> Active subscription</label><div id="sourcesEditMessage" role="status" aria-live="polite"></div></div><footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesEditDialog">Cancel</button><button class="btn btn-primary" id="sourcesSaveEdit">Save source</button></footer></dialog>
+<dialog class="sources-dialog sources-dialog-wide" id="sourcesDuplicatesDialog" aria-labelledby="sourcesDuplicatesTitle"><div class="sources-dialog-heading"><div><div class="sources-eyebrow">NON-DESTRUCTIVE REVIEW</div><h2 id="sourcesDuplicatesTitle">Repeated feed entries</h2></div><button class="btn btn-ghost" data-close="sourcesDuplicatesDialog" aria-label="Close duplicate review">✕</button></div><div class="sources-dialog-body"><p>These entries share a normalized source URL. Reviewing this report changes nothing. Choose a primary entry and explicitly select repeats to collapse in the Reader.</p><div class="sources-callout">Every original article, source occurrence and citation is retained. Collapsing is reversible. Different publishers covering the same event remain separate sources; a matching headline alone is never enough.</div><div id="sourcesDuplicatesMessage" role="status" aria-live="polite"></div><div id="sourcesDuplicatesResults"></div></div><footer class="sources-dialog-actions"><button class="btn btn-outline" data-close="sourcesDuplicatesDialog">Close</button><button class="btn btn-outline" id="sourcesDuplicatesReload">Refresh report</button></footer></dialog>
+<script src="/admin.js"></script><script src="/admin-mobile-nav.js"></script><script src="/notifications-bell.js"></script><script src="/sources-suggestions.js"></script><script src="/sources-page.js"></script></body></html>

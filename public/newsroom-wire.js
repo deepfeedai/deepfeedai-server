@@ -558,6 +558,8 @@
 
   // ── Init ──────────────────────────────────────────────────────────────────
   async function init() {
+    // Older embedded Wire markup remains compatible; current navigation uses Reader.
+    if (!document.getElementById('nr-wire-reader-link')) {
     var feed = document.getElementById('nr-wire-feed');
     if (feed) feed.innerHTML = '<div class="nr-loading">Loading wire…</div>';
 
@@ -608,6 +610,7 @@
     }
 
     // ── Pipeline status badge (async, non-blocking) ──────────────────
+    }
     loadPipelineStatus();
 
     // ── Counter badge in tab (optional, best-effort) ─────────────────
