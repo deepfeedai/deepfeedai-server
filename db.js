@@ -602,6 +602,8 @@ async function initDb() {
     `INSERT INTO tenants (id, slug, display_name, plan, status, is_platform)
      VALUES (1, 'deepfeedai', 'Deep Feed AI', 'business', 'active', true)
      ON CONFLICT (id) DO UPDATE SET is_platform = true`,
+    // Explicit platform id does not advance SERIAL; preserve the current high-water mark.
+    `SELECT setval(pg_get_serial_sequence('tenants', 'id'), GREATEST((SELECT MAX(id) FROM tenants), (SELECT last_value FROM tenants_id_seq)), true)`,
     // Fix cache table PKs: cache_key alone → (tenant_id, cache_key) compound PK
     `ALTER TABLE summary_cache DROP CONSTRAINT IF EXISTS summary_cache_pkey`,
     `DO $$ BEGIN
@@ -878,6 +880,7 @@ async function initDb() {
       sort_order  INTEGER DEFAULT 0,
       created_at  TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_packs_name ON credit_packs (name) WHERE is_active = true`,
     `INSERT INTO credit_packs (name, credits, price_cents, sort_order) VALUES
       ('Starter Pack',  5000,   500,  1),
       ('Growth Pack',   20000,  1800, 2),
