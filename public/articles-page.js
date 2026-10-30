@@ -1231,7 +1231,7 @@ let articles = [];
   async function generateImage(id) {
     const key="article:"+id; if(ImageUpdates.busy(key)) return;
     const before=(allArticles.find(a=>a.id===id)||{}).image_url;
-    const btn = document.querySelector(`#row-${id} [onclick="generateImage(${id})"]`);
+    const btn = document.querySelector(`[onclick="generateImage(${id})"]`);
     if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
       const result = await ImageUpdates.run(key, () => apiFetch('/media/generate-image', {
