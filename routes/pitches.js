@@ -189,7 +189,7 @@ router.get('/', auth, requirePermission('articles.read'), requirePitchesEnabled,
     LEFT JOIN articles a ON a.id = p.source_article_id AND a.tenant_id = p.tenant_id
     LEFT JOIN writers w  ON w.id = p.pitched_by_writer_id
     LEFT JOIN users   u  ON u.id = p.requested_by_editor_id
-    WHERE p.tenant_id = $1 AND p.status = ANY($2::text[])
+    WHERE p.is_editor_assignment=false AND p.tenant_id = $1 AND p.is_editor_assignment=false AND p.status = ANY($2::text[])
       ${assignedClause}
     ORDER BY p.created_at DESC
     LIMIT $3
@@ -221,7 +221,7 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
   const rows = await db.prepare(`
     SELECT p.id, p.status, p.source_article_id, p.spawned_article_id
     FROM article_pitches p
-    WHERE p.tenant_id = $1
+    WHERE p.is_editor_assignment=false AND p.tenant_id = $1
       AND p.status IN ('proposed', 'approved')
       AND p.pitched_by_writer_id IS NULL
     ORDER BY p.created_at ASC
@@ -274,7 +274,7 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
 // when applied to an already-approved pitch with no spawned article yet,
 // synthesis is queued immediately.
 router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
-  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false').get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
   if (pitch.status !== 'proposed' && pitch.status !== 'approved') {
     return res.status(409).json({ error: `Pitch is already ${pitch.status}` });
@@ -340,7 +340,7 @@ router.patch('/:id/assign', auth, requirePermission('articles.update'), requireP
   const writerId = parseInt(writer_id, 10);
   if (!writerId) return res.status(400).json({ error: 'writer_id required (numeric)' });
 
-  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
+  const pitch = await db.prepare('SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false').get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
   if (pitch.status !== 'proposed' && pitch.status !== 'approved') {
     return res.status(409).json({ error: `Pitch is already ${pitch.status}` });
@@ -380,7 +380,7 @@ router.patch('/:id/assign', auth, requirePermission('articles.update'), requireP
 router.post('/:id/approve', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
   const { note, override } = req.body || {};
   const pitch = await db.prepare(
-    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2'
+    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false'
   ).get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
   if (pitch.status !== 'proposed') {
@@ -486,7 +486,7 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
 // POST /api/pitches/:id/retry-synthesis — re-queue synthesis for a stuck approved pitch
 router.post('/:id/retry-synthesis', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
   const pitch = await db.prepare(
-    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2'
+    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false'
   ).get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
   if (pitch.status !== 'approved') return res.status(409).json({ error: `Pitch is ${pitch.status}, not approved` });
@@ -509,7 +509,7 @@ router.post('/:id/retry-synthesis', auth, requirePermission('articles.update'), 
 router.post('/:id/reject', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
   const { note } = req.body || {};
   const pitch = await db.prepare(
-    'SELECT status FROM article_pitches WHERE id = $1 AND tenant_id = $2'
+    'SELECT status FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false'
   ).get(req.params.id, req.tenantId);
   if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
   if (pitch.status !== 'proposed') {

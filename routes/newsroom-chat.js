@@ -306,58 +306,13 @@ router.post('/actions/approve', auth, requirePermission('articles.update'), requ
   // Action buttons from Maxwell use { type, payload } shape — normalise to proposal shape
   const actionType = proposal.type || proposal.proposal_type;
 
-  if (actionType === 'create_pitch') {
-    const payload = proposal.payload || proposal;
-    const { source_article_id, angle_summary } = payload;
-    if (!source_article_id || !angle_summary) {
-      return res.status(400).json({ error: 'source_article_id and angle_summary required' });
-    }
-    const userId = req.user?.sub || null;
-    const { normalisePitchType } = require('../lib/pitch-types');
-    const pitchType = normalisePitchType(payload.pitch_type || payload.type);
-
-    // Verify the primary source belongs to this tenant and is a curated article.
-    // Pitching from an original/deep-dive creates circular synthesis dependencies.
-    const source = await db.prepare(
-      'SELECT id, content_type FROM articles WHERE id = $1 AND tenant_id = $2'
-    ).get(parseInt(source_article_id, 10), req.tenantId);
-    if (!source) return res.status(404).json({ error: 'Source article not found' });
-    if (['original', 'deep-dive', 'video'].includes(source.content_type)) {
-      return res.status(400).json({ error: `Cannot pitch from a ${source.content_type} article — source must be a curated article` });
-    }
-
-    // Multi-source: accept attached_article_ids or source_article_ids[] from
-    // the payload; tenant-check, content-type-check, drop the primary/duplicates.
-    const rawIds = Array.isArray(payload.attached_article_ids)
-      ? payload.attached_article_ids
-      : (Array.isArray(payload.source_article_ids) ? payload.source_article_ids : []);
-    let attachedIds = [];
-    if (rawIds.length) {
-      const ints = rawIds.map(n => parseInt(n, 10)).filter(Boolean);
-      if (ints.length) {
-        const rows = await db.prepare('SELECT id, content_type FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2').all(ints, req.tenantId);
-        const invalid = rows.filter(r => ['original', 'deep-dive', 'video'].includes(r.content_type));
-        if (invalid.length) {
-          return res.status(400).json({
-            error: 'All attached articles must be curated — cannot attach original/deep-dive/video articles',
-            invalid_ids: invalid.map(r => r.id),
-          });
-        }
-        const valid = new Set(rows.map(r => r.id));
-        attachedIds = [...new Set(ints.filter(n => n !== source.id && valid.has(n)))];
-      }
-    }
-
-    const row = await db.prepare(`
-      INSERT INTO article_pitches
-        (tenant_id, source_article_id, attached_article_ids, requested_by_editor_id, angle_summary, pitch_type, status)
-      VALUES ($1, $2, $3::jsonb, $4, $5, $6, 'proposed')
-      RETURNING id
-    `).get(req.tenantId, source.id, JSON.stringify(attachedIds), userId, angle_summary.slice(0, 2000), pitchType);
-
-    const sourceNote = attachedIds.length ? ` (bundling ${attachedIds.length + 1} sources)` : '';
-    return res.json({ text: `Pitch created${sourceNote}! It's in the queue and ready for writer assignment.`, pitch_id: row.id, pitch_type: pitchType });
+  if(actionType==='create_pitch'||proposal.proposal_type==='pitch'){
+    if(!await require('../lib/feature-registry').isFeatureEnabled(req.tenantId,'article_pitches').catch(()=>false))return res.status(404).json({error:'Assignments are not enabled.'});
+    const payload=proposal.payload||proposal;
+    const ids=[...new Set([payload.source_article_id||payload.article_id,...(payload.source_article_ids||[]),...(payload.attached_article_ids||[])].filter(Boolean))];
+    try{const row=await require('../lib/editor-assignments').create({...payload,source_article_ids:ids,request_key:proposal.request_key||payload.request_key},req.tenantId,req.user?.sub||null);return res.json({ok:true,pitch_id:row.id,status:row.status,text:'Assignment saved. '+(row.status==='needs_sources'?'Attach at least two real sources in Pitches > Commissions. ':'Approve it in Pitches > Commissions. ')+'Draft generation is a separate paid action.'});}catch(e){return res.status(e.status||500).json({error:e.status?e.message:'Could not save assignment.'});}
   }
+
 
   // Tool proposals (thumbnail, headline, pitch, approve_article, kill_article,
   // assign_writer, feature_article) use the agent-tools apply path. The `pitch`
