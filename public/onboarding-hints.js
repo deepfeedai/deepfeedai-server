@@ -14,10 +14,10 @@
 (function () {
   'use strict';
 
-  var FLAG_PREFIX = 'navKit.onboarded.';
+  function hintKey(id) { return window.WorkflowNav.scopedKey('hint.'+id); }
 
-  function seen(id) { return localStorage.getItem(FLAG_PREFIX + id) === '1'; }
-  function mark(id) { try { localStorage.setItem(FLAG_PREFIX + id, '1'); } catch (_) {} }
+  function seen(id) { try { return localStorage.getItem(hintKey(id)) === '1'; } catch (_) { return true; } }
+  function mark(id) { try { localStorage.setItem(hintKey(id), '1'); } catch (_) {} }
 
   function ready(cb) {
     if (document.body && window.NavKit) return cb();

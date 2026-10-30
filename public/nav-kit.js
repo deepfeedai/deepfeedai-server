@@ -92,7 +92,7 @@
   function list() { return bindings.slice(); }
 
   function onKeyDown(ev) {
-    if (inEditable(ev.target)) return;
+    if (inEditable(ev.target) || ev.target?.closest?.('[role=dialog], dialog[open]')) return;
 
     var token = normaliseEvent(ev);
 
@@ -182,13 +182,13 @@
   // Tracks page visits in localStorage so the command palette and sidebar
   // recent section can rank. Keep the payload tiny; cap the history so
   // storage doesn't bloat.
-  var TELEMETRY_KEY = 'navKit.telemetry.v1';
+  function telemetryKey() { return window.WorkflowNav.scopedKey('telemetry'); }
   var MAX_RECENT = 15;
   var MAX_HITS_PER_PATH = 1000;
 
   function readTelemetry() {
     try {
-      var raw = localStorage.getItem(TELEMETRY_KEY);
+      var raw = localStorage.getItem(telemetryKey());
       if (!raw) return { hits: {}, recent: [] };
       var parsed = JSON.parse(raw);
       return {
@@ -201,11 +201,11 @@
   }
 
   function writeTelemetry(data) {
-    try { localStorage.setItem(TELEMETRY_KEY, JSON.stringify(data)); } catch (_) {}
+    try { localStorage.setItem(telemetryKey(), JSON.stringify(data)); } catch (_) {}
   }
 
   function trackVisit(path, label) {
-    if (!path) return;
+    if (!path || !window.WorkflowNav.allowed(path)) return;
     var data = readTelemetry();
     data.hits[path] = Math.min((data.hits[path] || 0) + 1, MAX_HITS_PER_PATH);
     data.recent = [{ path: path, label: label || path, at: Date.now() }]
@@ -215,7 +215,7 @@
   }
 
   function getHits() { return readTelemetry().hits; }
-  function getRecent() { return readTelemetry().recent; }
+  function getRecent() { return readTelemetry().recent.filter(r => r && typeof r.path === 'string' && window.WorkflowNav.allowed(r.path)); }
   function clearTelemetry() { writeTelemetry({ hits: {}, recent: [] }); }
 
   // ── Boot ───────────────────────────────────────────────────

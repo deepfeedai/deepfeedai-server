@@ -30,13 +30,8 @@
     var esc = NK.esc;
     var el  = NK.el;
 
-    var TABS = [
-      { href: '/newsroom-chat.html',     label: 'Chat',     icon: '💬' },
-      { href: '/articles.html',          label: 'Articles', icon: '📰' },
-      { href: '/newsroom-activity.html', label: 'Activity', icon: '📡' },
-      { action: 'bell',                  label: 'Alerts',   icon: '🔔' },
-      { action: 'more',                  label: 'More',     icon: '⋮' },
-    ];
+    var TABS = window.WorkflowNav.groups().slice(0,4).map(g=>({href:g.items[0].href,label:g.label,icon:g.items[0].icon}));
+    TABS.push({action:'more',label:'More',icon:'☰'});
 
     var pathname = window.location.pathname;
 
@@ -44,12 +39,13 @@
       if (document.getElementById('mobileBottomNav')) return;
       var nav = el('nav', { id: 'mobileBottomNav', class: 'mbnav', 'aria-label': 'Primary' });
       TABS.forEach(function (t) {
-        var isActive = t.href && pathname === t.href;
+        var current=window.WorkflowNav.resolve(pathname+window.location.search);
+        var isActive = t.href && current && current.group===t.label;
         var cls = 'mbnav-tab' + (isActive ? ' active' : '');
 
         var tab;
         if (t.href) {
-          tab = el('a', { class: cls, href: t.href });
+          tab = el('a', { class: cls, href: t.href, ...(isActive ? {'aria-current':'page'} : {}) });
         } else {
           tab = el('button', { class: cls, type: 'button' });
         }

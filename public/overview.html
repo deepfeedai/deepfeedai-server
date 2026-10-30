@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Overview &mdash; DeepFeedAI</title><script src="/theme-init.js"></script><link rel="stylesheet" href="/admin.css"><link rel="stylesheet" href="/overview.css"></head>
+<body><div class="admin-layout"><main class="main-content">
+<header class="topbar"><button class="hamburger" id="hamburger" aria-label="Open navigation">&#9776;</button><div class="topbar-title">Overview</div></header>
+<div class="page-body overview-workspace">
+ <header class="overview-heading"><div><p class="overview-eyebrow">YOUR NEWSROOM, AT A GLANCE</p><h1>Make the next move.</h1><p>See what needs attention, gather evidence, and move work toward publication.</p></div><button class="btn btn-outline" id="overviewRefresh">Refresh overview</button></header>
+ <div id="overviewStatus" class="overview-status" role="status" aria-live="polite">Loading your newsroom…</div><button class="btn btn-outline" id="overviewRetry" hidden>Retry loading</button>
+ <div id="overviewContent" hidden aria-busy="true">
+  <section aria-labelledby="overviewAttentionTitle"><div class="overview-section-heading"><div><p class="overview-eyebrow">KEEP WORK MOVING</p><h2 id="overviewAttentionTitle">Needs your attention</h2></div><span class="overview-note">Only queues you can access</span></div><div id="overviewCards" class="overview-cards"></div></section>
+  <div class="overview-columns">
+   <section class="overview-panel" aria-labelledby="overviewActivityTitle"><div class="overview-section-heading"><div><p class="overview-eyebrow">RECENT CHANGES</p><h2 id="overviewActivityTitle">Newsroom activity</h2></div></div><ol id="overviewActivity" class="overview-activity"></ol></section>
+   <section class="overview-panel overview-guide" aria-labelledby="overviewGuideTitle"><div class="overview-section-heading"><div><p class="overview-eyebrow">A PATH TO PUBLICATION</p><h2 id="overviewGuideTitle">Getting started</h2></div></div><p class="overview-note">Workspace milestones reflect saved work across your newsroom. Personal progress reflects your own reading.</p><p id="overviewVisitNotice" class="overview-note" hidden>Shown for this visit from Help. Your saved preference still keeps the checklist hidden on ordinary visits.</p><div id="overviewGuideBody"><p id="overviewProgress" class="overview-progress"></p><ul id="overviewChecklist" class="overview-checklist"></ul><button class="btn btn-ghost" id="overviewDismiss">Hide checklist for me</button></div><div id="overviewGuideHidden" hidden><p>Your checklist is hidden. You can bring it back whenever you need it.</p><button class="btn btn-outline" id="overviewReopen">Show getting started</button></div><p id="overviewPreferenceStatus" role="status" aria-live="polite"></p></section>
+  </div>
+  <p class="overview-footnote">Opening a queue or checklist step only navigates. Draft generation, approval and publication remain explicit actions in their own workspace.</p>
+ </div>
+</div></main></div>
+<script src="/admin.js"></script><script src="/admin-mobile-nav.js"></script><script src="/notifications-bell.js"></script><script src="/overview-page.js"></script></body></html>

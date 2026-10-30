@@ -14,6 +14,9 @@
   let _loadVersion = 0;
   const _regenBusy = new Set();
 
+  let storyNavReady=false;
+  const storyNav=window.WorkflowState?.create({status:['active','dormant','archived','all'],q:'text',sort:['activity','count','created'],id:'id'},async v=>{if(openStory&&((document.getElementById('dSummary')&&document.getElementById('dSummary').value!==String(openStory.summary||''))||(document.getElementById('dName')&&document.getElementById('dName').textContent!==String(openStory.name||'')))){showAlert('Finish your Story edits before navigating back.','info');return false;}applyStoryNav(v);await loadStories();if(v.id)await window.openDrawer(Number(v.id));else window.closeDrawer();});
+  function applyStoryNav(v){activeStatus=v.status||'active';searchQuery=v.q||'';sortBy=v.sort||'activity';document.getElementById('sSearch').value=searchQuery;document.getElementById('sSort').value=sortBy;}
   // Phase 3: new-story modal
   let _newStorySelectedIds = []; // [{ id, title }]
   let _newStorySearchTimer = null;
@@ -38,7 +41,7 @@
       sortBy = e.target.value;
       renderList();
     });
-    loadStories();
+    const initial=storyNav?.read()||{};applyStoryNav(initial);loadStories().then(async()=>{if(initial.id)await window.openDrawer(Number(initial.id));storyNavReady=true;storyNav?.restoreScroll();});
   });
 
   // ── Data ───────────────────────────────────────────────────────────────────
@@ -136,6 +139,7 @@
   }
 
   function renderList() {
+    if(storyNavReady)storyNav?.write({status:activeStatus,q:searchQuery,sort:sortBy,id:openStoryId||''});
     const visible = sortedStories(filteredStories());
     const el = document.getElementById('sList');
     if (!visible.length) {

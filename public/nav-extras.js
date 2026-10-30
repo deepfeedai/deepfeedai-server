@@ -27,19 +27,20 @@
     var esc = NK.esc;
     var el  = NK.el;
 
-    var PINNED_KEY = 'navKit.pinned.v1';
+    function pinnedKey() { return window.WorkflowNav.scopedKey('pinned'); }
     var MAX_RECENT = 5;
 
     // ── Storage ────────────────────────────────────────────
     function readPinned() {
-      try { return JSON.parse(localStorage.getItem(PINNED_KEY)) || []; }
+      try { var values=JSON.parse(localStorage.getItem(pinnedKey())); return Array.isArray(values)?values.filter(p=>typeof p==='string'&&window.WorkflowNav.allowed(p)):[]; }
       catch (_) { return []; }
     }
     function writePinned(arr) {
-      try { localStorage.setItem(PINNED_KEY, JSON.stringify(arr.slice(0, 10))); } catch (_) {}
+      try { localStorage.setItem(pinnedKey(), JSON.stringify(arr.slice(0, 10))); } catch (_) {}
     }
     function isPinned(href) { return readPinned().indexOf(href) >= 0; }
     function togglePin(href) {
+      if (!window.WorkflowNav.allowed(href)) return;
       var arr = readPinned();
       var idx = arr.indexOf(href);
       if (idx >= 0) arr.splice(idx, 1); else arr.unshift(href);
@@ -91,16 +92,17 @@
 
 
 
-        var storageKey = 'navExtras.collapsed.' + label.replace(/[^\w]/g, '');
-        var isCollapsed = localStorage.getItem(storageKey) === 'true';
+        var storageKey = window.WorkflowNav.scopedKey('extras.' + label.replace(/[^\w]/g, ''));
+        var isCollapsed=false; try { isCollapsed = localStorage.getItem(storageKey) === 'true'; } catch (_) {}
 
-        var header = el('div', { class: 'nav-section' + (isCollapsed ? ' collapsed' : ''), html: label + CHEVRON });
+        var header = el('button', { type:'button', 'aria-expanded':String(!isCollapsed), class: 'nav-section' + (isCollapsed ? ' collapsed' : ''), html: label + CHEVRON });
         var group  = el('div', { class: 'nav-group'   + (isCollapsed ? ' collapsed' : '') });
 
         header.addEventListener('click', function () {
           var nowCollapsed = !header.classList.contains('collapsed');
           header.classList.toggle('collapsed', nowCollapsed);
           group.classList.toggle('collapsed',  nowCollapsed);
+          header.setAttribute('aria-expanded',String(!nowCollapsed));
           try { localStorage.setItem(storageKey, nowCollapsed ? 'true' : 'false'); } catch (_) {}
         });
 
@@ -145,7 +147,7 @@
         var link = ev.target.closest('a.nav-link');
         if (!link || !link.href) return;
         ev.preventDefault();
-        var href = new URL(link.href, location.href).pathname;
+        var href = new URL(link.href, location.href).pathname + new URL(link.href, location.href).search;
         togglePin(href);
         render();
         toast(isPinned(href) ? 'Pinned' : 'Unpinned');
@@ -163,24 +165,25 @@
 
     // ── Gmail-style g-chord shortcuts ─────────────────────
     var GMAIL_SHORTCUTS = [
-      { keys: 'g d', href: '/index.html',            label: 'Dashboard' },
+      { keys: 'g d', href: '/overview.html',         label: 'Overview' },
       { keys: 'g a', href: '/articles.html',         label: 'Articles' },
       { keys: 'g e', href: '/editorial.html',        label: 'Editorial' },
       { keys: 'g c', href: '/newsroom-chat.html',    label: 'Newsroom Chat' },
       { keys: 'g p', href: '/pitches.html',          label: 'Pitches' },
-      { keys: 'g f', href: '/feed-inbox.html',       label: 'Feed Inbox' },
+      { keys: 'g f', href: '/feed-inbox.html',       label: 'Reader' },
       { keys: 'g v', href: '/newsroom-activity.html', label: 'Activity' },
       { keys: 'g w', href: '/writers.html',          label: 'Writers (AI Team)' },
       { keys: 'g s', href: '/story-board.html',      label: 'Story Board' },
       { keys: 'g ,', href: '/settings.html',         label: 'Settings' },
     ];
-    GMAIL_SHORTCUTS.forEach(function (s) {
+    GMAIL_SHORTCUTS.filter(s=>window.WorkflowNav.allowed(s.href)).forEach(function (s) {
       NK.register(s.keys, function () { window.location.href = s.href; }, 'Jump to ' + s.label);
     });
 
     // Pin/unpin current page
     NK.register('mod+d', function () {
-      var p = window.location.pathname;
+      var p = window.WorkflowNav.resolve(window.location.pathname + window.location.search)?.href;
+      if (!p || !window.WorkflowNav.allowed(p)) return;
       togglePin(p);
       render();
       toast(isPinned(p) ? 'Pinned' : 'Unpinned');

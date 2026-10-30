@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = factory;
   else {
     root.SourcesPage = factory(root.document, (path, options) => apiFetch(path, options), {
-      can: permission => hasPermission(permission), suggestions: root.RSS_SUGGESTIONS || {},
+      nav: root.WorkflowState, can: permission => hasPermission(permission), suggestions: root.RSS_SUGGESTIONS || {},
       download(content, mime, filename) {
         const url = URL.createObjectURL(new Blob([content], { type: mime }));
         const link = document.createElement('a'); link.href = url; link.download = filename;
@@ -23,7 +23,10 @@
     catch { return 'Address hidden'; }
   }
   const safeMessage = message => String(message || '').replace(/https?:\/\/[^\s<>"']+/g, maskedUrl);
-  const state = { items: [], total: 0, page: 1, limit: 25, filters: { q: '', status: 'current', folder: '', category: '' }, selected: new Set(), allMatching: false, folders: [], categories: [], preview: null, importSnapshot: null, remove: null, duplicateReport: null, loadVersion: 0, fileVersion: 0, loading: false };
+  const state = { items: [], total: 0, page: 1, limit: 25, filters: { q: '', status: 'current', folder: '', category: '', errors:'' }, selected: new Set(), allMatching: false, folders: [], categories: [], preview: null, importSnapshot: null, remove: null, duplicateReport: null, loadVersion: 0, fileVersion: 0, loading: false };
+  let navReady=false;
+  const nav=services.nav?.create({q:'text',status:['current','active','paused','removed'],folder:'text',category:'text',errors:['1'],page:'id'},async v=>{applyNav(v);clearSelection();await load();});
+  function applyNav(v){state.filters={q:v.q||'',status:v.status||'current',folder:v.folder||'',category:v.category||'',errors:v.errors||''};state.page=Number(v.page)||1;$('sourcesSearch').value=state.filters.q;$('sourcesStatus').value=state.filters.status;if($('sourcesErrors'))$('sourcesErrors').checked=state.filters.errors==='1';}
   const locks = new Set(); const focusBefore = new Map();
   const send = (path, body, method = 'POST') => api(path, { method, body: JSON.stringify(body) });
   function notice(message, error = false) { $('sourcesNotice').hidden = !message; $('sourcesNotice').textContent = safeMessage(message); $('sourcesNotice').className = 'sources-notice' + (error ? ' error' : ''); }
@@ -91,6 +94,7 @@
     $('sourcesCategoryOptions').innerHTML = state.categories.map(value => `<option value="${escape(value)}"></option>`).join('');
   }
   async function load() {
+    if(navReady)nav?.write({...state.filters,page:state.page});
     const version = ++state.loadVersion; state.loading = true; renderSelection();
     const params = new URLSearchParams({ paged: '1', page: String(state.page), limit: String(state.limit), ...state.filters });
     $('sourcesCount').textContent = 'Loading sources…';
@@ -108,7 +112,7 @@
       $('sourcesRetry').hidden = false; notice(error.message, true);
     } finally { if (version === state.loadVersion) { state.loading = false; renderSelection(); } }
   }
-  async function filterChanged() { state.filters = { q: $('sourcesSearch').value.trim(), status: $('sourcesStatus').value, folder: $('sourcesFolder').value, category: $('sourcesCategory').value }; state.page = 1; clearSelection(); await load(); }
+  async function filterChanged() { state.filters = { q: $('sourcesSearch').value.trim(), status: $('sourcesStatus').value, folder: $('sourcesFolder').value, category: $('sourcesCategory').value, errors:services.nav&&$('sourcesErrors')?.checked?'1':'' }; state.page = 1; clearSelection(); await load(); }
   async function movePage(delta) { state.page = Math.max(1, state.page + delta); clearSelection(); await load(); }
   function changeBulkAction() { const action = $('sourcesBulkAction').value; $('sourcesBulkValueWrap').hidden = !['folder', 'category'].includes(action); $('sourcesBulkValue').setAttribute('list', action === 'folder' ? 'sourcesFolderOptions' : 'sourcesCategoryOptions'); $('sourcesBulkValue').placeholder = action === 'folder' ? 'Folder / subfolder (blank clears)' : 'Category (blank uses auto)'; renderSelection(); }
   async function applyBulk(action = $('sourcesBulkAction').value, selected = selection()) {
@@ -258,6 +262,7 @@
   }
   function bind(id, event, handler) { $(id).addEventListener(event, handler); }
   async function init() {
+    if(services.nav){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.id='sourcesErrors';label.append(box,document.createTextNode('Fetch errors only'));$('sourcesStatus').parentElement.after(label);box.addEventListener('change',filterChanged);applyNav(nav?.read()||{});}
     for (const button of document.querySelectorAll('[data-permission]')) button.hidden = !can(button.dataset.permission);
     for (const button of document.querySelectorAll('[data-close]')) button.addEventListener('click', () => close(button.dataset.close));
     for (const dialog of document.querySelectorAll('.sources-dialog')) {
@@ -285,7 +290,7 @@
     $('sourcesSuggestedNiche').innerHTML = niches.map(key => `<option value="${escape(key)}">${escape(key.replace(/-/g, ' '))}</option>`).join('');
     bind('sourcesSuggested', 'click', () => { renderSuggested(); open('sourcesSuggestedDialog'); }); bind('sourcesSuggestedNiche', 'change', renderSuggested); bind('sourcesSuggestedUse', 'click', useSuggested);
     try { const categories = await api('/categories'); state.categories = (Array.isArray(categories) ? categories : categories.categories || []).map(row => row.name); } catch { /* source facets still supply categories */ }
-    await load();
+    await load();navReady=true;nav?.restoreScroll();
   }
   return { init, load, state, selection, selectPage, selectMatching, clearSelection, filterChanged, movePage, render, maskedUrl, safeMessage, open, close, previewImport, commitImport, importFile, invalidateImport, applyBulk, openRemoval, confirmRemoval, updateRemoveButton, editSource, saveEdit, exportSources, exportSelection, refreshFeeds, renderSuggested, useSuggested, loadDuplicates, collapseDuplicates, undoDuplicate };
 });

@@ -2,6 +2,47 @@
  * Pitches Page — agent pitches (story_pitches) + editor commissions (article_pitches) + newsroom feed.
  */
 (function () {
+  var pitchPage=1,pitchLoadVersion=0;
+  var navReady=false,assignmentTotal=0,assignmentInitialFocus=false;
+  var pitchNav=window.WorkflowState?.create({tab:['pitches','commissions','newsroom'],status:['open','pending','proposed','ready','approved','synthesized','dismissed','all'],writer:'id',pitch_page:'id',commission:['proposed','approved','orphaned','all'],assignment_status:['needs_sources','proposed','approved','drafting','review','scheduled','published','failed','draft','archived','draft_unavailable','rejected'],assignment_page:'id',assignment:'id'},async function(v){if(document.querySelector('#editorAssignments details[open]')){showAlert('Close or save the open assignment before changing this view.','info');return false;}restorePitchNav(v);await loadPitches();await loadCommissions();if(activeTab==='newsroom')await loadNewsroom();updatePolling();await window.loadEditorAssignments?.();});
+  function restorePitchNav(v){pitchPage=Number(v.pitch_page)||1;activeTab=v.tab||'pitches';commissionFilter=v.commission||'proposed';document.getElementById('pitchStatusFilter').value=v.status||'open';document.getElementById('pitchWriterFilter').value=v.writer||'all';document.querySelectorAll('.tab-btn[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===activeTab));for(const key of ['pitches','commissions','newsroom'])document.getElementById(key+'Section').style.display=key===activeTab?'':'none';}
+  function savePitchNav(){if(!navReady)return;pitchNav?.write({...pitchNav.read(),tab:activeTab,pitch_page:pitchPage,status:document.getElementById('pitchStatusFilter').value,writer:document.getElementById('pitchWriterFilter').value==='all'?'':document.getElementById('pitchWriterFilter').value,commission:commissionFilter});}
+  // Read-only compatibility bridge: the existing assignment renderer and its action handlers stay unchanged.
+  let assignmentRecords=[];
+  let assignmentObserver=null;
+  let assignmentLoadedView=null,assignmentRequestedKey=null;
+  const assignmentViewKey=v=>JSON.stringify([v.assignment_status||'',Number(v.assignment_page)||1,v.assignment||'']);
+  function reconcileAssignmentRender(){
+    const host=document.getElementById('editorAssignments');if(!host||!assignmentLoadedView)return;
+    const desired=pitchNav?.read()||{},key=assignmentViewKey(desired);
+    if(assignmentViewKey(assignmentLoadedView)!==key){
+      host.setAttribute('aria-busy',String(assignmentRequestedKey!==key));
+      const bar=document.getElementById('assignmentNavigation');if(bar)bar.hidden=true;
+      // The legacy loader drops calls while its supporting requests are pending.
+      // At a host replacement its finally block has run; request the latest URL once.
+      // Never retry an already attempted failed view or overwrite an open source editor.
+      if(assignmentRequestedKey!==key&&!host.querySelector('details[open]')){
+        queueMicrotask(()=>{if(assignmentRequestedKey!==key&&!host.querySelector('details[open]')){assignmentRequestedKey=key;window.loadEditorAssignments?.();}});
+      }
+      return;
+    }
+    host.setAttribute('aria-busy','false');
+    renderAssignmentNavigation(desired);const bar=document.getElementById('assignmentNavigation');if(bar)bar.hidden=false;annotateAssignments(assignmentRecords);
+  }
+  function observeAssignmentRender(){
+    const host=document.getElementById('editorAssignments');
+    if(!host||assignmentObserver||typeof MutationObserver==='undefined')return;
+    // The legacy renderer replaces this host's direct children after all supporting
+    // requests settle. Annotations only change descendants, so they cannot loop.
+    assignmentObserver=new MutationObserver(reconcileAssignmentRender);
+    assignmentObserver.observe(host,{childList:true});
+    host.addEventListener('toggle',reconcileAssignmentRender,true);
+  }
+  const originalApiFetch=window.apiFetch;
+  window.apiFetch=async function(path,options){if(path==='/admin/writers'&&(!options?.method||options.method==='GET')&&typeof hasPermission==='function'&&!hasPermission('writers.read'))return [];if(path!=='/editor-assignments'||options?.method&&options.method!=='GET')return originalApiFetch(path,options);observeAssignmentRender();const v=pitchNav?.read()||{};assignmentRequestedKey=assignmentViewKey(v);const query=new URLSearchParams({limit:'25',offset:String(((Number(v.assignment_page)||1)-1)*25)});if(v.assignment_status)query.set('status',v.assignment_status);if(v.assignment)query.set('id',v.assignment);const data=await originalApiFetch(path+'?'+query,options);assignmentTotal=data.total||0;assignmentRecords=data.assignments||[];assignmentLoadedView=v;return data;};
+  function gateAssignmentControls(card){if(typeof hasPermission!=='function')return;const update=hasPermission('articles.update'),create=hasPermission('articles.create');const editor=card.querySelector('details.assignment-edit');if(editor&&(!update||!hasPermission('writers.read')))editor.hidden=true;card.querySelectorAll('[data-assignment-action]').forEach(button=>{const action=button.dataset.assignmentAction;const allowed=['generate','recover'].includes(action)?create:action==='sources'?update&&hasPermission('writers.read'):update;if(!allowed){button.hidden=true;button.disabled=true;}});}
+  function annotateAssignments(records){const host=document.getElementById('editorAssignments');if(!host)return;const hints={needs_sources:'Next: attach real supporting evidence.',proposed:'Next: review and approve the assignment without generation.',approved:'Next: explicitly generate a paid draft when ready.',drafting:'Next: check the existing draft request; avoid duplicate generation.',failed:'Next: inspect the failure and provider usage before a paid retry.',draft:'Next: open the draft and prepare it for review.',review:'Next: review the saved draft before publication.',scheduled:'Next: review the publication schedule.',published:'Next: review the published article or make corrections.',archived:'Next: review the archived article before restoring it.',rejected:'Next: review rejection feedback before revising the article.',draft_unavailable:'The linked draft is unavailable. Check history before another paid request.'};for(const record of records){const card=host.querySelector('[data-assignment="'+Number(record.id)+'"]');if(!card)continue;gateAssignmentControls(card);card.querySelector('[data-next-step]')?.remove();const state=record.display_status||record.status;const note=document.createElement('p');note.dataset.nextStep='true';note.className='text-muted';note.textContent=hints[state]||'Review the saved assignment status.';const nextPermission=['approved','failed','drafting'].includes(state)?'articles.create':'articles.update';if(state!=='draft_unavailable'&&typeof hasPermission==='function'&&(!hasPermission(nextPermission)||(state==='needs_sources'&&!hasPermission('writers.read'))))note.textContent='Editor action required: '+note.textContent.replace(/^Next: /,'');card.append(note);const link=card.querySelector('a[href*="article-editor.html"]');if(!link)continue;if(state==='draft_unavailable'){link.hidden=true;continue;}link.textContent=state==='archived'?'Open archived article':state==='published'?'Open published article':state==='scheduled'?'Review scheduled article':state==='rejected'?'Open rejected article':'Open article / review';if(typeof hasPermission==='function'&&!hasPermission('articles.update'))link.href='/articles.html?id='+Number(record.spawned_article_id);}}
+  function renderAssignmentNavigation(v){const host=document.getElementById('editorAssignments');if(!host)return;let bar=document.getElementById('assignmentNavigation');if(!bar){bar=document.createElement('div');bar.id='assignmentNavigation';bar.className='filter-bar';host.before(bar);}bar.replaceChildren();const label=document.createElement('label');label.textContent='Assignments ';const select=document.createElement('select');select.className='form-control';for(const state of ['','needs_sources','proposed','approved','drafting','review','scheduled','published','failed','draft','archived','draft_unavailable','rejected']){const option=document.createElement('option');option.value=state;option.textContent=state?state.replaceAll('_',' '):'All assignments';select.append(option);}select.value=v.assignment_status||'';label.append(select);bar.append(label);const page=Number(v.assignment_page)||1;const count=document.createElement('span');count.textContent=assignmentTotal+' matching - Page '+page;bar.append(count);const hint=document.createElement('span');hint.className='text-muted';hint.textContent=({needs_sources:'Attach evidence before approval.',proposed:'Review and approve without generation.',approved:'Draft generation is a separate paid action.',drafting:'Check the current request; do not start a duplicate.',failed:'Review the failure and provider usage before a paid retry.',review:'Open the saved draft for human review.',scheduled:'Review the publication schedule.',published:'Open the article for corrections.',draft:'The linked article is a draft; review its content before submission.',archived:'The linked article is archived; review it before restoring.',draft_unavailable:'The linked draft is unavailable. Check the assignment history before attempting another paid request.'})[v.assignment_status]||'';bar.append(hint);if(!assignmentInitialFocus&&(location.hash==='#editorAssignments'||v.assignment)){assignmentInitialFocus=true;setTimeout(()=>{const card=v.assignment?host.querySelector('[data-assignment="'+Number(v.assignment)+'"]'):host;(card||host).scrollIntoView({block:'start'});},0);}async function change(patch){if(host.querySelector('details[open]')){showAlert('Save or close the open assignment first.','info');select.value=v.assignment_status||'';return;}pitchNav?.write({...pitchNav.read(),...patch,assignment:''});await window.loadEditorAssignments?.();}select.onchange=()=>change({assignment_status:select.value,assignment_page:1});for(const [text,delta,disabled]of [['Previous',-1,page<=1],['Next',1,page*25>=assignmentTotal]]){const b=document.createElement('button');b.className='btn btn-outline';b.textContent=text;b.disabled=disabled;b.onclick=()=>change({assignment_page:page+delta});bar.append(b);}}
   var writers = [];
   var activeTab = 'pitches';
   var viewMode = localStorage.getItem('dfai_pitches_view') || 'list';
@@ -28,9 +69,9 @@
 
   // ── Tabs ──────────────────────────────────────────────────
 
-  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      document.querySelectorAll('.tab-btn').forEach(function (b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-btn[data-tab]').forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       activeTab = btn.dataset.tab;
       document.getElementById('pitchesSection').style.display = activeTab === 'pitches' ? '' : 'none';
@@ -38,6 +79,7 @@
       document.getElementById('newsroomSection').style.display = activeTab === 'newsroom' ? '' : 'none';
       if (activeTab === 'newsroom') loadNewsroom();
       if (activeTab === 'commissions') loadCommissions();
+      savePitchNav();
       updatePolling();
     });
   });
@@ -45,36 +87,46 @@
   // ── Agent Pitches (story_pitches) ─────────────────────────
 
   async function loadPitches() {
+    const version=++pitchLoadVersion;
+    savePitchNav();
     var status = document.getElementById('pitchStatusFilter').value;
     var writerId = document.getElementById('pitchWriterFilter').value;
     var isReady = status === 'ready';
     var apiStatus = isReady ? 'open' : status;
 
-    var url = '/admin/pitches?status=' + apiStatus + '&_t=' + Date.now();
+    var url = '/admin/pitches?status=' + apiStatus + '&limit=50&offset=' + ((pitchPage-1)*50) + '&_t=' + Date.now();
     if (writerId !== 'all') url += '&writer_id=' + writerId;
 
     try {
       var data = await apiFetch(url);
+      if(version!==pitchLoadVersion)return;
       var pitches = data.pitches || [];
+      if(!pitches.length&&pitchPage>1){pitchPage=Math.max(1,Math.ceil((Number(data.total)||0)/50));return loadPitches();}
       if (isReady) {
         pitches = pitches.filter(function (p) {
           return (p.source_article_ids || []).length >= 3 && (p.priority || 5) >= 7;
         });
       }
       renderPitches(pitches);
+      renderPitchPagination(data,isReady,pitches.length);
 
-      var countData = await apiFetch('/admin/pitches/count');
+      var countData = await apiFetch('/admin/pitches/count').catch(()=>null);
+      if(version!==pitchLoadVersion)return;
       var badge = document.getElementById('pendingBadge');
-      if (badge) {
+      if (badge && countData) {
         badge.textContent = countData.count || '';
         badge.style.display = countData.count ? 'inline-flex' : 'none';
       }
     } catch (err) {
+      if(version!==pitchLoadVersion)return;
+      renderPitches([]);renderPitchPagination({error:true},false,0);
       showAlert('Failed to load pitches: ' + err.message, 'error');
     }
-    if (window.loadNavBadges) window.loadNavBadges();
+    if (version===pitchLoadVersion && window.loadNavBadges) window.loadNavBadges();
   }
 
+  function resetPitchPage(){pitchPage=1;return loadPitches();}
+  function renderPitchPagination(data,ready,eligible){let bar=document.getElementById('writerPitchPagination');if(!bar){bar=document.createElement('nav');bar.id='writerPitchPagination';bar.className='filter-bar';bar.setAttribute('aria-label','Writer pitch pages');document.getElementById('pitchGrid').after(bar);}bar.replaceChildren();if(data.error){const error=document.createElement('span');error.setAttribute('role','status');error.textContent='Page '+pitchPage+' could not be loaded. No matching rows are shown.';bar.append(error);for(const[text,delta]of [['Retry this page',0],...(pitchPage>1?[['Previous page',-1]]:[])]){const retry=document.createElement('button');retry.type='button';retry.className='btn btn-outline';retry.textContent=text;retry.onclick=async()=>{if(retry.disabled)return;bar.querySelectorAll('button').forEach(b=>b.disabled=true);pitchPage+=delta;await loadPitches();};bar.append(retry);}return;}const total=Number(data.total)||0;const label=document.createElement('span');label.textContent=ready?eligible+' eligible on this page of '+total+' open pitches - Page '+pitchPage:pitchPage+' / '+Math.max(1,Math.ceil(total/50))+' - '+total+' matching pitches';bar.append(label);for(const[text,delta,disabled]of [['Previous',-1,pitchPage<=1],['Next',1,!data.hasMore]]){const button=document.createElement('button');button.type='button';button.className='btn btn-outline';button.textContent=text;button.disabled=disabled;button.onclick=async()=>{if(button.disabled)return;bar.querySelectorAll('button').forEach(b=>b.disabled=true);pitchPage+=delta;await loadPitches();};bar.append(button);}}
   function renderPitches(pitches) {
     pitches = pitches.slice().sort(function (a, b) { return (b.priority || 5) - (a.priority || 5); });
     _allPitchesCache = pitches;
@@ -621,6 +673,7 @@
   }
 
   async function loadCommissions() {
+    savePitchNav();
     if(window.loadEditorAssignments)window.loadEditorAssignments();
     try {
       var data = await apiFetch('/pitches?' + commissionFilterToQuery(commissionFilter) + '&_t=' + Date.now());
@@ -1448,8 +1501,8 @@
 
   // ── Filters ───────────────────────────────────────────────
 
-  document.getElementById('pitchStatusFilter').addEventListener('change', loadPitches);
-  document.getElementById('pitchWriterFilter').addEventListener('change', loadPitches);
+  document.getElementById('pitchStatusFilter').addEventListener('change', resetPitchPage);
+  document.getElementById('pitchWriterFilter').addEventListener('change', resetPitchPage);
 
   // ── Init ──────────────────────────────────────────────────
 
@@ -1534,7 +1587,8 @@
     });
     applyCommissionsGroupBy();
 
-    loadPitches();
+    restorePitchNav(pitchNav?.read()||{});navReady=true;
+    Promise.all([loadPitches(),activeTab==='newsroom'?loadNewsroom():Promise.resolve()]).then(()=>pitchNav?.restoreScroll());
     loadCommissions(); // populate Commissions tab badge on load (grid is hidden until tab is clicked)
     updatePolling();
   }
