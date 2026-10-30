@@ -347,64 +347,15 @@ router.post('/:id/avatar', requirePermission('writers.update'), asyncHandler(asy
 }));
 
 // POST /api/admin/writers/:id/generate-avatar — AI-generate avatar with Imagen
-router.post('/:id/generate-avatar', requirePermission('writers.update'), asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const writer = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
-  if (!writer) return res.status(404).json({ error: 'Writer not found' });
-
-  // Build a portrait prompt from the writer's persona
-  const beats = await getBeats(id, req.tenantId);
-  const beatNames = beats.map(b => b.name).join(', ') || 'news';
-  const toneDesc = writer.tone ? `, with a ${writer.tone.toLowerCase()} demeanor` : '';
-
-  const genderDesc = writer.gender ? `${writer.gender} ` : '';
-  const ethnicityDesc = writer.ethnicity ? `${writer.ethnicity} ` : '';
-  const conceptDesc = `Portrait of a ${ethnicityDesc}${genderDesc}journalist who covers ${beatNames}${toneDesc}`;
-
-  // Run through the shared style composer for brand coherence with thumbnails.
-  // Reads the avatar-specific setting with a fallback to the legacy unified key.
-  const { getArtDirection } = require('../lib/media-helpers');
-  let tenantArtDirection = null;
+router.post('/:id/generate-avatar', requirePermission('writers.update'), require('../middleware/feature-gate').requireFeature('image_generation'), asyncHandler(async (req,res) => {
+  const id=Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({error:'Valid writer id required'});
+  const writer=await db.prepare('SELECT id FROM writers WHERE id=$1 AND tenant_id=$2').get(id,req.tenantId);
+  if (!writer) return res.status(404).json({error:'Writer not found'});
   try {
-    tenantArtDirection = await getArtDirection(req.tenantId, 'avatars');
-  } catch { /* best effort */ }
-
-  const { composeImagePrompt } = require('../lib/prompts/composer');
-  const composed = composeImagePrompt({
-    concept: conceptDesc,
-    tenantArtDirection,
-    articleType: 'writer-avatar',
-    writerTone: writer.tone || null,
-    styleOverride: writer.avatar_style_family || null,
-    customNotes: writer.avatar_style_notes || null,
-  });
-  const prompt = `${composed.prompt} Square 1:1 aspect ratio.`;
-
-  console.log(`[AvatarGen] Writer ${id} (${writer.name}): ${prompt}`);
-
-  const { generateImage: aiGenerateImage } = require('../lib/ai-router');
-  let imageResult;
-  try {
-    imageResult = await aiGenerateImage({
-      tenantId: req.tenantId,
-      prompt,
-      operation: 'writer-avatar',
-      aspectRatio: '1:1',
-      trigger: 'manual',
-    });
-  } catch (err) {
-    if (err.code === 'MISSING_KEY') {
-      return res.status(500).json({ error: 'Gemini/Imagen API key not configured' });
-    }
-    console.error(`[AvatarGen] Image generation error:`, err.message);
-    return res.status(502).json({ error: `Image generation error: ${err.message}` });
-  }
-
-  const avatarUrl = await storeAvatar(Buffer.from(imageResult.b64, 'base64'), 'image/png', id, req.tenantId);
-  await db.prepare('UPDATE writers SET avatar_url = $1 WHERE id = $2 AND tenant_id = $3').run(avatarUrl, id, req.tenantId);
-
-  const updated = await db.prepare('SELECT * FROM writers WHERE id = $1 AND tenant_id = $2').get(id, req.tenantId);
-  res.json({ ...updated, _avatarPrompt: prompt });
+    await require('../lib/media-helpers').regenerateWriterAvatarImage(id,req.tenantId,{trigger:'manual'});
+    res.json(await db.prepare('SELECT * FROM writers WHERE id=$1 AND tenant_id=$2').get(id,req.tenantId));
+  } catch(e) { res.status(502).json(require('../lib/image-errors').publicImageError(e)); }
 }));
 
 // POST /api/admin/writers/:id/generate-chat-prompt — AI-generate chat persona

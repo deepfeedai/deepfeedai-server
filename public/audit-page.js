@@ -665,6 +665,7 @@ function renderQueueHistory(history) {
     return;
   }
   tbody.innerHTML = filtered.map(function(j) {
+    if (j.result && j.result.skipped) j = { ...j, status: 'skipped: ' + String(j.result.skipped) };
     var statusColor = j.status === 'done' ? '#4ade80' : '#94a3b8';
     var dur = j.duration_ms != null ? Math.round(parseFloat(j.duration_ms)) : null;
     var durStr = dur == null ? '—' : dur < 1000 ? dur + 'ms' : (dur / 1000).toFixed(1) + 's';

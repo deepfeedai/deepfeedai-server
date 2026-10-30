@@ -1806,15 +1806,7 @@
           } catch (e) { /* continue */ }
         }
 
-        // Fire-and-forget avatar generation
-        try {
-          var allWriters = await apiFetch('/admin/writers').catch(function () { return []; });
-          for (var awi = 0; awi < allWriters.length; awi++) {
-            if (!allWriters[awi].avatar_url) {
-              apiFetch('/admin/writers/' + allWriters[awi].id + '/generate-avatar', { method: 'POST' }).catch(function () {});
-            }
-          }
-        } catch (e) { /* non-fatal */ }
+        // Portraits are explicit paid actions on the writer detail page.
       }
       setLaunchStep('writer', 'done');
 

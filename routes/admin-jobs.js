@@ -64,7 +64,7 @@ router.get('/', auth, requirePermission('cron.read'), asyncHandler(async (req, r
   if (req.query.history === 'true') {
     const histRes = await getPool().query(`
       SELECT id, job_type, category, status,
-             attempts, error_message,
+             attempts, error_message, result,
              run_at, finished_at, created_at,
              EXTRACT(EPOCH FROM (finished_at - run_at)) * 1000 AS duration_ms
       FROM jobs

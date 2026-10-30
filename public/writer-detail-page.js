@@ -283,7 +283,7 @@
           + '<optgroup label="Editorial">' + familyOpts(editorialFamilies, w.avatar_style_family) + '</optgroup>'
           + '<optgroup label="Illustration / Animation">' + familyOpts(illustrationFamilies, w.avatar_style_family) + '</optgroup>'
         + '</select>'
-        + '<div class="text-muted text-sm" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</div>'
+        + '<div class="text-muted text-sm" style="margin-top:4px;">Style rendering varies by provider and model. Review a generated sample before bulk requests.</div>'
       );
       html += field('Accent Color', '<input type="color" class="form-control" id="fAccentColor" value="' + esc(w.accent_color || '#8b5cf6') + '" style="height:38px;padding:4px;" />');
       html += '</div>';
@@ -526,6 +526,7 @@
   };
 
   window.generateWriterAvatar = async function () {
+    if (!window.confirm("Generate a portrait using the configured image provider? This may incur charges.")) return;
     if (!writerData || !writerData.id) return;
     var btn = document.getElementById('generateAvatarBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }

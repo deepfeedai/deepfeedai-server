@@ -439,7 +439,7 @@
             <div class="settings-card-icon">🖼️</div>
             <div>
               <div class="settings-card-title">Image Provider</div>
-              <div class="settings-card-subtitle">Choose Imagen or DALL-E for thumbnails and inline images, per operation</div>
+              <div class="settings-card-subtitle">Choose a separate image provider for articles and portraits. Text-provider settings do not apply here.</div>
             </div>
           </div>
           <div class="form-group">
@@ -447,11 +447,11 @@
             <div style="display:flex;gap:8px;">
               <select class="form-control" id="imgDefaultProvider" style="flex:1;">
                 <option value="imagen">Imagen (Google)</option>
-                <option value="dalle">DALL-E (OpenAI)</option>
+                <option value="openai-image">GPT Image (OpenAI)</option><option value="dalle">DALL-E (retired; choose a replacement)</option>
               </select>
               <select class="form-control" id="imgDefaultModel" style="flex:2;"></select>
             </div>
-            <p class="form-help">Used for any image operation without its own override. DALL-E requires an OpenAI API key configured below.</p>
+            <p class="form-help">Used for any image operation without its own override. GPT Image requires an OpenAI API key. Legacy DALL-E settings are retained but blocked until you explicitly save a supported replacement.</p>
           </div>
           <div class="form-group">
             <label class="form-label">Per-Operation Overrides</label>
@@ -460,14 +460,14 @@
               <select class="form-control" id="imgOpProvider-thumbnail-render">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-thumbnail-render"></select>
               <div style="font-size:13px;color:var(--text-muted);">Inline images</div>
               <select class="form-control" id="imgOpProvider-inline-image">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-inline-image"></select>
 
@@ -475,7 +475,7 @@
               <select class="form-control" id="imgOpProvider-writer-avatar">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-writer-avatar"></select>
 
@@ -483,11 +483,11 @@
               <select class="form-control" id="imgOpProvider-standalone-design">
                 <option value="">Use default</option>
                 <option value="imagen">Imagen</option>
-                <option value="dalle">DALL-E</option>
+                <option value="openai-image">GPT Image</option><option value="dalle">DALL-E (retired)</option>
               </select>
               <select class="form-control" id="imgOpModel-standalone-design"></select>
             </div>
-            <p class="form-help">Override per operation — e.g. faster/cheaper Imagen for inline images, DALL-E HD for featured thumbnails.</p>
+            <p class="form-help">GPT Image uses medium quality, PNG, 1024 square portraits or 1536x1024 landscape images. Each request may incur provider charges; no automatic provider fallback.</p>
           </div>
           <div class="form-group">
             <h4 style="margin:0 0 8px 0;">Art Direction — Article Thumbnails</h4>
@@ -512,7 +512,7 @@
                 <option value="3d-render">3D Render (Pixar-adjacent)</option>
               </optgroup>
             </select>
-            <p class="form-help" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</p>
+            <p class="form-help" style="margin-top:4px;">Style rendering varies by provider and model. Review a generated sample before bulk requests.</p>
             <label class="form-label" for="artDirectionThumbCustom" style="margin-top:8px;">Custom style prompt (advanced)</label>
             <textarea class="form-control" id="artDirectionThumbCustom" rows="5" placeholder='Optional — fully custom thumbnail style. Example: "Cinematic newsroom photo, moody lighting, high contrast..."'></textarea>
             <p class="form-help">Applies to article thumbnails. Textarea takes priority over dropdown.</p>
@@ -541,7 +541,7 @@
                 <option value="3d-render">3D Render (Pixar-adjacent)</option>
               </optgroup>
             </select>
-            <p class="form-help" style="margin-top:4px;">Animation styles (anime, cel-shaded, etc.) render best on DALL-E. Imagen quality varies.</p>
+            <p class="form-help" style="margin-top:4px;">Style rendering varies by provider and model. Review a generated sample before bulk requests.</p>
             <label class="form-label" for="artDirectionAvatarCustom" style="margin-top:8px;">Custom style prompt (advanced)</label>
             <textarea class="form-control" id="artDirectionAvatarCustom" rows="5" placeholder='Optional — fully custom avatar style. Example: "Attack on Titan anime aesthetic, cross-hatching, sharp line work..."'></textarea>
             <p class="form-help">Applies to writer avatars (unless the writer has a per-writer override). Textarea takes priority over dropdown.</p>

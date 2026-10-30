@@ -263,6 +263,11 @@ let apiKeyVisible = false;
 
   // ── Unified Image Provider config ───────────────────────────────
   const IMAGE_PROVIDER_MODELS = {
+    'openai-image': [
+      {id:'gpt-image-2', label:'GPT Image 2 (medium quality)'},
+      {id:'gpt-image-2.5-sunburst', label:'GPT Image 2.5 Sunburst (medium quality)'},
+      {id:'gpt-image-2.5-flare', label:'GPT Image 2.5 Flare (medium quality)'},
+    ],
     imagen: [
       { id: 'imagen-4.0-generate-001',        label: 'imagen-4.0 (Standard) — $0.04' },
       { id: 'imagen-4.0-ultra-generate-001',  label: 'imagen-4.0 Ultra — $0.04' },
@@ -293,7 +298,13 @@ let apiKeyVisible = false;
     //   - currentValue if it matches a known model
     //   - otherwise: empty string when allowEmpty, else first model
     let nextValue;
-    if (currentValue && models.some(m => m.id === currentValue)) {
+    if (currentValue && !models.some(m => m.id === currentValue)) {
+      const unsupported = document.createElement('option');
+      unsupported.value = currentValue;
+      unsupported.textContent = 'Saved model (review required): ' + currentValue;
+      selectEl.appendChild(unsupported);
+    }
+    if (currentValue) {
       nextValue = currentValue;
     } else if (allowEmpty) {
       nextValue = '';
@@ -381,6 +392,7 @@ let apiKeyVisible = false;
       default: {
         provider: document.getElementById('imgDefaultProvider').value,
         model:    document.getElementById('imgDefaultModel').value,
+        quality: 'medium',
       },
       operations: {},
     };

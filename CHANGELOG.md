@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — image generation reliability
+
+- Correct image settings/style guidance and cover portrait/article request shapes without legacy response_format.
+- Add explicit OpenAI GPT Image models and reject retired DALL-E configuration without silently changing paid providers.
+- Preserve prior hero, inline and portrait assets until replacement persistence succeeds; enforce shared feature/storage policy and report safe outcomes.
+- Initialize the missing jobs schema, distinguish image failures from no-ops and bound stale recovery attempts.
+- Keep automation disabled when configured; writer creation/onboarding no longer launches paid portraits implicitly.
+
 ## Unreleased — synthesis reliability
 
 - Add the missing article pull-quote column through an idempotent migration.

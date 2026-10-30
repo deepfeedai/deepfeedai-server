@@ -489,8 +489,9 @@
   async function artGenInline(articleId, btn) {
     if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
     try {
-      await apiFetch('/articles/' + articleId + '/generate-inline-images', { method: 'POST' });
-      showAlert('Inline images queued — may take up to a minute.', 'success');
+      const result=await apiFetch('/articles/' + articleId + '/generate-inline-images', { method: 'POST' });
+      const summary=ImageOutcomes.summarize(result.outcomes || []);
+      showAlert(summary.text,summary.hasIssues?'error':'success');
       if (btn) { btn.style.color = 'var(--accent)'; btn.textContent = '🖼'; btn.disabled = false; }
     } catch (err) {
       showAlert('Inline images failed: ' + err.message, 'error');
