@@ -207,7 +207,10 @@ export class AIRouterChatModel extends BaseChatModel {
     const toolCalls = (result.toolCalls || []) as RouterToolCall[];
     const aiMessage = new AIMessage({
       content: result.text || '',
-      additional_kwargs: toolCalls.length ? { tool_calls: toolCalls } : {},
+      additional_kwargs: toolCalls.length ? { tool_calls: toolCalls.map(tc => ({
+        id: tc.id, type: 'function' as const,
+        function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+      })) } : {},
       // LangChain's tool-using agents read this canonical property:
       tool_calls: toolCalls.length
         ? toolCalls.map(tc => ({ id: tc.id, name: tc.name, args: tc.args, type: 'tool_call' as const }))
