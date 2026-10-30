@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — self-hosted deployment
+
+- Fix fresh database credit-pack initialization, tenant sequences and tenant-scoped category seeding.
+- Add explicit database TLS selection, readiness checks and an operator switch for cron and messaging startup.
+- Use supported telemetry imports, LangGraph reducers and tool-call serialization.
+
 All notable changes to Deep Feed AI Admin are documented here.
 
 ---
