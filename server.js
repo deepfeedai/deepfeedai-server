@@ -170,6 +170,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: Math.floor(process.uptime()) });
 });
 
+app.get('/ready', (req, res) => {
+  res.status(db.isDbReady() ? 200 : 503).json({ ready: db.isDbReady() });
+});
+
 // ── Stripe Webhook (raw body — must be BEFORE json parser) ─────────
 app.use('/api/webhooks/stripe', require('./routes/stripe-webhooks'));
 

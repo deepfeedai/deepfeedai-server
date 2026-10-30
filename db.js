@@ -26,7 +26,9 @@ function getPool() {
 function _createPool(connectionString) {
   const p = new Pool({
     connectionString,
-    ssl: connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
+    ssl: process.env.DATABASE_SSL === 'disable' ? false
+      : process.env.DATABASE_SSL === 'verify-full' ? { rejectUnauthorized: true }
+      : connectionString.includes('localhost') || connectionString.includes('127.0.0.1')
       ? false
       : { rejectUnauthorized: false }, // required for Neon / Railway Postgres
     max: 10,
