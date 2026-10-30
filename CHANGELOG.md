@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased - editor assignments
+
+- Save source-free research briefs with topic, angle and writer; require supporting sources before drafting.
+- Separate approval from explicit paid generation, with duplicate protection, durable recovery and human review.
+- Correct commission status to reflect whether the saved article was actually published.
+
+
 ## Unreleased - image display updates
 
 - Keep local public media on the reader origin, preserving external CDN URLs.

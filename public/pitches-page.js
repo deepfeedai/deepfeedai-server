@@ -621,6 +621,7 @@
   }
 
   async function loadCommissions() {
+    if(window.loadEditorAssignments)window.loadEditorAssignments();
     try {
       var data = await apiFetch('/pitches?' + commissionFilterToQuery(commissionFilter) + '&_t=' + Date.now());
       var commissions = data.pitches || [];

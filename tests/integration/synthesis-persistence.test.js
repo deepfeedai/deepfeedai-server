@@ -33,6 +33,12 @@ test('fresh and repeated initialization preserve pull quotes and stubbed synthes
     assert.equal((await db.prepare('SELECT pull_quote FROM articles WHERE id=$1').get(row.id)).pull_quote,'Preserved quote');
     await db.init();
     assert.equal((await db.prepare('SELECT pull_quote FROM articles WHERE id=$1').get(row.id)).pull_quote,'Preserved quote');
+    let enrichment=0;
+    stub('lib/headline',{generateAndStoreHeadlines:async()=>{enrichment++;throw Error('No automatic enrichment allowed')}});
+    const review=await require('../../lib/synthesis').synthesizeCluster({topic:'Assignment review',articles:[1,2].map(id=>({id,title:'Evidence '+id,summary:'Supporting evidence',source:'Fixture',category:'Research',created_at:new Date().toISOString()}))},writer,1,{allowAutoFollowup:false,reviewOnly:true,editorAssignmentId:987654});
+    assert.ok(review.id);assert.equal(review.status,'review');assert.equal(review.is_published,0);assert.equal(enrichment,0);
+    assert.equal((await db.prepare('SELECT synthesis_meta FROM articles WHERE id=$1').get(review.id)).synthesis_meta.editor_assignment_id,'987654');
+    await db.prepare('DELETE FROM articles WHERE id=$1').run(review.id);
     await db.prepare('DELETE FROM articles WHERE id=$1').run(row.id);
     await db.prepare('DELETE FROM writers WHERE id=$1').run(writer.id);
   } finally {

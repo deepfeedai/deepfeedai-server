@@ -368,6 +368,7 @@
     var thread = document.getElementById('chatThread');
     var card = document.createElement('div');
     card.className = 'chat-proposal-card';
+    proposal.request_key=proposal.request_key||crypto.randomUUID();
     card.dataset.proposal = JSON.stringify(proposal);
 
     var inner = '';
@@ -394,7 +395,7 @@
         + '<div class="chat-proposal-rationale">' + esc(proposal.angle_summary || '') + '</div>'
         + (proposal.writer_name ? '<div class="chat-proposal-rationale">→ ' + esc(proposal.writer_name) + '</div>' : '')
         + typeSelect;
-      approveLabel = '✓ Create pitch';
+      approveLabel = 'Save assignment (no generation)';
     } else if (proposal.proposal_type === 'approve_article') {
       inner = '<div class="chat-proposal-headline">✓ Approve for publication</div>'
         + '<div class="chat-proposal-rationale">Article #' + esc(String(proposal.article_id)) + '</div>';
@@ -416,7 +417,7 @@
       approveLabel = proposal.featured ? '✓ Feature' : '✓ Unfeature';
     }
     inner += '<div class="chat-proposal-actions">'
-      + '<button class="btn btn-primary btn-sm chat-proposal-approve">'+approveLabel+'</button>'
+      + '<button class="btn btn-primary btn-sm chat-proposal-approve" '+(proposal.proposal_type==='pitch'&&!String(proposal.angle_summary||'').trim()?'disabled':'')+'>'+ (proposal.proposal_type==='pitch'?'Save assignment (no generation)':approveLabel)+'</button>'
       + '<button class="btn btn-outline btn-sm chat-proposal-reject">✕ Skip</button>'
       + '</div>';
 
@@ -451,7 +452,8 @@
       var btn = document.createElement('button');
       btn.className = 'btn btn-primary btn-sm chat-action-btn';
       btn.dataset.action = JSON.stringify(action);
-      btn.textContent = action.label;
+      btn.textContent = action.type==='create_pitch'?'Save assignment (no generation)':action.label;
+      if(action.type==='create_pitch'&&!String(action.payload?.angle_summary||'').trim())btn.disabled=true;
       actionsRow.appendChild(btn);
     });
     var skip = document.createElement('button');
@@ -489,7 +491,8 @@
     if (!approveBtn && !actionBtn && !rejectBtn) return;
 
     var card = e.target.closest('.chat-proposal-card');
-    if (!card) return;
+    if (!card || card.dataset.pending || card.classList.contains('chat-proposal-applied') || card.classList.contains('chat-proposal-dismissed')) return;
+    card.dataset.pending='true';
 
     // Disable buttons immediately to prevent double-click
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
@@ -507,6 +510,7 @@
     if (actionBtn) {
       try {
         var action = JSON.parse(actionBtn.dataset.action);
+        action.request_key=action.request_key||card.dataset.requestKey||(card.dataset.requestKey=crypto.randomUUID());
         var typeSel = card.querySelector('.pitch-type-select');
         if (typeSel && action && action.type === 'create_pitch') {
           action.payload = action.payload || {};
@@ -519,7 +523,9 @@
         card.classList.add('chat-proposal-applied');
         appendBubble('assistant', result.text || 'Done!');
       } catch (err) {
-        card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+        delete card.dataset.pending;
+        delete card.dataset.pending;
+      card.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
         appendBubble('assistant', '⚠️ ' + (err.message || 'Failed to apply'));
       }
       scrollToBottom();
