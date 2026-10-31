@@ -47,7 +47,7 @@ test('connected workflow deep link survives login without admitting external red
 });
 
 test('article editor exposes its typed workflow link without bypassing unsaved-change navigation protection',()=>{
- const html=read('article-editor.html'),script=html.match(/<script>\s*\/\/ Read \?return=[\s\S]*?<\/script>/)[0].replace(/^<script>|<\/script>$/g,'');
+ const html=read('article-editor.html'),script=html.match(/<script>\s*(\/\/ Read \?return=[\s\S]*?)<\/script>/i)[1];
  const {resolveNext}=require('../public/login-destination');
  for(const [query,expected]of [['?id=42&return=%2Fnewsroom-workflow.html%3Fkind%3Dassignment%26id%3D7','/newsroom-workflow.html?kind=assignment&id=7'],['?id=42&return=https%3A%2F%2Fevil.example','/overview.html']]){
   let ready;const back={},workflow={hidden:true};const c={window:{LoginDestination:{resolveNext}},URLSearchParams,location:{search:query,origin:'https://portal.example'},document:{addEventListener(_event,fn){ready=fn;},getElementById:id=>id==='editorBackBtn'?back:workflow}};
