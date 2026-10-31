@@ -143,13 +143,35 @@
     return { paper: edition.settings?.paper === 'A4' ? 'A4' : 'Letter', ink: edition.settings?.ink_saving === true, images: edition.settings?.images !== false };
   }
   function isProof(edition) { return edition.mode === 'proof' || edition.status !== 'finalized'; }
-  function contributorDetails(c, full) {
-    if (!c) return '';
-    return '<strong>' + escape(c.name) + '</strong>' +
-      (c.kind === 'ai_persona' ? '<span class="edition-persona-label">AI writer persona</span>' : '') +
-      (c.role || c.focus ? '<span class="edition-contributor-focus">' + escape([c.role, c.focus].filter(Boolean).join(' / ')) + '</span>' : '') +
-      '<span class="edition-contribution">' + escape(c.contribution || 'Assigned writer for this article') + '</span>' +
-      (full && c.bio ? '<p class="edition-contributor-bio"><span>Configured ' + (c.kind === 'ai_persona' ? 'persona' : 'profile') + ' description:</span> ' + escape(c.bio) + '</p>' : '');
+  function contributorIdentity(c) {
+    return '<div class="edition-writer-identity"><strong class="edition-writer-name">' + escape(c.name || 'Unnamed contributor') + '</strong>' +
+      (c.kind === 'ai_persona' ? '<span class="edition-persona-label">AI writer</span>' : '') + '</div>';
+  }
+  function contributorAnchor(edition, contributor) {
+    if (edition.settings?.contributors !== true || !contributor) return null;
+    for (const [gi, group] of (edition.contributors || []).entries()) {
+      const vi = (group.versions || []).findIndex(c => c.writer_id === contributor.writer_id && c.profile_version === contributor.profile_version && c.name === contributor.name);
+      if (vi !== -1) return 'edition-contributor-' + gi + '-' + vi;
+    }
+    return null;
+  }
+  function compactContributor(edition, c) {
+    const focus = String(c.focus || '').trim(), anchor = contributorAnchor(edition, c);
+    return contributorIdentity(c) + (focus ? '<p class="edition-writer-focus">Writing focus: ' + escape(focus.length > 140 ? focus.slice(0, 137) + '…' : focus) + '</p>' : '') +
+      (anchor ? '<a class="edition-contributor-link" href="#' + anchor + '">About ' + escape(c.name || 'this contributor') + '<span class="edition-print-link-note"> / Contributors</span></a>' : '');
+  }
+  function contributionLabel(c) {
+    // Historical snapshots record assignment only. Never infer generation from a name or persona.
+    return 'Assigned writer';
+  }
+  function contributorProfile(c) {
+    const ai = c.kind === 'ai_persona';
+    return '<div class="edition-contributor-profile">' +
+      (c.focus ? '<section><h4>Writing focus</h4><p>' + escape(c.focus) + '</p></section>' : '') +
+      (c.writing_style ? '<section><h4>Writing style</h4><p>' + escape(c.writing_style) + '</p></section>' : '') +
+      '<section class="edition-contributor-about"><h4>About ' + (ai ? 'this AI writer' : 'this contributor') + '</h4>' +
+      (ai ? '<p class="edition-persona-context">An AI persona configured for this newsroom, not a human reporter. Its saved description is persona narrative, not evidence of lived experience or professional credentials.</p>' : '') +
+      (c.bio ? '<blockquote class="edition-contributor-bio">' + escape(c.bio) + '</blockquote>' : '<p class="edition-profile-missing">No biography was saved for this issue.</p>') + '</section></div>';
   }
   function portraitMarkup(path, key, enabled) {
     return enabled && path ? '<figure class="edition-portrait" data-portrait-key="' + key + '"><img alt="Writer profile portrait" hidden><figcaption class="sr-only">Saved writer portrait</figcaption></figure>' : '';
@@ -157,17 +179,20 @@
   function contributorMarkup(edition) {
     if (edition.settings?.contributors !== true || !Array.isArray(edition.contributors) || !edition.contributors.length) return '';
     const portraits = normalizedSettings(edition).images && edition.settings.portraits === true;
-    return '<section class="edition-contributors" aria-labelledby="edition-contributors-title"><h2 id="edition-contributors-title">Meet the contributors</h2><p class="edition-contributors-intro">These are the writer profiles captured for this issue. AI personas are software-configured identities, not human reporters. Assignment credits do not attest to interviews, fact-checking or human review.</p>' + edition.contributors.map((group, gi) =>
+    return '<section class="edition-contributors" aria-labelledby="edition-contributors-title"><h2 id="edition-contributors-title">Meet the contributors</h2><p class="edition-contributors-intro">The writers behind this issue, as captured with its articles. Credits describe recorded roles; they do not attest to interviews, fact-checking or human review.</p>' + edition.contributors.map((group, gi) =>
       '<section class="edition-contributor-group">' + (group.profile_versions_differ ? '<p class="edition-image-notice">This issue preserves different saved profile versions for this contributor.</p>' : '') + (group.versions || []).map((c, vi) => {
         const articles = (edition.articles || []).filter(a => (c.article_ids || []).includes(a.article_id));
-        return '<div class="edition-contributor-card">' + portraitMarkup(c.portrait_path, 'group-' + gi + '-' + vi, portraits) + '<div>' + contributorDetails(c, true) + '<p class="edition-contributor-count">Assigned to ' + articles.length + (articles.length === 1 ? ' article' : ' articles') + ' in this issue</p><ul>' + articles.map(a => '<li><a href="#edition-article-' + Number(a.article_id) + '">' + escape(a.title) + '</a></li>').join('') + '</ul></div></div>';
+        return '<div class="edition-contributor-card" id="edition-contributor-' + gi + '-' + vi + '"><div class="edition-contributor-header">' + portraitMarkup(c.portrait_path, 'group-' + gi + '-' + vi, portraits) + contributorIdentity(c) + '</div>' + contributorProfile(c) +
+          '<section class="edition-contributor-work"><h4>Contribution to this edition</h4><p class="edition-contributor-count">' + articles.length + (articles.length === 1 ? ' article' : ' articles') + ' in this issue</p><ul>' + articles.map(a => '<li><a href="#edition-article-' + Number(a.article_id) + '">' + escape(a.title) + '</a><span class="edition-contribution">' + contributionLabel(a.contributor || c) + '</span></li>').join('') + '</ul></section></div>';
       }).join('') + '</section>').join('') + '</section>';
   }
   function paperMarkup(edition) {
     const proof = isProof(edition), images = normalizedSettings(edition).images;
     const articles = Array.isArray(edition.articles) ? edition.articles : [];
     return '<header class="edition-masthead"><p class="edition-kicker">DeepFeedAI / Newspaper Edition</p><h1 class="edition-name">' + escape(edition.name) + '</h1><div class="edition-dateline"><span>' + escape(date(edition.issue_date)) + '</span><span>' + articles.length + (articles.length === 1 ? ' article' : ' articles') + '</span><span>' + (edition.status === 'finalized' ? 'Finalized issue' : 'Working edition') + '</span></div>' + (proof ? '<p class="edition-proof-label">DRAFT / PRIVATE EDITORIAL PROOF</p>' : '') + '</header>' +
-      articles.map((article, index) => { const references = referenceContext(article, index); const body = bodyMarkup(article.content || article.summary || '', references); return '<article id="edition-article-' + Number(article.article_id) + '" class="edition-article' + (Number(article.article_id) === Number(edition.lead_article_id) ? ' lead' : '') + '"><p class="edition-category">' + escape(article.category || 'News & analysis') + '</p><h2 class="edition-headline">' + escape(article.title) + '</h2><div class="edition-byline">' + portraitMarkup(article.portrait_path, 'article-' + index, images && edition.settings?.portraits === true) + '<div>' + (article.contributor ? contributorDetails(article.contributor, false) : escape(article.byline || 'DeepFeedAI editorial team')) + (article.source_updated_at ? ' / ' + escape(date(article.source_updated_at)) : '') + '</div></div>' +
+      articles.map((article, index) => { const references = referenceContext(article, index); const body = bodyMarkup(article.content || article.summary || '', references); return '<article id="edition-article-' + Number(article.article_id) + '" class="edition-article' + (Number(article.article_id) === Number(edition.lead_article_id) ? ' lead' : '') + '"><p class="edition-category">' + escape(article.category || 'News & analysis') + '</p><h2 class="edition-headline">' + escape(article.title) + '</h2>' +
+        (article.was_published === true && article.source_published_at ? '<p class="edition-article-metadata">Published ' + escape(date(article.source_published_at)) + '</p>' : article.source_updated_at ? '<p class="edition-article-metadata">Article updated ' + escape(date(article.source_updated_at)) + '</p>' : '') +
+        '<div class="edition-byline">' + portraitMarkup(article.portrait_path, 'article-' + index, images && edition.settings?.portraits === true) + '<div>' + (article.contributor ? compactContributor(edition, article.contributor) : '<strong class="edition-writer-name">' + escape(article.byline || 'DeepFeedAI editorial team') + '</strong>') + '</div></div>' +
         (images && edition.settings?.portraits === true && article.contributor?.portrait_notice ? '<p class="edition-image-notice">' + escape(article.contributor.portrait_notice) + '</p>' : '') +
         (article.withdrawn ? '<p class="edition-withdrawn">Private archive: this article is no longer publicly available.</p>' : '') +
         (images && article.image_path ? '<figure class="edition-figure" data-image-index="' + index + '"><img alt="" hidden><figcaption>Article image</figcaption></figure>' : '') +

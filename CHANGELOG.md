@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased - newspaper writer cards
+
+- Improve compact bylines and contributor sections with clear AI disclosure and truthful assignment credit.
+- Separate article dates from writer identity; preserve finalized snapshots and capture optional safe writing-style labels for new snapshots.
+- Add provenance, tenant isolation, responsive and print regression coverage.
+
 ## Unreleased - workflow navigation and newsroom clarity
 
 - Organize existing tools under Overview, Discover, Editorial, Publish and Manage without removing deep links.
