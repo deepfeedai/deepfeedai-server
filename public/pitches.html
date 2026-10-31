@@ -25,7 +25,7 @@
     .pitch-headline { font-size:16px; font-weight:700; margin-bottom:8px; line-height:1.3; }
     .pitch-reasoning { color:var(--muted); font-size:13px; line-height:1.5; margin-bottom:12px; }
     .pitch-meta { font-size:11px; color:var(--muted); margin-bottom:12px; }
-    .pitch-actions { display:flex; gap:8px; }
+    .pitch-actions { display:flex; gap:8px; flex-wrap:wrap; }
     /* Commission (article_pitches) cards — reuse review-card layout */
     .review-grid { display:grid; gap:16px; }
     .review-card { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:18px; }
@@ -52,7 +52,7 @@
     .pitch-list-row:hover { background:var(--surface2); }
     .pitch-list-row.selected { background:rgba(59,130,246,.07); }
     .pitch-list-headline { font-weight:600; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .pitch-list-actions { display:flex; gap:4px; }
+    .pitch-list-actions { display:flex; gap:4px; flex-wrap:wrap; }
     .pitch-list-row.optimistic-removing { opacity:.4; transition:opacity .15s; pointer-events:none; }
     /* Priority badge */
     .pri-badge { display:inline-block; min-width:22px; text-align:center; font-size:11px; font-weight:700; padding:2px 5px; border-radius:4px; }
@@ -107,7 +107,8 @@
   <div class="main-content">
     <header class="topbar">
       <button class="hamburger" id="hamburger" aria-label="Menu">&#9776;</button>
-      <div class="topbar-title">Story Pitches</div>
+      <div class="topbar-title">Pitches &amp; assignments</div>
+      <a class="btn btn-outline btn-sm" href="/newsroom-workflow.html">Open connected workflow</a>
     </header>
 
     <div class="page-body">

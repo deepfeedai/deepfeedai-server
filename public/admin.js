@@ -236,6 +236,7 @@ window.WorkflowNav = (function () {
   add('Discover','/synthesis.html','Synthesis tools','articles.read','Review specialist synthesis controls.',true,'Generation can incur provider charges; inspect sources before running it.');
   add('Discover','/story-board.html','Story Board','articles.read','Explore relationships between source coverage.',true);
   add('Discover','/newsroom-feed.html','Newsroom feed','articles.read','Open the existing newsroom feed workspace.',true);
+  add('Editorial','/newsroom-workflow.html','Newsroom workflow','articles.read','Follow each item from evidence to publication: see its stage, blockers, recorded progress and next action.',false,'Approval and source organization never generate a draft. Paid generation requires explicit confirmation. Publication, newsletter sending and edition sharing remain separate deliberate actions. A failed or interrupted request must be checked before retrying.');
   add('Editorial','/pitches.html','Pitches & assignments','articles.read','Evaluate ideas and prepare sourced assignments.',false,'Saving or approving an assignment does not generate a draft. Needs sources means attach evidence; Generate draft is a separate paid action. Drafting means check status, not submit again.');
   add('Editorial','/articles.html?tab=drafts&content_type=editorial','Editorial drafts','articles.read','Develop drafts before review and publication.');
   add('Editorial','/articles.html?tab=review','Awaiting review','articles.read','Check evidence, copy and images before deliberate publication.',true);

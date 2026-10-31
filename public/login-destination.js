@@ -4,7 +4,7 @@
   else root.LoginDestination = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const pages = new Set(['overview','classic','newsroom','newsroom-chat','newsroom-feed','newsroom-activity','editorial-intelligence','budget','pitches','editorial','briefs','feed-inbox','editions','edition-print','stories','story-board','discover','pipeline','synthesis','sources','articles','article-editor','writers','writer-detail','writing-styles','newsletter','comments','banners','analytics','ai-usage','audit','settings','notifications','users','roles','wizard','deploy-wizard'].map(name => '/' + name + '.html'));
+  const pages = new Set(['overview','classic','newsroom','newsroom-workflow','newsroom-chat','newsroom-feed','newsroom-activity','editorial-intelligence','budget','pitches','editorial','briefs','feed-inbox','editions','edition-print','stories','story-board','discover','pipeline','synthesis','sources','articles','article-editor','writers','writer-detail','writing-styles','newsletter','comments','banners','analytics','ai-usage','audit','settings','notifications','users','roles','wizard','deploy-wizard'].map(name => '/' + name + '.html'));
   function resolveNext(value, origin) {
     if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.includes('\\') || /[\u0000-\u001f]/.test(value)) return '/overview.html';
     try {

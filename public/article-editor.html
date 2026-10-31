@@ -8,14 +8,18 @@
   <script src="/theme-init.js"></script>
   <link rel="stylesheet" href="/chat-widget.css" />
   <link rel="stylesheet" href="/block-editor.css" />
+<script src="/login-destination.js"></script>
 <script>
 // Read ?return= param and wire back button + permission-fail redirect
 (function () {
-  var ret = new URLSearchParams(location.search).get('return');
-  if (!ret) return;
+  var params = new URLSearchParams(location.search);
+  var rawReturn = params.get('return');
+  var ret = rawReturn ? window.LoginDestination.resolveNext(rawReturn, location.origin) : null;
   document.addEventListener('DOMContentLoaded', function () {
     var btn = document.getElementById('editorBackBtn');
-    if (btn) btn.href = ret;
+    if (btn && ret) btn.href = ret;
+    var workflow = document.getElementById('editorWorkflowLink'), id = Number(params.get('id'));
+    if(workflow && Number.isSafeInteger(id) && id > 0){workflow.href='/newsroom-workflow.html?kind=article&id='+id;workflow.hidden=false;}
   });
   // Expose for block-editor.js to use on permission failure
   window._editorReturnUrl = ret;
@@ -36,6 +40,7 @@
       </div>
     </div>
     <div class="editor-topbar-right">
+      <a class="btn btn-outline btn-sm" id="editorWorkflowLink" hidden href="/newsroom-workflow.html">Workflow</a>
       <label class="editor-toggle-wrap">
         <label class="toggle">
           <input type="checkbox" id="editorPublished" />

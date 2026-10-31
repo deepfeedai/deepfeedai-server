@@ -22,6 +22,12 @@
   host.before(panel);
   const form=panel.querySelector('form'),status=panel.querySelector('[role=status]'),save=form.querySelector('[type=submit]');
   let key=crypto.randomUUID(),busy=false;
+  const rawSources=new URLSearchParams(location.search).get('source_ids')||'';
+  const parsedSources=rawSources.split(',').map(Number);
+  const sourceSelectionValid=!rawSources||(/^[1-9]\d*(,[1-9]\d*){0,19}$/.test(rawSources)&&parsedSources.every(Number.isSafeInteger));
+  const sourceIds=sourceSelectionValid&&rawSources?[...new Set(parsedSources)]:[];
+  if(sourceIds.length){panel.open=true;status.textContent=sourceIds.length+' selected source(s) will be attached after server validation. Saving does not generate a draft.';}
+  else if(rawSources){status.textContent='Source selection is invalid. Return to Reader and select sources again.';save.disabled=true;}
   try {
    const [categories,writers]=await Promise.all([apiFetch('/categories'),apiFetch('/admin/writers')]);
    for(const category of categories){const option=new Option(category.name,category.name);form.elements.category.add(option);}
@@ -29,10 +35,10 @@
   }catch{status.textContent='Could not load categories and writers. Reload before creating an assignment.';save.disabled=true;}
   form.querySelector('[data-cancel]').addEventListener('click',()=>{if(busy)return;form.reset();panel.open=false;status.textContent='';key=crypto.randomUUID();});
   form.addEventListener('submit',async event=>{
-   event.preventDefault();if(busy||!form.reportValidity())return;busy=true;save.disabled=true;status.textContent='Saving brief…';
+   event.preventDefault();if(busy||!sourceSelectionValid||!form.reportValidity())return;busy=true;save.disabled=true;status.textContent='Saving brief…';
    try {
-    await apiFetch('/editor-assignments',{method:'POST',body:JSON.stringify({topic:form.elements.topic.value,angle_summary:form.elements.angle.value,category:form.elements.category.value,writer_id:Number(form.elements.writer.value),request_key:key})});
-    form.reset();key=crypto.randomUUID();status.textContent='Brief saved. Attach sources below; no AI generation was requested.';await window.loadEditorAssignments?.();
+    const saved=await apiFetch('/editor-assignments',{method:'POST',body:JSON.stringify({topic:form.elements.topic.value,angle_summary:form.elements.angle.value,category:form.elements.category.value,writer_id:Number(form.elements.writer.value),source_article_ids:sourceIds,request_key:key})});
+    form.reset();key=crypto.randomUUID();status.textContent='Brief saved. No AI generation was requested. ';const next=document.createElement('a');next.className='btn btn-outline btn-sm';next.textContent='Open saved commission';next.href=Number.isSafeInteger(Number(saved.id))&&Number(saved.id)>0?'/newsroom-workflow.html?kind=assignment&id='+Number(saved.id):'/newsroom-workflow.html?stage=commission';status.append(next);await window.loadEditorAssignments?.();
    }catch(error){status.textContent='Save was not confirmed. Your brief remains here. Retry uses the same request ID to avoid duplicates. '+error.message;}
    finally{busy=false;save.disabled=false;}
   });
