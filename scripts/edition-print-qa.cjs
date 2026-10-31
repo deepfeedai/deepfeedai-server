@@ -227,6 +227,66 @@ async function main() {
   assert.equal(requestCount, beforeNumericPublic); assert.equal(await page.locator('#editionPaper').innerHTML(), '');
   current = structuredClone(base); await page.goto(origin + '/edition-print.html?id=1'); await page.waitForSelector('body.print-ready');
   assert.equal(new URL(page.url()).searchParams.get('id'), base.id);
+  // Layout matrix: real PDFs, both paper sizes, synthetic captured text only.
+  const layoutCases = [];
+  for (const format of ['newspaper', 'morning-brief', 'large-print', 'magazine']) {
+    for (const paper of ['Letter', 'A4']) {
+      for (const variant of ['short', 'long', 'missing', 'ink']) {
+        const name = 'layout-' + format + '-' + paper + '-' + variant;
+        layoutCases.push(name);
+        const long = variant === 'long';
+        const fixtureArticles = [1, 2].map(id => ({
+          ...article(id, long ? 8 : 1),
+          summary: id === 1 ? 'Saved description with supported evidence [1].' : '',
+          contributor: profile,
+          references: [{ number: 1, title: 'Saved supporting source', publisher: 'Fixture Journal', url: 'https://example.invalid/' + 'long-source-path-'.repeat(35) }]
+        }));
+        fixtureArticles[1].content = 'A safe fallback excerpt with citation [1].\n\n' + fixtureArticles[1].content + '\n\n```\n' + 'long_code_'.repeat(65) + '\n```\n\n| Literal table | cell |\n| --- | --- |\n| one | two |\n\n<script>window.hostileExecuted=true</script>';
+        current = { ...structuredClone(base), mode: 'proof', settings: { format, paper, images: variant !== 'ink', ink_saving: variant === 'ink', sources: variant !== 'ink', contributors: true, portraits: false }, articles: fixtureArticles, contributors: [{ writer_id: 3, article_count: 2, versions: [{ ...profile, article_ids: [1, 2] }] }] };
+        denyImage = variant === 'missing';
+        await page.setViewportSize({ width: 1300, height: 1000 });
+        await ready();
+        assert.equal(await page.locator('.edition-article').count(), 2);
+        assert.equal(await page.locator('.edition-contributor-card').count(), 1);
+        assert.equal(await page.evaluate(() => window.hostileExecuted), undefined);
+        assert.deepEqual(await page.evaluate(() => window.editionCspViolations), []);
+        if (variant === 'ink') assert.equal(await page.locator('.edition-figure,.edition-sources').count(), 0);
+        await page.emulateMedia({ media: 'print' });
+        assert.equal(await page.locator('.print-toolbar').isVisible(), false);
+        if (format === 'large-print') {
+          assert.equal(await page.locator('.edition-body').first().evaluate(e => getComputedStyle(e).columnCount), 'auto');
+          assert.ok(await page.locator('.edition-body').first().evaluate(e => parseFloat(getComputedStyle(e).fontSize) >= 20));
+        }
+        await page.pdf({ path: path.join(out, name + '.pdf'), printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false });
+        await page.emulateMedia({ media: 'screen' });
+        await page.setViewportSize({ width: 390, height: 844 });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), name + ' mobile overflow');
+      }
+    }
+  }
+  fs.writeFileSync(path.join(out, 'layout-results.json'), JSON.stringify({ cases: layoutCases, browser: await browser.version(), checks: ['both paper sizes', 'short and long captured articles', 'saved description and deterministic fallback', 'missing images', 'images and sources off', 'ink saving', 'contributors', 'long URL and code', 'literal unsupported tables', 'hostile markup inert', 'print controls hidden', 'large print single column and size', 'mobile overflow'] }, null, 2));
+  denyImage = false;
+  for (const publicMode of [false, true]) {
+    current = { ...structuredClone(base), visibility: publicMode ? 'public' : 'private', settings: { format: 'morning-brief', paper: 'Letter', images: false, ink_saving: false }, articles: [article(1, 2), article(2, 1)] };
+    await ready(publicMode);
+    assert.doesNotMatch(await page.locator('.edition-body').first().innerText(), /END-ARTICLE-1/);
+    await page.locator('.edition-full-link a').first().click();
+    await page.waitForSelector('body.print-ready');
+    assert.equal(new URL(page.url()).searchParams.get('article'), '1');
+    assert.equal(new URL(page.url()).searchParams.get('public'), publicMode ? '1' : null);
+    assert.equal(await page.locator('.edition-article').count(), 1);
+    assert.match(await page.locator('.edition-body').innerText(), /END-ARTICLE-1/);
+    assert.match(await page.locator('.edition-view-label').innerText(), /FULL SAVED ARTICLE VIEW/);
+    await page.emulateMedia({ media: 'print' });
+    assert.equal(await page.locator('.print-toolbar').isVisible(), false);
+    await page.pdf({ path: path.join(out, 'full-article-' + (publicMode ? 'public' : 'private') + '.pdf'), printBackground: true, preferCSSPageSize: true });
+    await page.emulateMedia({ media: 'screen' });
+    await page.locator('.edition-return-link').click();
+    await page.waitForSelector('body.print-ready');
+    assert.equal(new URL(page.url()).searchParams.get('article'), null);
+    assert.equal(new URL(page.url()).searchParams.get('public'), publicMode ? '1' : null);
+    assert.equal(await page.locator('.edition-article').count(), 2);
+  }
   assert.equal(paidRequests, 0); assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, csp, checked: ['production CSP enforced', 'five private proof images decoded', 'five public images decoded', 'image fetch retry without snapshot mutation', 'safe Markdown formatting and literal citation markers', 'saved source footers', 'per-article citation anchors', 'unknown source warnings', 'unsafe source URLs omitted', 'safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow', 'contributor snapshot portraits', 'contributor Letter/A4 PDFs', 'deduplicated profiles', 'portrait retry and images-off'], paidRequests, errors }, null, 2));
   await browser.close(); server.close(); console.log('Edition print browser fixtures passed: ' + out);

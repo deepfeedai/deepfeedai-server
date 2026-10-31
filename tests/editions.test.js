@@ -4,6 +4,18 @@ const fs=require('node:fs/promises'),os=require('node:os'),path=require('node:pa
 const editions=require('../lib/editions');
 const input=()=>({name:'Morning edition',issue_date:'2026-10-30',mode:'published',article_ids:[1,2],lead_article_id:2,settings:{paper:'A4',ink_saving:true,images:true}});
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+
+test('layout options validate strictly while omitted legacy settings keep request hashes stable',()=>{
+ const legacy=editions.validate(input()).settings;
+ assert.deepEqual(legacy,{paper:'A4',ink_saving:true,images:true,contributors:false,portraits:false});
+ for(const format of ['newspaper','morning-brief','large-print','magazine'])for(const content_mode of ['full','excerpt']){
+  const s={...input().settings,format,content_mode,sources:false};
+  assert.deepEqual(editions.validate({...input(),settings:s}).settings,{...s,contributors:false,portraits:false});
+ }
+ for(const change of [{format:'booklet'},{format:null},{format:'<img src=x>'},{content_mode:'summary'},{content_mode:null},{sources:'false'},{sources:0}]){
+  assert.throws(()=>editions.validate({...input(),settings:{...input().settings,...change}}));
+ }
+});
 test('edition validation preserves order and enforces bounded truthful settings',()=>{
  assert.deepEqual(editions.validate(input()).article_ids,[1,2]);
  for(const change of [{article_ids:[1,1]},{article_ids:[-1]},{article_ids:Array.from({length:21},(_,i)=>i+1)},{lead_article_id:4},{mode:'public'},{issue_date:'2026-02-30'},{name:' '},{settings:{paper:'A3',ink_saving:false,images:true}},{settings:{paper:'A4',ink_saving:'false',images:true}}])assert.throws(()=>editions.validate({...input(),...change}));

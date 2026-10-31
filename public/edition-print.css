@@ -108,3 +108,48 @@ body.ink-saving { --news-ink: #000; --news-accent: #222; }
 .edition-contributor-card ul { margin-top: 4pt; padding-left: 16pt; }
 .edition-contributor-card a { color: inherit; text-decoration: underline; }
 @media print { .edition-contributors { break-before: page; } }
+
+/* Format rules apply equally to screen and print; paper size is independent. */
+.edition-full-link,.edition-view-label { font: 10pt/1.5 system-ui,sans-serif; overflow-wrap: anywhere; }
+.edition-full-link a,.edition-view-label a { color: inherit; text-decoration: underline; }
+@media print { .edition-return-link { display: none; } }
+.edition-full-link a:focus-visible,.edition-view-label a:focus-visible { outline: 3px solid #245b80; outline-offset: 3px; }
+body[data-format="morning-brief"] .edition-masthead { text-align: left; border-top-width: 3px; }
+body[data-format="morning-brief"] .edition-dateline { justify-content: flex-start; }
+body[data-format="morning-brief"] .edition-name { font: 750 29pt/1.1 system-ui,sans-serif; letter-spacing: -.03em; }
+body[data-format="morning-brief"] .edition-headline { font-size: 20pt; }
+body[data-format="morning-brief"] .edition-article.lead .edition-headline { font-size: 25pt; }
+body[data-format="morning-brief"] .edition-body { column-count: auto; font: 11pt/1.5 system-ui,sans-serif; }
+body[data-format="morning-brief"] .edition-figure img { max-height: 1.5in; }
+body[data-format="large-print"] { --news-ink: #000; --news-accent: #000; }
+body[data-format="large-print"] .edition-body { column-count: auto; font: 16pt/1.65 Georgia,'Times New Roman',serif; }
+body[data-format="large-print"] .edition-body h3 { font-size: 19pt; }
+body[data-format="large-print"] .edition-body pre { font-size: 14pt; }
+body[data-format="large-print"] .edition-body code { font-size: .95em; }
+body[data-format="large-print"] .edition-headline { font-size: 28pt; }
+body[data-format="large-print"] .edition-article.lead .edition-headline { font-size: 34pt; }
+body[data-format="large-print"] :is(.edition-kicker,.edition-dateline,.edition-category,.edition-byline,.edition-persona-label,.edition-contributor-focus,.edition-contribution,.edition-contributors-intro,.edition-contributor-card,.edition-sources,.edition-sources h3,.edition-image-notice,.edition-withdrawn,.edition-excerpt,.edition-footer,.edition-full-link,.edition-view-label,.edition-figure figcaption,.edition-proof-label) { font-size: 14pt; line-height: 1.55; color: #000; }
+body[data-format="large-print"] .edition-source-warning { color: #000; }
+body[data-format="large-print"] .edition-sources li { break-inside: auto; page-break-inside: auto; }
+body[data-format="large-print"] .edition-article { margin-top: 28pt; padding-top: 20pt; }
+body[data-format="magazine"] .edition-masthead { padding-top: 25pt; padding-bottom: 20pt; border-top-width: 8px; }
+body[data-format="magazine"] .edition-name { font-size: 40pt; }
+body[data-format="magazine"] .edition-headline { font-size: 28pt; line-height: 1.15; }
+body[data-format="magazine"] .edition-article.lead .edition-headline { font-size: 36pt; }
+body[data-format="magazine"] .edition-category { font-size: 10pt; letter-spacing: .2em; padding-top: 8pt; }
+body[data-format="magazine"] .edition-body { column-count: auto; font-size: 12pt; line-height: 1.6; }
+body[data-format="magazine"] .edition-figure img { max-height: 3.5in; }
+body[data-format="magazine"] .edition-article { margin-top: 30pt; padding-top: 24pt; border-top-width: 3px; }
+@media print {
+  /* Normal block flow avoids Chromium single-column fragmentation overlap. */
+  body:is([data-format="morning-brief"],[data-format="large-print"],[data-format="magazine"]) .edition-contributors { break-before: auto; }
+  body:is([data-format="morning-brief"],[data-format="large-print"],[data-format="magazine"]) .edition-full-link { break-before: avoid; page-break-before: avoid; }
+  body:is([data-format="morning-brief"],[data-format="large-print"],[data-format="magazine"]) .edition-footer { break-before: avoid; page-break-before: avoid; }
+  /* Propagate the footer keep through the contributor section's nested blocks. */
+  body:is([data-format="morning-brief"],[data-format="large-print"],[data-format="magazine"]) :is(.edition-contributors,.edition-contributors :last-child) { break-after: avoid; page-break-after: avoid; }
+  body:is([data-format="morning-brief"],[data-format="large-print"],[data-format="magazine"]) .edition-body ~ .edition-excerpt { break-before: avoid; page-break-before: avoid; break-after: auto; }
+}
+@media screen and (max-width: 640px) {
+  body[data-format="magazine"] .edition-name { font-size: 32pt; }
+  body[data-format="magazine"] .edition-headline,body[data-format="magazine"] .edition-article.lead .edition-headline { font-size: 26pt; }
+}
