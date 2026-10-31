@@ -70,3 +70,18 @@ body.ink-saving { --news-ink: #000; --news-accent: #222; }
   body:not(.print-ready) .edition-paper,body:not(.print-ready) .proof-watermark { display: none !important; }
   body:not(.print-ready) .print-unavailable { display: block; }
 }
+/* Article Markdown remains readable within newspaper columns and printed pages. */
+.edition-body pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; margin: 0 0 10pt; padding: 8pt; border: 1px solid #c9cfd3; font: 9pt/1.4 ui-monospace,Consolas,monospace; }
+.edition-body code { font-family: ui-monospace,Consolas,monospace; font-size: .88em; overflow-wrap: anywhere; }
+.edition-body pre code { font-size: inherit; }
+.edition-body blockquote { margin: 10pt 0; padding-left: 10pt; border-left: 2px solid #7e8a90; }
+.edition-body a { color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
+.edition-body hr { border: 0; border-top: 1px solid #aaa; margin: 12pt 0; }.edition-category { break-after: avoid; page-break-after: avoid; }
+.edition-citation { white-space: nowrap; font-size: .85em; vertical-align: super; }
+.edition-sources { margin-top: 15pt; padding-top: 8pt; border-top: 1px solid #a9b1b6; font: 9pt/1.4 system-ui,sans-serif; overflow-wrap: anywhere; }
+.edition-sources h3 { margin: 0 0 6pt; font-size: 10pt; break-after: avoid; page-break-after: avoid; }
+.edition-sources ul { list-style: none; padding: 0; margin: 0; }
+.edition-sources li { margin: 0 0 8pt; break-inside: avoid; page-break-inside: avoid; }
+.edition-source-title,.edition-source-number { font-weight: 650; }
+.edition-source-url { display: block; color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
+.edition-source-warning { display: block; color: #5b656d; font-style: italic; }

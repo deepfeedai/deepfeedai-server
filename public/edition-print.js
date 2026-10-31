@@ -12,14 +12,132 @@
     const d = new Date(match[1] + 'T12:00:00Z');
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
   }
-  function bodyMarkup(content) {
-    // Snapshot content is plain text. Interpret only heading/list markers; never accept HTML.
-    return String(content || '').replace(/\r\n?/g, '\n').split(/\n\s*\n/).filter(x => x.trim()).map(block => {
-      const lines = block.trim().split('\n');
-      if (lines.length === 1 && /^#{1,6}\s/.test(lines[0])) return '<h3>' + escape(lines[0].replace(/^#{1,6}\s+/, '')) + '</h3>';
-      if (lines.every(line => /^[-*]\s+/.test(line))) return '<ul>' + lines.map(line => '<li>' + escape(line.replace(/^[-*]\s+/, '')) + '</li>').join('') + '</ul>';
-      return '<p>' + escape(block.trim()) + '</p>';
-    }).join('');
+  function safeReferenceUrl(value) {
+    if (typeof value !== 'string' || value.length > 4096 || !/^https?:\/\//i.test(value) || /[\u0000-\u0020\u007f\\]/.test(value)) return null;
+    try {
+      const url = new URL(value);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+      for (const key of url.searchParams.keys()) if (/(?:token|password|secret|authorization|credential|signature|session|jwt|api[-_]?key|access[-_]?key|^key$|^sig$|^code$|^auth$|^x-amz-)/i.test(key)) return null;
+      if (/(?:token|password|secret|signature|credential|session|jwt|api[-_]?key|access[-_]?key)\s*=/i.test(decodeURIComponent(url.hash))) return null;
+      return url.href;
+    } catch { return null; }
+  }
+  function referenceContext(article, index) {
+    const items = Array.isArray(article.references) ? article.references.filter(r => r && Number.isSafeInteger(r.number) && r.number > 0 && r.number <= 1000000) : [];
+    const counts = new Map(); for (const r of items) counts.set(r.number, (counts.get(r.number) || 0) + 1);
+    const known = new Set(items.filter(r => counts.get(r.number) === 1 && (typeof r.title === 'string' && r.title.trim() || safeReferenceUrl(r.url))).map(r => r.number));
+    return { items, known, counts, unresolved: new Set(), prefix: 'edition-ref-' + (Number.isSafeInteger(article.article_id) && article.article_id > 0 ? article.article_id : 'item-' + index) + '-', warnings: Array.isArray(article.reference_warnings) ? article.reference_warnings.filter(x => typeof x === 'string' && x.trim()) : [] };
+  }
+  function referenceMarkup(context) {
+    const warnings = [...context.warnings];
+    if (context.unresolved.size) warnings.push('Source details unavailable for ' + [...context.unresolved].map(n => '[' + n + ']').join(', ') + '. These markers have not been matched to a source.');
+    if (!context.items.length && !warnings.length) return '';
+    return '<section class="edition-sources" aria-label="Article sources"><h3>Sources</h3>' +
+      (context.items.length ? '<ul>' + context.items.map(r => {
+        const url = safeReferenceUrl(r.url), title = typeof r.title === 'string' && r.title.trim() ? r.title : 'Source details unavailable';
+        const unique = context.counts.get(r.number) === 1;
+        const warning = !unique ? 'Ambiguous source number; no citation link was created.' : r.warning || (!url ? 'Source URL unavailable or omitted for safety.' : '');
+        return '<li' + (unique ? ' id="' + context.prefix + r.number + '"' : '') + '><span class="edition-source-number">[' + r.number + ']</span> <span class="edition-source-title">' + escape(title) + '</span>' +
+          (typeof r.publisher === 'string' && r.publisher.trim() ? ' — ' + escape(r.publisher) : '') +
+          (url ? '<a class="edition-source-url" href="' + escape(url) + '" rel="noopener noreferrer">' + escape(url) + '</a>' : '') +
+          (warning ? '<span class="edition-source-warning">' + escape(warning) + '</span>' : '') + '</li>';
+      }).join('') + '</ul>' : '') + warnings.map(w => '<p class="edition-source-warning">' + escape(w) + '</p>').join('') + '</section>';
+  }
+  function bodyMarkup(content, references) {
+    // Render a bounded Markdown subset from snapshot text. Every literal is escaped;
+    // HTML, images and unresolved reference-style/citation markers remain inert text.
+    const safeLink = safeReferenceUrl;
+    // Bound unsuccessful delimiter scans across this article. On exhaustion,
+    // preserve the remaining text literally rather than freezing or truncating it.
+    let remainingWork = 1000000;
+    function inline(value, depth = 0, links = true) {
+      if (depth > 12) return escape(value);
+      function find(needle, start) {
+        if (remainingWork <= 0) return -1;
+        const result = value.indexOf(needle, start);
+        remainingWork -= (result < 0 ? value.length : result) - start + needle.length;
+        return result;
+      }
+      const hasClosingBracket = value.includes(']');
+      let out = '', i = 0;
+      while (i < value.length) {
+        if (--remainingWork <= 0) { out += escape(value.slice(i)); break; }
+        const rest = value.slice(i);
+        if (rest[0] === '\\' && rest.length > 1 && /[\\`*_[\]{}()#+.!>~-]/.test(rest[1])) { out += escape(rest[1]); i += 2; continue; }
+        if (rest[0] === '`') {
+          const ticks = /^`+/.exec(rest)[0], end = find(ticks, i + ticks.length);
+          if (end >= 0) { out += '<code>' + escape(value.slice(i + ticks.length, end).replace(/\n/g, ' ')) + '</code>'; i = end + ticks.length; continue; }
+        }
+        if (links && hasClosingBracket && rest[0] === '[' && value[i - 1] !== '!') {
+          let close = i + 1, balance = 1;
+          for (; close < Math.min(value.length, i + 2048) && balance; close++) { if (value[close] === '\\') { close++; continue; } if (value[close] === '[') balance++; if (value[close] === ']') balance--; }
+          if (balance && close >= i + 2048) { out += escape(value.slice(i, close)); i = close; continue; }
+          if (!balance && value[close] === '(') {
+            let end = close + 1, parens = 1;
+            for (; end < Math.min(value.length, close + 4096) && parens; end++) { if (value[end] === '\\') { end++; continue; } if (value[end] === '(') parens++; if (value[end] === ')') parens--; }
+            if (!parens) {
+              const target = value.slice(close + 1, end - 1).trim(), parsed = /^(\S+?)(?:\s+["']([^"']*)["'])?$/.exec(target);
+              const href = parsed && safeLink(parsed[1].replace(/^<|>$/g, ''));
+              if (href) { out += '<a href="' + escape(href) + '" rel="noopener noreferrer">' + inline(value.slice(i + 1, close - 1), depth + 1, false) + '</a>'; i = end; continue; }
+              // Retain unsafe/malformed link notation as text, not a partially parsed anchor.
+              out += escape(value.slice(i, end)); i = end; continue;
+            }
+          }
+        }
+        const citation = links && references && /^\[([1-9]\d{0,5})\]/.exec(rest);
+        if (citation && value[i - 1] !== '!' && rest[citation[0].length] !== '(') {
+          const number = Number(citation[1]);
+          if (references.known.has(number)) out += '<a class="edition-citation" href="#' + references.prefix + number + '" aria-label="Source ' + number + '">' + citation[0] + '</a>';
+          else { out += escape(citation[0]); references.unresolved.add(number); }
+          i += citation[0].length; continue;
+        }
+        let handled = false;
+        for (const [marker, open, shut] of [['***','<strong><em>','</em></strong>'],['___','<strong><em>','</em></strong>'],['**','<strong>','</strong>'],['__','<strong>','</strong>'],['~~','<del>','</del>'],['*','<em>','</em>'],['_','<em>','</em>']]) {
+          if (!rest.startsWith(marker) || /\s/.test(rest[marker.length] || ' ') || marker[0] === '_' && /[\p{L}\p{N}]/u.test(value[i - 1] || '')) continue;
+          let end = find(marker, i + marker.length);
+          while (end >= 0 && (marker.length === 1 && (value[end - 1] === marker || value[end + 1] === marker) || /\s/.test(value[end - 1]) || value[end - 1] === '\\' || marker[0] === '_' && /[\p{L}\p{N}]/u.test(value[end + marker.length] || ''))) end = find(marker, end + marker.length);
+          if (end >= 0 && marker.length === 2 && value[end + 2] === marker[0]) end++;
+          if (end >= 0) { out += open + inline(value.slice(i + marker.length, end), depth + 1, links) + shut; i = end + marker.length; handled = true; break; }
+        }
+        if (handled) continue;
+        out += escape(value[i++]);
+      }
+      return out;
+    }
+    const list = line => /^(\s*)([-+*]|\d+[.)])\s+(.+)$/.exec(line);
+    const heading = line => /^\s{0,3}#{1,6}\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+    const fence = line => /^\s{0,3}(`{3,}|~{3,})[^`]*$/.exec(line);
+    const rule = line => /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line);
+    const start = line => heading(line) || fence(line) || list(line) || /^\s{0,3}>/.test(line) || rule(line);
+    function blocks(lines, depth = 0) {
+      if (depth > 8) return '<p>' + escape(lines.join('\n')) + '</p>';
+      let out = '', i = 0;
+      while (i < lines.length) {
+        const line = lines[i]; if (!line.trim()) { i++; continue; }
+        const code = fence(line), title = heading(line), item = list(line);
+        if (code) { const body = [], end = new RegExp('^\\s{0,3}' + code[1][0] + '{' + code[1].length + ',}\\s*$'); i++; while (i < lines.length && !end.test(lines[i])) body.push(lines[i++]); if (i < lines.length) i++; out += '<pre><code>' + escape(body.join('\n')) + '</code></pre>'; continue; }
+        if (title) { out += '<h3>' + inline(title[1]) + '</h3>'; i++; continue; }
+        if (i + 1 < lines.length && /^\s{0,3}(?:=+|-+)\s*$/.test(lines[i + 1]) && !start(line)) { out += '<h3>' + inline(line.trim()) + '</h3>'; i += 2; continue; }
+        if (rule(line)) { out += '<hr>'; i++; continue; }
+        if (/^\s{0,3}>/.test(line)) { const quote = []; while (i < lines.length && /^\s{0,3}>/.test(lines[i])) quote.push(lines[i++].replace(/^\s{0,3}> ?/, '')); out += '<blockquote>' + blocks(quote, depth + 1) + '</blockquote>'; continue; }
+        if (item) {
+          const ordered = /^\d/.test(item[2]), indent = item[1].length, tag = ordered ? 'ol' : 'ul', number = ordered ? Number.parseInt(item[2], 10) : 1;
+          out += '<' + tag + (ordered && number > 1 && number <= 1000000 ? ' start="' + number + '"' : '') + '>';
+          while (i < lines.length) {
+            const row = list(lines[i]); if (!row || row[1].length !== indent || /^\d/.test(row[2]) !== ordered) break;
+            const body = [row[3]]; i++;
+            while (i < lines.length && lines[i].trim() && /^\s/.test(lines[i]) && lines[i].search(/\S/) > indent) { body.push(lines[i].slice(Math.min(lines[i].search(/\S/), indent + 2))); i++; }
+            out += '<li>' + (body.length > 1 ? blocks(body, depth + 1) : inline(body[0])) + '</li>';
+          }
+          out += '</' + tag + '>'; continue;
+        }
+        const paragraph = [line]; i++;
+        while (i < lines.length && lines[i].trim() && !start(lines[i]) && !(i + 1 < lines.length && /^\s{0,3}(?:=+|-+)\s*$/.test(lines[i + 1]))) paragraph.push(lines[i++]);
+        out += '<p>' + inline(paragraph.join('\n').trim()) + '</p>';
+      }
+      return out;
+    }
+    return blocks(String(content || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n'));
   }
   function normalizedSettings(edition) {
     return { paper: edition.settings?.paper === 'A4' ? 'A4' : 'Letter', ink: edition.settings?.ink_saving === true, images: edition.settings?.images !== false };
@@ -29,12 +147,12 @@
     const proof = isProof(edition), images = normalizedSettings(edition).images;
     const articles = Array.isArray(edition.articles) ? edition.articles : [];
     return '<header class="edition-masthead"><p class="edition-kicker">DeepFeedAI / Newspaper Edition</p><h1 class="edition-name">' + escape(edition.name) + '</h1><div class="edition-dateline"><span>' + escape(date(edition.issue_date)) + '</span><span>' + articles.length + (articles.length === 1 ? ' article' : ' articles') + '</span><span>' + (edition.status === 'finalized' ? 'Finalized issue' : 'Working edition') + '</span></div>' + (proof ? '<p class="edition-proof-label">DRAFT / PRIVATE EDITORIAL PROOF</p>' : '') + '</header>' +
-      articles.map((article, index) => '<article class="edition-article' + (Number(article.article_id) === Number(edition.lead_article_id) ? ' lead' : '') + '"><p class="edition-category">' + escape(article.category || 'News & analysis') + '</p><h2 class="edition-headline">' + escape(article.title) + '</h2><p class="edition-byline">' + escape(article.byline || 'DeepFeedAI editorial team') + (article.source_updated_at ? ' / ' + escape(date(article.source_updated_at)) : '') + '</p>' +
+      articles.map((article, index) => { const references = referenceContext(article, index); const body = bodyMarkup(article.content || article.summary || '', references); return '<article class="edition-article' + (Number(article.article_id) === Number(edition.lead_article_id) ? ' lead' : '') + '"><p class="edition-category">' + escape(article.category || 'News & analysis') + '</p><h2 class="edition-headline">' + escape(article.title) + '</h2><p class="edition-byline">' + escape(article.byline || 'DeepFeedAI editorial team') + (article.source_updated_at ? ' / ' + escape(date(article.source_updated_at)) : '') + '</p>' +
         (article.withdrawn ? '<p class="edition-withdrawn">Private archive: this article is no longer publicly available.</p>' : '') +
         (images && article.image_path ? '<figure class="edition-figure" data-image-index="' + index + '"><img alt="" hidden><figcaption>Article image</figcaption></figure>' : '') +
         (images && article.image_notice ? '<p class="edition-image-notice">' + escape(article.image_notice) + '</p>' : '') +
         (article.text_kind === 'excerpt' || !article.content && article.summary ? '<p class="edition-excerpt">EXCERPT / Saved article summary; full text is not included.</p>' : '') +
-        '<div class="edition-body">' + bodyMarkup(article.content || article.summary || '') + '</div></article>').join('') +
+        '<div class="edition-body">' + body + '</div>' + referenceMarkup(references) + '</article>'; }).join('') +
       '<footer class="edition-footer">' + (proof ? 'Private editorial proof. Not for public distribution. ' : '') + 'This edition contains saved article versions. Printed and downloaded copies cannot be recalled.</footer>';
   }
   function safeAssetPath(value, publicMode) {
@@ -43,16 +161,44 @@
     if (publicMode !== path.startsWith('/api/editions/public/')) return null;
     return path;
   }
+  function rasterDataUrl(win, blob, signal) {
+    // Protected image requests need Bearer auth. Render the fetched bytes using
+    // the existing data: image policy, without widening CSP to allow blob:.
+    const type = String(blob?.type || '').toLowerCase().split(';')[0];
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(type) || !blob.size || blob.size > 5 * 1024 * 1024) return Promise.reject(new Error('Unsupported snapshot image'));
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) { reject(new Error('Image loading aborted')); return; }
+      const reader = new win.FileReader();
+      let settled = false;
+      function finish(error, value) {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', abort);
+        reader.onload = reader.onerror = reader.onabort = null;
+        if (error) reject(error); else resolve(value);
+      }
+      function abort() { reader.abort(); finish(new Error('Image loading aborted')); }
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        if (!result.startsWith('data:' + type + ';base64,')) finish(new Error('Invalid snapshot image'));
+        else finish(null, result);
+      };
+      reader.onerror = () => finish(new Error('Image could not be read'));
+      reader.onabort = () => finish(new Error('Image loading aborted'));
+      signal.addEventListener('abort', abort, { once: true });
+      try { reader.readAsDataURL(blob.slice(0, blob.size, type)); } catch (error) { finish(error); }
+    });
+  }
   function boot(win) {
     const doc = win.document, $ = id => doc.getElementById(id);
     const params = new URLSearchParams(win.location.search), id = params.get('id'), publicMode = params.get('public') === '1';
-    let generation = 0, busy = false, ready = false, urls = [], controller;
+    let generation = 0, busy = false, ready = false, controller;
     const token = () => { try { return win.localStorage.getItem('deepfeedai_token'); } catch { return null; } };
     const status = (message, error = false) => { $('editionStatus').textContent = message; $('editionStatus').className = 'print-status' + (error ? ' error' : ''); };
     function clear() {
       ready = false; doc.body.classList.remove('print-ready'); $('editionPrint').disabled = true;
       $('editionPaper').hidden = true; $('editionPaper').innerHTML = ''; $('editionWatermark').hidden = true;
-      for (const url of urls) win.URL.revokeObjectURL(url); urls = [];
+
     }
     async function load() {
       controller?.abort(); controller = new win.AbortController(); const signal = controller.signal, request = ++generation;
@@ -87,10 +233,11 @@
             if (!path) throw new Error('Unsafe image path');
             const res = await win.fetch(path, { headers, cache: 'no-store', signal, credentials: publicMode ? 'omit' : 'same-origin' });
             if (publicMode && [401, 403, 404, 410].includes(res.status)) assetAccessChanged = true;
-            if (!res.ok || !/^image\/(png|jpeg|webp|gif)(;|$)/i.test(res.headers.get('content-type') || '')) throw new Error('Unavailable image');
+            if (!res.ok || !/^image\/(png|jpeg|webp)(;|$)/i.test(res.headers.get('content-type') || '')) throw new Error('Unavailable image');
             const blob = await res.blob();
             if (request !== generation) return;
-            const url = win.URL.createObjectURL(blob); urls.push(url);
+            const url = await rasterDataUrl(win, blob, signal);
+            if (request !== generation || signal.aborted) return;
             const img = figure.querySelector('img'); img.src = url; await img.decode();
             if (request !== generation) return;
             img.hidden = false;
@@ -125,5 +272,5 @@
     load();
     return { load, clear, get ready() { return ready; } };
   }
-  return { escape, date, bodyMarkup, paperMarkup, normalizedSettings, isProof, safeAssetPath, boot };
+  return { escape, date, bodyMarkup, paperMarkup, normalizedSettings, isProof, safeAssetPath, rasterDataUrl, boot };
 });

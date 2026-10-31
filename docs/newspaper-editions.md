@@ -46,8 +46,8 @@ Printer drivers and other browsers can paginate differently. Page numbers are
 not synthesized by the application. Review the preview before printing.
 
 The template uses readable serif body columns, an edition masthead, headlines,
-bylines and bounded images. Article HTML is converted to inert text; simple
-Markdown headings/lists are recognized, not arbitrary embedded HTML, scripts,
+bylines and bounded images. Article HTML is converted to inert text. Common
+Markdown headings, emphasis, lists, quotes, code and safe links are recognized, not arbitrary embedded HTML, scripts,
 video, tables or interactive content. This is one template, not a layout designer.
 
 Only local workspace PNG/JPEG/WebP raster images can be preserved in this version.
@@ -89,3 +89,41 @@ node scripts/edition-print-qa.cjs
 These scripts use invented local content, produce screenshots/PDFs in a temporary
 output directory and do not send physical print jobs. See the script options for
 PDF text/geometry verification. Actual printer-driver output is a user check.
+## Images, formatting and sources
+
+Protected snapshot images are fetched with the edition's normal authorization and
+rendered as bounded raster data URLs permitted by the existing Content Security
+Policy. No policy relaxation, remote image retrieval or snapshot refresh is needed.
+Retry reloads the saved bytes; public withdrawal still invalidates the whole issue.
+
+New and explicitly refreshed snapshots preserve the article's ordered reference
+metadata. Numbered citations link to a per-article Sources footer, with original
+numbers, titles, publishers and printable/clickable safe URLs. Dates are not
+invented. Missing or ambiguous references produce warnings. Credential-bearing
+URLs are omitted, and no current article/source lookup happens when printing an
+old snapshot. Markdown tables and unresolved reference-style definitions remain
+literal text. Extremely complex malformed formatting falls back to escaped text
+under a bounded parsing budget, without discarding article text.
+
+The operator-only `scripts/backfill-edition-one-references.cjs` is a narrowly scoped
+repair for the existing finalized edition #1 in workspace #1. It is never run on
+startup or exposed as an API. `--dry-run` emits only IDs, reasons, counts and hashes;
+`--apply --plan-stdin` requires that exact reviewed plan after a consistent backup.
+The transaction locks the edition and articles, verifies captured text/version and
+publication identity, and adds reference metadata only to verified items. It checks
+preserved text/image/order hashes and edition settings/state, then increments the
+edition revision once. Changed or ambiguous items are left untouched. Do not run
+it against another deployment or without reviewing the dry run and authorizing the
+specific repair. Finalized editions are not silently refreshed or rewritten.
+
+Additional PDF checks (after browser fixtures):
+
+```sh
+python scripts/edition-print-images-verify.py /path/to/qa-output
+python scripts/edition-print-sources-verify.py /path/to/qa-output
+```
+
+The browser fixture enforces the production CSP and checks decoded five-image
+private/public issues, retries, withdrawal, Markdown and citation destinations.
+PDF checks count actual raster drawing operations and internal/external link
+annotations, alongside visible source URLs and existing layout/content checks.

@@ -7,11 +7,21 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || process.env.PLAYWRIGHT_MODULE || 'playwright');
 const out = path.resolve(process.argv[2] || '../deployment/newspaper-print-qa');
 fs.mkdirSync(out, { recursive: true });
 const root = path.join(__dirname, '../public');
+// Apply the actual server's configured Helmet directives, plus Helmet's defaults.
+// In particular img-src intentionally excludes blob:; do not weaken it for fixtures.
+const serverSource = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+const configured = /directives:\s*(\{[\s\S]*?\n    \}),/.exec(serverSource);
+assert.ok(configured, 'Production CSP directives must be available to the fixture');
+const directives = vm.runInNewContext('(' + configured[1] + ')');
+assert.deepEqual(Array.from(directives.imgSrc), ["'self'", 'data:', 'https:']);
+const csp = Object.entries({ ...directives, formAction: ["'self'"], upgradeInsecureRequests: [] })
+  .map(([key, values]) => key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()) + (values.length ? ' ' + values.join(' ') : '')).join(';');
 let browser;
 const lorem = 'The newsroom examines evidence carefully and gives each conclusion context. Editors compare primary sources, check dates, and preserve attribution before publication. Readers need clear explanations that distinguish verified findings from uncertainty. This fixture is synthetic text for print layout testing and contains no user content. A readable newspaper keeps paragraphs intact where practical, allows long stories to continue naturally, and never hides the end of an article. ';
 const article = (id, paragraphs) => ({ article_id: id, title: id === 1 ? 'A considered view of a changing world' : 'What careful reporting makes possible', byline: 'Test Editor ' + id, category: id === 1 ? 'The lead / Analysis' : 'Research & practice', source_updated_at: '2026-10-30T12:00:00Z', image_path: id === 1 ? '/api/editions/1/assets/1' : null, content: 'START-ARTICLE-' + id + '\n\n' + Array.from({ length: paragraphs }, (_, n) => (n % 4 === 0 ? '## Evidence and perspective ' + n + '\n\n' : '') + lorem.repeat(2)).join('\n\n') + '\n\nEND-ARTICLE-' + id });
@@ -19,8 +29,9 @@ const base = { id: 1, name: 'The Daily Perspective', issue_date: '2026-10-30', s
 const server = http.createServer((req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname;
   if (!['/edition-print.html', '/edition-print.css', '/edition-print.js'].includes(name)) { res.writeHead(404); return res.end(); }
+  res.setHeader('Content-Security-Policy', csp);
   res.setHeader('Content-Type', name.endsWith('.css') ? 'text/css' : name.endsWith('.js') ? 'application/javascript' : 'text/html');
-  res.end(fs.readFileSync(path.join(root, name)));
+  res.end(fs.readFileSync(name === '/edition-print.js' && process.env.EDITION_PRINT_SCRIPT ? process.env.EDITION_PRINT_SCRIPT : path.join(root, name)));
 });
 async function main() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -43,7 +54,11 @@ async function main() {
     }
     return route.continue();
   });
-  await page.addInitScript(() => localStorage.setItem('deepfeedai_token', 'offline-fixture'));
+  await page.addInitScript(() => {
+    localStorage.setItem('deepfeedai_token', 'offline-fixture');
+    window.editionCspViolations = [];
+    document.addEventListener('securitypolicyviolation', event => window.editionCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI }));
+  });
   await page.goto(origin + '/edition-print.html?id=1');
   // Generate an unmistakably synthetic local image for layout checks.
   imageBody = Buffer.from(await page.evaluate(() => {
@@ -59,6 +74,22 @@ async function main() {
     await page.waitForSelector('body.print-ready');
     await page.locator('#editionPrint').waitFor({ state: 'visible' });
   }
+  async function decodedImages(expected) {
+    assert.equal(await page.locator('.edition-figure img').count(), expected);
+    assert.equal(await page.locator('.edition-figure img').evaluateAll(images => images.filter(image => !image.hidden && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0).length), expected);
+    assert.deepEqual(await page.evaluate(() => window.editionCspViolations), []);
+  }
+  const fiveImages = (publicMode) => Array.from({ length: 5 }, (_, index) => ({ ...article(index + 1, 1), image_path: '/api/editions/' + (publicMode ? 'public/' : '') + '1/assets/' + (index + 1) }));
+  if (process.env.EDITION_CSP_BASELINE === '1') {
+    current = { ...structuredClone(base), visibility: 'public', articles: fiveImages(true) };
+    await ready(true);
+    assert.match(await page.locator('#editionStatus').innerText(), /^5 image\(s\) unavailable/);
+    const violations = await page.evaluate(() => window.editionCspViolations);
+    assert.equal(violations.filter(v => v.directive === 'img-src' && v.blocked === 'blob').length, 5);
+    fs.writeFileSync(path.join(out, 'baseline-csp.json'), JSON.stringify({ status: await page.locator('#editionStatus').innerText(), violations, csp }, null, 2));
+    console.log('Baseline reproduced: all five authenticated snapshot responses were blocked as blob images by production CSP.');
+    return;
+  }
   const cases = [
     ['letter-short', { settings: { paper: 'Letter', images: true, ink_saving: false }, articles: [article(1, 1)] }],
     ['a4-long', { settings: { paper: 'A4', images: true, ink_saving: false }, articles: [article(1, 12), article(2, 12), article(3, 12)] }],
@@ -72,10 +103,19 @@ async function main() {
     assert.equal(await page.locator('.edition-article').count(), current.articles.length);
     assert.equal(await page.locator('#editionWatermark').isVisible(), current.mode === 'proof');
     if (!current.settings.images) assert.equal(await page.locator('.edition-figure').count(), 0);
+    if (current.settings.images && !denyImage) await decodedImages(current.articles.filter(a => a.image_path).length);
     if (denyImage) assert.match(await page.locator('#editionStatus').innerText(), /image\(s\) unavailable/);
     await page.pdf({ path: path.join(out, name + '.pdf'), printBackground: true, preferCSSPageSize: true, displayHeaderFooter: false });
     await page.screenshot({ path: path.join(out, name + '-screen.png'), fullPage: name === 'letter-short' });
   }
+  // A failed private image fetch can be retried without recreating or refreshing the edition.
+  denyImage = false; await page.locator('#editionReload').click();
+  await page.waitForFunction(() => document.getElementById('editionStatus').textContent.startsWith('Ready to preview'));
+  await decodedImages(1);
+  current = { ...structuredClone(base), mode: 'proof', articles: fiveImages(false) }; await ready(); await decodedImages(5);
+  await page.pdf({ path: path.join(out, 'private-proof-five-images.pdf'), printBackground: true, preferCSSPageSize: true });
+  current = { ...structuredClone(base), visibility: 'public', articles: fiveImages(true) }; await ready(true); await decodedImages(5);
+  await page.pdf({ path: path.join(out, 'public-five-images.pdf'), printBackground: true, preferCSSPageSize: true });
   denyImage = false; current = structuredClone(base); await ready();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -106,8 +146,48 @@ async function main() {
   assert.equal(await page.locator('#editionPaper').innerHTML(), '');
   current = { ...structuredClone(base), articles: [{ article_id: 1, title: 'Summary-only article', content: 'Saved summary', text_kind: 'excerpt' }] };
   await ready(); assert.match(await page.locator('.edition-excerpt').innerText(), /full text is not included/);
+  current = { ...structuredClone(base), settings: { paper: 'Letter', images: false, ink_saving: false }, articles: [{ article_id: 1, title: 'Formatted editorial snapshot', content: '## Evidence and context\nA **bold claim** with *careful emphasis*, \x60inline code\x60 and a [source](https://example.invalid/report). References [1][2] remain literal.\n\n1. First item\n2. Second item\n\n> A quoted observation\n\n\x60\x60\x60\n' + 'long_unbroken_code_'.repeat(18) + '\n\x60\x60\x60' }] };
+  await ready();
+  assert.equal(await page.locator('.edition-body strong').innerText(), 'bold claim');
+  assert.equal(await page.locator('.edition-body em').innerText(), 'careful emphasis');
+  assert.equal(await page.locator('.edition-body h3').innerText(), 'Evidence and context');
+  assert.equal(await page.locator('.edition-body a').getAttribute('href'), 'https://example.invalid/report');
+  assert.equal(await page.locator('.edition-body ol li').count(), 2);
+  assert.match(await page.locator('.edition-body').innerText(), /References \[1\]\[2\] remain literal/);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.pdf({ path: path.join(out, 'markdown-formatting.pdf'), printBackground: true, preferCSSPageSize: true });
+  await page.screenshot({ path: path.join(out, 'markdown-mobile.png'), fullPage: true });
+  // Saved per-article mappings remain distinct even when citation numbers repeat.
+  const referenceArticles = [51, 52].map(articleId => ({
+    article_id: articleId, title: 'Sourced editorial snapshot ' + articleId,
+    content: 'Verified reporting [1][2]. Unresolved historical marker [9].',
+    references: [
+      { number: 1, title: 'Source <one>', publisher: 'Fixture Journal', url: 'https://example.invalid/article-' + articleId + '/source-one' },
+      { number: 2, title: 'Source two', publisher: 'Fixture Review', url: 'https://example.invalid/article-' + articleId + '/source-two' },
+      { number: 3, title: '<img onerror=alert(1)>', publisher: '<script>no</script>', url: 'https://example.invalid/?token=DO_NOT_PRINT_TOKEN', warning: 'URL omitted for safety' }
+    ]
+  }));
+  for (const mode of ['proof', 'published']) {
+    current = { ...structuredClone(base), mode, visibility: mode === 'published' ? 'public' : 'private', settings: { paper: 'Letter', images: false, ink_saving: false }, articles: referenceArticles };
+    await ready(mode === 'published');
+    assert.equal(await page.locator('.edition-citation').count(), 4);
+    assert.equal(await page.locator('.edition-source-url').count(), 4);
+    assert.equal(await page.locator('.edition-sources img,.edition-sources script').count(), 0);
+    const ids = await page.locator('.edition-sources [id]').evaluateAll(nodes => nodes.map(node => node.id));
+    assert.equal(new Set(ids).size, ids.length);
+    for (const articleId of [51, 52]) {
+      await page.locator('a[href="#edition-ref-' + articleId + '-1"]').click();
+      assert.equal(new URL(page.url()).hash, '#edition-ref-' + articleId + '-1');
+      assert.equal(await page.locator('#edition-ref-' + articleId + '-1 .edition-source-url').innerText(), 'https://example.invalid/article-' + articleId + '/source-one');
+    }
+    assert.match(await page.locator('#editionPaper').innerText(), /Source details unavailable for \[9\]/);
+    assert.doesNotMatch(await page.locator('#editionPaper').innerText(), /DO_NOT_PRINT_TOKEN/);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.pdf({ path: path.join(out, 'sources-' + mode + '.pdf'), printBackground: true, preferCSSPageSize: true });
+    await page.screenshot({ path: path.join(out, 'sources-' + mode + '-mobile.png'), fullPage: true });
+  }
   assert.equal(paidRequests, 0); assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, checked: ['safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow'], paidRequests, errors }, null, 2));
+  fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, csp, checked: ['production CSP enforced', 'five private proof images decoded', 'five public images decoded', 'image fetch retry without snapshot mutation', 'safe Markdown formatting and literal citation markers', 'saved source footers', 'per-article citation anchors', 'unknown source warnings', 'unsafe source URLs omitted', 'safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow'], paidRequests, errors }, null, 2));
   await browser.close(); server.close(); console.log('Edition print browser fixtures passed: ' + out);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await browser?.close(); server.close(); });

@@ -23,4 +23,4 @@ docker run --rm --network "$network" --tmpfs /app/public/media:uid=1000,gid=1000
   -e DATABASE_SSL=disable -e PUBLISHING_ACCEPTANCE=1 -e NODE_ENV=test \
   -e AUTOMATION_ENABLED=false -e DEPLOYMENT_MODE=multi \
   -e SETTINGS_ENCRYPTION_KEY=1111111111111111111111111111111111111111111111111111111111111111 \
-  "$image" node -r tsx/cjs --test --test-concurrency=1 tests/edition-print.test.js tests/editions*.test.js tests/integration/editions.test.js
+  "$image" node -r tsx/cjs --test --test-concurrency=1 tests/edition-print.test.js tests/edition-markdown.test.js tests/edition-references.test.js tests/editions*.test.js tests/integration/editions.test.js tests/integration/edition-reference-backfill.test.js

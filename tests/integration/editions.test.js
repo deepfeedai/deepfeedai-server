@@ -85,5 +85,17 @@ test('Newspaper edition real API lifecycle and privacy',{skip:process.env.PUBLIS
    const blank=(await pool.query("INSERT INTO articles(tenant_id,title,full_content,content,summary,content_type,is_published,is_archived) VALUES(1,$1,'<p> </p>',' ','<script>discard()</script>','original',1,0) RETURNING id",[prefix+' blank'])).rows[0];
    const rejected=await request('',{method:'POST',body:value([blank.id])});assert.equal(rejected.status,400);assert.match(rejected.body.error,/readable article text/);assert.equal(f.state.calls,0);
   });
+  await t.test('reference snapshots preserve source ordering and change only on explicit refresh',async()=>{
+   const refs=[{id:f.sourceIds[0],title:'First captured source',source:'Publisher',source_url:'https://example.org/first'},{id:f.sourceIds[1],title:'Second captured source',source:'Another publisher',source_url:'https://example.net/second'}];
+   const article=(await pool.query("INSERT INTO articles(tenant_id,title,full_content,content_type,is_published,source_article_ids) VALUES(1,$1,'Evidence [2][1]','original',1,$2::jsonb) RETURNING id",[prefix+' references',JSON.stringify(refs)])).rows[0];
+   let issue=(await request('',{method:'POST',body:value([article.id])})).body.edition;
+   assert.deepEqual(issue.articles[0].references.map(r=>r.number),[1,2]);assert.equal(issue.articles[0].references[0].title,refs[0].title);
+   const changed=[{...refs[0],title:'Updated source title'},refs[1]];await pool.query('UPDATE articles SET source_article_ids=$2::jsonb,updated_at=NOW() WHERE id=$1',[article.id,JSON.stringify(changed)]);
+   issue=(await request('/'+issue.id,{method:'PUT',body:{...value([article.id]),revision:issue.revision}})).body.edition;assert.equal(issue.articles[0].references[0].title,'First captured source');
+   issue=(await request('/'+issue.id+'/refresh',{method:'POST',body:{revision:issue.revision}})).body.edition;assert.equal(issue.articles[0].references[0].title,'Updated source title');
+   issue=(await request('/'+issue.id+'/finalize',{method:'POST',body:{revision:issue.revision}})).body.edition;
+   await pool.query('UPDATE articles SET source_article_ids=$2::jsonb WHERE id=$1',[article.id,JSON.stringify(refs)]);
+   assert.equal((await request('/'+issue.id)).body.edition.articles[0].references[0].title,'Updated source title');assert.equal(f.state.calls,0);
+  });
  }finally{await f.close();if(oldMedia===undefined)delete process.env.STORAGE_LOCAL_DIR;else process.env.STORAGE_LOCAL_DIR=oldMedia;await fs.rm(media,{recursive:true,force:true});}
 });

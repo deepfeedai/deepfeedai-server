@@ -46,3 +46,48 @@ test('Summary-only snapshot fallback is explicitly labeled as an excerpt', () =>
   assert.match(print.paperMarkup({ ...edition, articles: [{ article_id: 1, summary: 'Legacy summary without content' }] }), /EXCERPT/);
   assert.doesNotMatch(print.paperMarkup(edition), /EXCERPT/);
 });
+
+test('authenticated raster bytes render with existing data image policy, without blob URLs', async () => {
+  let reader;
+  class Reader {
+    constructor() { reader = this; }
+    readAsDataURL(blob) { this.result = 'data:' + blob.type + ';base64,AQID'; queueMicrotask(() => this.onload?.()); }
+    abort() { this.onabort?.(); }
+  }
+  for (const type of ['image/png', 'image/jpeg', 'image/webp']) {
+    const result = await print.rasterDataUrl({ FileReader: Reader }, new Blob([new Uint8Array([1, 2, 3])], { type }), new AbortController().signal);
+    assert.equal(result, 'data:' + type + ';base64,AQID');
+    assert.equal(reader.onload, null); assert.equal(reader.onerror, null); assert.equal(reader.onabort, null);
+  }
+  const source = fs.readFileSync(path.join(__dirname, '../public/edition-print.js'), 'utf8');
+  assert.doesNotMatch(source, /createObjectURL|revokeObjectURL/);
+  const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert.match(server, /imgSrc:\s*\["'self'", 'data:', 'https:'\]/);
+});
+
+test('snapshot conversion rejects empty, oversized or active content before reading', async () => {
+  class NoRead { constructor() { throw Error('Should not allocate a reader'); } }
+  for (const blob of [new Blob([], { type: 'image/png' }), new Blob(['<svg/>'], { type: 'image/svg+xml' }), new Blob(['html'], { type: 'text/html' }), { size: 5 * 1024 * 1024 + 1, type: 'image/png' }]) {
+    await assert.rejects(print.rasterDataUrl({ FileReader: NoRead }, blob, new AbortController().signal), /Unsupported snapshot image/);
+  }
+});
+
+test('cancelled image conversion aborts its reader and releases event handlers', async () => {
+  let reader, aborted = false;
+  class Reader { constructor() { reader = this; } readAsDataURL() {} abort() { aborted = true; this.onabort?.(); } }
+  const controller = new AbortController();
+  const pending = print.rasterDataUrl({ FileReader: Reader }, new Blob(['png'], { type: 'image/png' }), controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /aborted/);
+  assert.equal(aborted, true); assert.equal(reader.onload, null); assert.equal(reader.onabort, null);
+  await assert.rejects(print.rasterDataUrl({ FileReader: class { constructor() { throw Error('Should not start'); } } }, new Blob(['png'], { type: 'image/png' }), controller.signal), /aborted/);
+});
+
+test('image conversion errors reject cleanly and allow a fresh retry', async () => {
+  let fail = true;
+  class Reader { readAsDataURL(blob) { queueMicrotask(() => { if (fail) this.onerror?.(); else { this.result = 'data:' + blob.type + ';base64,AQID'; this.onload?.(); } }); } abort() {} }
+  const image = new Blob(['png'], { type: 'image/png' });
+  await assert.rejects(print.rasterDataUrl({ FileReader: Reader }, image, new AbortController().signal), /could not be read/);
+  fail = false;
+  assert.equal(await print.rasterDataUrl({ FileReader: Reader }, image, new AbortController().signal), 'data:image/png;base64,AQID');
+});
