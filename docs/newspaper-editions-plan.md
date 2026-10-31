@@ -1,5 +1,22 @@
 # Newspaper Edition implementation plan
 
+## Selectable layouts (2026-10-31)
+
+Add Classic Newspaper (legacy default), Morning Brief, Large Print and Magazine
+without schema migration or source refresh. Existing captured summaries support
+literal labeled excerpts; complete captured article links stay within the same
+edition and authorization boundary. Format, content mode and sources settings are
+validated optional JSON keys, independent of paper/ink/image/contributor settings.
+Omitted defaults remain omitted on legacy saves, preserving create request hashes.
+Finalization continues to freeze settings and snapshots.
+
+Acceptance covers both paper sizes, long/short text, missing/disabled images,
+ink-saving, contributors, sources, hostile markup, code and long URLs, plus legacy
+defaults, invalid values, snapshot stability and setting persistence. Browser QA
+uses production CSP and actual Chromium PDFs; physical printers, live data,
+generation, publishing, deployment and other suggested presets are out of scope.
+See `newspaper-layouts-validation.md` for host-specific evidence and limitations.
+
 ## Scope and current architecture
 
 The server owns the authenticated newsroom, PostgreSQL article records, article

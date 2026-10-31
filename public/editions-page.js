@@ -51,6 +51,12 @@
   function finishConfirm(value) { if (value && confirmFields) { const reason = $('editionConfirmReason').value.trim(), entered = $('editionConfirmValue').value.trim(); if ((confirmFields.reason && !reason) || (confirmFields.value && !entered) || (confirmFields.exact != null && entered !== confirmFields.exact)) { $('editionConfirmError').textContent = confirmFields.exact != null ? 'Enter the exact edition title and a reason.' : 'Complete the required fields.'; return; } } const done = confirmResolve; confirmResolve = null; $('editionConfirm').close(); if (done) done(value); }
   async function canLeave() { return !state.dirty || await confirmAction('Discard unsaved edition changes?', 'Your saved edition will stay unchanged. Discard the edits in this form?', 'Discard changes'); }
   function markDirty() { if (state.busy || isFinal() || isArchived()) return; state.dirty = true; updateActions(); }
+  function updateFormatControls() {
+    const brief = $('editionFormat').value === 'morning-brief';
+    $('editionContent').disabled = brief;
+    if (brief) $('editionContent').value = 'excerpt';
+    $('editionFormatHelp').textContent = brief ? 'Morning Brief uses labeled saved descriptions or deterministic excerpts, with links to full articles. Length depends on selected stories and sources; no fixed page count is promised.' : 'Layout changes presentation only. Labeled excerpts use saved descriptions or article text; no summaries are generated. Saved article text and attribution remain intact.';
+  }
   function updateActions() {
     const e = state.edition, permissionLocked = e?.id ? (options.canUpdate && !options.canUpdate()) : (options.canCreate && !options.canCreate()), locked = !e || isFinal() || isArchived() || permissionLocked, saved = Boolean(e?.id);
     $('editionFields').disabled = state.busy || locked;
@@ -93,6 +99,7 @@
     $('editionPolicy').textContent = e.mode === 'proof' ? 'Private editorial proof: drafts may be included. Every printed page is marked DRAFT. This edition cannot be publicly shared.' : 'Reader edition: only published, platform-authored articles are eligible. Saving and finalizing do not publish source articles.';
     $('editionName').value = e.name; $('editionDate').value = formatDate(e.issue_date); $('editionMode').value = e.mode;
     $('editionPaper').value = e.settings.paper; $('editionInk').checked = e.settings.ink_saving; $('editionImages').checked = e.settings.images; $('editionContributors').checked = e.settings.contributors === true; $('editionPortraits').checked = e.settings.portraits === true;
+    $('editionFormat').value = e.settings.format || 'newspaper'; $('editionContent').value = e.settings.content_mode || 'full'; $('editionSources').checked = e.settings.sources !== false; updateFormatControls();
     $('editionMode').disabled = Boolean(e.id); // Mode is fixed after first save.
     $('editionPublicLink').hidden = e.visibility !== 'public'; $('editionCopyLink').hidden = e.visibility !== 'public' || isArchived() || Boolean(e.retracted_at); $('editionCopyLink').disabled = state.busy;
     $('editionShareUrl').value = (options.publicOrigin || '') + '/edition-print.html?id=' + encodeURIComponent(e.id || '') + '&public=1'; $('editionShareUrlWrap').hidden = $('editionCopyLink').hidden;
@@ -140,7 +147,12 @@
   }
   function payload() {
     const e = state.edition;
-    return { name: $('editionName').value.trim(), issue_date: $('editionDate').value, mode: e.mode, article_ids: e.articles.map(a => Number(a.article_id || a.id)), lead_article_id: e.lead_article_id, settings: { paper: $('editionPaper').value, ink_saving: $('editionInk').checked, images: $('editionImages').checked, contributors: $('editionContributors').checked, portraits: $('editionPortraits').checked } };
+    const layout = {};
+    // Avoid changing old default settings merely by opening and saving an issue.
+    for (const [key, value, fallback] of [['format', $('editionFormat').value, 'newspaper'], ['content_mode', $('editionContent').value, 'full'], ['sources', $('editionSources').checked, true]]) {
+      if (e.settings[key] !== undefined || value !== fallback) layout[key] = value;
+    }
+    return { name: $('editionName').value.trim(), issue_date: $('editionDate').value, mode: e.mode, article_ids: e.articles.map(a => Number(a.article_id || a.id)), lead_article_id: e.lead_article_id, settings: { paper: $('editionPaper').value, ink_saving: $('editionInk').checked, images: $('editionImages').checked, contributors: $('editionContributors').checked, portraits: $('editionPortraits').checked, ...layout } };
   }
   async function save() {
     if (state.busy || !state.edition || isFinal() || isArchived()) return;
@@ -246,7 +258,8 @@
     $('editionListPrev').addEventListener('click', () => { if (!state.listBusy) { state.listOffset = Math.max(0, state.listOffset - 20); loadList(); } });
     $('editionListNext').addEventListener('click', () => { if (!state.listBusy) { state.listOffset += 20; loadList(); } });
     $('editionForm').addEventListener('submit', event => { event.preventDefault(); save(); });
-    for (const id of ['editionName','editionDate','editionPaper','editionInk','editionImages','editionContributors','editionPortraits']) $(id).addEventListener('input', markDirty);
+    for (const id of ['editionName','editionDate','editionPaper','editionInk','editionImages','editionContributors','editionPortraits','editionContent','editionSources']) $(id).addEventListener('input', markDirty);
+    $('editionFormat').addEventListener('change', () => { updateFormatControls(); markDirty(); });
     $('editionMode').addEventListener('change', changeMode); $('editionCancel').addEventListener('click', discard); $('editionClose').addEventListener('click', closeEditor);
     $('editionReloadCurrent').addEventListener('click', () => openEdition(state.edition?.id, false));
     $('editionRefresh').addEventListener('click', () => action('refresh')); $('editionFinalize').addEventListener('click', () => action('finalize')); $('editionVisibility').addEventListener('click', () => action('visibility'));

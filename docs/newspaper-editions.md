@@ -8,7 +8,8 @@ does not call AI, publish an article, email subscribers or print automatically.
    articles. Private editorial proofs can also include those articles' drafts.
    Imported RSS bodies and ambiguous legacy `curated` records are excluded.
 2. Search and select up to 20 articles. Reorder them and choose the lead story.
-   Choose Letter or A4, color or ink-saving, and whether to include images.
+   Choose Classic Newspaper, Morning Brief, Large Print, or Magazine separately
+   from Letter/A4, color/ink-saving, images, sources and contributor options.
 3. Save the working edition. Text and supported local images are captured;
    ordinary subsequent saves preserve existing captures. **Refresh** explicitly
    replaces them with current article versions. Cancel discards unsaved edits.
@@ -88,7 +89,33 @@ not synthesized by the application. Review the preview before printing.
 The template uses readable serif body columns, an edition masthead, headlines,
 bylines and bounded images. Article HTML is converted to inert text. Common
 Markdown headings, emphasis, lists, quotes, code and safe links are recognized, not arbitrary embedded HTML, scripts,
-video, tables or interactive content. This is one template, not a layout designer.
+video, tables or interactive content. These are presets, not a layout designer.
+
+### Layout and content presets
+
+Classic Newspaper remains the default for existing issues: its saved text and
+two-column presentation remain unchanged. Morning Brief uses a compact single
+column and explicitly labeled excerpts. Large Print uses a single column with
+16-point body text, larger supporting text and high contrast. Magazine uses
+spacious single-column typography and larger images. All presets support both
+paper sizes and ink-saving. Large Print and long issues can require more pages;
+Morning Brief does not guarantee a page count, especially with sources or
+contributors enabled.
+
+The content selector offers full saved articles or labeled excerpts; Morning
+Brief always uses excerpts. Excerpts use the captured description when present,
+otherwise the opening captured article text, bounded to 900 Unicode characters.
+They are displayed literally, preserving citation numbers and the original source
+list without interpreting truncated Markdown. No AI summary, live backfill or
+article rewrite occurs. A link opens the complete saved article (or complete saved
+excerpt when that is all the issue captured) within the same protected edition.
+This view retains authorization, public withdrawal checks and private proof labels.
+Sources can be explicitly hidden; citation numbers remain literal text and a notice
+discloses that omission. Writer attribution remains visible in all formats.
+
+These settings persist on working editions and freeze at finalization. Missing
+settings on older issues mean Newspaper, full captured content and sources shown.
+Opening or printing an old issue does not enrich or change its snapshots.
 
 Only local workspace PNG/JPEG/WebP raster images can be preserved in this version.
 Remote/S3/database-adapter URLs are not fetched; missing, unsupported, oversize or

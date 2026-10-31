@@ -19,6 +19,34 @@ function fixture(handler, options = {}) {
 }
 function fields(f) { f.el('editionName').value = 'Weekend'; f.el('editionDate').value = '2026-10-30'; f.el('editionPaper').value = 'A4'; f.el('editionImages').checked = true; }
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+
+test('layout controls preserve defaults and save independent paper, content and source choices', async () => {
+ const f=fixture(); await f.app.init(); await f.app.openEdition(4);
+ assert.equal(f.el('editionFormat').value,'newspaper'); assert.equal(f.el('editionContent').value,'full'); assert.equal(f.el('editionSources').checked,true);
+ f.el('editionFormat').value='large-print'; f.el('editionFormat').handlers.change();
+ f.el('editionPaper').value='A4'; f.el('editionContent').value='excerpt'; f.el('editionSources').checked=false;
+ assert.equal(f.app.state.dirty,true); assert.equal(f.el('editionPreview').attrs['aria-disabled'],'true');
+ await f.app.save(); const settings=JSON.parse(f.calls.find(c=>c.opts).opts.body).settings;
+ assert.equal(settings.format,'large-print'); assert.equal(settings.paper,'A4'); assert.equal(settings.content_mode,'excerpt'); assert.equal(settings.sources,false);
+ assert.equal(f.app.state.edition.articles[0].title,'Article 10');
+});
+
+test('Morning Brief explicitly selects excerpts and discard restores saved layout', async () => {
+ const f=fixture(); await f.app.init(); await f.app.openEdition(4);
+ f.el('editionFormat').value='morning-brief'; f.el('editionFormat').handlers.change();
+ assert.equal(f.el('editionContent').value,'excerpt'); assert.equal(f.el('editionContent').disabled,true); assert.match(f.el('editionFormatHelp').textContent,/no fixed page count/);
+ const discard=f.el('editionCancel').handlers.click(); f.app.finishConfirm(true); await discard;
+ assert.equal(f.el('editionFormat').value,'newspaper'); assert.equal(f.el('editionContent').value,'full'); assert.equal(f.el('editionContent').disabled,false);
+ assert.equal(f.calls.filter(c=>c.opts).length,0);
+});
+
+test('saved layout options reload and finalized controls cannot mutate the issue', async () => {
+ const settings={paper:'A4',ink_saving:true,images:false,format:'magazine',content_mode:'excerpt',sources:false};
+ const f=fixture(async()=>({edition:edition({status:'finalized',settings})})); await f.app.init(); await f.app.openEdition(4);
+ assert.equal(f.el('editionFormat').value,'magazine'); assert.equal(f.el('editionContent').value,'excerpt'); assert.equal(f.el('editionSources').checked,false); assert.equal(f.el('editionFields').disabled,true);
+ f.el('editionFormat').value='morning-brief'; f.el('editionFormat').handlers.change(); await f.app.save();
+ assert.equal(f.calls.filter(c=>c.opts).length,0); assert.deepEqual(f.app.state.edition.settings,settings);
+});
 test('Edition bootstrap reads only; new edition defaults private with no paid or publication request', async () => {
   const f = fixture(); await f.app.init(); assert.equal(f.calls.length, 1); assert.equal(f.calls[0].opts, undefined);
   await f.app.newEdition(); assert.equal(f.app.state.edition.visibility, 'private'); assert.equal(f.app.state.edition.mode, 'published'); assert.equal(f.calls.length, 1); assert.equal(f.el('editionPreview').hidden, true);

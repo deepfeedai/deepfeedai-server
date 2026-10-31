@@ -12,6 +12,21 @@ test('Newspaper edition real API lifecycle and privacy',{skip:process.env.PUBLIS
   const request=async(url='',{method='GET',body,token=f.token}={})=>{const r=await fetch(f.base+'/api/editions'+url,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json(),cache:r.headers.get('cache-control')};};
   const value=(ids=[articles[1].id,articles[0].id])=>({name:prefix,issue_date:'2026-10-30',mode:'published',article_ids:ids,lead_article_id:ids[0]??null,settings:{paper:'Letter',ink_saving:false,images:true},request_id:crypto.randomUUID()});
   let edition;
+  await t.test('all layouts persist separately from paper and freeze without refreshing captured text',async()=>{
+   for(const format of ['newspaper','morning-brief','large-print','magazine']){
+    const input=value([articles[2].id]);input.settings={...input.settings,format,content_mode:'excerpt',sources:false};
+    const created=await request('',{method:'POST',body:input});assert.equal(created.status,201);let issue=created.body.edition;
+    assert.deepEqual(issue.settings,{...input.settings,contributors:false,portraits:false});
+    const captured=issue.articles;
+    const saved=await request('/'+issue.id,{method:'PUT',body:{...input,revision:issue.revision,settings:{...input.settings,paper:'A4'}}});assert.equal(saved.status,200);issue=saved.body.edition;
+    assert.equal(issue.settings.paper,'A4');assert.equal(issue.settings.format,format);assert.deepEqual(issue.articles,captured);
+    issue=(await request('/'+issue.id+'/finalize',{method:'POST',body:{revision:issue.revision}})).body.edition;
+    assert.equal((await request('/'+issue.id,{method:'PUT',body:{...input,revision:issue.revision,settings:{...input.settings,format:'newspaper'}}})).status,409);
+    const read=(await request('/'+issue.id)).body.edition;assert.deepEqual(read.settings,issue.settings);assert.deepEqual(read.articles,captured);
+   }
+   for(const settings of [{format:'invalid'},{content_mode:'generated-summary'},{sources:'false'}])assert.equal((await request('',{method:'POST',body:{...value(),settings:{...value().settings,...settings}}})).status,400);
+   assert.equal(f.state.calls,0);
+  });
   await t.test('auth, eligibility, search and pagination exclude foreign and third-party content',async()=>{
    assert.equal((await request('',{token:null})).status,401);assert.equal((await request('/articles?mode=proof',{token:null})).status,401);
    const found=await request('/articles?q='+prefix+'&limit=2');assert.equal(found.status,200);assert.equal(found.body.total,3);assert.equal(found.body.articles.length,2);
