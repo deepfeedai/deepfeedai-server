@@ -78,3 +78,16 @@ test('Search failure clears stale results while preserving selection and retry s
 test('Edition editor has native dialog focus/Escape, responsive layout, no automatic print or generation', () => {
   assert.match(html, /<dialog id="editionPicker"/); assert.match(html, /aria-live="polite"/); assert.match(css, /@media\(max-width:720px\)/); assert.match(css, /focus-visible/); assert.match(css, /max-height:calc\(100dvh/); assert.match(source, /addEventListener\('cancel'/); assert.ok(!source.includes('window.print')); assert.ok(!source.includes('/generate'));
 });
+test('Contributor settings preserve legacy defaults, cancel and finalized immutability', async () => {
+ const f = fixture(); await f.app.init(); await f.app.openEdition(4);
+ assert.equal(f.el('editionContributors').checked, false); assert.equal(f.el('editionPortraits').checked, false);
+ f.el('editionContributors').checked = true; f.el('editionPortraits').checked = true;
+ f.el('editionContributors').handlers.input(); assert.equal(f.app.state.dirty, true);
+ const cancel = f.el('editionCancel').handlers.click(); f.app.finishConfirm(true); await cancel;
+ assert.equal(f.el('editionContributors').checked, false); assert.equal(f.calls.filter(c => c.opts).length, 0);
+ f.el('editionContributors').checked = true; f.el('editionPortraits').checked = true; f.app.markDirty(); await f.app.save();
+ assert.deepEqual(JSON.parse(f.calls.find(c => c.opts).opts.body).settings, { paper: 'Letter', ink_saving: false, images: true, contributors: true, portraits: true });
+ const final = fixture(async () => ({ edition: edition({ status: 'finalized' }) })); await final.app.init(); await final.app.openEdition(4);
+ final.el('editionContributors').checked = true; final.app.markDirty(); await final.app.save();
+ assert.equal(final.el('editionFields').disabled, true); assert.equal(final.calls.filter(c => c.opts).length, 0);
+});

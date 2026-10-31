@@ -49,7 +49,7 @@ async function main() {
       const isPublic = url.pathname.startsWith('/api/editions/public/');
       if (isPublic) assert.equal(request.headers().authorization, undefined);
       else assert.equal(request.headers().authorization, 'Bearer offline-fixture');
-      if (url.pathname.includes('/assets/')) return route.fulfill({ status: denyImage ? 410 : 200, contentType: 'image/png', body: denyImage ? '' : imageBody });
+      if ((url.pathname.includes('/assets/') || url.pathname.includes('/portraits/'))) return route.fulfill({ status: denyImage ? 410 : 200, contentType: 'image/png', body: denyImage ? '' : imageBody });
       return route.fulfill({ status: denyDetail ? 410 : 200, contentType: 'application/json', body: JSON.stringify(denyDetail ? { error: 'withdrawn' } : { edition: current }) });
     }
     return route.continue();
@@ -186,8 +186,43 @@ async function main() {
     await page.pdf({ path: path.join(out, 'sources-' + mode + '.pdf'), printBackground: true, preferCSSPageSize: true });
     await page.screenshot({ path: path.join(out, 'sources-' + mode + '-mobile.png'), fullPage: true });
   }
+  // Contributor snapshots: actual portrait decoding under production CSP and flowing PDFs.
+  const profile = { writer_id: 3, name: 'Amina / fixture persona', kind: 'ai_persona', role: 'writer', focus: 'Business', bio: ('This configured persona focuses on explaining business and technology. ').repeat(25), contribution: 'Assigned writer for this article', profile_version: 'fixture-v1' };
+  for (const paper of ['Letter', 'A4']) {
+    const portrait = '/api/editions/1/portraits/1';
+    current = { ...structuredClone(base), mode: 'proof', settings: { paper, images: true, ink_saving: paper === 'A4', portraits: true, contributors: true }, articles: [1, 2].map(id => ({ ...article(id, 1), contributor: profile, portrait_path: portrait })), contributors: [{ writer_id: 3, article_count: 2, versions: [{ ...profile, portrait_path: portrait, article_ids: [1, 2] }] }] };
+    await ready();
+    assert.equal(await page.locator('.edition-portrait img').evaluateAll(images => images.filter(i => !i.hidden && i.naturalWidth > 0).length), 3);
+    assert.equal(await page.locator('.edition-contributor-card').count(), 1);
+    assert.match(await page.locator('.edition-contributor-count').innerText(), /Assigned to 2 articles/);
+    assert.deepEqual(await page.evaluate(() => window.editionCspViolations), []);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(out, 'contributors-' + paper + '-mobile.png'), fullPage: true });
+    await page.setViewportSize({ width: 1300, height: 1000 });
+    await page.screenshot({ path: path.join(out, 'contributors-' + paper + '-desktop.png'), fullPage: true });
+    await page.pdf({ path: path.join(out, 'contributors-' + paper + '.pdf'), printBackground: true, preferCSSPageSize: true });
+    await page.locator('.edition-contributor-card a').first().click();
+    assert.equal(new URL(page.url()).hash, '#edition-article-1');
+    await page.setViewportSize({ width: 390, height: 844 });
+  }
+  denyImage = true; await page.locator('#editionReload').click();
+  await page.waitForFunction(() => document.getElementById('editionStatus').textContent.includes('unavailable'));
+  assert.match(await page.locator('.edition-contributor-count').innerText(), /2 articles/);
+  denyImage = false; await page.locator('#editionReload').click();
+  await page.waitForFunction(() => document.getElementById('editionStatus').textContent.startsWith('Ready'));
+  assert.equal(await page.locator('.edition-portrait img:not([hidden])').count(), 3);
+  current.mode = 'published'; current.visibility = 'public';
+  current.articles.forEach(a => { if (a.image_path) a.image_path = a.image_path.replace('/editions/', '/editions/public/'); a.portrait_path = a.portrait_path.replace('/editions/', '/editions/public/'); });
+  current.contributors[0].versions[0].portrait_path = '/api/editions/public/1/portraits/1';
+  await ready(true); assert.equal(await page.locator('.edition-portrait img:not([hidden])').count(), 3);
+  denyImage = true; await page.locator('#editionReload').click();
+  await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
+  assert.equal(await page.locator('#editionPaper').innerHTML(), '');
+  denyImage = false;
+  current.settings.images = false; await ready(true); assert.equal(await page.locator('.edition-portrait').count(), 0);
+  current.settings.contributors = false; await ready(true); assert.equal(await page.locator('.edition-contributors').count(), 0);
   assert.equal(paidRequests, 0); assert.deepEqual(errors, []);
-  fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, csp, checked: ['production CSP enforced', 'five private proof images decoded', 'five public images decoded', 'image fetch retry without snapshot mutation', 'safe Markdown formatting and literal citation markers', 'saved source footers', 'per-article citation anchors', 'unknown source warnings', 'unsafe source URLs omitted', 'safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow'], paidRequests, errors }, null, 2));
+  fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, csp, checked: ['production CSP enforced', 'five private proof images decoded', 'five public images decoded', 'image fetch retry without snapshot mutation', 'safe Markdown formatting and literal citation markers', 'saved source footers', 'per-article citation anchors', 'unknown source warnings', 'unsafe source URLs omitted', 'safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow', 'contributor snapshot portraits', 'contributor Letter/A4 PDFs', 'deduplicated profiles', 'portrait retry and images-off'], paidRequests, errors }, null, 2));
   await browser.close(); server.close(); console.log('Edition print browser fixtures passed: ' + out);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { await browser?.close(); server.close(); });

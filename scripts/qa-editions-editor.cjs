@@ -35,8 +35,9 @@ async function run() {
       await page.locator('#editionSearch').fill('article 2'); await page.locator('#editionSearchForm button').click(); await page.locator('#editionPickerApply').click(); assert.equal(await page.locator('#editionSelection .edition-story-card').count(), 3);
       await page.locator('#editionSelection [data-action="lead"][data-id="21"]').click(); assert.equal(await page.locator('#editionSelection h4').first().innerText(), articles[20].title);
       await page.locator('#editionAdd').click(); await page.locator('[data-pick="3"]').check(); await page.keyboard.press('Escape'); assert.equal(await page.locator('#editionSelection .edition-story-card').count(), 3); assert.equal(await page.locator('#editionAdd').evaluate(el => document.activeElement === el), true);
+      await page.locator('#editionContributors').check(); await page.locator('#editionPortraits').check();
       await page.locator('#editionName').fill('Fixture edited issue'); failure = true; await page.locator('#editionSave').click(); await page.waitForFunction(() => document.getElementById('editionNotice').textContent.includes('Could not confirm')); assert.equal(await page.locator('#editionName').inputValue(), 'Fixture edited issue'); failure = false;
-      await page.locator('#editionSave').dblclick(); await page.waitForFunction(() => document.getElementById('editionNotice').textContent.includes('Edition saved')); assert.equal(saves, 2, 'double click must issue only one successful save');
+      await page.locator('#editionSave').dblclick(); await page.waitForFunction(() => document.getElementById('editionNotice').textContent.includes('Edition saved')); assert.equal(saves, 2, 'double click must issue only one successful save'); assert.equal(edition.settings.contributors, true); assert.equal(edition.settings.portraits, true);
       await page.locator('#editionFinalize').click(); await page.locator('#editionConfirmCancel').click(); assert.equal(edition.status, 'working');
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1); assert.equal(overflow, false, 'horizontal overflow at ' + width);
       await page.screenshot({ path: path.join(output, 'editions-editor-' + width + '.png'), fullPage: true });
@@ -45,7 +46,7 @@ async function run() {
       for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => document.getElementById('editionPicker').contains(document.activeElement)), true, 'focus remains inside modal'); }
       await page.keyboard.press('Escape');
       await page.locator('#editionFinalize').click(); await page.locator('#editionConfirmAccept').click(); await page.waitForFunction(() => document.getElementById('editionState').textContent.includes('Finalized'));
-      assert.equal(edition.status, 'finalized'); assert.equal(edition.visibility, 'private'); assert.equal(await page.locator('#editionSave').isVisible(), false);
+      assert.equal(edition.status, 'finalized'); assert.equal(edition.visibility, 'private'); assert.equal(await page.locator('#editionSave').isVisible(), false); assert.equal(await page.locator('#editionContributors').isDisabled(), true); assert.equal(await page.locator('#editionPortraits').isDisabled(), true);
       assert.deepEqual(errors, [], 'browser errors'); results.push({ width, status: 'pass', saveRequests: saves }); await context.close();
     }
     console.log(JSON.stringify({ results, screenshots: output }, null, 2));
