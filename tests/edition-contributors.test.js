@@ -23,3 +23,16 @@ test('contributors deduplicate stable IDs, retain capture differences, and never
  const result=contributorsFor([{article_id:1,contributor:a},{article_id:2,contributor:a},{article_id:3,contributor:b},{article_id:4,contributor:c},{article_id:5}]);
  assert.equal(result.length,2);assert.equal(result[0].article_count,3);assert.equal(result[0].profile_versions_differ,true);assert.deepEqual(result[0].versions.map(v=>v.article_ids),[[1,2],[3]]);assert.equal(result[1].article_count,1);
 });
+test('writing style snapshots contain only bounded display configuration, never prompts or invented contribution claims',()=>{
+ const input={...writer,writer_style_name:'The Explainer',writer_tone:'Conversational',style_guide:'private instructions',expertise_level:'expert',few_shot_examples:['private'],synthesis_meta:{word_count:500},writer_id:10};
+ const c=captureContributor(input,clean,{});
+ assert.equal(c.writing_style,'The Explainer · Conversational');
+ assert.equal(c.contribution,'Assigned writer for this article');
+ assert.equal(c.bio,writer.writer_bio);
+ for(const key of ['style_guide','expertise_level','few_shot_examples','synthesis_meta'])assert.equal(c[key],undefined);
+ assert.equal(captureContributor(writer,clean,{}).writing_style,undefined);
+ assert.equal(captureContributor({...writer,writer_style_name:'  ',writer_tone:' '},clean,{}).writing_style,undefined);
+ assert.equal(captureContributor({...writer,writer_style_name:'x'.repeat(101),writer_tone:'y'.repeat(201)},clean,{}).writing_style.length,303);
+ assert.notEqual(c.profile_version,captureContributor({...input,writer_tone:'Concise'},clean,{}).profile_version);
+ assert.equal(captureContributor({...input,writer_has_prompt:false},clean,{}).kind,'unclassified');
+});
