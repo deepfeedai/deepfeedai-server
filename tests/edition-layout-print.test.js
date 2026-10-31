@@ -27,7 +27,7 @@ test('fallback excerpts are bounded literal text with intact numbered markers an
   assert.ok(selected.shortened); assert.ok(selected.text.length <= 900);
   const result = print.paperMarkup(value);
   assert.match(result, /Opening text from saved article \(shortened\)/);
-  assert.match(result, /&lt;script&gt;/); assert.doesNotMatch(result, /<script>|class="edition-citation"/);
+  assert.match(result, /&lt;script&gt;/); assert.doesNotMatch(result, /<script\b[^>]*>|class="edition-citation"/i);
   assert.match(result, /code\[7\]/);
   const boundary = print.excerptText({ content: 'x'.repeat(898) + '[7]' });
   assert.equal(boundary.text, 'x'.repeat(898));
