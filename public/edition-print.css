@@ -84,4 +84,27 @@ body.ink-saving { --news-ink: #000; --news-accent: #222; }
 .edition-sources li { margin: 0 0 8pt; break-inside: avoid; page-break-inside: avoid; }
 .edition-source-title,.edition-source-number { font-weight: 650; }
 .edition-source-url { display: block; color: inherit; text-decoration: underline; overflow-wrap: anywhere; }
-.edition-source-warning { display: block; color: #5b656d; font-style: italic; }
+.edition-source-warning { display: block; color: #5b656d; font-style: italic; }/* Contributor snapshots use restrained, flowing print layout; no fixed card heights. */
+.edition-byline { display: flex; align-items: flex-start; gap: 10pt; }
+.edition-byline strong { color: var(--news-ink); }
+.edition-persona-label,.edition-contributor-focus,.edition-contribution { display: block; }
+.edition-persona-label { font-size: 8pt; font-weight: 650; color: var(--news-accent); }
+.edition-contributor-focus,.edition-contribution { font-size: 8.5pt; color: #52616a; }
+.edition-portrait { margin: 0; flex: 0 0 42pt; width: 42pt; }
+.edition-portrait img { display: block; width: 42pt; height: 42pt; object-fit: cover; border-radius: 50%; }
+.edition-portrait figcaption { font-size: 7pt; }
+.edition-portrait .sr-only { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); white-space: nowrap; }
+.ink-saving .edition-portrait img { filter: grayscale(1); }
+.edition-contributors { border-top: 3px solid var(--news-ink); margin-top: 28pt; padding-top: 14pt; }
+.edition-contributors h2 { font: 700 23pt/1.15 Georgia,serif; margin: 0 0 10pt; break-after: avoid; }
+.edition-contributors-intro { font-size: 9pt; color: #52616a; }
+.edition-contributor-group { border-top: 1px solid #a9b1b6; margin-top: 15pt; padding-top: 12pt; }
+.edition-contributor-card { display: block; font-size: 10pt; overflow-wrap: anywhere; }
+.edition-contributor-card .edition-portrait { float: left; margin: 0 12pt 8pt 0; }
+.edition-contributor-card::after { content: ''; display: table; clear: both; }
+.edition-contributor-bio { line-height: 1.5; widows: 3; orphans: 3; }
+.edition-contributor-bio span { font-weight: 650; }
+.edition-contributor-count { margin-bottom: 4pt; font-weight: 650; break-after: avoid; }
+.edition-contributor-card ul { margin-top: 4pt; padding-left: 16pt; }
+.edition-contributor-card a { color: inherit; text-decoration: underline; }
+@media print { .edition-contributors { break-before: page; } }

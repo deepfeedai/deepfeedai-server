@@ -82,7 +82,7 @@
     $('editionState').textContent = (isFinal() ? 'Finalized' : 'Working edition') + ' · ' + (e.visibility === 'public' ? 'Shared reader issue' : 'Private') + (e.mode === 'proof' ? ' · DRAFT PROOF' : '');
     $('editionPolicy').textContent = e.mode === 'proof' ? 'Private editorial proof: drafts may be included. Every printed page is marked DRAFT. This edition cannot be publicly shared.' : 'Reader edition: only published, platform-authored articles are eligible. Saving and finalizing do not publish source articles.';
     $('editionName').value = e.name; $('editionDate').value = formatDate(e.issue_date); $('editionMode').value = e.mode;
-    $('editionPaper').value = e.settings.paper; $('editionInk').checked = e.settings.ink_saving; $('editionImages').checked = e.settings.images;
+    $('editionPaper').value = e.settings.paper; $('editionInk').checked = e.settings.ink_saving; $('editionImages').checked = e.settings.images; $('editionContributors').checked = e.settings.contributors === true; $('editionPortraits').checked = e.settings.portraits === true;
     $('editionMode').disabled = Boolean(e.id); // Mode is fixed after first save.
     $('editionPublicLink').hidden = e.visibility !== 'public';
     $('editionPublicLink').innerHTML = e.visibility === 'public' ? '<a href="/edition-print.html?id=' + e.id + '&amp;public=1" target="_blank" rel="noopener">Open shared reader edition</a> · Shared editions stop serving if any source is withdrawn.' : '';
@@ -92,7 +92,7 @@
   async function newEdition() {
     if (state.busy || (options.canCreate && !options.canCreate()) || !(await canLeave())) return;
     ++openVersion;
-    state.edition = { name: '', issue_date: new Date().toISOString().slice(0, 10), mode: 'published', status: 'working', visibility: 'private', settings: { paper: 'Letter', ink_saving: false, images: true }, articles: [], lead_article_id: null };
+    state.edition = { name: '', issue_date: new Date().toISOString().slice(0, 10), mode: 'published', status: 'working', visibility: 'private', settings: { paper: 'Letter', ink_saving: false, images: true, contributors: true, portraits: true }, articles: [], lead_article_id: null };
     state.saved = null; state.dirty = false; state.requestId = options.uuid ? options.uuid() : '00000000-0000-4000-8000-000000000001';
     renderEditor(); options.navigate?.(null); $('editionName').focus(); notice('New private edition. Choose your articles, then save.');
   }
@@ -116,7 +116,7 @@
   }
   function payload() {
     const e = state.edition;
-    return { name: $('editionName').value.trim(), issue_date: $('editionDate').value, mode: e.mode, article_ids: e.articles.map(a => Number(a.article_id || a.id)), lead_article_id: e.lead_article_id, settings: { paper: $('editionPaper').value, ink_saving: $('editionInk').checked, images: $('editionImages').checked } };
+    return { name: $('editionName').value.trim(), issue_date: $('editionDate').value, mode: e.mode, article_ids: e.articles.map(a => Number(a.article_id || a.id)), lead_article_id: e.lead_article_id, settings: { paper: $('editionPaper').value, ink_saving: $('editionInk').checked, images: $('editionImages').checked, contributors: $('editionContributors').checked, portraits: $('editionPortraits').checked } };
   }
   async function save() {
     if (state.busy || !state.edition || isFinal()) return;
@@ -195,7 +195,7 @@
     $('editionListPrev').addEventListener('click', () => { if (!state.listBusy) { state.listOffset = Math.max(0, state.listOffset - 20); loadList(); } });
     $('editionListNext').addEventListener('click', () => { if (!state.listBusy) { state.listOffset += 20; loadList(); } });
     $('editionForm').addEventListener('submit', event => { event.preventDefault(); save(); });
-    for (const id of ['editionName','editionDate','editionPaper','editionInk','editionImages']) $(id).addEventListener('input', markDirty);
+    for (const id of ['editionName','editionDate','editionPaper','editionInk','editionImages','editionContributors','editionPortraits']) $(id).addEventListener('input', markDirty);
     $('editionMode').addEventListener('change', changeMode); $('editionCancel').addEventListener('click', discard); $('editionClose').addEventListener('click', closeEditor);
     $('editionReloadCurrent').addEventListener('click', () => openEdition(state.edition?.id, false));
     $('editionRefresh').addEventListener('click', () => action('refresh')); $('editionFinalize').addEventListener('click', () => action('finalize')); $('editionVisibility').addEventListener('click', () => action('visibility'));

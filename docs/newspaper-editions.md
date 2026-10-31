@@ -57,6 +57,28 @@ storage (5 MiB per image, 25 MiB total; bounded pixel dimensions), so later sour
 image replacement does not silently change finalized issues. Text is limited to
 200,000 characters per article. These snapshots increase database backup size.
 
+## Writer credits and contributors
+
+Newly captured articles preserve a deliberately limited writer profile: name,
+configured role/focus, public biography and an existing local portrait. A configured
+AI prompt identifies an AI writer persona; the prompt itself is never included.
+An unknown author is not labeled AI. Credits say “Assigned writer for this article,”
+which describes the recorded assignment, not verified reporting, fact-checking or
+human review. Profile descriptions are configured descriptions, not independently
+verified credentials.
+
+Portraits and the optional **Meet the contributors** section are edition settings.
+Images-off suppresses portraits too. Contributor counts refer only to articles in
+that saved issue. If one writer has different captured profile versions, those
+versions remain distinguishable rather than being silently combined.
+
+Ordinary saves preserve retained snapshots. Explicit refresh of a working edition
+captures current profiles; finalization freezes them with the text and layout.
+Existing finalized issues keep their original saved bylines and do not look up
+today’s profiles. They are not automatically enriched. Portraits use the same
+protected, bounded raster storage and withdrawal checks as article images, sharing
+the edition’s total image budget. No biography or portrait generation is performed.
+
 ## Operations
 
 Startup adds `newspaper_editions` and `newspaper_edition_articles` idempotently.

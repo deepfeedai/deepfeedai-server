@@ -73,3 +73,17 @@ Rollback restores prior application image/source, leaving additive edition table
 intact; do not overwrite newer user data with a backup merely to revert code.
 Retain root-protected backup and a runbook with exact rollback commands. The
 `v1.2.0-beta.1` tag remains unchanged; feature PR stays unmerged for user testing.
+
+## Contributor extension
+
+Capture public profile fields and bounded portrait bytes alongside each newly
+selected or explicitly refreshed article. Preserve the existing writer assignment
+as the credit; do not infer reporting, human review or verified credentials.
+Only configured AI personas receive an AI label. Aggregate captured writer IDs
+without concealing different saved profile versions. Add optional portraits and
+an end-of-issue contributors section, with safe legacy byline fallback.
+
+Storage adds nullable portrait columns idempotently. Existing finalized issue #1
+and its reference repair remain unchanged; there is no historical-profile backfill.
+Validate real routes, snapshot stability, resource limits, tenant/public withdrawal
+protection, and actual Letter/A4 PDFs before the backed-up backend-only rollout.
