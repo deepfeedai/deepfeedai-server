@@ -24,6 +24,17 @@ test('edition lifecycle real routes retain audit and protect publication and sna
  e=(await req('/'+e.id+'/visibility','POST',{revision:e.revision,visibility:'public'})).body.edition;
  const snapshots=async()=> (await pool.query('SELECT snapshot::text,encode(image_data,\'hex\') image,encode(portrait_data,\'hex\') portrait,position FROM newspaper_edition_articles WHERE edition_id=$1 ORDER BY position',[rawId])).rows;
  const before=await snapshots();
+ await t.test('private reader issues and proofs cannot acquire false retraction state or audit',async()=>{
+  const proof=(await req('','POST',{...input,mode:'proof',request_id:crypto.randomUUID()})).body.edition;
+  for(const issue of [second,proof]){
+   const historyBefore=(await req('/'+issue.id+'/history')).body.history;
+   for(const endpoint of ['retract','visibility']){
+    const result=await req('/'+issue.id+'/'+endpoint,'POST',{revision:issue.revision,reason:'Not actually public',visibility:'private'});assert.equal(result.status,409);
+   }
+   const retained=(await req('/'+issue.id)).body.edition;assert.equal(retained.retracted_at,null);assert.equal(retained.revision,issue.revision);
+   assert.deepEqual((await req('/'+issue.id+'/history')).body.history,historyBefore);
+  }
+ });
  await t.test('update-only actor cannot retract, archive or rename public issue',async()=>{
   for(const action of ['archive','retract','rename'])assert.equal((await req('/'+e.id+'/'+action,'POST',{revision:e.revision,reason:'Test',name:'Unauthorized'},updateToken)).status,403);
   assert.equal((await req('/'+e.id,'DELETE',{revision:e.revision,confirmation:e.name,reason:'Test'},updateToken)).status,403);

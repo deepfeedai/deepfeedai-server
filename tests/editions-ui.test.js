@@ -152,3 +152,11 @@ test('Copy share link is user initiated with selectable fallback and hidden for 
  const failed = fixture(async () => ({ edition: edition({ id: canonical, status: 'finalized', visibility: 'public' }) }), { copyText: async () => { throw Error('denied'); } }); await failed.app.openEdition(canonical); await failed.app.copyShareLink(); assert.equal(failed.focus(), 'editionShareUrl'); assert.match(failed.el('editionNotice').textContent, /Select and copy/);
  const hidden = fixture(); await hidden.app.openEdition(4); assert.equal(hidden.el('editionCopyLink').hidden, true); await hidden.app.copyShareLink();
 });
+
+test('Retraction is only offered for a currently public finalized reader issue', async () => {
+ for (const props of [{ mode: 'proof', visibility: 'private', status: 'finalized' }, { mode: 'published', visibility: 'private', status: 'finalized' }, { mode: 'published', visibility: 'public', status: 'working' }, { mode: 'published', visibility: 'public', status: 'finalized', archived_at: 'today' }]) {
+  const f = fixture(async () => ({ edition: edition({ id: canonical, ...props }) })); await f.app.openEdition(canonical);
+  assert.equal(f.el('editionRetract').hidden, true); await f.app.lifecycle('retract'); assert.equal(f.el('editionConfirm').open, false); assert.ok(f.calls.every(c => !c.opts));
+ }
+ const visible = fixture(async () => ({ edition: edition({ id: canonical, mode: 'published', visibility: 'public', status: 'finalized' }) })); await visible.app.openEdition(canonical); assert.equal(visible.el('editionRetract').hidden, false);
+});
