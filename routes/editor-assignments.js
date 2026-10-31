@@ -30,6 +30,6 @@ router.get('/:id',requirePermission('articles.read'),handle(async(req,res)=>{
 }));
 router.post('/',requirePermission('articles.update'),handle(async(req,res)=>res.status(201).json(await assignments.create(req.body,req.tenantId,req.user?.sub||null))));
 router.put('/:id/sources',requirePermission('articles.update'),handle(async(req,res)=>res.json(await assignments.attach(Number(req.params.id),req.tenantId,req.body.source_article_ids,Number(req.body.writer_id)||null))));
-router.post('/:id/approve',requirePermission('articles.update'),handle(async(req,res)=>res.json(await assignments.approve(Number(req.params.id),req.tenantId,req.user?.sub||null))));
+router.post('/:id/approve',requirePermission('articles.update'),handle(async(req,res)=>res.json(await assignments.approve(Number(req.params.id),req.tenantId,req.user?.sub||null,req.body||{}))));
 router.post('/:id/generate',requirePermission('articles.create'),handle(async(req,res)=>{const task=await assignments.start(Number(req.params.id),req.tenantId,req.body);setImmediate(()=>task.run().catch(()=>{}));res.status(202).json({status:task.status})}));
 module.exports=router;

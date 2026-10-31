@@ -923,14 +923,8 @@ router.put('/:id/publish',auth,requirePermission('articles.update'),asyncHandler
 
 // PUT /api/articles/:id/submit-review
 router.put('/:id/submit-review', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
-  const article = await db.prepare('SELECT * FROM articles WHERE id = $1 AND tenant_id = $2').get(req.params.id, req.tenantId);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
-  if (article.status !== 'draft') return res.status(400).json({ error: 'Only draft articles can be submitted for review' });
-  const updated = await db.prepare(`
-    UPDATE articles SET status = 'review', submitted_for_review_at = NOW(), updated_at = NOW()
-    WHERE id = $1 AND tenant_id = $2 RETURNING *
-  `).get(req.params.id, req.tenantId);
-  logAudit(req, 'article.submit_review', 'article', parseInt(req.params.id), { title: article.title });
+  const updated = await publication.submitReview(Number(req.params.id), req.tenantId, {expectedRevision:req.body?.expected_revision,userId:req.user?.sub});
+  logAudit(req, 'article.submit_review', 'article', parseInt(req.params.id), { title: updated.title });
   res.json(updated);
 }));
 

@@ -231,7 +231,6 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
   if (!rows.length) return res.json({ assigned: 0, skipped: 0, results: [] });
 
   const { findWriterWithFallback } = require('../lib/writer-assign');
-  const { synthesizeFromPitch } = require('../lib/synthesis');
   const results = [];
   let assigned = 0;
   let skipped = 0;
@@ -252,11 +251,6 @@ router.post('/auto-assign-orphans', auth, requirePermission('articles.update'), 
       assigned++;
       results.push({ id: p.id, writer_id: writer.id, writer_name: writer.name });
 
-      if (p.status === 'approved' && !p.spawned_article_id) {
-        setImmediate(() => {
-          synthesizeFromPitch(p.id, req.tenantId).catch(err => console.error(`[pitches] bulk synth #${p.id} failed:`, err.message));
-        });
-      }
     } catch (err) {
       skipped++;
       results.push({ id: p.id, skipped: 'error', message: err.message });
@@ -306,19 +300,6 @@ router.post('/:id/auto-assign', auth, requirePermission('articles.update'), requ
   });
 
   let synthesisQueued = false;
-  if (pitch.status === 'approved' && !pitch.spawned_article_id) {
-    synthesisQueued = true;
-    const { synthesizeFromPitch } = require('../lib/synthesis');
-    setImmediate(() => {
-      synthesizeFromPitch(pitch.id, req.tenantId)
-        .then(r => {
-          if (r.ok) console.log(`[pitches] auto-assigned orphan #${pitch.id} synthesized → article ${r.article.id}`);
-          else console.warn(`[pitches] auto-assigned orphan #${pitch.id} synthesis skipped: ${r.reason}`);
-        })
-        .catch(err => console.error(`[pitches] auto-assigned orphan #${pitch.id} synthesis failed:`, err.message));
-    });
-  }
-
   res.json({
     status: 'assigned',
     pitch_id: pitch.id,
@@ -360,19 +341,6 @@ router.patch('/:id/assign', auth, requirePermission('articles.update'), requireP
   // Guard: respect the persisted skip_synthesis flag so editors who explicitly
   // opted out during approval don't get synthesis triggered by a later assign.
   let synthesisQueued = false;
-  if (pitch.status === 'approved' && !pitch.spawned_article_id && !pitch.skip_synthesis) {
-    synthesisQueued = true;
-    const { synthesizeFromPitch } = require('../lib/synthesis');
-    setImmediate(() => {
-      synthesizeFromPitch(pitch.id, req.tenantId)
-        .then(r => {
-          if (r.ok) console.log(`[pitches] orphan pitch #${pitch.id} synthesized → article ${r.article.id}`);
-          else console.warn(`[pitches] orphan pitch #${pitch.id} synthesis skipped: ${r.reason}`);
-        })
-        .catch(err => console.error(`[pitches] orphan pitch #${pitch.id} synthesis failed:`, err.message));
-    });
-  }
-
   res.json({ status: 'assigned', pitch_id: pitch.id, writer: writer, synthesis_queued: synthesisQueued });
 }));
 
@@ -400,16 +368,17 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
   }
 
   // Persist skip_synthesis so the intent survives a later /assign call
-  const persistSkip = req.body?.skip_synthesis === true;
-  await db.prepare(`
+  const persistSkip = true; // Approval never starts paid generation.
+  const decision=await db.prepare(`
     UPDATE article_pitches
     SET status = 'approved',
         decided_by_user_id = $1,
         decided_at = NOW(),
         decision_note = $2,
         skip_synthesis = $3
-    WHERE id = $4 AND tenant_id = $5
-  `).run(req.user?.sub || null, note || null, persistSkip, pitch.id, req.tenantId);
+    WHERE id = $4 AND tenant_id = $5 AND status='proposed' RETURNING id
+  `).get(req.user?.sub || null, note || null, persistSkip, pitch.id, req.tenantId);
+  if(!decision)return res.status(409).json({error:'Pitch changed. Reload before deciding.'});
 
   // Burn any outstanding action tokens for this pitch so the bell won't show
   // stale Approve/Reject buttons when the decision was made directly here.
@@ -462,47 +431,21 @@ router.post('/:id/approve', auth, requirePermission('articles.update'), requireP
   // Kick off synthesis in the background unless the editor opted out (persisted
   // to DB above) OR we still don't have a writer. Re-read skip_synthesis from
   // the DB value we just wrote so the check is authoritative.
-  const skipSynthesis = persistSkip || !assignedWriterId;
-  if (!skipSynthesis) {
-    const { synthesizeFromPitch } = require('../lib/synthesis');
-    setImmediate(() => {
-      synthesizeFromPitch(pitch.id, req.tenantId)
-        .then(r => {
-          if (r.ok) console.log(`[pitches] pitch #${pitch.id} synthesized → article ${r.article.id}`);
-          else console.warn(`[pitches] pitch #${pitch.id} synthesis skipped: ${r.reason}`);
-        })
-        .catch(err => console.error(`[pitches] pitch #${pitch.id} synthesis failed:`, err.message));
-    });
-  }
-
+  // The separate commission action owns explicit paid generation.
   res.json({
     status: 'approved',
     pitch_id: pitch.id,
-    synthesis_queued: !skipSynthesis,
+    synthesis_queued: false,
+    workflow_href: 'newsroom-workflow.html?kind=pitch&id='+pitch.id,
     auto_assigned_writer_id: autoAssigned ? assignedWriterId : null,
   });
 }));
 
-// POST /api/pitches/:id/retry-synthesis — re-queue synthesis for a stuck approved pitch
-router.post('/:id/retry-synthesis', auth, requirePermission('articles.update'), requirePitchesEnabled, asyncHandler(async (req, res) => {
-  const pitch = await db.prepare(
-    'SELECT * FROM article_pitches WHERE id = $1 AND tenant_id = $2 AND is_editor_assignment=false'
-  ).get(req.params.id, req.tenantId);
-  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
-  if (pitch.status !== 'approved') return res.status(409).json({ error: `Pitch is ${pitch.status}, not approved` });
-  if (pitch.spawned_article_id) return res.status(409).json({ error: 'Pitch already has a spawned article' });
-
-  const { synthesizeFromPitch } = require('../lib/synthesis');
-  setImmediate(() => {
-    synthesizeFromPitch(pitch.id, req.tenantId)
-      .then(r => {
-        if (r.ok) console.log(`[pitches] retry #${pitch.id} synthesized → article ${r.article.id}`);
-        else console.warn(`[pitches] retry #${pitch.id} synthesis skipped: ${r.reason}`);
-      })
-      .catch(err => console.error(`[pitches] retry #${pitch.id} synthesis failed:`, err.message));
-  });
-
-  res.json({ status: 'ok', queued: true });
+// Legacy retries must reconnect to the durable, explicitly confirmed commission flow.
+router.post('/:id/retry-synthesis',auth,requirePermission('articles.update'),requirePitchesEnabled,asyncHandler(async(req,res)=>{
+ const pitch=await db.prepare('SELECT id FROM article_pitches WHERE id=$1 AND tenant_id=$2 AND is_editor_assignment=false').get(req.params.id,req.tenantId);
+ if(!pitch)return res.status(404).json({error:'Pitch not found'});
+ res.status(409).json({error:'Open a commission and explicitly confirm paid drafting. No generation was started.',workflow_href:'newsroom-workflow.html?kind=pitch&id='+pitch.id});
 }));
 
 // POST /api/pitches/:id/reject — body: { note? }

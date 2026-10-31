@@ -138,6 +138,8 @@
     renderPitchesGrid(pitches);
   }
 
+  function workflowLink(kind,id){return '<a class="btn btn-outline btn-sm" href="/newsroom-workflow.html?kind='+kind+'&id='+Number(id)+'">Workspace</a>';}
+
   function makePitchCardHtml(p, withCb) {
     var typeLabels = { new_story: 'New Story', follow_up: 'Follow-Up', roundup: 'Roundup', prediction_check: 'Prediction Check' };
     var sc = (p.source_article_ids || []).length || 1;
@@ -165,13 +167,13 @@
     var headlineArg = JSON.stringify(p.headline || '').replace(/"/g, '&quot;');
     var actions = '';
     if (isOpenPitch(p)) {
-      actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve & Write</button>'
+      actions = '<button class="btn btn-primary btn-sm" onclick="tryApprovePitch(' + p.id + ',' + sc + ')">&#10003; Approve (no generation)</button>'
         + '<button class="btn btn-outline btn-sm" onclick="openEnrichSources(' + p.id + ',&quot;story&quot;,' + existingIdsJson + ',' + headlineArg + ')">Enrich sources</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="dismissPitch(' + p.id + ')">&#8211; Dismiss</button>';
     } else {
       actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
         : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
-          + (!p.spawned_article_id ? ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>' : '')
+
         : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
     }
     var isPending = isOpenPitch(p);
@@ -193,7 +195,7 @@
       + (memRefs.length ? 'Connects to: ' + memRefs.map(function (r) { return esc(r); }).join(', ') + ' &middot; ' : '')
       + relativeTime(p.created_at)
       + '</div>'
-      + '<div class="pitch-actions">' + actions + '</div>'
+      + '<div class="pitch-actions">' + actions + workflowLink('story_pitch',p.id) + '</div>'
       + '</div>';
   }
 
@@ -246,7 +248,7 @@
       } else {
         actions = p.status === 'synthesized' ? '<span class="badge badge-success">Synthesized</span>'
           : p.status === 'approved' ? '<span class="badge badge-accent">Approved</span>'
-            + (!p.spawned_article_id ? ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="approvePitch(' + p.id + ')">&#8635; Retry</button>' : '')
+
           : p.status === 'dismissed' ? '<span class="badge badge-muted">Dismissed</span>' : '';
       }
 
@@ -259,7 +261,7 @@
         + '<div>' + sourceChip + '</div>'
         + '<div>' + priBadge + '</div>'
         + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
-        + '<div class="pitch-list-actions">' + actions + '</div>'
+        + '<div class="pitch-list-actions">' + actions + workflowLink('story_pitch',p.id) + '</div>'
         + '</div>';
     }).join('');
 
@@ -346,7 +348,7 @@
         + '<div>' + sourceChip + '</div>'
         + '<div>' + priBadge + '</div>'
         + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
-        + '<div class="pitch-list-actions">' + actions + '</div>'
+        + '<div class="pitch-list-actions">' + actions + workflowLink('story_pitch',p.id) + '</div>'
         + '</div>';
     }
 
@@ -447,7 +449,7 @@
       var p = _allPitchesCache.find(function (p) { return p.id === id; });
       return p && (p.source_article_ids || []).length < 2;
     });
-    var msg = 'Approve ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '?';
+    var msg = 'Approve ' + ids.length + ' pitch' + (ids.length !== 1 ? 'es' : '') + '? This does not generate a draft. Open its commission workspace when ready to draft.';
     if (weak.length) msg += '\n\n' + weak.length + ' pitch' + (weak.length !== 1 ? 'es have' : ' has') + ' only 1 source and may fail editorial review.';
     if (!confirm(msg)) return;
     var bar = document.getElementById('pitchBulkBar');
@@ -512,12 +514,7 @@
     var restore = optimisticRemovePitchCard(id);
     try {
       var data = await apiFetch('/admin/pitches/' + id + '/approve', { method: 'POST' });
-      if (data.article) {
-        showAlert('Pitch approved! Article "' + data.article.title + '" created.');
-      } else {
-        var reason = data.synthesis_skip_reason ? ' (' + data.synthesis_skip_reason + ')' : '';
-        showAlert('Pitch approved — synthesis skipped' + reason + '.', 'warning');
-      }
+      showAlert('Pitch approved. No generation was requested. Open its workspace to prepare a commission.');
       loadPitches();
     } catch (err) {
       restore();
@@ -772,7 +769,7 @@
     } else if (p.status === 'approved') {
       html += '<span class="badge badge-accent" style="align-self:center;">Approved</span>';
       if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
-      else html += '<button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="retryCommissionSynthesis(' + p.id + ')">&#8635; Retry</button>';
+      else html += '<button class="btn btn-ghost btn-sm" title="Open drafting workspace" onclick="retryCommissionSynthesis(' + p.id + ')">Open workspace</button>';
     } else if (p.status === 'published') {
       html += '<span class="badge badge-success" style="align-self:center;">Published</span>';
       if (p.spawned_article_id) html += '<a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">→ Open article</a>';
@@ -781,7 +778,7 @@
       html += '<button class="btn btn-primary btn-sm" onclick="autoAssignCommission(' + p.id + ')" title="Pick the best writer automatically via beat match">&#127919; Auto-assign</button>'
         + '<button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign writer…</button>';
     }
-    html += '</div></div>';
+    html += workflowLink('pitch',p.id)+'</div></div>';
     return html;
   }
 
@@ -835,7 +832,7 @@
       } else if (p.status === 'approved') {
         actions = '<span class="badge badge-accent">Approved</span>';
         if (p.spawned_article_id) actions += ' <a class="btn btn-ghost btn-sm" href="/article-editor.html?id=' + p.spawned_article_id + '">&#8594; Article</a>';
-        else actions += ' <button class="btn btn-ghost btn-sm" title="Re-queue synthesis" onclick="retryCommissionSynthesis(' + p.id + ')">&#8635; Retry</button>';
+        else actions += ' <button class="btn btn-ghost btn-sm" title="Open drafting workspace" onclick="retryCommissionSynthesis(' + p.id + ')">Open workspace</button>';
         if (!p.pitched_by_writer_id) actions += ' <button class="btn btn-ghost btn-sm" onclick="openReassignCommission(' + p.id + ')">Assign…</button>';
       } else if (p.status === 'published') {
         actions = '<span class="badge badge-success">Published</span>';
@@ -855,7 +852,7 @@
         + '<div style="font-size:12px;">' + esc(p.source_category || '') + '</div>'
         + '<div>' + sourceChip + '</div>'
         + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
-        + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + '</div>'
+        + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + workflowLink('pitch',p.id) + '</div>'
         + '</div>';
     }).join('');
 
@@ -930,7 +927,7 @@
       + '<div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + midCol + '</div>'
       + '<div>' + sourceChip + '</div>'
       + '<div style="font-size:12px;color:var(--muted);white-space:nowrap;">' + relativeTime(p.created_at) + '</div>'
-      + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + '</div>'
+      + '<div style="display:flex;gap:4px;flex-wrap:nowrap;">' + actions + workflowLink('pitch',p.id) + '</div>'
       + '</div>';
   }
 
@@ -1112,7 +1109,7 @@
     try {
       var resp = await apiFetch('/pitches/' + id + '/approve', { method: 'POST', body: JSON.stringify({}) });
       if (resp && resp.synthesis_queued === false) {
-        toast('Approved. No synthesis queued (editor tip awaiting writer assignment).', 'success');
+        toast('Approved without generation. Open the workspace for the next step.', 'success');
       } else {
         toast('Commission approved.', 'success');
       }
@@ -1135,13 +1132,8 @@
   };
 
   window.retryCommissionSynthesis = async function (id) {
-    try {
-      await apiFetch('/pitches/' + id + '/retry-synthesis', { method: 'POST', body: JSON.stringify({}) });
-      toast('Synthesis re-queued — article will appear shortly.', 'success');
-      setTimeout(loadCommissions, 3000);
-    } catch (err) {
-      toast('Retry failed: ' + (err.message || err), 'error');
-    }
+    if(!Number.isSafeInteger(Number(id))||Number(id)<1)return;
+    location.href='/newsroom-workflow.html?kind=pitch&id='+Number(id);
   };
 
   window.rejectCommission = async function (id) {

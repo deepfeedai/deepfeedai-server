@@ -340,8 +340,8 @@ app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/articles',  largeBodyParser, require('./routes/articles'));
 app.use('/api/feed-groups', require('./routes/feed-groups'));
 app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/editor-assignments', require('./routes/editor-assignments'));
-app.use('/api/pitches',   require('./routes/pitches'));
+app.use('/api/editor-assignments', adminWriteLimiter, require('./routes/editor-assignments'));
+app.use('/api/pitches', adminWriteLimiter, require('./routes/pitches'));
 app.use('/api/actions',   require('./routes/actions'));   // cross-channel signed-token action dispatch (PR-B)
 app.use('/api/admin-notifications', require('./routes/admin-notifications')); // admin bell + notifications page (PR-D)
 app.use('/api/research',  require('./routes/research'));
@@ -359,6 +359,7 @@ app.use('/api/writers',   require('./routes/writers'));
 app.use('/api/settings',     largeBodyParser, require('./routes/settings'));
 app.use('/api/reader/open', require('./routes/reader-entry'));
 app.use('/api/newsroom-overview', require('./routes/newsroom-overview'));
+app.use('/api/newsroom-workflow', adminWriteLimiter, require('./routes/newsroom-workflow'));
 app.use('/api/editions', adminWriteLimiter, require('./routes/editions'));
 app.use('/api/reader', require('./routes/reader'));
 app.use('/api/categories',   require('./routes/categories'));
@@ -392,7 +393,7 @@ app.use('/api/admin/audit-log', require('./routes/admin-audit'));
 app.use('/api/admin/tenants', auth, require('./routes/admin-tenants'));
 app.use('/api/admin/writers',        auth, require('./routes/admin-writers'));
 app.use('/api/admin/writing-styles', auth, require('./routes/admin-writing-styles'));
-app.use('/api/admin/pitches', auth, require('./routes/admin-pitches'));
+app.use('/api/admin/pitches', adminWriteLimiter, auth, require('./routes/admin-pitches'));
 app.use('/api/admin/budget',  auth, require('./routes/admin-budget'));
 app.use('/api/admin/editorial-intelligence', auth, require('./routes/editorial-intelligence'));
 app.use('/api/newsroom-prefs', require('./routes/newsroom-prefs'));

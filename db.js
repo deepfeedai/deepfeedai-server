@@ -2162,6 +2162,7 @@ async function initDb() {
   await require('./lib/jobs/schema').initJobSchema(p);
 
   await require('./lib/editor-assignment-schema').initAssignmentSchema(p);
+  await require('./lib/newsroom-workflow-schema').initNewsroomWorkflowSchema(p);
   await require('./lib/story-ai').initStoryAiSchema(p);
   await require('./lib/publication').initPublicationSchema(p);
   await require('./lib/rss-schema').initRssSchema(p);
