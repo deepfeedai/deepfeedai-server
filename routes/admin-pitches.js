@@ -74,136 +74,19 @@ router.get('/', auth, requirePermission('articles.read'), asyncHandler(async (re
   });
 }));
 
-// POST /api/admin/pitches/:id/approve — approve and trigger synthesis
-router.post('/:id/approve', auth, requirePermission('articles.create'), asyncHandler(async (req, res) => {
-  const pitch = await db.prepare(
-    'SELECT * FROM story_pitches WHERE id = $1 AND tenant_id = $2'
-  ).get(req.params.id, req.tenantId);
-
-  if (!pitch) return res.status(404).json({ error: 'Pitch not found' });
-  if (!['pending', 'proposed', 'approved', 'synthesized'].includes(pitch.status)) return res.status(400).json({ error: 'Pitch already resolved' });
-
-  // Mark as approved
-  await db.prepare(
-    "UPDATE story_pitches SET status = 'approved', resolved_at = NOW() WHERE id = $1"
-  ).run(pitch.id);
-
-  const { recordEvent } = require('../lib/newsroom-events');
-  recordEvent({ tenantId: req.tenantId, type: 'pitch_approved', isPublic: true, isTerminal: false, headline: `Investigation greenlit: "${(pitch.headline || '').slice(0, 160)}"`, targetPitchId: pitch.id, payload: { pitch_id: pitch.id } }).catch(() => {});
-
-  // Get source articles for synthesis
-  const sourceIds = typeof pitch.source_article_ids === 'string'
-    ? JSON.parse(pitch.source_article_ids) : (pitch.source_article_ids || []);
-
-  let synthesized = null;
-  let synthesisSkipReason = null;
-
-  if (sourceIds.length < 2) {
-    synthesisSkipReason = `pitch has ${sourceIds.length} source(s) — need at least 2`;
-  } else {
-    try {
-      const { synthesizeCluster } = require('../lib/synthesis');
-      const sources = await db.prepare(
-        `SELECT * FROM articles WHERE id = ANY($1::int[]) AND tenant_id = $2`
-      ).all(sourceIds, req.tenantId);
-
-      if (sources.length < 2) {
-        synthesisSkipReason = `only ${sources.length} of ${sourceIds.length} source articles found in DB`;
-        console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
-      } else {
-        const writer = await db.prepare(
-          'SELECT * FROM writers WHERE id = $1 AND tenant_id = $2'
-        ).get(pitch.writer_id, req.tenantId);
-
-        if (!writer) {
-          synthesisSkipReason = `writer id=${pitch.writer_id} not found`;
-          console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
-        } else {
-          let storyBrief = null;
-          if (pitch.story_brief_id) {
-            storyBrief = await db.prepare(
-              'SELECT * FROM editorial_story_briefs WHERE id = $1 AND tenant_id = $2'
-            ).get(pitch.story_brief_id, req.tenantId).catch(() => null);
-          }
-          const briefTopic = storyBrief
-            ? [
-                storyBrief.headline,
-                storyBrief.angle ? `Angle: ${storyBrief.angle}` : null,
-                storyBrief.why_now ? `Why now: ${storyBrief.why_now}` : null,
-                storyBrief.audience_value ? `Audience value: ${storyBrief.audience_value}` : null,
-              ].filter(Boolean).join('\n')
-            : pitch.headline;
-          const cluster = {
-            topic: briefTopic,
-            articles: sources,
-            storyBrief: storyBrief ? {
-              id: storyBrief.id,
-              headline: storyBrief.headline,
-              angle: storyBrief.angle,
-              why_now: storyBrief.why_now,
-              audience_value: storyBrief.audience_value,
-            } : null,
-          };
-          synthesized = await synthesizeCluster(cluster, writer, req.tenantId);
-
-          if (synthesized) {
-            await db.prepare(
-              "UPDATE story_pitches SET status = 'synthesized', spawned_article_id = $2 WHERE id = $1"
-            ).run(pitch.id, synthesized.id);
-            if (storyBrief) {
-              let meta = {};
-              try { meta = typeof synthesized.synthesis_meta === 'string' ? JSON.parse(synthesized.synthesis_meta || '{}') : (synthesized.synthesis_meta || {}); } catch {}
-              meta.story_brief = {
-                id: storyBrief.id,
-                headline: storyBrief.headline,
-                angle: storyBrief.angle,
-                why_now: storyBrief.why_now,
-                audience_value: storyBrief.audience_value,
-              };
-              await db.prepare(
-                'UPDATE articles SET synthesis_meta = $1 WHERE id = $2 AND tenant_id = $3'
-              ).run(JSON.stringify(meta), synthesized.id, req.tenantId);
-            }
-            // Backlink article to budget slot if this pitch came from one
-            db.prepare(
-              "UPDATE news_budget_slots SET spawned_article_id = $1, updated_at = NOW() WHERE spawned_pitch_id = $2 AND tenant_id = $3"
-            ).run(synthesized.id, pitch.id, req.tenantId).catch(() => {});
-          } else {
-            synthesisSkipReason = 'synthesizeCluster returned null (check AI budget or quality gate)';
-            console.warn(`[pitches] approve #${pitch.id}: ${synthesisSkipReason}`);
-          }
-        }
-      }
-    } catch (err) {
-      synthesisSkipReason = err.message;
-      console.error('[pitches] synthesis from pitch failed:', err.message);
-    }
-  }
-
-  burnTokensByTarget('story_pitch', pitch.id, req.tenantId, req.user?.sub || null).catch(() => {});
-
-  // Detect cross-day scheduling: article created but publish_at is a future calendar day.
-  let scheduledForFutureDay = false;
-  if (synthesized?.publish_at) {
-    const { getAppConfig } = require('../lib/app-config');
-    const { todayInTz } = require('../lib/news-budget');
-    const cfg = await getAppConfig(req.tenantId).catch(() => ({}));
-    const tz = cfg.newsroom_timezone || 'UTC';
-    const articleDay = new Date(synthesized.publish_at).toLocaleDateString('en-CA', { timeZone: tz });
-    scheduledForFutureDay = articleDay > todayInTz(tz);
-  }
-
-  res.json({
-    status: 'ok',
-    pitch: { ...pitch, status: synthesized ? 'synthesized' : 'approved' },
-    article: synthesized ? { id: synthesized.id, title: synthesized.title, slug: synthesized.slug, publish_at: synthesized.publish_at } : null,
-    synthesis_skip_reason: synthesized ? null : synthesisSkipReason,
-    scheduled_for_future_day: scheduledForFutureDay || undefined,
-  });
+// Approval records an editorial decision only. Explicit paid drafting uses a commission.
+router.post('/:id/approve', auth, requirePermission('articles.update'), asyncHandler(async (req,res)=>{
+ const pitch=await db.prepare('SELECT * FROM story_pitches WHERE id=$1 AND tenant_id=$2').get(req.params.id,req.tenantId);
+ if(!pitch)return res.status(404).json({error:'Pitch not found'});
+ if(!['pending','proposed','approved','synthesized'].includes(pitch.status))return res.status(409).json({error:'Pitch already resolved'});
+ const updated=await db.prepare("UPDATE story_pitches SET status=CASE WHEN spawned_article_id IS NULL THEN 'approved' ELSE status END,resolved_at=COALESCE(resolved_at,NOW()) WHERE id=$1 AND tenant_id=$2 AND status IN ('pending','proposed','approved','synthesized') RETURNING *").get(pitch.id,req.tenantId);
+ if(!updated)return res.status(409).json({error:'Pitch changed. Reload before deciding.'});
+ burnTokensByTarget('story_pitch',pitch.id,req.tenantId,req.user?.sub||null).catch(()=>{});
+ res.json({status:'ok',pitch:updated,article:null,synthesis_queued:false,synthesis_skip_reason:'Approval does not generate a draft. Open a commission for explicit paid drafting.',workflow_href:'newsroom-workflow.html?kind=story_pitch&id='+pitch.id});
 }));
 
 // POST /api/admin/pitches/:id/dismiss — dismiss a pitch
-router.post('/:id/dismiss', auth, requirePermission('articles.read'), asyncHandler(async (req, res) => {
+router.post('/:id/dismiss', auth, requirePermission('articles.update'), asyncHandler(async (req, res) => {
   const result = await db.prepare(
     "UPDATE story_pitches SET status = 'dismissed', resolved_at = NOW() WHERE id = $1 AND tenant_id = $2 AND status IN ('pending','proposed','approved','synthesized') RETURNING *"
   ).get(req.params.id, req.tenantId);
