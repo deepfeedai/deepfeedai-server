@@ -28,3 +28,14 @@ test('expired API authentication preserves the current safe destination for logi
   assert.equal(cleared,true);
   assert.equal(context.window.location.href,'/login.html?next=%2Farticles.html%3Ftab%3Dreview%23item');
 });
+
+test('edition sign-in returns preserve only allowlisted local page destinations', () => {
+  assert.equal(resolveNext('/editions.html?id=12', origin), '/editions.html?id=12');
+  assert.equal(resolveNext('/edition-print.html?id=12#preview', origin), '/edition-print.html?id=12#preview');
+  assert.equal(resolveNext('/edition-print.html?id=12&token=private&secret=private', origin), '/edition-print.html?id=12');
+  for (const bad of ['https://evil.example/edition-print.html?id=12','//evil.example/editions.html','/edition-print.html/../api/editions/12','/edition-print.html.evil','/api/editions/public/12']) assert.equal(resolveNext(bad, origin), '/overview.html');
+  const data = new Map(), storage = {setItem:(k,v)=>data.set(k,v),getItem:k=>data.get(k),removeItem:k=>data.delete(k)};
+  remember({origin,search:'?next=%2Fedition-print.html%3Fid%3D12'},storage);
+  assert.equal(consume({origin,search:''},storage),'/edition-print.html?id=12');
+  assert.equal(consume({origin,search:''},storage),'/overview.html');
+});
