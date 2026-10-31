@@ -24,8 +24,8 @@ const csp = Object.entries({ ...directives, formAction: ["'self'"], upgradeInsec
   .map(([key, values]) => key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()) + (values.length ? ' ' + values.join(' ') : '')).join(';');
 let browser;
 const lorem = 'The newsroom examines evidence carefully and gives each conclusion context. Editors compare primary sources, check dates, and preserve attribution before publication. Readers need clear explanations that distinguish verified findings from uncertainty. This fixture is synthetic text for print layout testing and contains no user content. A readable newspaper keeps paragraphs intact where practical, allows long stories to continue naturally, and never hides the end of an article. ';
-const article = (id, paragraphs) => ({ article_id: id, title: id === 1 ? 'A considered view of a changing world' : 'What careful reporting makes possible', byline: 'Test Editor ' + id, category: id === 1 ? 'The lead / Analysis' : 'Research & practice', source_updated_at: '2026-10-30T12:00:00Z', image_path: id === 1 ? '/api/editions/1/assets/1' : null, content: 'START-ARTICLE-' + id + '\n\n' + Array.from({ length: paragraphs }, (_, n) => (n % 4 === 0 ? '## Evidence and perspective ' + n + '\n\n' : '') + lorem.repeat(2)).join('\n\n') + '\n\nEND-ARTICLE-' + id });
-const base = { id: 1, name: 'The Daily Perspective', issue_date: '2026-10-30', status: 'finalized', mode: 'published', visibility: 'private', revision: 1, lead_article_id: 1, settings: { paper: 'Letter', images: true, ink_saving: false }, articles: [article(1, 2)] };
+const article = (id, paragraphs) => ({ article_id: id, title: id === 1 ? 'A considered view of a changing world' : 'What careful reporting makes possible', byline: 'Test Editor ' + id, category: id === 1 ? 'The lead / Analysis' : 'Research & practice', source_updated_at: '2026-10-30T12:00:00Z', image_path: id === 1 ? '/api/editions/11111111-1111-4111-8111-111111111111/assets/1' : null, content: 'START-ARTICLE-' + id + '\n\n' + Array.from({ length: paragraphs }, (_, n) => (n % 4 === 0 ? '## Evidence and perspective ' + n + '\n\n' : '') + lorem.repeat(2)).join('\n\n') + '\n\nEND-ARTICLE-' + id });
+const base = { id: '11111111-1111-4111-8111-111111111111', name: 'The Daily Perspective', issue_date: '2026-10-30', status: 'finalized', mode: 'published', visibility: 'private', revision: 1, lead_article_id: 1, settings: { paper: 'Letter', images: true, ink_saving: false }, articles: [article(1, 2)] };
 const server = http.createServer((req, res) => {
   const name = new URL(req.url, 'http://localhost').pathname;
   if (!['/edition-print.html', '/edition-print.css', '/edition-print.js'].includes(name)) { res.writeHead(404); return res.end(); }
@@ -59,7 +59,7 @@ async function main() {
     window.editionCspViolations = [];
     document.addEventListener('securitypolicyviolation', event => window.editionCspViolations.push({ directive: event.effectiveDirective, blocked: event.blockedURI }));
   });
-  await page.goto(origin + '/edition-print.html?id=1');
+  await page.goto(origin + '/edition-print.html?id=11111111-1111-4111-8111-111111111111');
   // Generate an unmistakably synthetic local image for layout checks.
   imageBody = Buffer.from(await page.evaluate(() => {
     const c = document.createElement('canvas'); c.width = 1400; c.height = 600; const x = c.getContext('2d');
@@ -70,7 +70,7 @@ async function main() {
   }), 'base64');
   const errors = []; page.on('pageerror', err => errors.push(err.message));
   async function ready(publicMode = false) {
-    await page.goto(origin + '/edition-print.html?id=1' + (publicMode ? '&public=1' : ''));
+    await page.goto(origin + '/edition-print.html?id=11111111-1111-4111-8111-111111111111' + (publicMode ? '&public=1' : ''));
     await page.waitForSelector('body.print-ready');
     await page.locator('#editionPrint').waitFor({ state: 'visible' });
   }
@@ -79,7 +79,7 @@ async function main() {
     assert.equal(await page.locator('.edition-figure img').evaluateAll(images => images.filter(image => !image.hidden && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0).length), expected);
     assert.deepEqual(await page.evaluate(() => window.editionCspViolations), []);
   }
-  const fiveImages = (publicMode) => Array.from({ length: 5 }, (_, index) => ({ ...article(index + 1, 1), image_path: '/api/editions/' + (publicMode ? 'public/' : '') + '1/assets/' + (index + 1) }));
+  const fiveImages = (publicMode) => Array.from({ length: 5 }, (_, index) => ({ ...article(index + 1, 1), image_path: '/api/editions/' + (publicMode ? 'public/' : '') + '11111111-1111-4111-8111-111111111111/assets/' + (index + 1) }));
   if (process.env.EDITION_CSP_BASELINE === '1') {
     current = { ...structuredClone(base), visibility: 'public', articles: fiveImages(true) };
     await ready(true);
@@ -136,12 +136,12 @@ async function main() {
   await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
   assert.equal(await page.locator('#editionPaper').innerHTML(), ''); assert.equal(await page.locator('#editionPrint').isDisabled(), true);
   await page.pdf({ path: path.join(out, 'unavailable.pdf'), preferCSSPageSize: true });
-  denyDetail = false; current.visibility = 'public'; current.articles[0].image_path = '/api/editions/public/1/assets/1'; await ready(true);
+  denyDetail = false; current.visibility = 'public'; current.articles[0].image_path = '/api/editions/public/11111111-1111-4111-8111-111111111111/assets/1'; await ready(true);
   denyImage = true; await page.locator('#editionReload').click();
   await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
   assert.equal(await page.locator('#editionPaper').innerHTML(), '');
   // Finalized proof can never render on the public route, even if an API regresses.
-  denyImage = false; current.mode = 'proof'; await page.goto(origin + '/edition-print.html?id=1&public=1');
+  denyImage = false; current.mode = 'proof'; await page.goto(origin + '/edition-print.html?id=11111111-1111-4111-8111-111111111111&public=1');
   await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
   assert.equal(await page.locator('#editionPaper').innerHTML(), '');
   current = { ...structuredClone(base), articles: [{ article_id: 1, title: 'Summary-only article', content: 'Saved summary', text_kind: 'excerpt' }] };
@@ -189,7 +189,7 @@ async function main() {
   // Contributor snapshots: actual portrait decoding under production CSP and flowing PDFs.
   const profile = { writer_id: 3, name: 'Amina / fixture persona', kind: 'ai_persona', role: 'writer', focus: 'Business', bio: ('This configured persona focuses on explaining business and technology. ').repeat(25), contribution: 'Assigned writer for this article', profile_version: 'fixture-v1' };
   for (const paper of ['Letter', 'A4']) {
-    const portrait = '/api/editions/1/portraits/1';
+    const portrait = '/api/editions/11111111-1111-4111-8111-111111111111/portraits/1';
     current = { ...structuredClone(base), mode: 'proof', settings: { paper, images: true, ink_saving: paper === 'A4', portraits: true, contributors: true }, articles: [1, 2].map(id => ({ ...article(id, 1), contributor: profile, portrait_path: portrait })), contributors: [{ writer_id: 3, article_count: 2, versions: [{ ...profile, portrait_path: portrait, article_ids: [1, 2] }] }] };
     await ready();
     assert.equal(await page.locator('.edition-portrait img').evaluateAll(images => images.filter(i => !i.hidden && i.naturalWidth > 0).length), 3);
@@ -213,7 +213,7 @@ async function main() {
   assert.equal(await page.locator('.edition-portrait img:not([hidden])').count(), 3);
   current.mode = 'published'; current.visibility = 'public';
   current.articles.forEach(a => { if (a.image_path) a.image_path = a.image_path.replace('/editions/', '/editions/public/'); a.portrait_path = a.portrait_path.replace('/editions/', '/editions/public/'); });
-  current.contributors[0].versions[0].portrait_path = '/api/editions/public/1/portraits/1';
+  current.contributors[0].versions[0].portrait_path = '/api/editions/public/11111111-1111-4111-8111-111111111111/portraits/1';
   await ready(true); assert.equal(await page.locator('.edition-portrait img:not([hidden])').count(), 3);
   denyImage = true; await page.locator('#editionReload').click();
   await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
@@ -221,6 +221,12 @@ async function main() {
   denyImage = false;
   current.settings.images = false; await ready(true); assert.equal(await page.locator('.edition-portrait').count(), 0);
   current.settings.contributors = false; await ready(true); assert.equal(await page.locator('.edition-contributors').count(), 0);
+  const beforeNumericPublic = requestCount;
+  await page.goto(origin + '/edition-print.html?id=1&public=1');
+  await page.waitForFunction(() => document.getElementById('editionStatus').classList.contains('error'));
+  assert.equal(requestCount, beforeNumericPublic); assert.equal(await page.locator('#editionPaper').innerHTML(), '');
+  current = structuredClone(base); await page.goto(origin + '/edition-print.html?id=1'); await page.waitForSelector('body.print-ready');
+  assert.equal(new URL(page.url()).searchParams.get('id'), base.id);
   assert.equal(paidRequests, 0); assert.deepEqual(errors, []);
   fs.writeFileSync(path.join(out, 'browser-results.json'), JSON.stringify({ browser: await browser.version(), cases: cases.map(([name]) => name), paperSizes: ['Letter', 'A4'], mobileWidth: 390, csp, checked: ['production CSP enforced', 'five private proof images decoded', 'five public images decoded', 'image fetch retry without snapshot mutation', 'safe Markdown formatting and literal citation markers', 'saved source footers', 'per-article citation anchors', 'unknown source warnings', 'unsafe source URLs omitted', 'safe paper flow', 'proof watermark', 'images off', 'missing private image fallback', 'print revalidation', 'repeated click guard', 'withdrawal clears DOM', 'public asset withdrawal clears DOM', 'public proof rejection', 'keyboard focus', 'mobile overflow', 'contributor snapshot portraits', 'contributor Letter/A4 PDFs', 'deduplicated profiles', 'portrait retry and images-off'], paidRequests, errors }, null, 2));
   await browser.close(); server.close(); console.log('Edition print browser fixtures passed: ' + out);

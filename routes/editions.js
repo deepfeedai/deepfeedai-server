@@ -19,6 +19,12 @@ router.get('/:id',asyncHandler(async(req,res)=>res.json({edition:await editions.
 router.put('/:id',requirePermission('articles.update'),asyncHandler(async(req,res)=>res.json({edition:await editions.update(req.tenantId,req.params.id,req.body)})));
 router.post('/:id/refresh',requirePermission('articles.update'),asyncHandler(async(req,res)=>res.json({edition:await editions.refresh(req.tenantId,req.params.id,req.body.revision)})));
 router.post('/:id/finalize',requirePermission('articles.update'),asyncHandler(async(req,res)=>res.json({edition:await editions.finalize(req.tenantId,req.params.id,req.body.revision)})));
-router.post('/:id/visibility',requirePermission('articles.publish'),asyncHandler(async(req,res)=>res.json({edition:await editions.visibility(req.tenantId,req.params.id,req.body.revision,req.body.visibility)})));
+router.post('/:id/visibility',requirePermission('articles.publish'),asyncHandler(async(req,res)=>res.json({edition:await editions.visibility(req.tenantId,req.params.id,req.body.revision,req.body.visibility,req.user.sub,req.body.reason)})));
+router.get('/:id/history',asyncHandler(async(req,res)=>res.json({history:await editions.history(req.tenantId,req.params.id)})));
+for(const action of ['retract','archive','restore','rename']){
+  const permission=['retract','archive'].includes(action)?'articles.publish':'articles.update';
+  router.post('/:id/'+action,requirePermission(permission),...(action==='archive'?[requirePermission('articles.update')]:[]),asyncHandler(async(req,res)=>res.json({edition:await editions.lifecycle(req.tenantId,req.params.id,req.user.sub,action,req.body,{canPublish:(req.user.permissions||[]).some(p=>['*','articles.*','articles.publish'].includes(p))})})));
+}
+router.delete('/:id',requirePermission('articles.delete'),asyncHandler(async(req,res)=>res.json(await editions.lifecycle(req.tenantId,req.params.id,req.user.sub,'delete',req.body))));
 router.use((error,req,res,next)=>{const status=Number(error.status)||500;res.status(status>=400&&status<500?status:500).json({error:status>=400&&status<500?error.message:'Edition could not be loaded or saved. Please retry.'});});
 module.exports=router;

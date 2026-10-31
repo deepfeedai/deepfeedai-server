@@ -36,6 +36,46 @@ Browser preview rechecks when returning to the tab and before its Print action.
 Previously downloaded, displayed, cached externally or physically printed copies
 cannot be recalled; sharing an issue should be a deliberate editorial decision.
 
+## Rename, retract, archive and delete
+
+Finalization freezes article content, order, images, references and contributor
+profiles. **Rename edition** changes only the issue's display title, including
+the masthead on subsequent previews and shared views. It does not regenerate or
+refresh any article snapshot. Renaming a public issue also requires publishing
+permission. The old/new title and actor are recorded in history.
+
+**Retract public edition** requires a reason and publishing permission. It makes
+the issue private immediately for subsequent public text/image/portrait requests,
+while retaining authorized internal access. Already downloaded/printed copies
+cannot be recalled. **Archive edition** also makes it private and hides it from
+the Active list; use the Archived filter to find it. **Restore** returns it to
+the active list privately, never automatically sharing it. Archiving requires
+update and publishing permissions; restoring requires update permission.
+
+**Permanently delete** is available only after archiving and requires delete
+permission, a reason and the exact issue title. It removes that edition's saved
+text and image/portrait copies transactionally. Original articles, writer portraits
+and snapshots belonging to other editions are untouched. Minimal audit history
+survives deletion; existing backup retention is unchanged. A failed database cleanup
+rolls back the deletion. If a response is lost, reload/check history before retrying;
+an already-deleted issue returns unavailable rather than being recreated.
+
+Actions use revision checks. If another editor changes an issue, reload its latest
+state before trying again. The selected row always reflects the edition actually
+loaded in the editor, including after renaming and browser Back/Forward.
+
+## Edition URLs
+
+Edition links now use stable random UUIDs. Internal sequential database keys remain
+internal; opaque URLs are defense in depth, not authorization credentials. Private
+issues still require sign-in and permission, and public links still require sharing
+and eligible published articles. IDs are assigned once and are not rotated on startup.
+
+Old authenticated numeric editor/private-preview bookmarks can resolve to the new
+canonical URL. **Old public numeric URLs no longer work and are not redirected.**
+Open the issue in the editor and copy its new share link. This migration changes
+identifiers only, not the issue's title, revision, visibility or saved contents.
+
 ## Print behavior and limits
 
 The screen preview is continuous and approximate. Browser print preview determines

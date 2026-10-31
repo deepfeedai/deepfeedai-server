@@ -25,15 +25,15 @@ test('Every working edition and private proof is visibly marked DRAFT; finalized
 test('Print settings are bounded and images-off removes all image placeholders and notices', () => {
   assert.deepEqual(print.normalizedSettings({ settings: { paper: 'A4', ink_saving: true, images: false } }), { paper: 'A4', ink: true, images: false });
   assert.equal(print.normalizedSettings({ settings: { paper: 'A4; url(evil)' } }).paper, 'Letter');
-  const markup = print.paperMarkup({ ...edition, settings: { images: false }, articles: [{ article_id: 1, image_path: '/api/editions/1/assets/1', image_notice: 'A missing image', content: 'Text retained' }] });
+  const markup = print.paperMarkup({ ...edition, settings: { images: false }, articles: [{ article_id: 1, image_path: '/api/editions/11111111-1111-4111-8111-111111111111/assets/1', image_notice: 'A missing image', content: 'Text retained' }] });
   assert.doesNotMatch(markup, /<img|<figure|A missing image/); assert.match(markup, /Text retained/);
 });
 test('Private archive withdrawal notice is explicit and image paths cannot leak authorization to another route', () => {
   assert.match(print.paperMarkup({ ...edition, articles: [{ article_id: 1, withdrawn: true, content: 'Archived text' }] }), /no longer publicly available/);
-  assert.equal(print.safeAssetPath('/api/editions/1/assets/22', false), '/api/editions/1/assets/22');
-  assert.equal(print.safeAssetPath('/api/editions/public/1/assets/22', true), '/api/editions/public/1/assets/22');
-  for (const route of ['https://evil.invalid/a.png', '//evil.invalid', '/api/editions/1/assets/22?secret=x', '/api/editions/../settings', '/api/editions/1/assets/%2e%2e', '/api/editions/public/1/assets/22']) assert.equal(print.safeAssetPath(route, false), null);
-  assert.equal(print.safeAssetPath('/api/editions/1/assets/22', true), null);
+  assert.equal(print.safeAssetPath('/api/editions/11111111-1111-4111-8111-111111111111/assets/22', false), '/api/editions/11111111-1111-4111-8111-111111111111/assets/22');
+  assert.equal(print.safeAssetPath('/api/editions/public/11111111-1111-4111-8111-111111111111/assets/22', true), '/api/editions/public/11111111-1111-4111-8111-111111111111/assets/22');
+  for (const route of ['https://evil.invalid/a.png', '//evil.invalid', '/api/editions/11111111-1111-4111-8111-111111111111/assets/22?secret=x', '/api/editions/../settings', '/api/editions/11111111-1111-4111-8111-111111111111/assets/%2e%2e', '/api/editions/public/11111111-1111-4111-8111-111111111111/assets/22']) assert.equal(print.safeAssetPath(route, false), null);
+  assert.equal(print.safeAssetPath('/api/editions/11111111-1111-4111-8111-111111111111/assets/22', true), null);
 });
 test('Print stylesheet allows flowing multipage columns and hides controls, with no simulated page numbers', () => {
   const css = fs.readFileSync(path.join(__dirname, '../public/edition-print.css'), 'utf8');
@@ -90,4 +90,12 @@ test('image conversion errors reject cleanly and allow a fresh retry', async () 
   await assert.rejects(print.rasterDataUrl({ FileReader: Reader }, image, new AbortController().signal), /could not be read/);
   fail = false;
   assert.equal(await print.rasterDataUrl({ FileReader: Reader }, image, new AbortController().signal), 'data:image/png;base64,AQID');
+});
+test('Opaque edition asset URLs reject numeric public and private namespaces', () => {
+ assert.equal(print.safeAssetPath('/api/editions/public/1/assets/2', true), null);
+ assert.equal(print.safeAssetPath('/api/editions/1/portraits/2', false), null);
+});
+test('Renaming issue presentation changes masthead without modifying article snapshot text', () => {
+ const renamed = print.paperMarkup({ ...edition, name: 'Renamed issue title' });
+ assert.match(renamed, /Renamed issue title/); assert.match(renamed, /Paragraph one/); assert.match(renamed, /First article/);
 });

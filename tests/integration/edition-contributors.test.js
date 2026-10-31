@@ -51,13 +51,13 @@ test('contributor real routes preserve snapshots, references, tenant privacy and
   });
   await t.test('legacy finalized snapshots stay byte-for-byte unchanged without live profile fallback',async()=>{
    const legacy=(await req('','POST',{...input,mode:'proof',request_id:crypto.randomUUID()})).body.edition;
-   await pool.query("UPDATE newspaper_edition_articles SET snapshot=snapshot-'contributor',portrait_data=NULL,portrait_mime=NULL WHERE edition_id=$1",[legacy.id]);
+   await pool.query("UPDATE newspaper_edition_articles SET snapshot=snapshot-'contributor',portrait_data=NULL,portrait_mime=NULL WHERE edition_id=(SELECT id FROM newspaper_editions WHERE public_id=$1)",[legacy.id]);
    const finalized=(await req('/'+legacy.id+'/finalize','POST',{revision:legacy.revision})).body.edition;
-   const before=(await pool.query('SELECT snapshot::text FROM newspaper_edition_articles WHERE edition_id=$1 ORDER BY position',[legacy.id])).rows;
+   const before=(await pool.query('SELECT snapshot::text FROM newspaper_edition_articles WHERE edition_id=(SELECT id FROM newspaper_editions WHERE public_id=$1) ORDER BY position',[legacy.id])).rows;
    await require('../../lib/edition-schema').initEditionSchema(pool);
    const result=(await req('/'+legacy.id)).body.edition;
    assert.equal(result.revision,finalized.revision);assert.deepEqual(result.contributors,[]);assert.equal(result.articles[0].contributor,undefined);assert.equal(result.articles[0].portrait_path,null);
-   assert.deepEqual((await pool.query('SELECT snapshot::text FROM newspaper_edition_articles WHERE edition_id=$1 ORDER BY position',[legacy.id])).rows,before);
+   assert.deepEqual((await pool.query('SELECT snapshot::text FROM newspaper_edition_articles WHERE edition_id=(SELECT id FROM newspaper_editions WHERE public_id=$1) ORDER BY position',[legacy.id])).rows,before);
   });
   await t.test('hero and portrait captures share a bounded edition budget; rejection is atomic',async()=>{
    // The valid tiny PNG header is padded within the same per-file bound. No decoding or AI occurs.

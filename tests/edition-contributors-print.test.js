@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { paperMarkup, safeAssetPath } = require('../public/edition-print');
 const contributor = { writer_id: 3, name: 'Amina', kind: 'ai_persona', role: 'writer', focus: 'Business', bio: 'Configured focus on businesses.', contribution: 'Assigned writer for this article', profile_version: 'v1' };
-const article = { article_id: 8, title: 'Business today', byline: 'Saved author', content: 'Saved text', contributor, portrait_path: '/api/editions/1/portraits/8' };
+const article = { article_id: 8, title: 'Business today', byline: 'Saved author', content: 'Saved text', contributor, portrait_path: '/api/editions/11111111-1111-4111-8111-111111111111/portraits/8' };
 const edition = { name: 'Test edition', mode: 'proof', status: 'working', settings: { images: true, contributors: true, portraits: true }, articles: [article], contributors: [{ writer_id: 3, article_ids: [8], article_count: 1, versions: [{ ...contributor, article_ids: [8], portrait_path: article.portrait_path }] }] };
 test('Captured contributor bylines and optional section have truthful labels and working article links', () => {
  const html = paperMarkup(edition);
@@ -28,9 +28,9 @@ test('Profile HTML is inert and distinct saved profile versions are disclosed', 
  assert.match(html, /different saved profile versions/); assert.match(html, /&lt;script&gt;/); assert.doesNotMatch(html, /<script>|<img onerror/);
 });
 test('Protected portrait paths have the same strict public/private boundary as hero images', () => {
- assert.equal(safeAssetPath('/api/editions/1/portraits/8', false), '/api/editions/1/portraits/8');
- assert.equal(safeAssetPath('/api/editions/public/1/portraits/8', true), '/api/editions/public/1/portraits/8');
- for (const value of ['/api/editions/1/portraits/8?token=x', 'https://x.test/portrait', '/api/editions/public/1/portraits/8']) assert.equal(safeAssetPath(value, false), null);
+ assert.equal(safeAssetPath('/api/editions/11111111-1111-4111-8111-111111111111/portraits/8', false), '/api/editions/11111111-1111-4111-8111-111111111111/portraits/8');
+ assert.equal(safeAssetPath('/api/editions/public/11111111-1111-4111-8111-111111111111/portraits/8', true), '/api/editions/public/11111111-1111-4111-8111-111111111111/portraits/8');
+ for (const value of ['/api/editions/11111111-1111-4111-8111-111111111111/portraits/8?token=x', 'https://x.test/portrait', '/api/editions/public/11111111-1111-4111-8111-111111111111/portraits/8']) assert.equal(safeAssetPath(value, false), null);
 });
 test('Missing captured portraits are visible notices, suppressed when images are off', () => {
  const e = { ...edition, articles: [{ ...article, portrait_path: null, contributor: { ...contributor, portrait_notice: 'Portrait unavailable in captured profile.' } }] };

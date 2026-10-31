@@ -58,12 +58,12 @@ test('article HTML and encoded markup remain inert in the print renderer', () =>
 });
 
 test('private and public print assets cannot cross authorization namespaces', () => {
-  assert.equal(print.safeAssetPath('/api/editions/public/1/assets/2', false), null);
-  assert.equal(print.safeAssetPath('/api/editions/1/assets/2', true), null);
-  for (const value of ['//attacker.invalid/x', 'https://attacker.invalid/x', '/api/editions/1/assets/2?token=x', '/api/editions/../secrets', '/api/editions/1/assets/2/../../public/1']) {
+  assert.equal(print.safeAssetPath('/api/editions/public/11111111-1111-4111-8111-111111111111/assets/2', false), null);
+  assert.equal(print.safeAssetPath('/api/editions/11111111-1111-4111-8111-111111111111/assets/2', true), null);
+  for (const value of ['//attacker.invalid/x', 'https://attacker.invalid/x', '/api/editions/11111111-1111-4111-8111-111111111111/assets/2?token=x', '/api/editions/../secrets', '/api/editions/11111111-1111-4111-8111-111111111111/assets/2/../../public/1']) {
     assert.equal(print.safeAssetPath(value, false), null, value);
   }
-  assert.equal(print.safeAssetPath('/api/editions/1/assets/2', false), '/api/editions/1/assets/2');
+  assert.equal(print.safeAssetPath('/api/editions/11111111-1111-4111-8111-111111111111/assets/2', false), '/api/editions/11111111-1111-4111-8111-111111111111/assets/2');
 });
 
 function mockPreview(fetch) {

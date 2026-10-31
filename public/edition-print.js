@@ -176,9 +176,11 @@
         '<div class="edition-body">' + body + '</div>' + referenceMarkup(references) + '</article>'; }).join('') +
       contributorMarkup(edition) + '<footer class="edition-footer">' + (proof ? 'Private editorial proof. Not for public distribution. ' : '') + 'This edition contains saved article versions. Printed and downloaded copies cannot be recalled.</footer>';
   }
+  const opaqueId = value => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+  const privateId = value => opaqueId(value) || /^[1-9]\d{0,9}$/.test(String(value || ''));
   function safeAssetPath(value, publicMode) {
     const path = String(value || '');
-    if (!/^\/api\/editions\/(?:public\/)?[1-9]\d*\/(?:assets|portraits)\/[1-9]\d*$/.test(path)) return null;
+    if (!/^\/api\/editions\/(?:public\/)?[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/(?:assets|portraits)\/[1-9]\d*$/.test(path)) return null;
     if (publicMode !== path.startsWith('/api/editions/public/')) return null;
     return path;
   }
@@ -212,7 +214,8 @@
   }
   function boot(win) {
     const doc = win.document, $ = id => doc.getElementById(id);
-    const params = new URLSearchParams(win.location.search), id = params.get('id'), publicMode = params.get('public') === '1';
+    const params = new URLSearchParams(win.location.search), publicMode = params.get('public') === '1';
+    let id = params.get('id');
     let generation = 0, busy = false, ready = false, controller;
     const token = () => { try { return win.localStorage.getItem('deepfeedai_token'); } catch { return null; } };
     const status = (message, error = false) => { $('editionStatus').textContent = message; $('editionStatus').className = 'print-status' + (error ? ' error' : ''); };
@@ -226,7 +229,7 @@
       const timeout = win.setTimeout(() => { if (request === generation) controller.abort(); }, 25000);
       clear(); busy = true; $('editionReload').disabled = true; status('Checking edition access and loading saved content...');
       try {
-        if (!/^[1-9]\d{0,9}$/.test(id || '')) throw new Error('Choose a valid saved edition from the Editions page.');
+        if (!(publicMode ? opaqueId(id) : privateId(id))) throw new Error('Choose a valid saved edition from the Editions page.');
         const auth = publicMode ? null : token();
         if (!publicMode && !auth) { win.location.assign('/login.html?next=' + encodeURIComponent(win.location.pathname + win.location.search)); return false; }
         const headers = auth ? { Authorization: 'Bearer ' + auth } : {};
@@ -235,6 +238,8 @@
         const { edition } = await response.json();
         if (request !== generation) return false;
         if (!edition || !Array.isArray(edition.articles) || (publicMode && (edition.mode !== 'published' || edition.status !== 'finalized' || edition.visibility !== 'public' || edition.articles.some(article => article.withdrawn)))) throw new Error('This edition is not available for public reading.');
+        if (!opaqueId(edition.id)) throw new Error('This edition has no valid canonical identifier. Reload from Editions.');
+        if (!publicMode && id !== edition.id) { id = edition.id; params.set('id', id); win.history.replaceState({}, '', win.location.pathname + '?' + params); $('editionBack').href = '/editions.html?id=' + id; }
         const settings = normalizedSettings(edition);
         let style = doc.getElementById('editionPaperSize');
         if (!style) { style = doc.createElement('style'); style.id = 'editionPaperSize'; doc.head.appendChild(style); }
@@ -283,7 +288,7 @@
       } catch (err) { if (request === generation) { clear(); status(signal.aborted ? 'Loading timed out. Please retry before printing.' : err.message || 'Unable to load this edition. Please retry.', true); } return false;
       } finally { win.clearTimeout(timeout); if (request === generation) { busy = false; $('editionReload').disabled = false; } }
     }
-    $('editionBack').href = publicMode ? '/' : '/editions.html' + (/^[1-9]\d{0,9}$/.test(id || '') ? '?id=' + id : '');
+    $('editionBack').href = publicMode ? '/' : '/editions.html' + (privateId(id) ? '?id=' + id : '');
     $('editionBack').textContent = publicMode ? 'Back to publication' : 'Back to edition';
     // A shared preview may be served on the admin host. Do not guess its reader origin.
     $('editionBack').hidden = publicMode;

@@ -64,7 +64,7 @@ test('Mode change cancels safely or clears only unsaved selection; existing mode
   f.el('editionMode').value = 'proof'; const change = f.app.changeMode(); f.app.finishConfirm(true); await change; assert.equal(f.app.state.edition.mode, 'proof'); assert.equal(f.app.state.edition.articles.length, 0);
 });
 test('Snapshot refresh is disabled for unsaved changes and never implicit on open or print', async () => {
-  const f = fixture(); await f.app.openEdition(4); f.app.markDirty(); await f.app.action('refresh'); assert.equal(f.calls.length, 1); assert.equal(f.el('editionRefresh').disabled, true); assert.equal(f.el('editionConfirm').open, false);
+  const f = fixture(); await f.app.openEdition(4); f.app.markDirty(); await f.app.action('refresh'); assert.ok(f.calls.every(c => !c.opts)); assert.equal(f.el('editionRefresh').disabled, true); assert.equal(f.el('editionConfirm').open, false);
 });
 test('Server-controlled titles and summaries render escaped; selection cap prevents oversized issues', async () => {
   const f = fixture(async url => url.includes('/articles?') ? { articles: [{ ...article(99), title: '<script>x</script>', summary: '<img src=x onerror=x>' }], total: 1 } : { edition: edition() });
@@ -90,4 +90,65 @@ test('Contributor settings preserve legacy defaults, cancel and finalized immuta
  const final = fixture(async () => ({ edition: edition({ status: 'finalized' }) })); await final.app.init(); await final.app.openEdition(4);
  final.el('editionContributors').checked = true; final.app.markDirty(); await final.app.save();
  assert.equal(final.el('editionFields').disabled, true); assert.equal(final.calls.filter(c => c.opts).length, 0);
+});
+
+const canonical = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const secondId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+test('Canonical IDs and accepted selection drive highlight despite late open responses', async () => {
+ const first = deferred(), second = deferred();
+ const f = fixture(async url => url.endsWith('/history') ? { history: [] } : url.endsWith('/4') ? first.promise : second.promise);
+ f.app.state.list = [edition({ id: canonical }), edition({ id: secondId })];
+ const one = f.app.openEdition(4); await Promise.resolve(); const two = f.app.openEdition(secondId); await Promise.resolve();
+ second.resolve({ edition: edition({ id: secondId, name: 'Second' }) }); await two;
+ first.resolve({ edition: edition({ id: canonical, name: 'First' }) }); await one;
+ assert.equal(f.app.state.edition.id, secondId); assert.equal(f.navigations.at(-1), secondId);
+ assert.match(f.el('editionList').innerHTML, new RegExp('data-open="' + secondId + '" aria-current="true"'));
+ assert.equal(f.app.state.busy, false);
+});
+test('Authenticated legacy open canonicalizes returned ID without numeric mutation routes', async () => {
+ const navigations = []; const f = fixture(async (url, opts) => url.endsWith('/history') ? { history: [] } : { edition: edition({ id: canonical }) }, { navigate: (id, replace) => navigations.push([id, replace]) });
+ await f.app.openEdition(4); assert.deepEqual(navigations[0], [canonical, true]); f.app.markDirty(); await f.app.save();
+ assert.equal(f.calls.find(c => c.opts).url, '/editions/' + canonical);
+});
+test('Retraction and archive require reasons; cancel is inert; restore remains explicit', async () => {
+ let current = edition({ id: canonical, status: 'finalized', visibility: 'public' });
+ const f = fixture(async (url, opts) => { if (url.endsWith('/history')) return { history: [] }; if (opts) { const b = JSON.parse(opts.body); assert.equal(b.revision, current.revision); current = { ...current, revision: current.revision + 1, visibility: 'private', ...(url.endsWith('/archive') ? { archived_at: 'today' } : url.endsWith('/restore') ? { archived_at: null } : { retracted_at: 'today' }) }; } return { edition: current }; });
+ await f.app.init(); await f.app.openEdition(canonical);
+ const cancelled = f.app.lifecycle('retract'); f.app.finishConfirm(false); await cancelled; assert.equal(f.calls.filter(c => c.opts).length, 0);
+ const retract = f.app.lifecycle('retract'); f.app.finishConfirm(true); assert.equal(f.el('editionConfirm').open, true); f.el('editionConfirmReason').value = 'Correction needed'; f.app.finishConfirm(true); await retract;
+ assert.equal(JSON.parse(f.calls.find(c => c.opts).opts.body).reason, 'Correction needed'); assert.equal(f.el('editionVisibility').hidden, false); assert.match(f.el('editionVisibility').textContent, /again/);
+ const archive = f.app.lifecycle('archive'); f.el('editionConfirmReason').value = 'Archive issue'; f.app.finishConfirm(true); await archive;
+ assert.equal(f.el('editionRestore').hidden, false);
+ const restore = f.app.lifecycle('restore'); f.app.finishConfirm(true); await restore; assert.equal(f.app.state.edition.visibility, 'private'); assert.equal(f.el('editionVisibility').hidden, false); assert.ok(!f.calls.some(c => c.url.endsWith('/visibility')));
+});
+test('Rename changes only name and revision; archived deletion needs exact title and permission', async () => {
+ let current = edition({ id: canonical, status: 'finalized' }); const bodies = [];
+ const f = fixture(async (url, opts) => { if (url.endsWith('/history')) return { history: [] }; if (opts) { bodies.push(JSON.parse(opts.body)); if (opts.method === 'DELETE') return { deleted: true, id: canonical }; current = { ...current, name: bodies.at(-1).name, revision: 2 }; } return { edition: current }; }, { canDelete: () => true });
+ await f.app.openEdition(canonical); const rename = f.app.lifecycle('rename'); f.el('editionConfirmValue').value = 'New title'; f.app.finishConfirm(true); await rename;
+ assert.deepEqual(bodies[0], { revision: 1, name: 'New title' }); assert.equal(f.app.state.edition.articles[0].article_id, 10);
+ await f.app.lifecycle('delete'); assert.equal(bodies.length, 1);
+ f.app.state.edition.archived_at = 'today'; const deletion = f.app.lifecycle('delete'); f.el('editionConfirmReason').value = 'Remove issue'; f.el('editionConfirmValue').value = 'wrong'; f.app.finishConfirm(true); assert.equal(f.el('editionConfirm').open, true);
+ f.el('editionConfirmValue').value = 'New title'; f.app.finishConfirm(true); await deletion; assert.equal(f.app.state.edition, null); assert.equal(bodies[1].confirmation, 'New title');
+});
+test('Public visibility removal collects a reason and privileged lifecycle actions stay hidden', async () => {
+ const f = fixture(async () => ({ edition: edition({ id: canonical, status: 'finalized', visibility: 'public' }) })); await f.app.openEdition(canonical);
+ const hiding = f.app.action('visibility'); f.app.finishConfirm(true); assert.equal(f.el('editionConfirm').open, true); f.app.finishConfirm(false); await hiding; assert.ok(f.calls.every(c => !c.opts));
+ const denied = fixture(async () => ({ edition: edition({ id: canonical, status: 'finalized', visibility: 'public' }) }), { canPublish: () => false, canUpdate: () => true }); await denied.app.openEdition(canonical);
+ assert.equal(denied.el('editionArchive').hidden, true); assert.equal(denied.el('editionRename').hidden, true); await denied.app.lifecycle('archive'); await denied.app.lifecycle('rename'); assert.ok(denied.calls.every(c => !c.opts));
+});
+test('Back/forward and list filter preserve authoritative selection without late load resurrection', async () => {
+ let pop; const slow = deferred();
+ const f = fixture(async url => url.endsWith('/history') ? { history: [] } : url.includes('?') ? { editions: [edition({ id: canonical })], total: 1 } : url.endsWith(secondId) ? slow.promise : { edition: edition({ id: canonical }) }, { onPopState: handler => { pop = handler; } });
+ await f.app.init(); await f.app.openEdition(canonical); f.el('editionListView').value = 'archived'; f.el('editionListView').handlers.change(); await Promise.resolve();
+ assert.ok(f.calls.some(c => c.url.includes('view=archived')));
+ const opening = f.app.openEdition(secondId); await Promise.resolve(); await pop(''); slow.resolve({ edition: edition({ id: secondId }) }); await opening;
+ assert.equal(f.app.state.edition, null); assert.doesNotMatch(f.el('editionList').innerHTML, /aria-current="true"/);
+ await pop('?id=' + canonical); assert.equal(f.app.state.edition.id, canonical); assert.match(f.el('editionList').innerHTML, /aria-current="true"/);
+ f.app.markDirty(); await pop(''); assert.equal(f.app.state.edition.id, canonical); assert.match(f.el('editionNotice').textContent, /Finish or discard/);
+});
+test('Copy share link is user initiated with selectable fallback and hidden for private issues', async () => {
+ const copied = []; const f = fixture(async () => ({ edition: edition({ id: canonical, status: 'finalized', visibility: 'public' }) }), { publicOrigin: 'https://news.example.test', copyText: async text => copied.push(text) });
+ await f.app.init(); await f.app.openEdition(canonical); assert.equal(copied.length, 0); assert.equal(f.el('editionCopyLink').disabled, false); await f.app.copyShareLink(); assert.deepEqual(copied, ['https://news.example.test/edition-print.html?id=' + canonical + '&public=1']);
+ const failed = fixture(async () => ({ edition: edition({ id: canonical, status: 'finalized', visibility: 'public' }) }), { copyText: async () => { throw Error('denied'); } }); await failed.app.openEdition(canonical); await failed.app.copyShareLink(); assert.equal(failed.focus(), 'editionShareUrl'); assert.match(failed.el('editionNotice').textContent, /Select and copy/);
+ const hidden = fixture(); await hidden.app.openEdition(4); assert.equal(hidden.el('editionCopyLink').hidden, true); await hidden.app.copyShareLink();
 });

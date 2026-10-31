@@ -87,3 +87,28 @@ Storage adds nullable portrait columns idempotently. Existing finalized issue #1
 and its reference repair remain unchanged; there is no historical-profile backfill.
 Validate real routes, snapshot stability, resource limits, tenant/public withdrawal
 protection, and actual Letter/A4 PDFs before the backed-up backend-only rollout.
+
+## Lifecycle and navigation follow-up
+
+Separate frozen article content from edition presentation and distribution.
+An explicit title rename updates display metadata with revision checks and audit;
+it never refreshes saved article bodies, references, contributors or raster bytes.
+Retraction records actor/time/reason and closes public access. Archive is reversible
+and also closes public access; restore returns the edition to private visibility.
+Permanent deletion is a separate archived-only action requiring delete permission,
+the exact title and a reason. Delete only edition-owned relational snapshots, retain
+audit history, and never delete source articles or original media. Test all destructive
+paths in disposable fixtures, not against user editions.
+
+Use random UUID edition identifiers in browser/API/share links while retaining
+numeric relational keys internally. Private legacy links may resolve after normal
+tenant/permission checks and become canonical opaque URLs. Public numeric links
+must return unavailable, without a numeric-to-opaque redirect; existing shared links
+must be copied again after rollout. Opaque IDs do not replace authorization or source
+withdrawal checks. Add identifiers idempotently without changing issue content.
+
+Keep a single authoritative selected edition in the editor and rerender list
+highlighting whenever it changes. Test rapid opens, stale responses, create/save,
+rename, filters, archive/restore, deletion and browser history so a stale screen
+cannot submit against a different edition. Verify desktop/mobile and print titles,
+then full isolated tests, independent review, backup/restore and guarded rollout.
